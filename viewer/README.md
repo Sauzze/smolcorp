@@ -9,11 +9,14 @@ page that decrypts and draws the office in the phone's browser, and four API rou
 Upstash Redis for 10 minutes. The server never has the key: it lives in the link's `#k=` fragment, which browsers
 never send. This README is the contract between the Mac and the viewer, v1.
 
-No dependencies, no build step: plain files, Node Vercel Functions, and Upstash through its REST API with `fetch`.
+No dependencies: plain files, Node Vercel Functions, and Upstash through its REST API with `fetch`. The only build
+step is one copy: `vercel.json`'s `buildCommand` copies the office's drawing code, `../Resources/web/office.js`, into
+`public/`, so the viewer always draws with the app's own office and no second copy is committed.
 
 ```
 viewer/
-  vercel.json              rewrite /v/:id → /index.html; CSP and headers on every route; no-store on /, /v/*, /api/*
+  vercel.json              copy ../Resources/web/office.js into public/ (buildCommand); rewrite /v/:id → /index.html;
+                           CSP and headers on every route; no-store on /, /v/*, /api/*
   api/_lib.js              shared: env names, constant-time bearer check, id regex, Redis REST, rate limit, replies
   api/s/[id].js            PUT / GET / DELETE /api/s/:id
   api/s/index.js           DELETE /api/s   (wipe everything)
@@ -22,9 +25,9 @@ viewer/
   public/viewer.js         polls, checks freshness, draws read-only
   public/viewer-crypto.js  opens a body; the same file is used by scripts/check-vector.mjs
   public/viewer.css
-  public/office.js         a COPY of Resources/web/office.js (run scripts/sync-office.sh after changing that)
+  public/office.js         not committed (git-ignored): copied from Resources/web/office.js at deploy time
   public/robots.txt        disallow everything
-  scripts/sync-office.sh   refreshes public/office.js (--check: exit 1 if out of date)
+  scripts/sync-office.sh   makes that copy for a local preview (--check: exit 1 if a local copy is out of date)
   scripts/check-vector.mjs seals the spec's test vector and opens it with the page's code
   scripts/dev-relay.mjs    local relay on port 7771 (in memory, the real handlers), with a --demo office
 ```
@@ -32,8 +35,11 @@ viewer/
 ## Setting it up on Vercel (you do this; nothing is created for you)
 
 1. **Create a Vercel project** on your own account, e.g. `office-viewer`, from your fork of Smolcorp.
-   Settings: **Root Directory `viewer/`**, Framework Preset **Other**, **no build command**, output directory left
-   as is (`vercel.json` says `public`).
+   Settings: **Root Directory `viewer/`**, Framework Preset **Other**, build command and output directory left as
+   they are (`vercel.json` sets both: a one-line copy of `../Resources/web/office.js`, and `public`). Under
+   **Root Directory**, keep **Include files outside the root directory in the Build Step** on (Vercel's default):
+   the copy reads the office from outside `viewer/`, and the build fails without it. If you turned on **Skip
+   deployment** for unaffected projects there, turn it off, or a change to the office alone won't redeploy the viewer.
 2. **Add Upstash Redis** from the Vercel Marketplace (the free tier is plenty) and connect it to that project.
    It adds `KV_REST_API_URL` and `KV_REST_API_TOKEN` (`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` work too).
 3. **Add one environment variable**, `VIEWER_WRITE_SECRET`, for Production only, with the value Smolcorp's setup
@@ -121,8 +127,11 @@ node viewer/scripts/check-vector.mjs                    # the spec's test vector
 node viewer/scripts/dev-relay.mjs --demo                # http://127.0.0.1:7771, prints the demo link
 node viewer/scripts/dev-relay.mjs --demo --ttl 20       # expiry in 20 s instead of 600 (dev relay only)
 node viewer/scripts/dev-relay.mjs --seal --id <id> [--age 900] [--hour 22] > body.bin   # a sealed sample body
-viewer/scripts/sync-office.sh                           # after changing Resources/web/office.js
+viewer/scripts/sync-office.sh                           # public/office.js for another local preview (vercel dev)
 ```
+
+The dev relay copies `Resources/web/office.js` into `public/` each time it starts, as a deploy does. `vercel dev`
+doesn't run the build command, so run `scripts/sync-office.sh` before it. The copy is git-ignored either way.
 
 The dev relay serves `public/` with `vercel.json`'s rewrite and headers, and runs the **real** `api/` handlers over
 an in-memory Redis. It listens on 127.0.0.1 only. Its write secret is `dev-write-secret-for-this-mac-only` (or `--secret …`), and the

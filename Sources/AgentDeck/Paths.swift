@@ -1,13 +1,15 @@
 import Foundation
+import os
 
 /// Where AgentDeck reads and writes. Its own state lives in
 /// ~/Library/Application Support/AgentDeck, so the app can be moved or
 /// replaced without losing the paired phones or the deck's layout.
 /// A test copy of the app, for trying a build beside the one in use: started
 /// with SMOLCORP_TEST_PORT and SMOLCORP_TEST_SUPPORT_DIR (scripts/test-copy.sh),
-/// it listens on its own port, keeps its own settings and keys, and changes
-/// nothing outside its folder: no hooks in your agents' settings, no login
-/// item. Without both, the app is itself.
+/// it listens on its own port, on this Mac only, keeps its own settings and
+/// keys, and changes nothing outside its folder: no hooks in your agents'
+/// settings, no login item, no window or alert by itself. Without both, the
+/// app is itself.
 enum TestCopy {
     static let port: UInt16? = {
         guard support != nil, let text = ProcessInfo.processInfo.environment["SMOLCORP_TEST_PORT"],
@@ -20,6 +22,88 @@ enum TestCopy {
     static let support: URL? = ProcessInfo.processInfo.environment["SMOLCORP_TEST_SUPPORT_DIR"]
         .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
     static var isOn: Bool { port != nil }
+    /// A test copy started with SMOLCORP_TEST_NO_TERMINAL_APP=1 asks Terminal.app nothing (see
+    /// `Terminal.leavesAlone`), so it can run while Terminal is open without an Apple event to it:
+    /// no Automation prompt, no wait on one. Its tmux desks need nothing from Terminal.
+    static let leavesTerminalAppAlone = leavesTerminalAppAlone(testCopy: isOn, environment: ProcessInfo.processInfo.environment)
+    static func leavesTerminalAppAlone(testCopy: Bool, environment: [String: String]) -> Bool {
+        testCopy && environment["SMOLCORP_TEST_NO_TERMINAL_APP"] == "1"
+    }
+
+    /// A test copy runs beside the owner's own work, hidden (scripts/test-copy.sh opens it with
+    /// `open -g -j`): it never comes in front of other apps, takes the keyboard, or puts up a window
+    /// or an alert by itself (first-run Settings, the engine-stopped alert, a page's Open the office
+    /// or folder panel). In a debug build each is written to its log instead (subsystem io.github.sauzze.agentdeck,
+    /// category test-copy, readable: `log show --predicate 'category == "test-copy"'`), and this
+    /// says no (a debug build also writes it to its log, below). The real app: yes.
+    static func mayComeForward(_ what: String, testCopy: Bool = isOn,
+                               log: (String) -> Void = quietLogLine) -> Bool {
+        guard testCopy else { return true }
+        log("Smolcorp Test: \(what) not shown, a test copy never comes forward by itself")
+        return false
+    }
+
+    /// A test copy's line in the system log, written only by a debug build: the Mac app logs nothing in a release
+    /// build (scripts/check-public.sh). A test copy from scripts/test-copy.sh is a release build, so it says no
+    /// without a line; a debug run of the app writes it.
+    private static func quietLogLine(_ line: String) {
+        #if DEBUG
+        Logger(subsystem: "io.github.sauzze.agentdeck", category: "test-copy").notice("\(line, privacy: .public)")
+        #endif
+    }
+
+    /// Whether SMOLCORP_TEST_LISTEN says "lan", as the Go engine reads it: spaces around it and the
+    /// letter case don't matter (RTCH N3), so both engines and scripts/test-copy.sh agree.
+    static func wantsLAN(_ environment: [String: String]) -> Bool {
+        environment["SMOLCORP_TEST_LISTEN"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "lan"
+    }
+
+    /// What a test copy never does to another app (RTCH N1): a bridge action that would bring
+    /// a terminal app, T3 Code, the Grok app, System Settings or a system prompt in front of the owner's
+    /// work, or touch the owner's music or microphone (RWTC N2), answers with the sentence below instead.
+    /// The real app: nothing is refused.
+    enum OtherApp: CaseIterable {
+        case terminal, tiler, grok, t3Code, accessibility, fix, music, microphone
+
+        var sentence: String {
+            switch self {
+            case .terminal: return "This is a test copy of Smolcorp: it never brings a terminal app forward, opens a window in one or touches its tabs."
+            case .tiler: return "This is a test copy of Smolcorp: it never moves or tiles the windows of other apps."
+            case .grok: return "This is a test copy of Smolcorp: it never opens the Grok app."
+            case .t3Code: return "This is a test copy of Smolcorp: it never opens T3 Code."
+            case .accessibility: return "This is a test copy of Smolcorp: it never asks macOS for Accessibility or opens System Settings."
+            case .fix: return "This is a test copy of Smolcorp: it never opens another app, a download page or System Settings to fix something."
+            case .music: return "This is a test copy of Smolcorp: it never plays or skips your music, or changes the volume."
+            case .microphone: return "This is a test copy of Smolcorp: it never asks for the microphone or turns dictation on."
+            }
+        }
+    }
+
+    /// The sentence a test copy answers when asked to bring `app` forward, or nil for the real app.
+    static func refusal(for app: OtherApp, testCopy: Bool = isOn) -> String? {
+        testCopy ? app.sentence : nil
+    }
+
+    /// The sentence a test copy answers when asked to do anything in `tab` (RWTC N1): keys, text, a paste, a
+    /// scroll, a look at its screen, a close. Only a tmux pane on one of the copy's own hire sockets is its own;
+    /// any other tab is in one of the owner's terminal apps, or on a tmux server of theirs. Nil for the real app.
+    static func refusal(forTab tab: String, testCopy: Bool = isOn, testPort: UInt16? = port) -> String? {
+        guard testCopy else { return nil }
+        if let address = TabAddress(tab), address.kind == "tmux", !address.socket.isEmpty,
+           HireTmux.owns(address.socket, testPort: testPort) { return nil }
+        return OtherApp.terminal.sentence
+    }
+
+    /// A test copy, as it opens, writes a setup link to `setup-link` in its own folder (0600), so a
+    /// tester's browser can open the same page the Settings window shows. The link works once, as
+    /// the menu's do. The real app never writes one.
+    static func leaveSetupLink(_ url: URL, into folder: URL? = support, when on: Bool = isOn) {
+        guard on, let folder else { return }
+        let file = folder.appendingPathComponent("setup-link")
+        try? FileManager.default.removeItem(at: file)
+        guard FileManager.default.createFile(atPath: file.path, contents: Data((url.absoluteString + "\n").utf8),
+                                             attributes: [.posixPermissions: 0o600]) else { return }
+    }
 
     /// What a test copy leaves to the copy in use.
     enum Refused: LocalizedError {
@@ -93,20 +177,11 @@ enum Paths {
     static let hires = support.appendingPathComponent("hires", isDirectory: true)
     /// A short recap of each hire fired, `<hire>.md`: see `HireDesk.fire`.
     static let recaps = support.appendingPathComponent("recaps", isDirectory: true)
-    /// Where a hire's brief is written when its desk isn't pinned to its own
-    /// project, so a shared folder such as ~/Projects stays clean: see `BriefFiles`.
-    static let hireBriefs = support.appendingPathComponent("briefs", isDirectory: true)
-    /// The briefs you can edit: the app's own, copied here on first use, and
-    /// put back by "Restore defaults": see `BriefLibrary.editable`. Inside the
-    /// folder hires' briefs are kept in, in a folder of its own.
-    static let briefTemplates = hireBriefs.appendingPathComponent("templates", isDirectory: true)
     /// The hook's key, as the header curl sends: see `Access`.
     static let hookHeader = support.appendingPathComponent("hook-header")
     /// The setup page's key, new at every launch, for tools of your own on
     /// this Mac: see `DeckRouter`.
     static let setupKey = support.appendingPathComponent("setup-key")
-    /// The General Manager's token, made when something first needs it: see `GMIdentity`.
-    static let gmToken = support.appendingPathComponent("gm-token")
     /// 1.0's single key, shared by the phone and the hook. Deleted at launch.
     static let legacyToken = support.appendingPathComponent("token")
 
@@ -125,12 +200,6 @@ enum Paths {
     /// The screen saver as it was called before, taken out when the new one goes in.
     static let oldScreenSaver = home.appendingPathComponent("Library/Screen Savers/SauzzeDeck Office.saver")
 
-    /// The phone and setup pages, bundled inside the app.
-    static let web = Bundle.main.resourceURL!.appendingPathComponent("web", isDirectory: true)
-    /// The briefs that come with the app: see `BriefLibrary`.
-    static let briefs = Bundle.main.resourceURL!.appendingPathComponent("briefs", isDirectory: true)
-    /// The General Manager's plugin, bundled inside the app: see `GMPlugin`.
-    static let gmPlugin = Bundle.main.resourceURL!.appendingPathComponent("gm/plugin", isDirectory: true)
     static let bundledHookScript = Bundle.main.resourceURL!.appendingPathComponent("report.sh")
     static let bundledOpenCodePlugin = Bundle.main.resourceURL!.appendingPathComponent("opencode-plugin.js")
     /// 1.7.2's plugin, the one OpenCode 1 loads: see `OpenCodeInstall`.

@@ -41,8 +41,10 @@ var routeTable = []routeRow{
 	{"*", "/setup/gm/*", []string{"gm", "page"}},
 	{"POST", "/setup/hire", []string{"gm", "page"}},
 	{"POST", "/setup/hire/gm", []string{"gm", "page"}},
+	{"GET", "/setup/hire/gm/preflight", []string{"page"}},
 	{"POST", "/setup/hiring", []string{"gm", "page"}},
-	{"POST", "/setup/hiring/choose", []string{"gm", "page"}},
+	{"POST", "/setup/hiring/choose", []string{"page"}},
+	{"POST", "/setup/hire-folder", []string{"gm", "page"}},
 	{"POST", "/setup/roles", []string{"gm", "page"}},
 	{"POST", "/setup/hooks", []string{"gm", "page"}},
 	{"POST", "/setup/unpair", []string{"gm", "page"}},
@@ -76,12 +78,25 @@ var routeTable = []routeRow{
 	{"POST", "/setup/guard", []string{"page"}},
 	{"POST", "/setup/keystrokes", []string{"page"}},
 	{"POST", "/setup/keystrokes/apps", []string{"page"}},
+	{"POST", "/setup/officekey", []string{"page"}},
+	{"POST", "/setup/choices", []string{"page"}},
+	{"POST", "/setup/hire/window", []string{"page"}},
+	{"GET", "/setup/t3code", []string{"page"}},
+	{"POST", "/setup/t3code/open", []string{"page"}},
+	{"POST", "/setup/t3code/letgo", []string{"page"}},
 	{"POST", "/setup/pair", []string{"page"}},
 	{"GET", "/setup/qr.png", []string{"page"}},
 	{"GET", "/setup/viewer/qr.png", []string{"page"}},
 	{"POST", "/setup/viewer/secret", []string{"page"}},
 	{"POST", "/setup/viewer/rotate", []string{"page"}},
 	{"*", "/bots/*", []string{"page", "tool"}},
+}
+
+// goOnlyRoutes are setup routes only this app serves (INVENTORY.md's "Served by the Go app only"), so they aren't
+// in the Mac's fixture: Take over in T3 Code and Hand back (t3takeover.go), the page alone.
+var goOnlyRoutes = []routeRow{
+	{"POST", "/setup/t3code/takeover", []string{"page"}},
+	{"POST", "/setup/t3code/handback", []string{"page"}},
 }
 
 // name is how the table spells a caller.
@@ -103,6 +118,11 @@ func (c caller) name() string {
 func routeFor(method, path string) *routeRow {
 	fits := func(row *routeRow) bool { return row.method == "*" || row.method == method }
 	var best *routeRow
+	for i := range goOnlyRoutes {
+		if row := &goOnlyRoutes[i]; fits(row) && row.path == path {
+			return row
+		}
+	}
 	for i := range routeTable {
 		row := &routeTable[i]
 		if !fits(row) {
@@ -151,8 +171,13 @@ func routeRefusal(method, path string) string {
 // copy (it copies the program that is running, nothing it's handed); and open
 // the firewall for how Smolcorp already listens, which the system asks you to
 // OK. Listening on the Wi-Fi, opening at login and Tailscale are the page's.
-func fixAllowed(who caller, fix, auto string) bool {
-	return who != callerTool || fix == fixRepair && auto == "1" || fix == fixInstall || fix == fixFirewall
+// Under the Mac app (mac), as the Mac's own (DeckRouter.fixRefusal): a tool
+// only repairs, with auto=1, as the Mac app installs and opens itself.
+func fixAllowed(who caller, fix, auto string, mac bool) bool {
+	if who != callerTool || fix == fixRepair && auto == "1" {
+		return true
+	}
+	return !mac && (fix == fixInstall || fix == fixFirewall)
 }
 
 // webhookSecretFor is the webhook's secret for a caller: the setup page's alone,

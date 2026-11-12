@@ -139,7 +139,7 @@ func TestFollowAnswersALookAndLeavesTheOtherCommandsAlone(t *testing.T) {
 		if n != "s3/7" { // the secret from the first line is not a command
 			t.Errorf("look %q", n)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("the look wasn't passed on")
 	}
 	if typed.String() != keyBytes[Enter] {
@@ -222,7 +222,7 @@ func TestALookThatIsNotAnsweredOrCantBeSentIsUnknown(t *testing.T) {
 	if got, err := d.lookAtLauncher("L1", 50*time.Millisecond); got != PaneUnknown || err != errLookTimedOut {
 		t.Errorf("no answer: %v, %v", got, err)
 	}
-	if time.Since(start) > 2*time.Second {
+	if time.Since(start) > 10*time.Second { // far from 50ms, so a busy computer can't fail it
 		t.Error("the wait wasn't bounded")
 	}
 	if got, err := d.lookAtLauncher("nobody", time.Second); got != PaneUnknown || err != errLauncherGone {

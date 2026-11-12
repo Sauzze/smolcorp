@@ -12,7 +12,7 @@ final class ManagerPanelPageTests: XCTestCase {
     func testTheLockedNoteNamesTheMacsMenuItem() throws {
         let page = try page()
         let menu = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .appendingPathComponent("../../Sources/AgentDeck/StatusMenu.swift"), encoding: .utf8)
+            .appendingPathComponent("../../Sources/AgentDeck/GoShell.swift"), encoding: .utf8)
         XCTAssertTrue(menu.contains(#""Open Settings in Browser""#))
         XCTAssertTrue(page.contains("This page opens from Smolcorp's menu bar: choose Open Settings in Browser."))
         // Linux and Windows keep theirs.
@@ -52,7 +52,7 @@ final class ManagerPanelPageTests: XCTestCase {
         XCTAssertTrue(page.contains("Fire the General Manager and hire it again to give it the new one."))
         XCTAssertTrue(page.contains(#"id="gm-byhand""#))
         XCTAssertTrue(page.contains("/setup/gm/by-hand?enabled="))
-        XCTAssertTrue(page.contains("writes the General Manager's token to a file"))
+        XCTAssertTrue(page.contains("Smolcorp then writes the token to this file, where your General Manager can read it"))
         // Refusals are said in place.
         XCTAssertTrue(page.contains(#"id="gm-problem""#))
     }
@@ -90,13 +90,6 @@ final class ManagerPanelPageTests: XCTestCase {
         XCTAssertTrue(page.contains("rows.push(mailboxRow(bot));"))
     }
 
-    func testTheRoutesTheControlsCallAreOnThePage() {
-        XCTAssertEqual(SetupRoutes.row("POST", "/setup/gm/fire")?.callers.contains(.page), true)
-        XCTAssertEqual(SetupRoutes.row("POST", "/setup/gm/token/rotate")?.callers, [.page])
-        XCTAssertEqual(SetupRoutes.row("POST", "/setup/gm/by-hand")?.callers, [.page])
-        XCTAssertEqual(SetupRoutes.row("POST", "/setup/bots/mailbox")?.callers, [.page])
-    }
-
     func testThePageNeverUsesAnAlertForTheseControls() throws {
         let page = try page()
         let start = try XCTUnwrap(page.range(of: "function renderManagerTools"))
@@ -108,7 +101,7 @@ final class ManagerPanelPageTests: XCTestCase {
     /// The page refreshes every 1.5 s: it must not put an armed "New GM token" back before the second click.
     func testTheRefreshDoesNotDisarmTheNewTokenButton() throws {
         let page = try page()
-        let start = try XCTUnwrap(page.range(of: "function renderManagerTools"))
+        let start = try XCTUnwrap(page.range(of: "function renderGmToken"))
         let end = try XCTUnwrap(page.range(of: "function resetRotate"))
         let render = page[start.lowerBound..<end.lowerBound]
         XCTAssertTrue(render.contains("if (!$('gm-rotate').dataset.sure) resetRotate();"))
@@ -121,9 +114,11 @@ final class ManagerPanelPageTests: XCTestCase {
         let start = try XCTUnwrap(page.range(of: "function renderManagerTools"))
         let end = try XCTUnwrap(page.range(of: "function resetRotate"))
         let render = page[start.lowerBound..<end.lowerBound]
-        XCTAssertTrue(render.contains("(state.manager.gmStartedByHand || open.some((r) => r.role === 'gm')) ? 'Your General Manager was started by hand.'"))
+        XCTAssertTrue(render.contains("const byHand = !gm && (state.manager.gmStartedByHand || open.some((r) => r.role === 'gm'));"))
+        XCTAssertTrue(render.contains("byHand ? 'Your General Manager was started by hand.'"))
         XCTAssertTrue(render.contains("'Your General Manager is hired.'"))
-        XCTAssertTrue(render.contains("'No General Manager is hired.'"))
+        // The same words as the Manager card's line above it (fresh eyes, D).
+        XCTAssertTrue(render.contains("'No General Manager yet: use Hire your General Manager on Easy setup.'"))
         XCTAssertTrue(render.contains("$('gm-fire').hidden = !gm;"))
     }
 

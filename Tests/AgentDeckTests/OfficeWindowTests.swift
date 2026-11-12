@@ -98,32 +98,26 @@ final class OfficeOnTopTests: XCTestCase {
     }
 
     func testANewMacStartsWithItOff() {
-        let config = Config()
-        OfficeWindow.settle(config, defaults: defaults, file: file)
-        XCTAssertEqual(config.officeOnTop, false)
-        XCTAssertEqual(Config.load(from: file).officeOnTop, false)
+        XCTAssertEqual(OfficeWindow.settled(Config(), defaults: defaults), false)
     }
 
     func testAMacThatHadTheWindowKeepsWhatItHad() {
         // Never touched in the menu, where it was on by default: on.
         let set = Config()
         set.hasCompletedSetup = true
-        OfficeWindow.settle(set, defaults: defaults, file: file)
-        XCTAssertEqual(set.officeOnTop, true)
+        XCTAssertEqual(OfficeWindow.settled(set, defaults: defaults), true)
         // Turned off in the menu: off.
         defaults.set(false, forKey: "officeWindow.alwaysOnTop")
         let off = Config()
         off.hasCompletedSetup = true
-        OfficeWindow.settle(off, defaults: defaults, file: file)
-        XCTAssertEqual(off.officeOnTop, false)
+        XCTAssertEqual(OfficeWindow.settled(off, defaults: defaults), false)
     }
 
     func testSettledOnceItsLeftAsSet() {
         defaults.set(true, forKey: "officeWindow.alwaysOnTop")
         let config = Config()
         config.officeOnTop = false
-        OfficeWindow.settle(config, defaults: defaults, file: file)
-        XCTAssertEqual(config.officeOnTop, false)
+        XCTAssertNil(OfficeWindow.settled(config, defaults: defaults))
     }
 
     func testItsTheWindowsAppsKeyInTheFile() throws {

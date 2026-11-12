@@ -19,6 +19,8 @@ func TestMain(m *testing.M) {
 	os.Setenv("USERPROFILE", root)
 	os.Setenv("XDG_CONFIG_HOME", filepath.Join(root, ".config"))
 	os.Setenv("APPDATA", filepath.Join(root, "AppData"))
+	// Nor a test copy's folder from whatever ran the tests: a test that wants one sets its own.
+	os.Unsetenv(testSupportEnv)
 	code := m.Run()
 	os.RemoveAll(root)
 	os.Exit(code)

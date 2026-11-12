@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -11,6 +12,9 @@ import (
 
 // No tmux on Windows.
 const hasTmuxHires = false
+
+// hireSocketFolders: there is no hire tmux server on Windows, so no socket folder but the support folder.
+func hireSocketFolders() []string { return []string{filepath.Clean(supportDir)} }
 
 // A role's Claude hire can be made through the launcher, behind the beta switch.
 var launcherHires = true
@@ -32,6 +36,9 @@ var hireOpeners = []hireOpener{
 
 // inLoginShell: Windows finds the agents through its own PATH.
 func inLoginShell(command []string) []string { return command }
+
+// loginShell: none on Windows, where a hire's PATH is Windows' own.
+func loginShell() string { return "" }
 
 // hireAgentMissing: a hire finds its agent through Windows' own PATH, as the
 // app does, and the launcher says so in its window when it doesn't.

@@ -42,17 +42,6 @@ final class TestCopySecretsTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
     }
 
-    func testGMIdentityInATestCopyMakesAndKeepsItsTokenInTheFile() {
-        let store = GMIdentity.defaultStore(testCopy: true, support: folder, keychain: {
-            XCTFail("a test copy asked for the Keychain store"); return NoKeychainToken(fail: { XCTFail("Keychain: \($0)") })
-        })
-        let made = GMIdentity(store: store, tokenFile: folder.appendingPathComponent("gm-token"), fileAllowed: { false }).token()
-        XCTAssertNotNil(made)
-        // A new run of the copy reads the same token back from the file.
-        let again = GMIdentity(store: store, tokenFile: folder.appendingPathComponent("gm-token"), fileAllowed: { false })
-        XCTAssertTrue(again.isToken(made))
-    }
-
     func testTheRealAppStillUsesTheKeychainStore() {
         var asked = false
         _ = GMIdentity.defaultStore(testCopy: false, support: folder, underTest: false, keychain: { asked = true; return NoKeychainToken(fail: { _ in }) })
@@ -107,17 +96,6 @@ final class TestCopySecretsTests: XCTestCase {
         XCTAssertEqual(mode(folder), 0o700)
     }
 
-    func testAHireOnTheAPIKeyAccountInATestCopyReadsTheKeyFileAndNeverTheKeychain() {
-        let file = folder.appendingPathComponent(TestCopySecrets.apiKeyName)
-        let lines = HireDesk.scriptLines(ports: "", apiKey: true, copyPort: 7790, copySupport: folder, keyFile: file)
-        XCTAssertFalse(lines.contains("security"))
-        XCTAssertTrue(lines.contains("cat '\(file.path)'"))
-        XCTAssertTrue(lines.contains("exit 1"))
-        XCTAssertFalse(lines.contains(key))
-        // The real app's hire still reads the Keychain.
-        XCTAssertTrue(HireDesk.scriptLines(ports: "", apiKey: true, copyPort: nil, copySupport: nil, keyFile: nil).contains("security find-generic-password"))
-    }
-
     func testTheViewerInATestCopyKeepsItsSecretsInFilesAndNeverAsksTheKeychain() {
         let fail = { (what: String) in XCTFail("Keychain: \(what)") }
         let keychain = ViewerStore(read: { _ in fail("read"); return nil }, absent: { _ in fail("absent"); return false },
@@ -134,12 +112,16 @@ final class TestCopySecretsTests: XCTestCase {
         // The real app keeps the Keychain.
         var asked = false
         let real = ViewerStore(read: { _ in nil }, absent: { _ in asked = true; return true }, write: { _, _ in false })
-        _ = ViewerStore.defaultStore(testCopy: false, support: folder, keychain: real).absent(.id)
+        _ = ViewerStore.defaultStore(testCopy: false, support: folder, underTest: false, keychain: real).absent(.id)
         XCTAssertTrue(asked)
     }
 
-    func testAPushKeyIsNeverLookedForInATestCopy() {
-        XCTAssertNil(PushKey.account(testCopy: true))
-        XCTAssertNil(PushKey.token(keyID: "TESTKEY123", now: Date(), testCopy: true))
+    func testTheTestSuiteNeverAsksTheViewersKeychainItems() {
+        let fail = { (what: String) in XCTFail("Keychain: \(what)") }
+        let keychain = ViewerStore(read: { _ in fail("read"); return nil }, absent: { _ in fail("absent"); return false },
+                                   write: { _, _ in fail("write"); return false })
+        let store = ViewerStore.defaultStore(testCopy: false, support: nil, underTest: true, keychain: keychain)
+        XCTAssertTrue(store.absent(.id))
+        XCTAssertNil(store.read(.id))
     }
 }

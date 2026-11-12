@@ -5,6 +5,7 @@
 //	smolcorp run <agent>              start an agent so the deck can press its keys
 //	smolcorp hook [--port N] [agent]  report a hook event; the agents run this
 //	smolcorp setup                    set up and check everything, and say what's left
+//	smolcorp demo [--dry-run]         a General Manager and its team on a sample project
 //	smolcorp gm <command>             ask the running app about the team (the GM's hands)
 //	smolcorp guard [--profile gm] [--rules FILE]     the hire guard: Claude Code runs it before each Bash command
 //	smolcorp quit                     stop the running copy, by the pid it recorded
@@ -30,6 +31,9 @@ const usage = `Usage: smolcorp [command]
   run <agent> [args]      start an agent so the office can press its keys
   run --role <role>       start a role's agent on that role
   setup [--check|--open]  set up and check everything, and say what's left
+  demo [--dry-run] [--in FOLDER]
+                          watch a General Manager run a team on a sample
+                          project, in a new folder (asks before it spends)
   hook [--port N] [agent] report a hook event: your agents run this
   gm <command>            ask the running Smolcorp about the team (gm help)
   guard [--profile gm] [--rules FILE]    the hire guard, a PreToolUse hook: reads the call on stdin
@@ -53,6 +57,8 @@ func main() {
 		os.Exit(desktop.RunHook(args[1:]))
 	case "setup":
 		os.Exit(desktop.RunSetup(args[1:]))
+	case "demo":
+		os.Exit(desktop.RunDemo(args[1:]))
 	case "gm":
 		os.Exit(gm.Run(args[1:], os.Stdout, os.Stderr))
 	case "guard":
@@ -61,6 +67,9 @@ func main() {
 		os.Exit(gm.RunMCP(args[1:], os.Stdin, os.Stdout, os.Stderr))
 	case "quit":
 		os.Exit(desktop.RunQuit())
+	case "core":
+		// Not in the usage: Smolcorp.app starts it, as its engine (start_darwin.go).
+		os.Exit(runCore(args[1:]))
 	case "version", "--version":
 		fmt.Println("Smolcorp", version)
 	case "help", "--help", "-h":

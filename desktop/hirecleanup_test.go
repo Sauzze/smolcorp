@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -237,7 +238,7 @@ func TestACleanUpNeverRemovesAUsersOwnWorktree(t *testing.T) {
 	hire, repo, trees := cleanupHireIn(t, "ab12cd34ef56", 0)
 	git := func(args ...string) {
 		t.Helper()
-		all := append([]string{"-C", repo, "-c", "commit.gpgsign=false"}, args...)
+		all := append([]string{"-C", repo}, args...)
 		if out, err := exec.Command("git", all...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
@@ -380,7 +381,7 @@ func TestPhysicalGivesAnAbsoluteResolvedPath(t *testing.T) {
 // gitIn runs git in repo for a test's setup.
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	all := append([]string{"-C", dir, "-c", "commit.gpgsign=false"}, args...)
+	all := append([]string{"-C", dir}, args...)
 	out, err := exec.Command("git", all...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v %s", args, err, out)
@@ -698,5 +699,60 @@ func TestNoSupportFolderMeansNoHireSocket(t *testing.T) {
 	supportDir = ""
 	if isHireSocket(hire, 0) {
 		t.Error("accepted with no support folder")
+	}
+}
+
+// Agent windows in the background (T796): detachHireViewers, through a fake tmux, only lists the hire's viewers and
+// detaches them, on its own socket and session; it never ends the session or the server. A socket that isn't
+// exactly the hire's own runs nothing, and a tmux that can't say who's watching is never asked to detach.
+func TestDetachingAHiresViewersNeverEndsIt(t *testing.T) {
+	shortSupport(t)
+	port := testCopyPort()
+	socket := hireOwnSocket("ab12cd34ef56", port)
+	listenAt(t, socket)
+	hire := Hire{ID: "ab12cd34ef56", Name: "x", TmuxSocket: socket}
+	never := func(t *testing.T, r *recorder) {
+		t.Helper()
+		for _, call := range r.asked {
+			if len(call) < 3 || call[0] != "-S" || filepath.Base(call[1]) != filepath.Base(socket) {
+				t.Errorf("not on the hire's own socket: %v", call)
+			}
+			for _, word := range call {
+				if word == "kill-session" || word == "kill-server" || word == "kill-pane" {
+					t.Errorf("ended something: %v", call)
+				}
+			}
+		}
+	}
+
+	two := newRecorder()
+	two.output = "/dev/pts/3\n/dev/pts/4"
+	if got := detachHireViewers(hire, two.run); got != (detached{own: true, asked: true, viewers: 2, ok: true}) {
+		t.Errorf("two viewers: %+v", got)
+	}
+	never(t, two)
+	if len(two.asked) != 2 || !reflect.DeepEqual(two.asked[0][2:], []string{"list-clients", "-t", "=hire", "-F", "#{client_tty}"}) ||
+		!reflect.DeepEqual(two.asked[1][2:], []string{"detach-client", "-s", "=hire"}) {
+		t.Errorf("calls %v", two.asked)
+	}
+
+	none := newRecorder()
+	if got := detachHireViewers(hire, none.run); got != (detached{own: true, asked: true, ok: true}) || len(none.asked) != 1 {
+		t.Errorf("no viewer: %+v, calls %v", got, none.asked)
+	}
+	never(t, none)
+
+	failing := newRecorder()
+	failing.status = 1
+	if got := detachHireViewers(hire, failing.run); got != (detached{own: true}) || len(failing.asked) != 1 {
+		t.Errorf("tmux couldn't say: %+v, calls %v", got, failing.asked)
+	}
+	never(t, failing)
+
+	elsewhere := newRecorder()
+	other := hire
+	other.TmuxSocket = filepath.Join(filepath.Dir(socket), "default")
+	if got := detachHireViewers(other, elsewhere.run); got != (detached{}) || len(elsewhere.asked) != 0 {
+		t.Errorf("not its own socket: %+v, calls %v", got, elsewhere.asked)
 	}
 }

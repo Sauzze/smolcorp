@@ -67,15 +67,19 @@ enum SetupCommand {
         return (checks, object["ready"] as? Bool ?? false)
     }
 
+    /// The headers setup's API reads from a tool: the setup key, and that the request is setup's.
+    static let setupKeyHeader = "x-smolcorp-setup-key"
+    static let setupHeader = "x-agentdeck-setup"
+
     /// A request to setup's API with the setup key the running app wrote for tools on this Mac.
     private static func send(_ base: String, _ method: String, _ path: String,
                              timeout: TimeInterval = 120) -> (status: Int?, body: Data?, problem: String?) {
         var request = URLRequest(url: URL(string: base + path)!, timeoutInterval: timeout)
         request.httpMethod = method
         if let key = try? String(contentsOf: Paths.setupKey, encoding: .utf8) {
-            request.setValue(key.trimmingCharacters(in: .whitespacesAndNewlines), forHTTPHeaderField: DeckRouter.setupKeyHeader)
+            request.setValue(key.trimmingCharacters(in: .whitespacesAndNewlines), forHTTPHeaderField: setupKeyHeader)
         }
-        request.setValue("1", forHTTPHeaderField: DeckRouter.setupHeader)
+        request.setValue("1", forHTTPHeaderField: setupHeader)
         var result: (Int?, Data?, String?) = (nil, nil, nil)
         let done = DispatchSemaphore(value: 0)
         URLSession.shared.dataTask(with: request) { data, response, error in

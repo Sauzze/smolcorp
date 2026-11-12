@@ -99,12 +99,10 @@ enum DictationCleanup {
         text.split(whereSeparator: { $0.isWhitespace }).count
     }
 
-    /// Whether `text` is worth sending: on, long enough, not too long.
-    static func shouldClean(_ text: String) -> Bool { skipped(text) == nil }
-
-    /// Why `text` goes in as heard without a call, or nil when it's sent.
-    static func skipped(_ text: String) -> Outcome? {
-        if !isEnabled() { return .off }
+    /// Why `text` goes in as heard without a call, or nil when it's sent. `enabled`: as the Go core's config
+    /// says it (desktop/hostdictation.go), or the setting here.
+    static func skipped(_ text: String, enabled: Bool? = nil) -> Outcome? {
+        if !(enabled ?? isEnabled()) { return .off }
         if wordCount(text) < fewestWords { return .short }
         if text.count > longest { return .long }
         return nil
@@ -196,13 +194,15 @@ enum DictationCleanup {
 
     /// Gives `text` cleaned, or as it was, and how that went: always, once,
     /// on the main thread, within `deadline` seconds. `desks` are the
-    /// session's project folders.
-    static func clean(_ text: String, desks: [String], done: @escaping (String, Outcome) -> Void) {
-        if let skip = skipped(text) { return done(text, skip) }
+    /// session's project folders. `enabled` and `configured`, the setting
+    /// and the glossary, as the Go core's config has them, or this app's.
+    static func clean(_ text: String, desks: [String], enabled: Bool? = nil, configured: [String]? = nil,
+                      done: @escaping (String, Outcome) -> Void) {
+        if let skip = skipped(text, enabled: enabled) { return done(text, skip) }
         let once = Once(done)
         let started = now()
         DispatchQueue.main.asyncAfter(deadline: .now() + deadline) { once.give(text, .tooSlow) }
-        let names = glossary(configured: configuredGlossary(), desks: desks)
+        let names = glossary(configured: configured ?? configuredGlossary(), desks: desks)
         queue.async {
             guard let key = readKey(), !key.isEmpty else {
                 DispatchQueue.main.async { problem = noKey; once.give(text, .noKey) }

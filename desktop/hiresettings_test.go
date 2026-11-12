@@ -192,7 +192,7 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 		work = `C:\work\`
 	}
 	got := hireDenyRules("abc123", groups, "/s", []claudeProfile{{Name: "work", Dir: work}, {Name: "bad", Dir: "rel"}},
-		[]string{"abc123", "other11", ".hid"}, []string{"events", "hires", ".x", "briefs"})
+		[]string{"abc123", "other11", ".hid"}, []string{"events", "hires", ".x", "briefs"}, "darwin")
 	var want []string
 	both := func(p string) { want = append(want, "Edit("+p+")") }
 	want = append(want, "Bash(git push:*)", "Bash(npx git push:*)", "Bash(git send-pack:*)", "Bash(npx git send-pack:*)",
@@ -203,7 +203,7 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 	want = append(want, "Read(~/.claude*/projects/**)")
 	both("//c/work/settings*.json")
 	want = append(want, "Read(//c/work/projects/**)")
-	for _, p := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "setup-key", "hook-header", "hook-key", "window-key", "token"} {
+	for _, p := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token"} {
 		both("//s/" + p)
 	}
 	both("//s/events/**")
@@ -214,7 +214,7 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 		both("//s/hires/*/" + p)
 	}
 	both("//s/hires/other11/**")
-	for _, n := range []string{"gm-token", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json"} {
+	for _, n := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json"} {
 		want = append(want, "Read(//s/"+n+")")
 	}
 	if !slices.Equal(got, want) {
@@ -332,7 +332,7 @@ func TestHireOwnStatusFileIsNotDeniedButItsSettingsAndTheRestAre(t *testing.T) {
 			t.Errorf("%s: a later hire's status file is covered", tool)
 		}
 	}
-	for _, name := range []string{"gm-token", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json"} {
+	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json"} {
 		if !hireDenied(deny, base+"/"+name, "Read") {
 			t.Errorf("%s can be read", name)
 		}

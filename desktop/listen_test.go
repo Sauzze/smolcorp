@@ -3,6 +3,7 @@ package desktop
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -103,6 +104,34 @@ func TestNoQRCodeWithNoAddressAPhoneCanOpen(t *testing.T) {
 	tailscaleAddresses = func() []string { return []string{"100.101.102.103"} }
 	if got := serve(t, d, call{method: "GET", target: "/setup/qr.png", host: "localhost:7710", from: thisComputer}).Code; got != http.StatusOK {
 		t.Errorf("the QR code with Tailscale's address: %d, want %d", got, http.StatusOK)
+	}
+}
+
+// Pair a phone says the Tailscale address beside the Wi-Fi one, only where it is another way in.
+func TestPairingSaysTheTailscaleAddressOnlyWhereItIsAnotherWayIn(t *testing.T) {
+	savedScope, savedAddresses := listenScope, tailscaleAddresses
+	t.Cleanup(func() { listenScope, tailscaleAddresses = savedScope, savedAddresses })
+	listenScope = listenAll
+	tailscaleAddresses = func() []string { return nil }
+	if got := phoneTailnet(); got != "" {
+		t.Errorf("no Tailscale here: %q, want none", got)
+	}
+	tailscaleAddresses = func() []string { return []string{"100.101.102.103"} }
+	want := fmt.Sprintf("http://100.101.102.103:%d", Port)
+	if localAddress() == "localhost" {
+		want = "" // no Wi-Fi here: the phone's address is Tailscale's already
+	}
+	if got := phoneTailnet(); got != want {
+		t.Errorf("on the Wi-Fi and Tailscale: %q, want %q", got, want)
+	}
+	listenScope = listenTailscale
+	if got := phoneTailnet(); got != "" {
+		t.Errorf("on Tailscale only, where the phone's address is Tailscale's: %q, want none", got)
+	}
+	d := newTestDeck(t)
+	pairing, _ := (&router{deck: d}).setupStateFor(callerPage)["pairing"].(map[string]any)
+	if got, ok := pairing["tailnet"].(string); !ok || got != "" {
+		t.Errorf("the setup state's pairing tailnet: %#v, want \"\"", pairing["tailnet"])
 	}
 }
 
@@ -289,6 +318,11 @@ func TestTailscaleWaitsForTheFirewallsRules(t *testing.T) {
 }
 
 func TestAllInterfacesRemainsAvailable(t *testing.T) {
+	// On a Mac, a test binary listening on every interface can have the firewall ask
+	// the owner about it: only when the LAN is asked for, as for a test copy.
+	if runtime.GOOS == "darwin" && os.Getenv(testListenVariable) != "lan" {
+		t.Skip("every interface on a Mac only with " + testListenVariable + "=lan")
+	}
 	port := freePort(t)
 	listener, err := listenerFor(listenAll, port)
 	if err != nil {
@@ -694,5 +728,95 @@ func TestPhoneHostWithSeveralTailscaleAddressesAndOnTheWiFi(t *testing.T) {
 	addresses = nil
 	if got := phoneHost(); got != lan {
 		t.Errorf("all scope without Tailscale: %q, want %q", got, lan)
+	}
+}
+
+// A test copy listens on this computer only, whatever its file says, unless the
+// LAN is asked for; the office's own keeps its scope.
+func TestATestCopyListensOnThisComputerOnly(t *testing.T) {
+	for _, c := range []struct {
+		scope    string
+		testPort int
+		lan      string
+		want     string
+	}{
+		{listenAll, 0, "", listenAll},
+		{listenTailscale, 0, "lan", listenTailscale},
+		{listenAll, 7795, "", listenThisComputer},
+		{listenTailscale, 7795, "", listenThisComputer},
+		{listenTailscale, 7795, "lan", listenAll},
+		{listenTailscale, 7795, " LAN ", listenAll},
+		{listenAll, 7795, "all", listenThisComputer},
+	} {
+		if got := testCopyScope(c.scope, c.testPort, c.lan); got != c.want {
+			t.Errorf("testCopyScope(%q, %d, %q) = %q, want %q", c.scope, c.testPort, c.lan, got, c.want)
+		}
+	}
+	// "this-computer" is never a config value: a file asking for it gets the default.
+	if got := scopeOf(&Config{Listen: listenThisComputer}); got != defaultListenScope() {
+		t.Errorf("a config asking for %q: %q", listenThisComputer, got)
+	}
+}
+
+// At the socket: a test copy's listeners are bound to 127.0.0.1 and ::1 only,
+// and never to Tailscale's address, even with one there.
+func TestATestCopysServerIsBoundToLoopbackOnly(t *testing.T) {
+	addresses := []string{simulatedTailscale}
+	withTailscale(t, &addresses)
+	port := freePort(t)
+	listener, err := listenerFor(listenThisComputer, port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+	set, ok := listener.(*listenerSet)
+	if !ok {
+		t.Fatalf("a %T, want a set of loopback listeners", listener)
+	}
+	time.Sleep(3 * tailscaleRecheck) // long enough for a follow to have added Tailscale, were there one
+	set.mu.Lock()
+	var bound []string
+	for _, l := range set.open {
+		address := l.Addr().(*net.TCPAddr)
+		bound = append(bound, address.String())
+		if !address.IP.IsLoopback() || !(address.IP.Equal(net.IPv4(127, 0, 0, 1)) || address.IP.Equal(net.IPv6loopback)) {
+			t.Errorf("bound to %s, want 127.0.0.1 or ::1 only", address)
+		}
+	}
+	set.mu.Unlock()
+	if !slices.Contains(bound, net.JoinHostPort("127.0.0.1", strconv.Itoa(port))) {
+		t.Errorf("bound to %v, not 127.0.0.1", bound)
+	}
+	if !reaches("127.0.0.1", port) {
+		t.Fatal("not there for this computer")
+	}
+	if reaches(simulatedTailscale, port) {
+		t.Error("a test copy answers on Tailscale's address")
+	}
+	for _, host := range lanAddresses() {
+		if reaches(host, port) {
+			t.Errorf("a test copy answers on %s", host)
+		}
+	}
+}
+
+// A test copy on this computer only gives a phone no address: none it could open.
+func TestATestCopyOnThisComputerGivesAPhoneNoAddress(t *testing.T) {
+	addresses := []string{"100.101.102.103"}
+	withTailscale(t, &addresses)
+	saved := listenScope
+	t.Cleanup(func() { listenScope = saved })
+	listenScope = listenThisComputer
+	if got := phoneHost(); got != "" || phoneAddress() != "" {
+		t.Errorf("phone host %q, address %q: want none", got, phoneAddress())
 	}
 }

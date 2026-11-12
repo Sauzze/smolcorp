@@ -136,7 +136,7 @@ func mcpTools() []mcpTool {
 				return build("inbox", nil, a, nil, []string{"since", "wait"}, nil)
 			}},
 		plainTool("version", "The app, its API and its features (gm version)."),
-		{Name: "hire", Description: "Hire an employee (gm hire). Not served on Linux and Windows yet.",
+		{Name: "hire", Description: "Hire an employee (gm hire).",
 			Props: map[string]any{"role": str("the role"), "folder": str("the folder"), "account": str("the Claude account"), "model": str("the model"),
 				"nickname": str("a nickname"), "floor": num("the floor, 0 to 5"), "worktree": flag01("a worktree of its own"),
 				"api-key": flag01("on the API-key account"), "task": str("what to do first")},
@@ -147,7 +147,7 @@ func mcpTools() []mcpTool {
 				}
 				return build("hire", nil, a, []string{"role", "folder", "account", "model", "nickname", "task"}, []string{"floor"}, []string{"worktree", "api-key"})
 			}},
-		{Name: "brief", Description: "Send a brief to a hire already working (gm brief). Not served on Linux and Windows yet.",
+		{Name: "brief", Description: "Send a brief to a hire already working (gm brief).",
 			Props:    map[string]any{"hire": str("an id, a name or a nickname"), "text": str("the brief")},
 			Required: []string{"hire", "text"},
 			Args: func(a map[string]any) ([]string, error) {
@@ -157,7 +157,7 @@ func mcpTools() []mcpTool {
 				}
 				return []string{"brief", p[0], "--text", p[1]}, nil
 			}},
-		{Name: "fire", Description: "Fire an employee (gm fire). Not served on Linux and Windows yet.",
+		{Name: "fire", Description: "Fire an employee (gm fire).",
 			Props:    map[string]any{"hire": str("an id, a name or a nickname"), "force": flag01("even with unsaved changes"), "remove-worktree": flag01("delete its worktree")},
 			Required: []string{"hire"},
 			Args: func(a map[string]any) ([]string, error) {

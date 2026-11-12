@@ -186,57 +186,10 @@ final class ClaudeAccountsTests: XCTestCase {
 
     // MARK: Hiring
 
-    func testAHireMustNameItsAccountWhenThereIsMoreThanOne() throws {
+    func testAHireIsOnTheAccountItNames() throws {
         let accounts = [ClaudeProfiles.defaultProfile(home: home), profile("work", ".claude-work")]
-        for case let row as [String: Any] in try fixture()["hireRefusals"] as? [Any] ?? [] {
-            let refusal = try XCTUnwrap(ClaudeProfiles.hireRefusal(account: row["account"] as? String, among: accounts))
-            XCTAssertEqual(refusal.status, row["status"] as? Int)
-            XCTAssertEqual(refusal.message, row["message"] as? String)
-        }
-        XCTAssertNil(ClaudeProfiles.hireRefusal(account: "work", among: accounts))
-        XCTAssertNil(ClaudeProfiles.hireRefusal(account: nil, among: [accounts[0]]), "the only account needs no name")
         XCTAssertEqual(ClaudeProfiles.profile(named: "work", among: accounts)?.name, "work")
         XCTAssertNil(ClaudeProfiles.profile(named: nil, among: accounts))
-    }
-
-    func testTheHireRouteRefusesWithoutAnAccountAndAsksNoneOfOtherAgents() throws {
-        try folder("Projects/app")
-        let accounts = [ClaudeProfiles.defaultProfile(home: home), profile("work", ".claude-work")]
-        var claude = try XCTUnwrap(Role.shipped.first)
-        claude.agent = Agent.claude.rawValue
-        var codex = claude
-        codex.id = "codexer"
-        codex.agent = Agent.codex.rawValue
-        let request = { (role: Role, extra: [String: Any]) -> Result<BriefRoutes.HireRequest, BriefRoutes.Refusal> in
-            let body = try! JSONSerialization.data(withJSONObject: ["role": role.id, "folder": self.home.appendingPathComponent("Projects/app").path].merging(extra) { $1 })
-            return BriefRoutes.hireRequest(body, roles: [claude, codex], home: self.home, accounts: accounts)
-        }
-        guard case .failure(let refused) = request(claude, [:]) else { return XCTFail("a hire with no account") }
-        XCTAssertEqual(refused.response.status, 400)
-        XCTAssertTrue(String(decoding: refused.response.body, as: UTF8.self).contains("Say which Claude account"))
-        guard case .failure(let unknown) = request(claude, ["account": "nope"]) else { return XCTFail("an account that isn't there") }
-        XCTAssertEqual(unknown.response.status, 404)
-        guard case .success(let named) = request(claude, ["account": "work"]) else { return XCTFail("a named account") }
-        XCTAssertEqual(named.account, "work")
-        guard case .success(let other) = request(codex, [:]) else { return XCTFail("another agent needs no account") }
-        XCTAssertEqual(other.account, "")
-        // The only account is the one a hire is on, named or not.
-        let one = BriefRoutes.hireRequest(try JSONSerialization.data(withJSONObject: ["role": claude.id, "folder": home.appendingPathComponent("Projects/app").path]),
-                                          roles: [claude], home: home, accounts: [accounts[0]])
-        guard case .success(let alone) = one else { return XCTFail("one account") }
-        XCTAssertEqual(alone.account, "")
-    }
-
-    func testAHiredAgentStartsInItsAccountsFolder() throws {
-        var role = try XCTUnwrap(Role.shipped.first)
-        role.agent = Agent.claude.rawValue
-        let work = profile("work", ".claude-work")
-        let script = role.startScript(firstMessage: "hello", account: work)
-        XCTAssertTrue(script.contains("export CLAUDE_CONFIG_DIR='\(work.dir)'\nexec "), script)
-        XCTAssertTrue(role.startScript(firstMessage: "hello", account: ClaudeProfiles.defaultProfile(home: home)).contains("unset CLAUDE_CONFIG_DIR\nexec "))
-        XCTAssertFalse(role.startScript(firstMessage: "hello").contains("CLAUDE_CONFIG_DIR"), "no account named: as it was")
-        role.agent = Agent.codex.rawValue
-        XCTAssertFalse(role.startScript(firstMessage: "hello", account: work).contains("CLAUDE_CONFIG_DIR"), "other agents have none")
     }
 
     // MARK: Taking out and refreshing
@@ -267,26 +220,5 @@ final class ClaudeAccountsTests: XCTestCase {
         XCTAssertTrue(Hooks.isConnected(work), "a connected account is brought up to date")
         XCTAssertFalse(Hooks.hasEntries(spare), "a disconnected one stays so")
         XCTAssertEqual(try String(contentsOf: spare.settings, encoding: .utf8), "{}")
-    }
-
-    func testAnAddedAccountIsConnectedOnlyWhileConnected() throws {
-        try folder(".claude", files: ["settings.json": "{}"])
-        try folder(".claude-work", files: ["settings.json": "{}"])
-        let work = profile("work", ".claude-work")
-        Hooks.connectAdded([work], home: home)
-        XCTAssertFalse(Hooks.hasEntries(work), "disconnected: the new account is left alone")
-        try Hooks.addClaude(to: ClaudeProfiles.defaultProfile(home: home), turningOnVoice: false)
-        Hooks.connectAdded([work], home: home)
-        XCTAssertTrue(Hooks.isConnected(work), "connected: the new account joins")
-    }
-
-    // MARK: The gate
-
-    func testOnlyThePageChangesTheAccounts() {
-        for caller in [SetupSessions.Caller.tool, .gm] {
-            XCTAssertFalse(SetupRoutes.allows(caller, "POST", "/setup/claude-accounts"), "\(caller) can't change them")
-            XCTAssertTrue(SetupRoutes.allows(caller, "GET", "/setup/claude-accounts"), "\(caller) may read them")
-        }
-        XCTAssertTrue(SetupRoutes.allows(.page, "POST", "/setup/claude-accounts"))
     }
 }

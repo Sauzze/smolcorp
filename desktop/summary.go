@@ -983,7 +983,7 @@ type summaries struct {
 	key     func() string
 	// savedKey is a key pasted in setup, never one from Smolcorp's environment: the only one a summary falls back to.
 	savedKey func() string
-	ask     func(ctx context.Context, key string, params anthropic.MessageNewParams) (string, *SummaryError)
+	ask      func(ctx context.Context, key string, params anthropic.MessageNewParams) (string, *SummaryError)
 	// agent runs a coding agent for a summary, with the instructions and the excerpt.
 	agent func(p summaryProvider, system, prompt string) (string, cliFailure)
 	now   func() time.Time

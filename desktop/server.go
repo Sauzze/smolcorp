@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"slices"
@@ -62,7 +63,6 @@ const (
 	// The setup key, as a tool of your own sends it, read from the setup-key
 	// file; or as the page's cookie, from the tray's link.
 	setupKeyHeader = "X-Smolcorp-Setup-Key"
-	setupCookie    = "smolcorp-setup"
 	// A tray link's one-time token, which the page swaps for the cookie.
 	setupTokenHeader = "X-Smolcorp-Setup-Once"
 	// The office in a browser on this computer, as the deck sees it: see
@@ -70,13 +70,28 @@ const (
 	officeWindowID = "office-window"
 )
 
+// setupCookie is the setup page's session cookie, named as the Mac names it (DeckRouter.setupCookie): a
+// browser sends localhost's cookies to every port, so a copy on a port of its own has a name of its own, or
+// each office's setup page would sign the other's out.
+func setupCookie() string {
+	if testCopyPort() == 0 {
+		return "smolcorp-setup"
+	}
+	return fmt.Sprintf("smolcorp-setup-%d", Port)
+}
+
 // Serve listens on the deck's port until it fails: on every interface, or on
-// this computer and Tailscale only (see listen.go).
+// this computer and Tailscale only, or a test copy on this computer only (see listen.go).
 func Serve(deck *Deck) error {
 	deck.mu.Lock()
-	scope := scopeOf(deck.config)
+	scope := effectiveScope(deck.config)
 	deck.mu.Unlock()
 	listenScope = scope
+	// Where tmux is, now: if only your login shell's PATH can say, the shell is
+	// asked in the background from here, so no request waits for it.
+	if hasTmuxHires {
+		findTmux()
+	}
 	listener, err := listenerFor(scope, Port)
 	if err != nil {
 		return err
@@ -158,10 +173,12 @@ type router struct {
 // request is what the router needs to know about one.
 type request struct {
 	*http.Request
-	isLocal             bool // sent from this computer to a local name
+	isLocal             bool // sent from this computer to a local name, not passed on by a proxy
 	isAddressedDirectly bool // to an IP address or a local name, as a phone would
-	remoteAddress       string
-	caller              caller // who is asking setup: set only for /setup and /bots
+	// On a Mac: handed on by `tailscale serve` on this computer, to a ts.net name or with a proxy's headers.
+	isTailnet     bool
+	remoteAddress string
+	caller        caller // who is asking setup: set only for /setup and /bots
 }
 
 // caller is who is asking for setup: the page, a tool of yours, or no one.
@@ -196,10 +213,17 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := portSuffix.ReplaceAllString(r.Host, "")
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(remote)
+	fromLoopback, proxied := ip != nil && ip.IsLoopback(), isProxied(r.Header)
+	// On a Mac, as its app reads a request (HTTPServer.swift's Request.addressed): `tailscale serve` hands a
+	// phone's request on from this computer's loopback, with whatever Host the phone sent, so a proxy's hand-on
+	// is the tailnet's, never addressed directly; let in only with the phone's text on.
+	fromProxy := macTailscale && fromLoopback && proxied
 	req := &request{
-		Request:             r,
-		isLocal:             ip != nil && ip.IsLoopback() && (host == "localhost" || host == "127.0.0.1" || host == "[::1]"),
-		isAddressedDirectly: host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasPrefix(host, "[") || ipv4Address.MatchString(host),
+		Request: r,
+		// A proxy on this computer passes on someone else's request: never this computer's, for setup, the hook or the window's key.
+		isLocal:             fromLoopback && !proxied && (host == "localhost" || host == "127.0.0.1" || host == "[::1]"),
+		isAddressedDirectly: !fromProxy && (host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasPrefix(host, "[") || ipv4Address.MatchString(host)),
+		isTailnet:           fromProxy || macTailscale && fromLoopback && isTailnetName(host),
 		remoteAddress:       remote,
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -229,7 +253,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		return
 	case r.URL.Path == "/setup" || strings.HasPrefix(r.URL.Path, "/setup/"):
 		if !r.isLocal {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound) // empty, as the Mac's 404s
 			return
 		}
 		if r.Method != http.MethodGet && r.Header.Get(setupHeader) != "1" {
@@ -245,18 +269,22 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		if r.URL.Path != "/setup" && !redeemed && r.caller == callerNobody {
 			// The locked page says which app it came from, so its note names this app's own way in.
 			if r.URL.Path == "/setup/state" {
-				w.Header().Set(appHeader, runtime.GOOS)
+				w.Header().Set(appHeader, d.appNamed())
+			}
+			if session {
+				writeStatus(w)(http.StatusUnauthorized, setupSessionRefusal)
+				return
 			}
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		if session {
 			if !redeemed {
-				w.WriteHeader(http.StatusUnauthorized)
+				writeStatus(w)(http.StatusUnauthorized, setupSessionRefusal)
 				return
 			}
 			d.completeSetup()
-			http.SetCookie(w, &http.Cookie{Name: setupCookie, Value: d.newSetupSession(), Path: "/setup", HttpOnly: true,
+			http.SetCookie(w, &http.Cookie{Name: setupCookie(), Value: d.newSetupSession(), Path: "/setup", HttpOnly: true,
 				SameSite: http.SameSiteStrictMode})
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -276,12 +304,19 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusConflict, managerOffAnswer)
 			return
 		}
+		// A General Manager the owner held to one project goes no further than it (gmscope.go).
+		if r.caller == callerGM {
+			if status, why := d.gmScopeRefusal(r); status != 0 {
+				writeStatus(w)(status, why)
+				return
+			}
+		}
 		rt.setup(w, r)
 		return
 	// A cloud bot's news, from a tool of yours: guarded as setup's actions are.
 	case strings.HasPrefix(r.URL.Path, "/bots/"):
 		if !r.isLocal {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		if r.Method != http.MethodGet && r.Header.Get(setupHeader) != "1" {
@@ -289,24 +324,31 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		who := d.routeCallerOf(r.Request, r.Method, r.URL.Path)
-		// The GM and a hire are known, and the table keeps them out (403), as the Mac's gate does.
-		if (who == callerGM || who == callerHire) && !routeAllows(who, r.Method, r.URL.Path) {
-			writeStatus(w)(http.StatusForbidden, routeRefusal(r.Method, r.URL.Path))
+		// Nobody known is 401. Anyone known but the table's callers (the page and a tool) is 403, as the Mac's
+		// gate says it: the page's cookie may post a bot's news, as a tool's key does.
+		if who == callerNobody {
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if who != callerTool {
-			w.WriteHeader(http.StatusUnauthorized)
+		if !routeAllows(who, r.Method, r.URL.Path) {
+			writeStatus(w)(http.StatusForbidden, routeRefusal(r.Method, r.URL.Path))
 			return
 		}
 		writeStatus(w)(d.cloudBotEvent(r.Method, r.URL.Path, r.URL.Query(), decodeJSON(r.Body)))
 		return
 	case r.URL.Path == "/hook":
 		if !r.isLocal || r.Method != http.MethodPost {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		// A hook header twice is one smuggled in after another, as a line break in a variable the hook was
+		// given would make it: not believed, as the Mac's (DeckRouter.hasSmuggledHookHeader).
+		if hasSmuggledHookHeader(r.Header) {
+			writeStatus(w)(http.StatusBadRequest, "A hook header came twice")
 			return
 		}
 		at, err := strconv.ParseFloat(r.Header.Get("X-AgentDeck-At"), 64)
@@ -318,14 +360,17 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		if text := r.Header.Get("X-AgentDeck-PID"); text != "" && strings.Trim(text, "0123456789") == "" && len(text) < 10 {
 			pid, _ = strconv.Atoi(text)
 		}
-		d.IngestFrom(decodeJSON(r.Body), r.Header.Get("X-AgentDeck-Agent"), r.Header.Get("X-AgentDeck-Tab"),
+		event := decodeJSON(r.Body)
+		// ⓘ Info: whether the agent's environment has an API key or a cloud provider, never the key.
+		infos.noteBilling(r.Header.Get("X-AgentDeck-Billing"), stringValue(event["session_id"]))
+		d.IngestFrom(event, r.Header.Get("X-AgentDeck-Agent"), r.Header.Get("X-AgentDeck-Tab"),
 			r.Header.Get("X-AgentDeck-Project"), pid, r.Header.Get("X-AgentDeck-Parent"), at)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	// A second Smolcorp asking this one to show the office instead of staying.
 	case r.URL.Path == raisePath:
 		if !r.isLocal || r.Method != http.MethodPost {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
@@ -340,7 +385,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		return
 	case r.URL.Path == "/launcher":
 		if !r.isLocal || r.Method != http.MethodGet {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
@@ -352,7 +397,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// An engine hire's launcher asks for its start environment, once (hirestartenv.go).
 	case r.URL.Path == hireStartPath:
 		if !r.isLocal || r.Method != http.MethodGet {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
@@ -364,7 +409,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// A launcher's answer to a look at its window: the state only.
 	case r.URL.Path == screenAnswerPath:
 		if !r.isLocal || r.Method != http.MethodPost {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
@@ -390,7 +435,12 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		return
 	}
 
-	if !r.isAddressedDirectly {
+	// Past setup and the hook: to an IP address or a local name, as a phone asks; or on a Mac, with the phone's
+	// text on, handed on by `tailscale serve`, as the Mac app lets it in (DeckRouter.admits).
+	d.mu.Lock()
+	phoneText := d.config.PhoneMicEnabled
+	d.mu.Unlock()
+	if !r.isAddressedDirectly && !(r.isTailnet && phoneText) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -406,7 +456,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		key, ok := d.access.Redeem(code, r.remoteAddress, r.UserAgent())
 		d.mu.Unlock()
 		if !ok {
-			writeJSON(w, http.StatusForbidden, map[string]any{"error": "That code isn't valid. Get a new one on your computer."})
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "That code isn't valid. Get a new one on your " + d.machine() + "."})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"key": key})
@@ -417,6 +467,11 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// holds nothing of yours, so it needs no key.
 	if r.Method == http.MethodGet && r.URL.Path == "/office.js" {
 		serveFile(w, "Resources/web/office.js")
+		return
+	}
+	// The first-run guide's arrows, for the setup page: nothing of yours either.
+	if r.Method == http.MethodGet && r.URL.Path == "/guide.js" {
+		serveFile(w, "Resources/web/guide.js")
 		return
 	}
 	// Its recordings, the keyboards and the talk, in either kind a browser plays.
@@ -432,7 +487,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		redeemed, windowKey := d.access.RedeemOfficeToken(r.URL.Query().Get("o")), d.access.WindowKey
 		d.mu.Unlock()
 		if redeemed {
-			http.Redirect(w, r.Request, "/office?t="+url.QueryEscape(windowKey), http.StatusSeeOther)
+			http.Redirect(w, r.Request, "/office?t="+url.QueryEscape(windowKey)+"&"+ownWindowMark, http.StatusSeeOther)
 			return
 		}
 	}
@@ -463,7 +518,12 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		d.mu.Lock()
 		logo := d.config.Logo
 		d.mu.Unlock()
-		servePageWithIcon(w, "Resources/web/"+page, "Resources/web/icon-"+logo+".png")
+		// The pairing page in the Mac's words under the Mac app, as the Swift engine serves it.
+		var worded func([]byte) []byte
+		if page == "pair.html" && d.macHost() != nil {
+			worded = macPairing
+		}
+		servePageWithIcon(w, "Resources/web/"+page, "Resources/web/icon-"+logo+".png", worded)
 		return
 	}
 	if phoneID == "" {
@@ -480,7 +540,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	// ⚙︎ in the office's corner, from its own window on this computer: setup opens, as from the tray.
 	case r.Method == http.MethodPost && r.URL.Path == "/act" && r.URL.Query().Get("action") == "settings":
 		if phoneID != officeWindowID {
-			writeStatus(w)(http.StatusForbidden, "Settings open on your computer.")
+			writeStatus(w)(http.StatusForbidden, "Settings open on your "+d.machine()+".")
 			return
 		}
 		if err := openSetupPage(d); err != nil {
@@ -488,8 +548,175 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		writeStatus(w)(http.StatusNoContent, "")
+	// ⧉ window (T796), from the office's own window on this computer, never a phone: whether hires run in
+	// the background, so the key shows; then a window attached to the picked hire's own tmux session, as
+	// Setup's Open a window (openHireWindow).
+	case r.URL.Path == "/hire/window" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, hireWindowElsewhere)
+			return
+		}
+		if r.Method == http.MethodGet {
+			_, tmux := hireWays()
+			d.mu.Lock()
+			background := backgroundHires(d.config, tmux)
+			d.mu.Unlock()
+			writeJSON(w, http.StatusOK, map[string]any{"background": background})
+			return
+		}
+		hire, found := d.hireInSession(session)
+		if !found {
+			writeStatus(w)(http.StatusNotFound, "This agent wasn't hired by Smolcorp, so it has no window to open.")
+			return
+		}
+		status, problem := d.openHireWindow(hire)
+		writeStatus(w)(status, problem)
+	// Open in T3 Code, from the office's own window on this computer, never a phone: what's installed, and
+	// whether the picked agent is a hire; then its folder opened, found by its session, never a path that's sent.
+	case r.URL.Path == "/t3code" || r.URL.Path == "/t3code/open":
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, "T3 Code opens on your "+d.machine()+".")
+			return
+		}
+		if !d.t3On() {
+			writeStatus(w)(http.StatusNotFound, t3Off)
+			return
+		}
+		hire, found := d.hireInSession(session)
+		switch r.Method {
+		case http.MethodGet:
+			answer := t3JSON(t3StatusNow(r.URL.Query().Get("fresh") == "1", newT3Machine()))
+			answer["hire"] = nil
+			if found {
+				answer["hire"] = t3Title(hire)
+			}
+			// A hire in T3 Code: its desk (the tag, its status) and branch, for the card.
+			if found && hire.Engine == t3Engine {
+				lane := t3DeskJSON(hire, d.t3)
+				lane["branch"] = hire.Branch
+				answer["lane"] = lane
+			}
+			// Take over in T3 Code, or Hand back, where it's offered (the Go core's only, t3takeover.go).
+			if found {
+				if offered := t3TakeOverJSON(hire, true); offered != nil {
+					answer["takeOver"] = offered
+				}
+			}
+			writeJSON(w, http.StatusOK, answer)
+		case http.MethodPost:
+			openHireInT3(w, d.t3Latest(hire), found)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	// Take over in T3 Code and Hand back (EXPERIMENTAL, t3takeover.go), from a desk's card in the office's own window
+	// on this computer, never a phone: the hire is found by its desk, never by anything sent.
+	case r.Method == http.MethodPost && r.URL.Path == "/act" && slices.Contains([]string{"takeover", "handback"}, r.URL.Query().Get("action")):
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, "Take over in T3 Code is on your "+t3Here()+".")
+			return
+		}
+		status, answer, ok := d.takeOverAtDesk(r.URL.Query().Get("action"), session)
+		if !ok {
+			writeStatus(w)(http.StatusNotFound, "Only a hire Smolcorp runs can be taken over in T3 Code, or handed back.")
+			return
+		}
+		if text, isText := answer.(string); isText {
+			writeStatus(w)(status, text)
+			return
+		}
+		writeJSON(w, status, answer)
+	// Let go of a hire in T3 Code from its desk's card, after its confirm (t3desks.go): the lane's answer, as Setup's.
+	case r.Method == http.MethodPost && r.URL.Path == "/act" && r.URL.Query().Get("action") == "letgo":
+		status, answer, ok := d.letGoAtDesk(session)
+		if !ok {
+			writeStatus(w)(d.Perform("letgo", session, r.URL.Query()))
+			return
+		}
+		if text, isText := answer.(string); isText {
+			writeStatus(w)(status, text)
+			return
+		}
+		writeJSON(w, status, answer)
 	case r.Method == http.MethodPost && r.URL.Path == "/act":
-		writeStatus(w)(d.Perform(r.URL.Query().Get("action"), session, r.URL.Query()))
+		writeStatus(w)(d.PerformFrom(phoneID, r.URL.Query().Get("action"), session, r.URL.Query()))
+	// The phone's text (typed, or heard by its own mic), typed into the session's agent: from a paired phone
+	// with its key, over the Wi-Fi as over Tailscale (I34), never from the office's own window. See phonetext.go.
+	case r.Method == http.MethodPost && r.URL.Path == "/dictate":
+		if phoneID == officeWindowID {
+			writeStatus(w)(http.StatusForbidden, phoneTextPhonesOnly)
+			return
+		}
+		body := decodeJSON(r.Body)
+		// The confirm box's choice, Send ⏎ or Type only; an older page's says nothing.
+		var send *bool
+		if value, ok := body["send"].(bool); ok {
+			send = &value
+		}
+		writeStatus(w)(d.TypePhoneText(stringValue(body["text"]), session, send))
+	// The last lines of the session's tab, read-only, to see what was typed: over Tailscale only.
+	case r.Method == http.MethodPost && r.URL.Path == "/peek":
+		if !fromTailnet(r.Request) {
+			writeStatus(w)(http.StatusForbidden, peekTailnet)
+			return
+		}
+		status, lines, message := d.Peek(session)
+		if status != http.StatusOK {
+			writeStatus(w)(status, message)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"lines": lines})
+	// A typed answer to a menu's "Type something": as /dictate, one line only.
+	case r.Method == http.MethodPost && r.URL.Path == "/choose":
+		if phoneID == officeWindowID {
+			writeStatus(w)(http.StatusForbidden, phoneTextPhonesOnly)
+			return
+		}
+		if r.URL.Query().Get("option") != "other" {
+			writeStatus(w)(http.StatusBadRequest, pickWithKeys)
+			return
+		}
+		writeStatus(w)(d.AnswerOther(stringValue(decodeJSON(r.Body)["text"]), r.URL.Query().Get("choice"), session))
+	// What a permission prompt is about: over Tailscale only.
+	case r.Method == http.MethodGet && r.URL.Path == "/choice":
+		if !fromTailnet(r.Request) {
+			writeStatus(w)(http.StatusForbidden, choiceTailnet)
+			return
+		}
+		writeStatus(w)(d.ChoiceDetail(session))
+	// The approvals list: who waits for you, read only, to a paired phone over Tailscale, never over the Wi-Fi nor
+	// to the office's window. Answering is /act and /choose.
+	case r.Method == http.MethodGet && r.URL.Path == "/approvals":
+		if phoneID == officeWindowID || !fromTailnet(r.Request) {
+			writeStatus(w)(http.StatusForbidden, "The approvals show only over Tailscale's HTTPS address.")
+			return
+		}
+		writeJSON(w, http.StatusOK, approvalsAnswer(d.approvalItems(), nowMillis()))
+	// ▤ Conversation, in the office's own window on this computer, never a phone: the session's conversation, a page
+	// at a time, as it was written (conversation.go).
+	case r.Method == http.MethodGet && r.URL.Path == "/conversation":
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, d.shownOnlyInTheWindow("The conversation"))
+			return
+		}
+		before, placed := conversationPlace(r.URL.Query(), "before")
+		known, sized := conversationPlace(r.URL.Query(), "size")
+		if !placed || !sized {
+			writeStatus(w)(http.StatusBadRequest, "That isn't a place in the conversation.")
+			return
+		}
+		writeAnswer(w)(d.conversation(session, before, known))
+	// ⓘ Info, in the office's own window on this computer, never a phone: what the session runs on, and what it
+	// has used (sessioninfo.go).
+	case r.Method == http.MethodGet && r.URL.Path == "/session/info":
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, d.shownOnlyInTheWindow("The info"))
+			return
+		}
+		id := session
+		if r.URL.Query().Has("id") {
+			id = r.URL.Query().Get("id")
+		}
+		writeAnswer(w)(d.sessionInfo(id))
 	// ✨ Summary: a few lines on what the session has been doing, or why there are none.
 	case r.Method == http.MethodPost && r.URL.Path == "/summary":
 		text, err := d.Summarize(session)
@@ -498,10 +725,14 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"summary": text})
+	// The Mac answers an unknown route with an empty 404.
 	default:
-		http.NotFound(w, r.Request)
+		w.WriteHeader(http.StatusNotFound)
 	}
 }
+
+// setupSessionRefusal is the Mac's text (DeckRouter.swift) in the 401 of POST /setup/session without a menu link's key.
+const setupSessionRefusal = "Only the menu's link opens a setup page."
 
 // callerOf says who is asking, one caller per request, in this order (the same
 // as SetupSessions.caller): the page by its session cookie, a hire by its send
@@ -522,9 +753,12 @@ func (d *Deck) callerOf(r *http.Request) caller {
 func (d *Deck) callerAndGM(r *http.Request) (caller, bool) {
 	hireKey := r.Header.Get(hireKeyHeader)
 	d.mu.Lock()
-	page := func() bool { c, err := r.Cookie(setupCookie); return err == nil && d.access.IsSetupSession(c.Value) }()
+	page := func() bool { c, err := r.Cookie(setupCookie()); return err == nil && d.access.IsSetupSession(c.Value) }()
 	isTool := d.access.IsSetupKey(r.Header.Get(setupKeyHeader))
 	isGM := d.isGMToken(r.Header.Get(gmTokenHeader))
+	if isGM {
+		d.noteGM(r.Header.Get(gmSessionHeader)) // a GM started by hand, and its session (gmbyhand.go)
+	}
 	d.mu.Unlock()
 	if page {
 		return callerPage, isGM
@@ -551,6 +785,16 @@ func (d *Deck) routeCallerOf(r *http.Request, method, path string) caller {
 		return callerGM
 	}
 	return who
+}
+
+// hasSmuggledHookHeader is whether any X-AgentDeck-* header came more than once.
+func hasSmuggledHookHeader(header http.Header) bool {
+	for name, values := range header {
+		if len(values) > 1 && strings.HasPrefix(strings.ToLower(name), "x-agentdeck-") {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *Deck) newSetupSession() string {
@@ -695,6 +939,37 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	config := d.config
 	d.mu.Unlock()
 
+	// The briefs, and the folders a hire from setup can start in (briefroutes.go).
+	if d.briefRoute(w, r.Method, path, r.Body) {
+		return
+	}
+	// Setup's own hire sheet (setuphire.go).
+	if d.setupHireRoute(w, r.Method, path, r.Body, r.caller) {
+		return
+	}
+	// The demo's page: Setup opened at `smolcorp demo`'s hire (demopage.go).
+	if d.demoRoute(w, r) {
+		return
+	}
+
+	// What only macOS does, under the Mac app (hostsetup.go): not served elsewhere.
+	if rt.macSetup(w, r) {
+		return
+	}
+	// What the Mac app does with its own windows, panel and login item, under it (hostshell.go).
+	if rt.macShell(w, r) {
+		return
+	}
+	// A GM started by hand and a new GM token, under the Mac app (gmbyhand.go).
+	if rt.byHandRoutes(w, r) {
+		return
+	}
+	// The GM's screens and tiling, under the Mac app (gmscreens.go). Elsewhere they're 404, and `smolcorp gm`
+	// words it itself.
+	if rt.gmScreenRoutes(w, r) {
+		return
+	}
+
 	switch {
 	case r.Method == http.MethodGet && path == "/setup":
 		// Only the page or the setup key counts as setup; a GM token or a hire's key
@@ -717,6 +992,8 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		writeJSON(w, http.StatusOK, d.events.answer(found, since))
 
 	case r.Method == http.MethodGet && path == "/setup/state":
+		// The Grok Bot app's bots looked for again as setup opens, so a bot made there a moment ago is there.
+		d.rounds.run(func() { d.discoverBots(true) })
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The deck, for the preview beside the layout editor: the one page a
@@ -738,6 +1015,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 
+	// The Claude accounts Smolcorp follows: a tool may read them, only the page changes them (claudeaccounts.go).
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/setup/claude-accounts":
+		rt.claudeAccounts(w, r)
+
 	case r.Method == http.MethodPost && path == "/setup/profiles":
 		rt.profiles(w, r)
 
@@ -745,9 +1026,23 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Lock()
 		code := d.access.ActiveCode()
 		d.mu.Unlock()
+		// Under the Mac app, ?via=tailnet: the same code at this Mac's tailnet address, for the phone mic over
+		// HTTPS, with the phone mic on and an address (hostphonemic.go).
+		if r.URL.Query().Get("via") == "tailnet" {
+			link := ""
+			if code != "" && d.macHost() != nil {
+				link = d.tailnetPairingLink(code)
+			}
+			if link == "" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			writeQR(w, link)
+			return
+		}
 		// No code, or no address a phone could open: no QR code to scan.
 		if code == "" || phoneAddress() == "" {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		writeQR(w, pairingLink(code))
@@ -806,7 +1101,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodPost && path == "/setup/viewer/secret":
 		secret, err := d.portable.MakeWriteSecret()
 		if err != nil {
-			writeStatus(w)(http.StatusInternalServerError, viewerNoStoreProblem)
+			writeStatus(w)(http.StatusInternalServerError, d.portable.secrets.notKept())
 			return
 		}
 		state := d.portable.SetupState(false)
@@ -839,7 +1134,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			link = d.portable.Link()
 		}
 		if link == "" {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		writeQR(w, link)
@@ -847,7 +1142,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/setup/logo/"):
 		logo := strings.TrimPrefix(path, "/setup/logo/")
 		if !contains(logos, logo) {
-			http.NotFound(w, r.Request)
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		serveFile(w, "Resources/web/icon-"+logo+".png")
@@ -1046,7 +1341,19 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
+	// The first-run guide, finished or skipped (done=1), or to be shown again (done=0).
+	case r.Method == http.MethodPost && path == "/setup/guide":
+		d.mu.Lock()
+		config.GuideDone = query.Get("done") == "1"
+		config.save()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
 	case r.Method == http.MethodPost && path == "/setup/music":
+		// A test copy leaves the owner's music and volume alone (RWTC N2): the jukebox is never turned on there.
+		if query.Get("enabled") == "1" && refusedInTestCopy(w, testCopyKeepsMusic) {
+			return
+		}
 		d.mu.Lock()
 		config.MusicEnabled = query.Get("enabled") == "1"
 		if !config.MusicEnabled {
@@ -1056,6 +1363,53 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.changed()
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
+	// The two plain choices (T796), from first setup or Settings: T3 Code on or
+	// off, agent windows, and asked=1 once first setup has asked them. Switching
+	// to the background detaches each hire's windows on its own tmux server.
+	case r.Method == http.MethodPost && path == "/setup/choices":
+		_, tmux := hireWays()
+		d.mu.Lock()
+		switched, status, refusal := setChoices(config, query, tmux)
+		if refusal != "" {
+			d.mu.Unlock()
+			http.Error(w, inMacWords(refusal), status)
+			return
+		}
+		config.save()
+		d.changed()
+		d.mu.Unlock()
+		answer := rt.setupStateFor(r.caller)
+		if switched {
+			// Under the Mac app, the windows it opened for hires close too, as its Swift engine closes them
+			// (hirewindows_close.go); elsewhere a terminal running tmux attach ends as its viewer is detached.
+			if host != nil {
+				answer["windowsSaid"] = hiresToBackgroundClosing(officeHires(), bridgeCloser{host}, nil)
+			} else {
+				answer["windowsSaid"] = hiresToBackground(officeHires(), func(h Hire) detached { return detachHireViewers(h, nil) })
+			}
+		}
+		writeJSON(w, http.StatusOK, answer)
+
+	// "Open a window" on a hire's desk in Setup's team list (T796): by the hire's
+	// id, from the registry; a window attached to its own tmux server.
+	case r.Method == http.MethodPost && path == "/setup/hire/window":
+		var given struct {
+			ID string `json:"id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&given)
+		// Read once: the list may change meanwhile, and i must point into this one.
+		hires := officeHires()
+		i := slices.IndexFunc(hires, func(h Hire) bool { return h.ID == given.ID })
+		if i < 0 {
+			http.Error(w, "That hire isn't on the team.", http.StatusConflict)
+			return
+		}
+		if status, problem := d.openHireWindow(hires[i]); problem != "" {
+			http.Error(w, problem, status)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 
 	// Every part is checked before any is kept, so a wrong one changes
 	// nothing. An empty folder clears it.
@@ -1075,11 +1429,11 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		terminals, tmux := hireWays()
 		if query.Has("terminal") && !slices.ContainsFunc(terminals, func(o hireOpener) bool { return o.id == query.Get("terminal") }) {
-			http.Error(w, "That terminal isn't on this computer", http.StatusBadRequest)
+			http.Error(w, "That terminal isn't on this "+d.machine(), http.StatusBadRequest)
 			return
 		}
 		if query.Get("tmux") == "1" && !tmux {
-			http.Error(w, "tmux isn't on this computer", http.StatusBadRequest)
+			http.Error(w, "tmux isn't on this "+d.machine(), http.StatusBadRequest)
 			return
 		}
 		d.mu.Lock()
@@ -1117,6 +1471,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		config.save()
 		d.changed()
 		d.mu.Unlock()
+		// A folder typed while the Mac's folder panel is open closes that panel, as on Start here.
+		if folder != "" {
+			d.closeMacFolderPanel()
+		}
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The system's own folder picker, which a web page can't open.
@@ -1130,6 +1488,42 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
+	// Start here's hires folder: the one set, or with none, one suggested; check= checks one as it's typed.
+	case r.Method == http.MethodGet && path == "/setup/hire-folder":
+		var asked *string
+		if query.Has("check") {
+			given := query.Get("check")
+			asked = &given
+		}
+		d.mu.Lock()
+		saved := config.HireFolder
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, hireFolderState(saved, asked, homeDir))
+
+	// Keeps it, once checked; create=1 makes it first if it isn't there yet. A problem answers 400 with the same JSON, to show with its fix.
+	case r.Method == http.MethodPost && path == "/setup/hire-folder":
+		folder, refused := keepHireFolder(query.Get("folder"), query.Get("create") == "1", homeDir)
+		if refused != nil {
+			writeJSON(w, http.StatusBadRequest, hireFolderJSON(*refused, "", homeDir))
+			return
+		}
+		d.mu.Lock()
+		config.HireFolder = folder
+		config.save()
+		d.changed()
+		d.mu.Unlock()
+		// A folder typed on the page while the Mac's folder panel is open closes that panel: it's chosen now.
+		d.closeMacFolderPanel()
+		writeJSON(w, http.StatusOK, hireFolderState(folder, nil, homeDir))
+
+	// The hire guard's groups and your own patterns: a tool may read them, only the page changes them (routes.go, guardstate.go).
+	case r.Method == http.MethodGet && path == "/setup/guard":
+		writeJSON(w, http.StatusOK, guardState(filepath.Join(supportDir, hireGuardFile), runtime.GOOS))
+
+	case r.Method == http.MethodPost && path == "/setup/guard":
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		saveGuard(body, filepath.Join(supportDir, hireGuardFile), runtime.GOOS).write(w)
 
 	// The roles as the page has them, all of them: checked as they're kept,
 	// since their instructions go to agents.
@@ -1151,7 +1545,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Lock()
 		bots := config.CloudBots
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]any{"bots": bots})
+		writeJSON(w, http.StatusOK, map[string]any{"bots": botsResolved(d.macHost(), bots)})
 
 	case r.Method == http.MethodPost && path == "/setup/bots":
 		given, ok := cloudBotsSent(r.Body)
@@ -1161,13 +1555,18 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		d.mu.Lock()
 		// The mailbox is the page's to choose (POST /setup/bots/mailbox): what is sent here never sets or changes it.
-		config.CloudBots = keepMailboxes(checkedCloudBots(given), config.CloudBots)
+		bots := keepMailboxes(checkedCloudBots(given), config.CloudBots)
+		if d.mac.host != nil {
+			// A bot set or changed here is yours: kept whatever the Grok Bot app says.
+			bots = pinnedIfChanged(bots, config.CloudBots)
+		}
+		config.CloudBots = bots
 		config.save()
 		d.cloud.configure(config.CloudBots)
 		d.changed()
-		bots := config.CloudBots
+		bots = config.CloudBots
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, map[string]any{"bots": bots})
+		writeJSON(w, http.StatusOK, map[string]any{"bots": botsResolved(d.macHost(), bots)})
 
 	// A bot's mailbox folder, page only (routes.json).
 	case r.Method == http.MethodPost && path == "/setup/bots/mailbox":
@@ -1176,19 +1575,37 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// One bot pinned or not, or put on a floor, from setup's list; or the floor new bots go to.
 	case r.Method == http.MethodPost && path == "/setup/bots/override":
 		var given struct {
-			ID       string  `json:"id"`
-			Pinned   *bool   `json:"pinned"`
-			Floor    *string `json:"floor"`
-			Hidden   bool    `json:"hidden"`
-			BotFloor *int    `json:"botFloor"`
+			ID     string `json:"id"`
+			Pinned *bool  `json:"pinned"`
+			// A floor that isn't a string changes nothing and isn't refused, as the Mac's does (the page sends a string).
+			Floor    any  `json:"floor"`
+			Hidden   bool `json:"hidden"`
+			BotFloor *int `json:"botFloor"`
+			// Under the Mac app: finding the Grok Bot app's bots on or off, and a bot hidden from there shown again.
+			AutoDetect *bool  `json:"autoDetect"`
+			Show       string `json:"show"`
 		}
-		if json.NewDecoder(r.Body).Decode(&given) != nil || given.ID == "" && given.BotFloor == nil {
+		h := d.macHost()
+		mac := h != nil
+		if json.NewDecoder(r.Body).Decode(&given) != nil || given.ID == "" && given.BotFloor == nil && !(mac && (given.AutoDetect != nil || given.Show != "")) {
 			writeStatus(w)(http.StatusBadRequest, `Send {"id": …} with "pinned" or "floor", or {"botFloor": …}.`)
 			return
+		}
+		// A bot hidden is kept out by its id in the Grok Bot app, or the app would give it back at the next look.
+		var roster []grokRow
+		read := false
+		if mac && given.Hidden {
+			roster, read, _ = hostBotsRoster(h)
 		}
 		d.mu.Lock()
 		if given.BotFloor != nil && *given.BotFloor >= 0 && *given.BotFloor < floorCount {
 			config.BotFloor = *given.BotFloor
+		}
+		if mac && given.AutoDetect != nil {
+			config.BotsAutoDetect = given.AutoDetect
+		}
+		if mac && safeGrokBotID(given.Show) {
+			config.HiddenBots = slices.DeleteFunc(config.HiddenBots, func(id string) bool { return strings.EqualFold(id, given.Show) })
 		}
 		bots := slices.Clone(config.CloudBots)
 		found := given.ID == ""
@@ -1200,12 +1617,21 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			if given.Pinned != nil {
 				bots[i].Pinned = *given.Pinned
 			}
-			if given.Floor != nil && slices.Contains(cloudFloors, *given.Floor) {
-				bots[i].Floor = *given.Floor
+			if floor, isText := given.Floor.(string); isText && slices.Contains(cloudFloors, floor) {
+				bots[i].Floor = floor
 			}
 		}
 		if given.Hidden {
-			// Here, hiding a bot is taking it off: there's no app to find it again in.
+			// Taken off; under the Mac app also kept out of the Grok Bot app's bots found. Elsewhere there's no app
+			// to find it again in.
+			if at := slices.IndexFunc(bots, func(b CloudBot) bool { return b.ID == given.ID }); mac && at >= 0 {
+				if !read {
+					roster = d.mac.roster
+				}
+				if app := bots[at].appID(roster); app != "" && !slices.ContainsFunc(config.HiddenBots, func(id string) bool { return strings.EqualFold(id, app) }) {
+					config.HiddenBots = append(config.HiddenBots, app)
+				}
+			}
 			bots = slices.DeleteFunc(bots, func(b CloudBot) bool { return b.ID == given.ID })
 		}
 		if !found {
@@ -1218,6 +1644,8 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.cloud.configure(config.CloudBots)
 		d.changed()
 		d.mu.Unlock()
+		// Under the Mac app, the Grok Bot app looked in again, as the switches may have changed what's found.
+		d.rounds.run(func() { d.discoverBots(false) })
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	// The six floors' names and styles, all of them, replaced at once and checked as they're kept;
@@ -1264,6 +1692,20 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
+	// The keys that show and hide the office from anywhere: the Mac app's (hostshell.go under it). Here there's
+	// no such key, so they're checked and kept, for the page to show.
+	case r.Method == http.MethodPost && path == "/setup/officekey":
+		keys, refusal := officeKeyChoice(query.Get("keys"), nil)
+		if refusal != "" {
+			http.Error(w, refusal, http.StatusBadRequest)
+			return
+		}
+		d.mu.Lock()
+		config.OfficeKey = officeKeySaved(keys)
+		config.save()
+		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
 	case r.Method == http.MethodPost && path == "/setup/scroll":
 		d.mu.Lock()
 		config.ScrollEnabled = query.Get("enabled") == "1"
@@ -1279,6 +1721,11 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			notice, err = connectAgents(true)
 		} else {
 			err = disconnectAgents()
+		}
+		// A test copy refuses, as the Mac's does (409): the page shows it inline
+		if errors.Is(err, errTestCopyAgents) {
+			writeStatus(w)(http.StatusConflict, err.Error())
+			return
 		}
 		if err != nil {
 			said := err.Error()
@@ -1308,7 +1755,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// One of its fixes, by name, and the checklist after it.
 	case r.Method == http.MethodPost && path == "/setup/fix":
 		// A tool (smolcorp setup) only repairs, and with auto=1: its repair leaves agents you disconnected.
-		if !fixAllowed(r.caller, query.Get("fix"), query.Get("auto")) {
+		if !fixAllowed(r.caller, query.Get("fix"), query.Get("auto"), d.macHost() != nil) {
 			writeStatus(w)(http.StatusForbidden, routeRefusal(r.Method, r.URL.Path))
 			return
 		}
@@ -1333,9 +1780,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// The front desk: the app's version and features, and the manager switch (see manager.go).
 	case r.Method == http.MethodGet && path == "/setup/gm/version":
 		d.mu.Lock()
-		enabled := config.ManagerEnabled
+		enabled, underMac := config.ManagerEnabled, d.mac.host != nil
 		d.mu.Unlock()
-		writeJSON(w, http.StatusOK, versionAnswer(Version, enabled))
+		writeJSON(w, http.StatusOK, versionAnswer(Version, enabled, underMac))
 
 	case r.Method == http.MethodPost && path == "/setup/gm/manager":
 		// Routes table: the page only (routes.json lists the GM too, but no GM caller exists here yet).
@@ -1355,8 +1802,87 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, map[string]any{"managerEnabled": enabled == "1"})
 
+	// Open in T3 Code (t3code.go): what's installed (again now, as its menu opens: fresh=1), and a hire's
+	// folder opened there, by the hire's id: the folder comes from the registry, never from the request.
+	// The page alone (routes.go).
+	case r.Method == http.MethodGet && path == "/setup/t3code":
+		if !d.t3On() {
+			http.Error(w, t3Off, http.StatusNotFound)
+			return
+		}
+		d.mu.Lock()
+		on := t3CodeAllowed(d.config)
+		d.mu.Unlock()
+		status := t3StatusNow(query.Get("fresh") == "1", newT3Machine())
+		answer := t3JSON(status)
+		// Whether a hire may go into T3 Code (t3desk.go), or the one sentence saying why not.
+		why := t3LaneRefusal(on, status)
+		answer["lane"] = map[string]any{"ok": why == "", "why": why}
+		// Whether Take over and Hand back may be used (the Go core's only, t3takeover.go), or why not.
+		gate := t3TakeOverGate(on, status)
+		answer["takeOver"] = map[string]any{"ok": gate == "", "why": gate, "tag": t3TakeOverTag}
+		writeJSON(w, http.StatusOK, answer)
+	case r.Method == http.MethodPost && path == "/setup/t3code/open":
+		if !d.t3On() {
+			http.Error(w, t3Off, http.StatusNotFound)
+			return
+		}
+		id, _ := decodeJSON(r.Body)["id"].(string)
+		var hire Hire
+		found := false
+		for _, h := range readRegistry(registryPath(), false).hires {
+			if h.ID == id {
+				hire, found = h, true
+			}
+		}
+		openHireInT3(w, d.t3Latest(hire), found)
+	// Take over in T3 Code and Hand back (EXPERIMENTAL, t3takeover.go), by the hire's id after the page's confirm:
+	// everything else comes from the registry and the hire's own session, never from the request. The page alone.
+	case r.Method == http.MethodPost && (path == "/setup/t3code/takeover" || path == "/setup/t3code/handback"):
+		id, _ := decodeJSON(r.Body)["id"].(string)
+		var status int
+		var answer any
+		if path == "/setup/t3code/takeover" {
+			status, answer = d.takeOverIntoT3(id)
+		} else {
+			status, answer = d.handBackFromT3(id)
+		}
+		if text, ok := answer.(string); ok {
+			writeStatus(w)(status, text)
+			return
+		}
+		writeJSON(w, status, answer)
+	// Let go of a hire in T3 Code (t3deskdeck.go), by its id after the page's confirm: its T3 project removed, its
+	// worktree kept. The worktree comes from the registry, never from the request.
+	case r.Method == http.MethodPost && path == "/setup/t3code/letgo":
+		id, _ := decodeJSON(r.Body)["id"].(string)
+		status, answer := d.letGoOfT3(id)
+		if text, ok := answer.(string); ok {
+			writeStatus(w)(status, text)
+			return
+		}
+		writeJSON(w, status, answer)
+
+	// What a first General Manager hire needs (gmpreflight.go), Start here's lines above its
+	// Hire button. Outside /setup/gm/, which is closed while the manager is off, as on a first run.
+	// An account that isn't there is said, as the hire would say it, rather than checked as the
+	// default (DeckRouter.swift): 400, whatever the hire's own status for it.
+	case r.Method == http.MethodGet && path == "/setup/hire/gm/preflight":
+		account := query.Get("account")
+		if strings.TrimSpace(account) != "" {
+			d.mu.Lock()
+			accounts := claudeAccountList(d.config.ClaudeProfiles)
+			d.mu.Unlock()
+			if status, why := claudeAccountRefusal(account, accounts); status != 0 {
+				writeStatus(w)(http.StatusBadRequest, why)
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, d.gmPreflightOn(account))
+
 	// Start here's Hire your General Manager: the GM role, in the folder for
-	// new hires or your home folder, its questions asked in its terminal.
+	// your hires, its questions asked in its terminal. `account=` names the
+	// Claude account and `worktree=1` gives it a worktree, as on the Mac.
 	case r.Method == http.MethodPost && path == "/setup/hire/gm":
 		// One GM per office: the GM's token never hires the gm role. Checked before anything is saved
 		// (DeckRouter.swift: the same refusal before the hire).
@@ -1364,23 +1890,46 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			writeStatus(w)(status, text)
 			return
 		}
+		// One at a time, as the Mac claims it: a second click while one runs would read the switches
+		// the first turned on as its own "before", and could leave them on when both fail.
+		if !d.gmHiring.TryLock() {
+			writeStatus(w)(http.StatusConflict, gmBeingHired)
+			return
+		}
+		defer d.gmHiring.Unlock()
 		// The manager is switched on before the hire (the GM is a managed hire) and back if the hire
-		// fails, as the Mac does (DeckRouter.swift). d.mu is not held across the hire.
+		// fails, as the Mac does (DeckRouter.swift). d.mu is not held across the hire. Hire and fire
+		// from the office goes on with it too, as the GM hires its team, and back off the same way.
+		// In the folder for your hires, never your home folder: Start here's first step sets it.
 		d.mu.Lock()
-		before := d.config.ManagerEnabled
+		if _, ok := existingFolder(d.config.HireFolder); !ok {
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusConflict, chooseHireFolderFirst)
+			return
+		}
+		before, hiring := d.config.ManagerEnabled, d.config.HiringEnabled
 		d.config.ManagerEnabled = true
+		d.config.HiringEnabled = true
 		d.config.save()
 		d.changed()
 		d.mu.Unlock()
-		status, text := d.hireFromSetup("gm")
+		// The Claude account named (with one account it is left out) and a worktree of its own (worktree=1),
+		// passed on as the Mac's (DeckRouter.swift).
+		worktree := query.Get("worktree") == "1"
+		status, text := d.hireWith(hireSpec{roleID: gmRole, fromSetup: true, account: strings.Trim(query.Get("account"), " \t"), worktree: &worktree})
 		if status >= http.StatusBadRequest {
 			d.mu.Lock()
 			d.config.ManagerEnabled = before
+			d.config.HiringEnabled = hiring
 			d.config.save()
 			d.changed()
 			d.mu.Unlock()
 		}
 		writeStatus(w)(status, text)
+
+	// routes.json: POST /setup/gm/hire is an action for gm and page (see gmhire.go).
+	case r.Method == http.MethodPost && path == "/setup/gm/hire":
+		d.gmHire(w, r)
 
 	// The front desk. routes.json: GET /setup/gm/team is read for gm, page and tool.
 	case r.Method == http.MethodGet && path == "/setup/gm/team":
@@ -1403,6 +1952,11 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		if refused != nil {
 			writeStatus(w)(refused.status, refused.message)
 			return
+		}
+		// A GM whose row the owner set to failed or fired loses its token, as a fired one does: its scope
+		// follows the row (gmscope.go), so a working token with no open row would be unscoped (RX1d N1).
+		if hire.Role == gmRole && !isOpen(hire) {
+			d.clearFiredGMToken()
 		}
 		writeJSON(w, http.StatusOK, hire)
 
@@ -1437,6 +1991,13 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodPost && path == "/setup/gm/send":
 		rt.mailSend(w, r)
 
+	// Fire and brief a hire found by its registry id (gmfire.go, gmbrief.go).
+	case r.Method == http.MethodPost && path == "/setup/gm/fire":
+		rt.gmFire(w, r)
+
+	case r.Method == http.MethodPost && path == "/setup/gm/brief":
+		rt.gmBrief(w, r)
+
 	case r.Method == http.MethodGet && path == "/setup/gm/outbox":
 		rt.mailOutboxList(w, r)
 
@@ -1457,8 +2018,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		(r.Method == http.MethodPost || r.Method == http.MethodDelete) && path == "/setup/gm/unwatch":
 		rt.watchRoutes(w, r, path)
 
+	// The Mac answers an unknown route under /setup with an empty 404.
 	default:
-		http.NotFound(w, r.Request)
+		w.WriteHeader(http.StatusNotFound)
 	}
 }
 
@@ -1532,7 +2094,22 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		agentList[i] = map[string]any{"id": agent, "name": agent.Name(), "connected": isConnected(agent)}
 	}
 	connected := allConnected()
-	openAtLogin := isOpenAtLogin()
+	openAtLogin := d.openAtLogin()
+	gmHired := readRegistry(registryPath(), false).gmIsHired()
+	// Under the Mac app, what only it can say of this Mac (hostsetup.go), and what Tailscale last said of it,
+	// for the phone mic (hostphonemic.go).
+	facts := d.macFactsNow()
+	var tailnetFound tailnetAnswer
+	if d.macHost() != nil {
+		tailnetFound = d.tailnetNow()
+	}
+	// The API-key account for a hire: the Mac app's Keychain, or this computer's secret store (hireapikey.go).
+	apiKey := d.apiKeyOffer()
+	// The account folders are looked in without the lock: one that doesn't answer must not stop the deck.
+	d.mu.Lock()
+	savedAccounts := slices.Clone(d.config.ClaudeProfiles)
+	d.mu.Unlock()
+	claudeAccounts := claudeAccountsState(savedAccounts)
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -1543,7 +2120,7 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 			keyOf[key.session.ID] = i
 		}
 	}
-	pairing := map[string]any{"address": phoneAddress(), "open": false, "codeExpiresIn": 0}
+	pairing := map[string]any{"address": phoneAddress(), "tailnet": phoneTailnet(), "open": false, "codeExpiresIn": 0}
 	if code := d.access.ActiveCode(); code != "" {
 		pairing["open"] = true
 		pairing["codeExpiresIn"] = int(d.access.CodeExpiresIn().Seconds())
@@ -1581,7 +2158,8 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 			"agent": s.Agent, "model": nilIfEmpty(s.Model), "role": roleID(d.roleOf(s)),
 		})
 	}
-	return map[string]any{
+	_, tmuxHere := hireWays()
+	state := map[string]any{
 		"version": Version,
 		// Which computer this is, so the page shows its own kind of folder path.
 		"platform": runtime.GOOS,
@@ -1590,31 +2168,44 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		// No accessibility step: nothing here needs that permission.
 		"checklist": map[string]any{"hooks": connected, "scroll": d.config.ScrollEnabled, "openAtLogin": openAtLogin},
 		"agents":    agentList,
+		// Whether a General Manager is hired, whatever the manager switch says: Start here looks no further then.
+		"gmHired": gmHired,
+		// The Claude accounts besides ~/.claude, for the account pickers and the accounts step.
+		"claudeAccounts": claudeAccounts,
+		// The manager, as the Mac's setup state has it: under the Mac app with a GM started by hand and its
+		// token file's path (gmbyhand.go), elsewhere with neither. Never the token.
+		"manager": d.managerState(),
 		// Where hires open: the terminals here that can open them, and tmux if it's there.
-		"hiring": d.hireState(),
+		"hiring": d.hireState(apiKey),
 		// The roles, those that come with the app to go back to, and what a
 		// role can be: its agent, whether that agent has an effort and takes a
 		// first message, its badge, and how long each part can be.
 		"roles": map[string]any{
-			"roles": d.config.Roles, "shipped": shippedRoles, "agents": roleAgents(), "efforts": effortLevels, "badges": roleBadges,
+			"roles": d.config.Roles, "shipped": shippedWithBriefs(), "agents": roleAgents(), "efforts": effortLevels, "badges": roleBadges,
 			"limits": map[string]int{"name": roleNameLimit, "model": roleModelLimit, "instructions": roleInstructionsLimit,
-				"questions": roleQuestionsMost, "question": roleQuestionLimit},
+				"questions": roleQuestionsMost, "question": roleQuestionLimit, "briefFile": roleBriefFileLimit,
+				"briefFileName": roleBriefFileNameLimit, "answer": briefAnswerLimit},
 		},
 		"music":      map[string]any{"enabled": d.config.MusicEnabled},
 		"maxConfirm": map[string]any{"enabled": d.config.MaxConfirm},
-		// Without a window of its own, setup says why there's no switch.
-		"officeWindow": map[string]any{"available": hasNativeWindow, "mac": false, "onTop": hasNativeWindow && d.config.AlwaysOnTop},
-		"summary":      d.summaryState(),
+		// The first-run guide's arrows: shown until it's finished or skipped (see guide.js).
+		"guide": map[string]any{"done": d.config.GuideDone},
+		// The two plain choices (T796), and the T3 Code gate as T3 Code's own code reads it.
+		"choices":       choicesState(d.config, tmuxHere, t3InstalledRecently),
+		"t3CodeEnabled": t3CodeAllowed(d.config),
+		// Without a window of its own, setup says why there's no switch; under the Mac app, its own window.
+		"officeWindow": d.officeWindowState(),
+		// The keys that show and hide it from anywhere: the Mac app's, kept here as set.
+		"officeKey": officeKeyState(d.config.OfficeKey, nil, false),
+		"summary":   d.summaryState(),
 		"webhook": map[string]any{
 			"enabled": d.config.Webhook.Enabled, "url": d.config.Webhook.URL, "secret": webhookSecretFor(who, d.config.Webhook.Secret),
 			"outside": d.config.Webhook.Outside, "events": d.config.Webhook.Events, "last": d.lastDelivery(),
 		},
-		// What to type to start an agent through the launcher.
-		"launcher": launchCommand(),
-		"pairing":  pairing,
-		"phones":   phones,
-		"logo":     d.config.Logo,
-		"pins":     pins,
+		"pairing": pairing,
+		"phones":  phones,
+		"logo":    d.config.Logo,
+		"pins":    pins,
 		// How many keys the phone shows now.
 		"phoneKeys": len(keys),
 		"sessions":  sessions,
@@ -1637,6 +2228,18 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"activeProfile": d.config.ActiveProfile,
 		"profileEdited": d.config.profileEdited(),
 	}
+	// What to type to start an agent through the launcher. Not under the Mac app, even while it doesn't answer:
+	// the page takes "launcher" for a Linux or Windows computer and words everything for one (its Keychain
+	// becomes a secret store, a terminal hire a launcher one), and the Swift engine never sent it.
+	if d.mac.host == nil {
+		state["launcher"] = launchCommand()
+	}
+	d.addMacSetup(state, facts)
+	// Phone microphone, and this Mac's tailnet address if Tailscale says it: the Mac's alone, as its setup has it.
+	if d.mac.host != nil {
+		state["phoneMic"] = d.phoneMicState(tailnetFound)
+	}
+	return state
 }
 
 // MARK: Helpers
@@ -1660,12 +2263,15 @@ func serveFile(w http.ResponseWriter, name string) {
 }
 
 // servePageWithIcon serves a page as serveFile does, with its Home Screen
-// icon in it (see withIcon).
-func servePageWithIcon(w http.ResponseWriter, name, icon string) {
+// icon in it (see withIcon), and in other words with worded, if any.
+func servePageWithIcon(w http.ResponseWriter, name, icon string, worded func([]byte) []byte) {
 	data, err := fs.ReadFile(agentdeck.Files, name)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
+	}
+	if worded != nil {
+		data = worded(data)
 	}
 	png, _ := fs.ReadFile(agentdeck.Files, icon)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -1717,14 +2323,79 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
+// openHireWindow is "Open a window" on hire, from Setup's team list or the
+// office's ⧉ window, as the Mac's Deck.openHireWindow: one window of the hires'
+// terminal attached to the hire's own tmux session, recorded as this app's (on a
+// Mac, through the app). 204, or 409 and why not.
+func (d *Deck) openHireWindow(hire Hire) (int, string) {
+	// A test copy opens no window of the owner's terminal app (RTCH N1).
+	if why := testCopyKeepsAway(testCopyKeepsTerminal); why != "" {
+		return http.StatusConflict, why
+	}
+	if hire.State == "fired" || hire.State == "failed" {
+		return http.StatusConflict, "That hire isn't on the team."
+	}
+	if hire.TmuxSocket == "" {
+		return http.StatusConflict, "This hire runs in a window of its own, not in tmux."
+	}
+	terminals, _ := hireWays()
+	d.mu.Lock()
+	terminal, hasTerminal := hireTerminal(d.config.HireTerminal, terminals)
+	d.mu.Unlock()
+	if !hasTerminal {
+		return http.StatusConflict, "There's no terminal here to open a window in: tmux attach shows it."
+	}
+	if err := openHireViewer(hire, terminal); err != nil {
+		return http.StatusConflict, "Its window didn't open: the hire may have ended."
+	}
+	return http.StatusNoContent, ""
+}
+
+// writeAnswer answers with a status and JSON, or, for text, as writeStatus.
+func writeAnswer(w http.ResponseWriter) func(int, any) {
+	return func(status int, answer any) {
+		if text, isText := answer.(string); isText {
+			writeStatus(w)(status, text)
+			return
+		}
+		writeJSON(w, status, answer)
+	}
+}
+
 // writeStatus answers with a status and, unless it's empty, a message the
 // phone shows.
 func writeStatus(w http.ResponseWriter) func(int, string) {
 	return func(status int, message string) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(status)
-		_, _ = io.WriteString(w, message)
+		_, _ = io.WriteString(w, inMacWords(message))
 	}
+}
+
+// macWords are the phone's sentences that name this computer, or say how the phone reaches it, as the Mac
+// app's Swift engine says them (Deck.swift, DeckRouter.swift).
+var macWords = map[string]string{
+	pairCodeRefusal:     "That code isn't valid. Get a new one on your Mac.",
+	settingsElsewhere:   "Settings open on your Mac.",
+	hireWindowElsewhere: "Hires' windows open on your Mac.",
+	backgroundNeedsTmux: "Running hires in the background needs tmux, which isn't on this Mac.",
+	t3Elsewhere:         "T3 Code opens on your Mac.",
+	hiringOff:           "Hiring and firing are off. Turn them on in setup, on your Mac.",
+	scrollingOff:        "Scrolling is off. Turn it on in setup, on your Mac.",
+	buttonTypesNothing:  "This button types nothing yet. Set it up in setup, on your Mac.",
+	hireFolderFirst:     "Choose a folder for new hires in setup, on your Mac.",
+	musicOff:            "The jukebox can't play your music: turn it on in setup, on your Mac.",
+	phoneTextOff:        "The phone mic is off. Turn it on in setup, on your Mac.",
+	peekTailnet:         "The input line shows only over Tailscale's HTTPS address.",
+	choiceTailnet:       "The details show only over Tailscale's HTTPS address.",
+}
+
+// inMacWords is message as the Mac app says it, under the Mac app; elsewhere as it is.
+func inMacWords(message string) string {
+	if mac, ok := macWords[message]; ok && host != nil {
+		return mac
+	}
+	return message
 }
 
 func decodeJSON(body io.Reader) map[string]any {

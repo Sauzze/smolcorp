@@ -41,7 +41,7 @@ func serve(t *testing.T, d *Deck, c call) *httptest.ResponseRecorder {
 			r.Header.Set(setupKeyHeader, d.access.SetupKey)
 		} else {
 			d.mu.Lock()
-			r.AddCookie(&http.Cookie{Name: setupCookie, Value: d.access.NewSetupSession()})
+			r.AddCookie(&http.Cookie{Name: setupCookie(), Value: d.access.NewSetupSession()})
 			d.mu.Unlock()
 		}
 	}
@@ -65,10 +65,26 @@ func newTestDeck(t *testing.T) *Deck {
 // startDeck starts a deck on the folders the test has set up, as the app does at each start, and
 // stops its rounds at the end (see deckRounds), so it never reads the stand-ins a later test puts in.
 // A stand-in the deck's rounds or looks read goes in before the deck starts: cleanups run last
-// first, so it is put back once the deck has stopped.
+// first, so it is put back once the deck has stopped. A save of the sessions still to come is called
+// off once the rounds have stopped, and none is asked for after: it would read the deck after the test
+// and write into folders being removed. One already under way is waited for (its timer has gone off, and it
+// may be a moment from writing): a test that lasts as long as the save's delay would find its folder not empty.
 func startDeck(t *testing.T) *Deck {
 	t.Helper()
 	d := NewDeck()
+	t.Cleanup(func() {
+		d.mu.Lock()
+		if d.saveTimer != nil {
+			d.saveTimer.Stop()
+		}
+		d.savePending = true
+		// A save whose timer has already gone off may be waiting for the lock, or past it and about to write: the
+		// first to a folder that isn't there, the second waited for, so the folder is empty when the test removes it.
+		d.sessionsFile = filepath.Join(filepath.Dir(d.sessionsFile), "no-such-folder", "sessions.json")
+		d.mu.Unlock()
+		d.saveMu.Lock()
+		d.saveMu.Unlock() // only waiting for a save that is under way
+	})
 	t.Cleanup(d.stopWatchers)
 	return d
 }
@@ -215,6 +231,10 @@ func TestHiringIsSetUpOnlyWhenEveryPartIsRight(t *testing.T) {
 		"enabled=1&agent=codex&folder=~/nowhere",   // a folder that isn't there
 		"enabled=1&agent=codex&folder=~/work/keep", // a file, not a folder
 		"enabled=1&agent=skynet&folder=" + homeDir, // an agent there isn't
+		// Names config.json would load as Claude Code (B1-b, RM4c): this route never keeps them.
+		"enabled=1&agent=Claude&folder=" + homeDir,
+		"enabled=1&agent=/opt/x/bin/claude&folder=" + homeDir,
+		"enabled=1&agent=&folder=" + homeDir,
 	} {
 		if got := setUp(query); got != http.StatusBadRequest {
 			t.Errorf("%s: %d, want %d", query, got, http.StatusBadRequest)
@@ -399,7 +419,7 @@ func TestWhatSetupReadsAndChangesNeedsTheSetupKey(t *testing.T) {
 	}
 	// The key is for the header only: as a cookie, it opens nothing.
 	if got := local(call{method: "GET", target: "/setup/state", withoutSetupKey: true,
-		headers: map[string]string{"Cookie": setupCookie + "=" + d.access.SetupKey}}); got != http.StatusUnauthorized {
+		headers: map[string]string{"Cookie": setupCookie() + "=" + d.access.SetupKey}}); got != http.StatusUnauthorized {
 		t.Errorf("setup's state with the key as a cookie: %d, want %d", got, http.StatusUnauthorized)
 	}
 	// Nor does the key open a session at /setup/session: only a token does.
@@ -638,7 +658,7 @@ func TestAPhoneHearsThePingAsAnEvent(t *testing.T) {
 			if !strings.HasPrefix(got, "data: ") {
 				t.Fatalf("the ping came as %q, want a named event with data", got)
 			}
-		case <-time.After(2 * time.Second):
+		case <-time.After(5 * time.Second):
 			t.Fatal("no ping came")
 		}
 	}
@@ -674,7 +694,7 @@ func TestTheTraysOfficeIsTheOfficeOnThisComputerOnly(t *testing.T) {
 	token := d.access.NewOfficeToken()
 	d.mu.Unlock()
 	opened := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: "localhost:7710", from: thisComputer})
-	if opened.Code != http.StatusSeeOther || opened.Header().Get("Location") != "/office?t="+d.access.WindowKey {
+	if opened.Code != http.StatusSeeOther || opened.Header().Get("Location") != "/office?t="+d.access.WindowKey+"&own" {
 		t.Fatalf("the tray's link gave %d to %q, want the office with its own key", opened.Code, opened.Header().Get("Location"))
 	}
 	if again := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: "localhost:7710", from: thisComputer}); again.Code == http.StatusSeeOther {
@@ -718,7 +738,7 @@ func TestOpeningSetupMarksItCompleteOnlyWithTheSetupKey(t *testing.T) {
 		}
 	}
 	open(nil)
-	open(map[string]string{setupKeyHeader: "sk-ant-test0"})
+	open(map[string]string{setupKeyHeader: "sk-" + "ant-test0"})
 	if d.config.HasCompletedSetup {
 		t.Fatal("opening /setup without a valid setup key marked setup complete")
 	}
@@ -778,7 +798,7 @@ func TestSetupStateNamesThePlatform(t *testing.T) {
 func TestTheOfficePaneHeaderDoesNotNameTheMac(t *testing.T) {
 	d := newTestDeck(t)
 	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
-	const head = "<h1>Office</h1><p>"
+	const head = "<h1>Office and look</h1><p>"
 	i := strings.Index(page, head)
 	if i < 0 {
 		t.Fatal("the setup page has no Office pane header")

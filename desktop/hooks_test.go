@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -979,13 +981,33 @@ func TestTheHookCommandCarriesThePort(t *testing.T) {
 			t.Errorf("hookCommand(%s) = %q, want %q", agent, got, want)
 		}
 	}
+	// Written by the office on the default port: a copy on another port never writes your agents' settings.
+	onDefaultPort(t)
 	writeFile(t, filepath.Join(homeDir, ".claude", "settings.json"), "{}")
 	if err := connect(Claude, false); err != nil {
 		t.Fatal(err)
 	}
-	if stop := commands(readJSON(t, entriesFor(Claude).file), "Stop"); len(stop) != 1 || stop[0] != program+" hook --port 4321" {
+	if stop := commands(readJSON(t, entriesFor(Claude).file), "Stop"); len(stop) != 1 || stop[0] != program+" hook --port 7710" {
 		t.Errorf("Stop runs %q, want the command with the port", stop)
 	}
+}
+
+// onDefaultPort makes this office the one on the default port, for one test: the one that writes your agents'
+// settings (leavesAgentsAlone).
+func onDefaultPort(t *testing.T) {
+	t.Helper()
+	onPort(t, portFromEnvironment(""))
+}
+
+// anotherOfficesHook is the deck's Claude Code entry for Stop as the office on port wrote it, for a test to put in
+// the settings by hand: only the office on the default port writes them now.
+func anotherOfficesHook(t *testing.T, port int) string {
+	t.Helper()
+	saved := Port
+	Port = port
+	command := hookCommand(Claude)
+	Port = saved
+	return command
 }
 
 // What isOurs takes as the deck's: every form the deck ever wrote, and the
@@ -1017,7 +1039,7 @@ func TestHookCommandsOfEveryFormAreTheDecks(t *testing.T) {
 
 func TestReconnectingReplacesOldHooksWithTheOneWithThePort(t *testing.T) {
 	home := isolate(t)
-	onPort(t, 4321)
+	onDefaultPort(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
 	old := func(command string) string {
 		return `{"type":"command","command":"` + command + `","async":true}`
@@ -1045,18 +1067,14 @@ func TestReconnectingReplacesOldHooksWithTheOneWithThePort(t *testing.T) {
 func TestAnotherOfficesPortIsReplacedNotKeptBesideIt(t *testing.T) {
 	home := isolate(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
-	writeFile(t, settings, "{}")
-	onPort(t, 4322)
-	if err := connect(Claude, false); err != nil {
-		t.Fatal(err)
-	}
-	other := hookCommand(Claude)
-	onPort(t, 4323)
+	other := anotherOfficesHook(t, 4322)
+	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"`+inJSON(other)+`","async":true}]}]}}`)
+	onDefaultPort(t)
 	if err := connect(Claude, false); err != nil {
 		t.Fatal(err)
 	}
 	if stop := commands(readJSON(t, settings), "Stop"); len(stop) != 1 || stop[0] == other || stop[0] != hookCommand(Claude) {
-		t.Errorf("Stop runs %q, want only the office on 4323", stop)
+		t.Errorf("Stop runs %q, want only the office on 7710", stop)
 	}
 }
 
@@ -1094,6 +1112,54 @@ func TestTheHookReportsToThePortInItsCommand(t *testing.T) {
 	}
 }
 
+// A test copy's hire reports with the copy's own key, from the folder its start script names: the app's
+// key file is never read, and isn't even there to read (FXM1's N11, end to end). The test itself reads
+// only its own temporary folders.
+func TestAHookInATestCopySendsTheCopysKeyNeverTheApps(t *testing.T) {
+	isolate(t)
+	t.Setenv(summaryRunVariable, "")
+	// A launcher's session names its tab without a terminal, so the hook sends whether or not this
+	// test runs under a tty (on a Mac, a hook with no tab sends nothing, as report.sh).
+	t.Setenv("SMOLCORP_SESSION", "test-copy-hook")
+	copyFolder := t.TempDir()
+	writeFile(t, filepath.Join(copyFolder, "hook-key"), "copy-key\n")
+	t.Setenv(testSupportVariable, copyFolder)
+	// The app's own key, in this test's support folder: never what's sent.
+	writeFile(t, hookKeyFile, "app-key\n")
+	got := make(chan string, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- r.Header.Get(hookKeyHeader)
+	}))
+	defer server.Close()
+	send := func() string {
+		stdin := os.Stdin
+		defer func() { os.Stdin = stdin }()
+		read, write, _ := os.Pipe()
+		write.WriteString(`{"session_id":"s","hook_event_name":"SessionStart"}`)
+		write.Close()
+		os.Stdin = read
+		if RunHook([]string{"--port", fmt.Sprint(mustPort(t, server.URL)), "claude"}) != 0 {
+			t.Fatal("the hook failed")
+		}
+		select {
+		case key := <-got:
+			return key
+		default:
+			return ""
+		}
+	}
+	if key := send(); key != "copy-key" {
+		t.Errorf("a test copy's hook sent %q, want the copy's key", key)
+	}
+	// With no key in the copy's folder, nothing is sent: the hook never falls back to the app's key.
+	if err := os.Remove(filepath.Join(copyFolder, "hook-key")); err != nil {
+		t.Fatal(err)
+	}
+	if key := send(); key != "" {
+		t.Errorf("with no key in the copy's folder, the hook sent %q", key)
+	}
+}
+
 func mustPort(t *testing.T, url string) int {
 	t.Helper()
 	n, err := strconv.Atoi(url[strings.LastIndex(url, ":")+1:])
@@ -1108,14 +1174,10 @@ func mustPort(t *testing.T, url string) int {
 func TestRefreshKeepsAnotherOfficesPort(t *testing.T) {
 	home := isolate(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
-	writeFile(t, settings, "{}")
-	onPort(t, 4322)
-	if err := connect(Claude, false); err != nil {
-		t.Fatal(err)
-	}
-	other := hookCommand(Claude)
+	other := anotherOfficesHook(t, 4322)
+	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"`+inJSON(other)+`","async":true}]}]}}`)
 	before, _ := os.ReadFile(settings)
-	onPort(t, 4323)
+	onDefaultPort(t)
 	refreshHooks()
 	if after, _ := os.ReadFile(settings); string(after) != string(before) {
 		t.Errorf("the refresh changed another office's settings:\n%s", after)
@@ -1128,7 +1190,7 @@ func TestRefreshKeepsAnotherOfficesPort(t *testing.T) {
 // An entry without a port, as an earlier version wrote it, is upgraded.
 func TestRefreshUpgradesAnEntryWithoutAPort(t *testing.T) {
 	home := isolate(t)
-	onPort(t, 4323)
+	onDefaultPort(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
 	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"'/home/me/.local/bin/smolcorp' hook","async":true}]}]}}`)
 	refreshHooks()
@@ -1140,9 +1202,9 @@ func TestRefreshUpgradesAnEntryWithoutAPort(t *testing.T) {
 // An entry on this office's own port is refreshed as before: moved copy, new path.
 func TestRefreshUpdatesAnEntryOnThisOfficesPort(t *testing.T) {
 	home := isolate(t)
-	onPort(t, 4323)
+	onDefaultPort(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
-	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"'/home/me/.local/bin/smolcorp' hook --port 4323","async":true}]}]}}`)
+	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"'/home/me/.local/bin/smolcorp' hook --port 7710","async":true}]}]}}`)
 	refreshHooks()
 	if stop := commands(readJSON(t, settings), "Stop"); len(stop) != 1 || stop[0] != hookCommand(Claude) {
 		t.Errorf("Stop runs %q, want %q", stop, hookCommand(Claude))
@@ -1155,12 +1217,8 @@ func TestRefreshKeepsAnotherOfficesOpenCodePlugin(t *testing.T) {
 	if err := os.MkdirAll(agentFolder(OpenCode), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	onPort(t, 4322)
-	if err := connect(OpenCode, false); err != nil {
-		t.Fatal(err)
-	}
-	before, _ := os.ReadFile(openCodePlugin())
-	onPort(t, 4323)
+	onDefaultPort(t)
+	before := anotherOfficesPlugin(t, 4322)
 	refreshHooks()
 	if after, _ := os.ReadFile(openCodePlugin()); string(after) != string(before) {
 		t.Error("the refresh moved another office's OpenCode plugin")
@@ -1168,9 +1226,25 @@ func TestRefreshKeepsAnotherOfficesOpenCodePlugin(t *testing.T) {
 	if err := connect(OpenCode, false); err != nil {
 		t.Fatal(err)
 	}
-	if after, _ := os.ReadFile(openCodePlugin()); !strings.Contains(string(after), "4323") {
+	if after, _ := os.ReadFile(openCodePlugin()); !strings.Contains(string(after), `"7710"`) {
 		t.Error("connecting did not move the plugin to this office")
 	}
+}
+
+// anotherOfficesPlugin is OpenCode's plugin as the office on port wrote it, put in place by hand on the default
+// port (only that office writes it), and the plugin's text.
+func anotherOfficesPlugin(t *testing.T, port int) []byte {
+	t.Helper()
+	if err := writePlugin(); err != nil {
+		t.Fatal(err)
+	}
+	plugin, _ := os.ReadFile(openCodePlugin())
+	other := bytes.Replace(plugin, []byte(fmt.Sprintf(`"--port","%d"`, Port)), []byte(fmt.Sprintf(`"--port","%d"`, port)), 1)
+	if bytes.Equal(other, plugin) {
+		t.Fatal("the plugin names no port")
+	}
+	writeFile(t, openCodePlugin(), string(other))
+	return other
 }
 
 // Connecting is deliberate: it replaces another office's port.
@@ -1178,7 +1252,7 @@ func TestConnectReplacesAnotherOfficesPort(t *testing.T) {
 	home := isolate(t)
 	settings := filepath.Join(home, ".claude", "settings.json")
 	writeFile(t, settings, `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"'/home/me/.local/bin/smolcorp' hook --port 4322","async":true}]}]}}`)
-	onPort(t, 4323)
+	onDefaultPort(t)
 	if err := connect(Claude, false); err != nil {
 		t.Fatal(err)
 	}
@@ -1218,5 +1292,63 @@ func TestTheHookFallsBackFromABadPort(t *testing.T) {
 				t.Errorf("--port %q did not reach the inherited port", bad)
 			}
 		})
+	}
+}
+
+// Under the Mac app, the Swift engine's own entries (its report.sh in the support folder, as Hooks.swift wrote
+// them) are the deck's: the start-up refresh puts this program's in their place, every event once, and leaves
+// the user's own and a look-alike alone. The script itself stays, for a hire the Swift engine made.
+func TestUnderTheMacAppTheRefreshReplacesTheSwiftEnginesReportScript(t *testing.T) {
+	home := isolate(t)
+	onDefaultPort(t)
+	t.Cleanup(func() { hookHeaderFile = "" })
+	hookHeaderFile = filepath.Join(supportDir, "hook-header")
+	script := filepath.Join(supportDir, "report.sh")
+	writeFile(t, script, "#!/bin/sh\n")
+	swift := `"` + script + `"`
+	settings := filepath.Join(home, ".claude", "settings.json")
+	// Encoded, not spliced in: a Windows path's backslashes are JSON's escapes.
+	fixture, _ := json.Marshal(map[string]any{"hooks": map[string]any{"Stop": []any{
+		map[string]any{"hooks": []any{map[string]any{"type": "command", "command": swift, "async": true}}},
+		map[string]any{"hooks": []any{map[string]any{"type": "command", "command": swift + " --mine"}}},
+		map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "say done"}}},
+	}}})
+	writeFile(t, settings, string(fixture))
+	refreshHooks()
+	stop := commands(readJSON(t, settings), "Stop")
+	want := []string{`"` + script + `" --mine`, "say done", hookCommand(Claude)}
+	if !slices.Equal(stop, want) {
+		t.Errorf("Stop runs %q, want %q", stop, want)
+	}
+	if start := commands(readJSON(t, settings), "SessionStart"); !slices.Equal(start, []string{hookCommand(Claude)}) {
+		t.Errorf("SessionStart runs %q: the refresh brings every event, as connecting does", start)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Error("the Swift engine's script was taken away")
+	}
+
+	// Codex's entry names its agent after the script.
+	if !isOurs(map[string]any{"command": `"` + script + `" codex`}) || isOurs(map[string]any{"command": `"` + script + `" nobody`}) {
+		t.Error("an agent's report.sh entry is the deck's only with an agent's name after it")
+	}
+	// Exact (RGAPC N2): the Swift engine wrote the bare path for Claude Code and Grok, and the agent's name only for
+	// Codex, Gemini and OpenCode; `claude` or `grok` after it was never written, so it is the user's own.
+	for _, command := range []string{`"` + script + `" claude`, `"` + script + `" grok`} {
+		if isOurs(map[string]any{"command": command}) {
+			t.Errorf("%s counts as the deck's, which Swift never wrote", command)
+		}
+	}
+	for _, name := range []string{"codex", "gemini", "opencode"} {
+		if !isOurs(map[string]any{"command": `"` + script + `" ` + name}) || !isOurs(map[string]any{"command": `"` + script + `"`}) {
+			t.Errorf("an entry Swift wrote (%s) isn't the deck's", name)
+		}
+	}
+	// Not under the Mac app (Linux, Windows), nor another folder's script: not the deck's.
+	if isOurs(map[string]any{"command": `"/elsewhere/report.sh"`}) {
+		t.Error("another folder's report.sh counts as the deck's")
+	}
+	hookHeaderFile = ""
+	if isOurs(map[string]any{"command": `"` + script + `"`}) {
+		t.Error("without the Mac app, report.sh counts as the deck's")
 	}
 }

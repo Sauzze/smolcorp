@@ -1,0 +1,337 @@
+{
+  "about": "The host bridge's actions for what only macOS does (M2m; the login item, the office's window, the folder panel and the Summary key: FXC1b; the portable office's keys, the Swift engine's own Keychain items, and when you're back at the Mac: M7VIEW; the office's keys from anywhere: KSC, and in setup's facts the keys held now and each key's name on the layout in use, a French AZERTY's here: FXKSC), which processes work in a folder or name a session (M5c, read only: Let go's and Take over's check on the Go core), T3 Code's app found and opened by its bundle id and a hire's thread by its link (M5c, C4 A1), the Grok Bot app's bots for the core to find and the jukebox (FXC2), the GM's tiling: the Mac's screens, the hires' windows moved by the tty each shows and the office's window put under them (M7GAPC, the AppleScript only ever a stand-in's), and the install line of the self-test and its Move to Applications (FXC1c: only the app knows where its bundle is), and the phone's text into a Mac terminal (I5, IGL: the Swift engine's own Deck.typePhoneWords; the app asks the core the desk's state on the same connection, where the Swift engine looks at its own sessions, which no case here shows: the held one is the core saying it's asking; phone-text.json has the whole table; and the API-key account for a hire, M4c, with a stand-in key; the GM's token kept between runs in the Swift engine's own item, M7TOK, stand-in tokens; and the office's mic dictating, M7GAPA: this Mac's microphone recording for a desk, what it heard cleaned up as the core says, and the text typed in only while its agent is in front): each request as the Go core sends it (desktop/hostbridge.go, without its token) and the Mac app's answer (Sources/AgentDeck/HostBridge.swift), on the stand-ins both tests use. desktop/hostbridge_test.go checks the core asks exactly this and reads the answer; HostBridgeTests.swift checks the app answers exactly this.",
+  "cases": [
+    {
+      "name": "setup's facts, the apps keys may go to left out of those running",
+      "request": {"action": "facts", "apps": ["com.example.notes"]},
+      "answer": {"ok": true, "facts": {
+        "accessibility": false,
+        "testCopy": true,
+        "dictation": {"available": true, "allowed": false, "languages": ["fr_FR", "en_US"], "suggested": "en_US",
+                      "glossary": ["Smolcorp", "Claude"], "cleanupProblem": null},
+        "running": [{"id": "com.example.mail", "name": "Mail"}],
+        "terminalCommand": {"available": true, "state": "absent", "link": "~/.local/bin/smolcorp", "onPath": false,
+                            "pathLine": "export PATH=\"$HOME/.local/bin:$PATH\"", "pathFile": "~/.zshrc", "testCopy": true},
+        "officeKey": {"held": "alt+cmd+Q", "labels": {"Q": "A", "A": "Q"}}
+      }}
+    },
+    {"name": "In the Dock, switched off", "request": {"action": "dock", "on": false}, "answer": {"ok": true}},
+    {"name": "Open at login, read", "request": {"action": "login-item"}, "answer": {"ok": true, "on": false}},
+    {"name": "Open at login, switched on", "request": {"action": "login-item", "on": true}, "answer": {"ok": true, "on": true}},
+    {"name": "the office's window shown", "request": {"action": "office"}, "answer": {"ok": true}},
+    {"name": "the office's window kept on top", "request": {"action": "office-ontop", "on": true}, "answer": {"ok": true}},
+    {"name": "the office's keys held instead", "request": {"action": "office-key", "keys": "ctrl+alt+K"}, "answer": {"ok": true}},
+    {
+      "name": "the office's keys, taken by another app",
+      "request": {"action": "office-key", "keys": "ctrl+alt+T"},
+      "answer": {"ok": false, "error": "⌃⌥T is taken: macOS has it switched on, or won't let Smolcorp hold it. Choose another."}
+    },
+    {
+      "name": "the office's keys, the Mac's own on the layout in use",
+      "request": {"action": "office-key", "keys": "cmd+A"},
+      "answer": {"ok": false, "error": "⌘Q is the Mac's own, in every app: choose another."}
+    },
+    {
+      "name": "the folder panel for a floor, a folder picked",
+      "request": {"action": "choose-folder", "folder": "/Users/example/hires", "for": "floor"},
+      "answer": {"ok": true, "folder": "/Users/example/project"}
+    },
+    {"name": "the folder panel for the hires, none picked", "request": {"action": "choose-folder", "for": "hires"}, "answer": {"ok": true}},
+    {"name": "the hires' folder panel closed", "request": {"action": "folder-panel-close"}, "answer": {"ok": true}},
+    {"name": "the Summary key, from the Keychain", "request": {"action": "secret-read", "item": "summary-key"}, "answer": {"ok": true, "found": true, "value": "fake-summary-key"}},
+    {"name": "the portable office's id, from the Keychain", "request": {"action": "secret-read", "item": "viewer-id"}, "answer": {"ok": true, "found": true, "value": "AbCdEfGhIjKlMnOpQrStUv"}},
+    {"name": "the portable office's key, none yet", "request": {"action": "secret-read", "item": "viewer-key"}, "answer": {"ok": true, "found": false}},
+    {"name": "the portable office's write secret, there but unreadable", "request": {"action": "secret-read", "item": "viewer-write-secret"}, "answer": {"ok": false, "error": "It couldn't be read."}},
+    {"name": "the portable office's id, kept", "request": {"action": "secret-write", "item": "viewer-id", "value": "ZyXwVuTsRqPoNmLkJiHgFe"}, "answer": {"ok": true}},
+    {
+      "name": "where you are, for the portable office: idle, locked, and the unlocks and wakes seen",
+      "request": {"action": "presence"},
+      "answer": {"ok": true, "idle": 2.5, "locked": false, "unlocks": 3, "wakes": 1}
+    },
+    {"name": "the GM's token, from the Keychain item the Swift engine kept it in", "request": {"action": "secret-read", "item": "gm-token"}, "answer": {"ok": true, "found": true, "value": "fake-gm-token-from-1-24-0000000000000000000"}},
+    {"name": "a new GM's token, kept in the Keychain", "request": {"action": "secret-write", "item": "gm-token", "value": "fake-gm-token-other-00000000000000000000000"}, "answer": {"ok": true}},
+    {"name": "the GM's token, taken away", "request": {"action": "secret-delete", "item": "gm-token"}, "answer": {"ok": true}},
+    {"name": "Accessibility asked for", "request": {"action": "accessibility"}, "answer": {"ok": true}},
+    {
+      "name": "the install line, a copy run from Downloads",
+      "request": {"action": "install-check"},
+      "answer": {"ok": true, "check": {
+        "id": "install", "status": "fix", "title": "Smolcorp is in Applications", "fix": "install", "label": "Move to Applications",
+        "detail": "It's running from /Users/example/Downloads, where macOS may not keep it. In Applications it stays put, and opens at login."
+      }}
+    },
+    {
+      "name": "the install line, a translocated copy of one already in Applications",
+      "request": {"action": "install-check"},
+      "answer": {"ok": true, "check": {
+        "id": "install", "status": "fix", "title": "Smolcorp is in Applications", "fix": "install", "label": "Move to Applications",
+        "detail": "macOS is opening a temporary copy of Smolcorp because it was just downloaded. If this is the copy you just downloaded, move it to Applications. If Smolcorp is already there, quit it, run this in Terminal, then open it again: xattr -d com.apple.quarantine '/Applications/Smolcorp.app'. After that, allow Accessibility."
+      }}
+    },
+    {
+      "name": "the install line, a copy in Applications",
+      "request": {"action": "install-check"},
+      "answer": {"ok": true, "check": {"id": "install", "status": "ok", "title": "Smolcorp is in Applications", "detail": "As /Applications/Smolcorp.app."}}
+    },
+    {
+      "name": "the install line, a test copy",
+      "request": {"action": "install-check"},
+      "answer": {"ok": true, "check": {
+        "id": "install", "status": "ok", "title": "Smolcorp is in Applications",
+        "detail": "A test copy, beside the Smolcorp you use: it stays where it was built."
+      }}
+    },
+    {"name": "the app moved to Applications", "request": {"action": "install"}, "answer": {"ok": true}},
+    {
+      "name": "the app moved to Applications, refused",
+      "request": {"action": "install"},
+      "answer": {"ok": false, "error": "A test copy stays where it was built."}
+    },
+    {"name": "keys in other apps switched on", "request": {"action": "keystrokes-on"}, "answer": {"ok": true}},
+    {
+      "name": "an app allowed keys",
+      "request": {"action": "keystroke-apps", "apps": ["com.example.notes"], "app": "com.example.mail", "on": true},
+      "answer": {"ok": true, "apps": ["com.example.notes", "com.example.mail"]}
+    },
+    {
+      "name": "an app taken off, any capitals",
+      "request": {"action": "keystroke-apps", "apps": ["com.example.notes", "com.example.mail"], "app": "COM.EXAMPLE.NOTES", "on": false},
+      "answer": {"ok": true, "apps": ["com.example.mail"]}
+    },
+    {
+      "name": "a terminal never allowed keys",
+      "request": {"action": "keystroke-apps", "apps": ["com.example.notes"], "app": "com.apple.Terminal", "on": true},
+      "answer": {"ok": false, "error": "Keys are never sent to a terminal, an editor with a terminal, Claude, a password or settings app, or Smolcorp itself."}
+    },
+    {
+      "name": "dictation's names, checked",
+      "request": {"action": "glossary", "names": ["Smolcorp", " smolcorp ", "Tailscale", ""]},
+      "answer": {"ok": true, "names": ["Smolcorp", "Tailscale"]}
+    },
+    {
+      "name": "dictation got ready, with a problem",
+      "request": {"action": "dictation", "language": "fr_FR"},
+      "answer": {"ok": true, "problem": "Apple's model for French couldn't be downloaded."}
+    },
+    {
+      "name": "dictation in a language it doesn't know",
+      "request": {"action": "dictation", "language": "xx_XX"},
+      "answer": {"ok": false, "error": "Not a language dictation knows."}
+    },
+    {
+      "name": "the office's mic, recording for a Terminal tab",
+      "request": {"action": "dictation-start", "tab": "tty:/dev/ttys003", "language": "fr_FR"},
+      "answer": {"ok": true, "started": true}
+    },
+    {
+      "name": "the office's mic, recording that couldn't start",
+      "request": {"action": "dictation-start", "tab": "tty:/dev/ttys004", "language": "en_US"},
+      "answer": {"ok": true, "started": false}
+    },
+    {
+      "name": "the office's mic, while the core is recording already",
+      "request": {"action": "dictation-start", "tab": "tty:/dev/ttys003", "language": "fr_FR", "busy": true},
+      "answer": {"ok": true, "started": false}
+    },
+    {
+      "name": "the office's mic let go, what it heard",
+      "request": {"action": "dictation-stop"},
+      "answer": {"ok": true, "text": "Fix the uh small corp build"}
+    },
+    {
+      "name": "the office's mic let go, nothing heard",
+      "request": {"action": "dictation-stop"},
+      "answer": {"ok": true, "text": ""}
+    },
+    {
+      "name": "what it heard, cleaned up by Claude",
+      "request": {"action": "dictation-clean", "text": "Fix the uh small corp build", "on": true, "desks": ["smolcorp", "website"]},
+      "answer": {"ok": true, "text": "Fix the Smolcorp build", "note": "cleaned in 0.9 s", "cleaned": true}
+    },
+    {
+      "name": "what it heard, the clean-up off",
+      "request": {"action": "dictation-clean", "text": "hello there", "on": false, "glossary": []},
+      "answer": {"ok": true, "text": "hello there", "note": null, "cleaned": false}
+    },
+    {
+      "name": "the clean-up switched off, its last problem forgotten",
+      "request": {"action": "dictation-cleanup-off"},
+      "answer": {"ok": true}
+    },
+    {
+      "name": "dictation's text, into a Terminal tab, its agent in front",
+      "request": {"action": "insert", "tab": "tty:/dev/ttys003", "agent": "codex", "text": "Fix the Smolcorp build"},
+      "answer": {"ok": true}
+    },
+    {
+      "name": "dictation's text, to an agent that has ended",
+      "request": {"action": "insert", "tab": "tty:/dev/ttys005", "agent": "codex", "text": "Fix the build"},
+      "answer": {"ok": false, "error": "That agent has ended.", "place": "gone"}
+    },
+    {
+      "name": "Add smolcorp to Terminal, in a test copy",
+      "request": {"action": "terminal-command", "on": true},
+      "answer": {"ok": false, "error": "This is a test copy of Smolcorp: it leaves your Terminal's commands to the copy in use."}
+    },
+    {
+      "name": "the desks' terminals, from the drivers' tables",
+      "request": {"action": "abilities", "tabs": ["iterm:AB12", "tty:/dev/ttys003", "headless:3f2a9c1e"]},
+      "answer": {"ok": true, "abilities": [
+        {"keys": true, "text": true, "fire": true, "screen": true},
+        {"keys": true, "text": true, "fire": true, "screen": true},
+        {"keys": false, "text": false, "fire": false, "screen": false}
+      ]}
+    },
+    {
+      "name": "the desks whose agent has left its tab, read only",
+      "request": {"action": "agents-ended", "tabs": ["tty:/dev/ttys005", "iterm:AB12"], "agents": ["claude", "codex"]},
+      "answer": {"ok": true, "ended": [true, false]}
+    },
+    {
+      "name": "a hire's own window closed strictly, only a shell left there",
+      "request": {"action": "close", "tab": "tty:/dev/ttys005", "agent": "claude", "strict": true},
+      "answer": {"ok": true, "fired": "gone"}
+    },
+    {
+      "name": "Grok Bots looked for in the Grok Bot app",
+      "request": {"action": "bots-resolve", "bots": [{"botId": "", "bot": "Smolcorp Mini"}, {"botId": "", "bot": "Nobody Here"}]},
+      "answer": {"ok": true, "resolved": [{"botId": "0a1b-2c3d", "name": "Smolcorp Mini Manager", "by": "guess"}, null]}
+    },
+    {
+      "name": "the phone's text, one line, into a Terminal tab",
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude", "text": "Bonjour l’équipe « ça marche » 👩‍💻 ;"},
+      "answer": {"ok": true, "pasted": "pasted"}
+    },
+    {
+      "name": "the phone's text, several lines, as one paste in iTerm2",
+      "request": {"action": "phone-text", "tab": "iterm:AB12", "agent": "claude", "text": "first line\n    indented\tand a tab"},
+      "answer": {"ok": true, "pasted": "pasted"}
+    },
+    {
+      "name": "the phone's text, several lines, to an agent not known to take one paste",
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys004", "agent": "codex", "text": "one\ntwo"},
+      "answer": {"ok": false, "error": "Codex isn't known to take several lines as one paste here, so nothing was typed: send it as one line."}
+    },
+    {
+      "name": "the phone's text, to an agent that has ended",
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys005", "agent": "claude", "text": "hello"},
+      "answer": {"ok": false, "error": "That agent has ended.", "place": "gone"}
+    },
+    {
+      "name": "the phone's text, starting with !, refused",
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude", "text": "!ls"},
+      "answer": {"ok": false, "error": "Not text to type."}
+    },
+    {
+      "name": "the phone's text, held: the core said it's asking as the terminal got to it",
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys006", "agent": "claude", "text": "hello"},
+      "answer": {"ok": false, "error": "It's asking you something: answer it on the deck first."}
+    },
+    {
+      "name": "the phone's text, several lines, ⌘V the terminal hadn't read in time",
+      "request": {"action": "phone-text", "tab": "iterm:CD34", "agent": "claude", "text": "one\ntwo"},
+      "answer": {"ok": false, "error": "The terminal hadn't taken the paste in time, so no Return was sent: look at the Mac before trying again, as the text may still appear.", "mayHaveTyped": true}
+    },
+    {
+      "name": "the peek at the input line",
+      "request": {"action": "peek", "tab": "tty:/dev/ttys003", "agent": "claude"},
+      "answer": {"ok": true, "peek": ["> Bonjour l’équipe", "  ? for shortcuts"]}
+    },
+    {
+      "name": "the peek, the agent not in front",
+      "request": {"action": "peek", "tab": "tty:/dev/ttys005", "agent": "claude"},
+      "answer": {"ok": false, "error": "That agent isn't in front in its terminal.", "place": "behind"}
+    },
+    {
+      "name": "the API-key account, offered for a hire (the key isn't read)",
+      "request": {"action": "api-key-offer"},
+      "answer": {"ok": true, "available": true, "notice": "Billed to your Anthropic API key (the one saved under Summaries), not your Claude subscription. The hire can read this key."}
+    },
+    {
+      "name": "the API-key account's key, for the hire being made",
+      "request": {"action": "api-key-read"},
+      "answer": {"ok": true, "found": true, "value": "fk-m4c-0123456789"}
+    },
+    {
+      "name": "the processes working in a hire's worktree, or naming its session",
+      "request": {"action": "processes", "folder": "/Users/ada/repo-hires/ada-abcdef", "session": "6f1c2a9e-0b3d-4e5f-8a7b-1c2d3e4f5a6b"},
+      "answer": {"ok": true, "processes": [{"pid": 4242, "name": "claude", "why": "folder"}, {"pid": 4343, "name": "node", "why": "add-dir"},
+                                           {"pid": 4444, "name": "tail", "why": "session"}]}
+    },
+    {
+      "name": "the processes, on a Mac that can't list them",
+      "request": {"action": "processes", "folder": "/Users/ada/repo-hires/ada-abcdef"},
+      "answer": {"ok": false, "error": "This Mac couldn't list its processes."}
+    },
+    {"name": "T3 Code's app looked for by its bundle id", "request": {"action": "t3-app"}, "answer": {"ok": true, "found": true}},
+    {"name": "T3 Code's app opened", "request": {"action": "t3-open-app"}, "answer": {"ok": true}},
+    {
+      "name": "a hire's thread opened by T3 Code's own link",
+      "request": {"action": "t3-link", "link": "t3code://threads/local/mcp%3Aabc-1"},
+      "answer": {"ok": true}
+    },
+    {
+      "name": "any other link refused",
+      "request": {"action": "t3-link", "link": "https://example.com/threads/local/mcp%3Aabc-1"},
+      "answer": {"ok": false, "error": "Not a T3 Code thread's link."}
+    },
+    {
+      "name": "the Grok Bot app's bots, for the core to find",
+      "request": {"action": "bots-roster"},
+      "answer": {"ok": true, "rows": [{"id": "0a1b-2c3d", "name": "Smolcorp Mini Manager", "isGroup": false}, {"id": "9f8e", "name": "Two bots", "isGroup": true}]}
+    },
+    {
+      "name": "the jukebox: what's playing and the volume",
+      "request": {"action": "music-state"},
+      "answer": {"ok": true, "playing": true, "volume": {"level": 45, "muted": false}}
+    },
+    {
+      "name": "the jukebox's play key, without Accessibility",
+      "request": {"action": "music", "music": "playpause"},
+      "answer": {"ok": false, "error": "Keyboard access is off. Turn it on in setup, on your Mac."}
+    },
+    {
+      "name": "the jukebox's volume set",
+      "request": {"action": "volume", "level": 30},
+      "answer": {"ok": true}
+    },
+    {
+      "name": "how the Mac writes a short time, for a webhook delivery's",
+      "request": {"action": "time-format"},
+      "answer": {"ok": true, "timeFormat": {"pattern": "h:mm a", "am": "AM", "pm": "PM"}}
+    },
+    {
+      "name": "the Mac's screens, read afresh",
+      "request": {"action": "screens"},
+      "answer": {"ok": true, "screens": [
+        {"id": "1", "name": "Built-in Retina Display", "frame": {"x": 0, "y": 0, "width": 1512, "height": 982},
+         "visible": {"x": 0, "y": 0, "width": 1512, "height": 950}, "main": true},
+        {"id": "2", "name": "PA278CV", "frame": {"x": -1440, "y": 0, "width": 1440, "height": 2560},
+         "visible": {"x": -1440, "y": 0, "width": 1440, "height": 2530}, "main": false}
+      ]}
+    },
+    {
+      "name": "the hires' windows tiled in Terminal, one with no window",
+      "request": {"action": "tile", "terminal": "terminal", "places": [
+        {"tty": "/dev/ttys003", "rect": {"x": 0, "y": 30, "width": 480, "height": 573}},
+        {"tty": "/dev/ttys004", "rect": {"x": 480, "y": 603, "width": 480, "height": 573}}
+      ]},
+      "answer": {"ok": true, "placed": ["/dev/ttys003"]}
+    },
+    {
+      "name": "tiling refused by iTerm2's Automation permission",
+      "request": {"action": "tile", "terminal": "iterm", "places": [{"tty": "/dev/ttys005", "rect": {"x": 0, "y": 30, "width": 480, "height": 573}}]},
+      "answer": {"ok": true, "placed": [], "needsPermission": true}
+    },
+    {
+      "name": "tiling refused in a test copy",
+      "request": {"action": "tile", "terminal": "terminal", "places": [{"tty": "/dev/ttys003", "rect": {"x": 0, "y": 30, "width": 480, "height": 573}}]},
+      "answer": {"ok": false, "error": "This is a test copy of Smolcorp: it never moves or tiles the windows of other apps."}
+    },
+    {
+      "name": "the office's window put under the team",
+      "request": {"action": "office-place", "office": {"x": 0, "y": 1750, "width": 1440, "height": 810}, "mainHeight": 2560},
+      "answer": {"ok": true}
+    }
+  ]
+}

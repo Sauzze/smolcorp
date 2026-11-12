@@ -48,23 +48,32 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
 
     /// On top of other windows, on every Space and beside apps in full
     /// screen: setup's switch, and the menu's Always on Top. Off unless you
-    /// turn it on (see `settle`).
+    /// turn it on (see `settleForCore`).
     var alwaysOnTop: Bool {
         get { config.officeOnTop ?? false }
-        set {
-            config.officeOnTop = newValue
-            config.save()
-            applyOptions()
-        }
     }
 
     /// Kept on top once in the menu, and on by default there: a Mac that had
     /// the office window before keeps what it had, its choice or that
-    /// default, and a new one starts with it off. Once, as the app starts.
-    static func settle(_ config: Config, defaults: UserDefaults = .standard, file: URL = Paths.config) {
-        guard config.officeOnTop == nil else { return }
-        config.officeOnTop = defaults.object(forKey: "officeWindow.alwaysOnTop") as? Bool ?? config.hasCompletedSetup
-        config.save(to: file)
+    /// default, and a new one starts with it off. Once, as the app starts
+    /// (`settleForCore`).
+    /// What `settleForCore` keeps on top, or nil once it's kept.
+    static func settled(_ config: Config, defaults: UserDefaults = .standard) -> Bool? {
+        guard config.officeOnTop == nil else { return nil }
+        return defaults.object(forKey: "officeWindow.alwaysOnTop") as? Bool ?? config.hasCompletedSetup
+    }
+
+    /// `settled` under the Go core (`GoShellDelegate`), before it starts: the core keeps the config file,
+    /// so only this one setting is put in it, as `settled` decides, and the rest is left exactly as it is,
+    /// never this app's whole config. No file yet: the core's default, off, as `settled` would keep for a
+    /// Mac that hasn't been set up.
+    static func settleForCore(_ config: Config, defaults: UserDefaults = .standard, file: URL = Paths.config) {
+        guard let onTop = settled(config, defaults: defaults), let data = try? Data(contentsOf: file),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+        object["alwaysOnTop"] = onTop // Config.officeOnTop's key in the file
+        guard let settled = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else { return }
+        Paths.writePrivately(settled, to: file)
+        config.officeOnTop = onTop
     }
 
     /// On every Space, and beside apps in full screen, on its own: kept on
@@ -106,6 +115,8 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     func toggle() { isShown ? hide() : show() }
 
     func show() {
+        // The second layer for a test copy: no path (the shortcut, the menu, a page, the Dock) puts its office in front.
+        guard TestCopy.mayComeForward("the office window") else { return }
         let panel = self.panel ?? makePanel()
         let screen = screenUnderPointer()
         panel.setFrame(savedFrame(on: screen) ?? firstFrame(on: screen), display: false)
@@ -456,7 +467,8 @@ final class HotKey {
 }
 
 extension OfficeWindow {
-    /// Puts the office's window at `rect` (AppleScript's coordinates) while it's shown.
+    /// Puts the office's window at `rect` (AppleScript's coordinates) while it's shown: the GM's tiling puts it
+    /// under the team (HostBridge's `office-place`).
     func place(atTile rect: CGRect, mainHeight: CGFloat) {
         guard let panel, panel.isVisible else { return }
         panel.setFrame(Tiler.flipped(rect, mainHeight: mainHeight), display: true)

@@ -172,15 +172,19 @@ func (d *Deck) hireLauncherID(h Hire) (id string, ok bool) {
 	}
 	// An older hire's launcher has no hire id, only the folder it was started in: match the
 	// hire's own place (its worktree if it has one, never also its folder), and give up when any
-	// other open hire works there too, as its window would match just as well.
-	own := Hire{Worktree: h.Worktree}
-	if own.Worktree == "" {
-		own.Folder = h.Folder
+	// other open hire works there too, as its window would match just as well. Each by its own place: a
+	// registry's folder is the project a hire was hired into, not where one with a worktree works.
+	ownPlace := func(o Hire) Hire {
+		if o.Worktree != "" {
+			return Hire{Worktree: o.Worktree}
+		}
+		return Hire{Folder: o.Folder}
 	}
+	own := ownPlace(h)
 	var others []Hire
 	for _, o := range readRegistry(registryPath(), false).hires {
 		if o.ID != h.ID && isOpen(o) {
-			others = append(others, o)
+			others = append(others, ownPlace(o))
 		}
 	}
 	// Compared outside the lock: it resolves links on disk.

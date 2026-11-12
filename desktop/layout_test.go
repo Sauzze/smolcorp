@@ -260,7 +260,7 @@ func sent(t *testing.T, tab *launcherTab) launcherCommand {
 	select {
 	case command := <-tab.commands:
 		return command
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("nothing reached the session")
 		return launcherCommand{}
 	}
@@ -303,7 +303,7 @@ func TestProfilesKeepALookToSwitchBackTo(t *testing.T) {
 	if c.ActiveProfile != defaultProfile || c.profileEdited() {
 		t.Fatal("a fresh deck isn't the Default profile, unchanged")
 	}
-	couch := Layout{Keys: 3, Dial: false, Stick: true, Rows: []ButtonRow{{Tall: true, Buttons: []Button{{ID: "max", Width: 3}}}}}
+	couch := Layout{Keys: Auto, Dial: false, Stick: true, Rows: []ButtonRow{{Tall: true, Buttons: []Button{{ID: "max", Width: 3}}}}}
 	c.Layout = couch
 	c.Colours = map[string]string{"thinking": "#2f6bff"}
 	if !c.profileEdited() {
@@ -413,7 +413,8 @@ func TestTheSetupPageLaysOutTheDeck(t *testing.T) {
 	if got := send(layout, nil); got != http.StatusForbidden {
 		t.Errorf("a layout sent without the setup page's header: %d, want %d", got, http.StatusForbidden)
 	}
-	if got := send(layout, map[string]string{setupHeader: "1"}); got != http.StatusNoContent || d.config.Layout.Keys != 6 || d.config.Layout.Dial {
+	// The fixed count of 6 is read but not kept, as the Mac's (Layout.swift): desks are as many as there are sessions.
+	if got := send(layout, map[string]string{setupHeader: "1"}); got != http.StatusNoContent || d.config.Layout.Keys != Auto || d.config.Layout.Dial {
 		t.Fatalf("the setup page's layout: %d, and the deck has %+v", got, d.config.Layout)
 	}
 	if got := send(`[1, 2, 3]`, map[string]string{setupHeader: "1"}); got != http.StatusBadRequest {

@@ -4,21 +4,23 @@
 #   scripts/build-app.sh             for this Mac's processor
 #   scripts/build-app.sh universal   for Apple silicon and Intel, as released
 #
-# Used by install.sh and scripts/release.sh. Needs the Xcode Command Line Tools.
+# Used by install.sh and scripts/release.sh. Needs the Xcode Command Line Tools,
+# and Go 1.26 or later: the app's engine is the `smolcorp` command inside it.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# Without Go the app would have no engine to run, so nothing is built.
+if ! command -v go >/dev/null 2>&1; then
+  echo "Smolcorp needs Go 1.26 or later to build: its engine is written in Go. Install it (brew install go, or go.dev/dl), then run this again."
+  exit 1
+fi
 APP_NAME="Smolcorp"
 EXECUTABLE="AgentDeck" # the Swift package's product, named in Info.plist
 APP="build/$APP_NAME.app"
 
 ARCHS=()
 [ "${1:-}" = "universal" ] && ARCHS=(--arch arm64 --arch x86_64)
-
-# The phone's viewer draws with a copy of the office: an app whose office has
-# moved on without it would show the phone another room.
-viewer/scripts/sync-office.sh --check
 
 echo "Building…"
 mkdir -p build
@@ -39,33 +41,32 @@ cp "$BIN" "$APP/Contents/MacOS/$EXECUTABLE"
 strip -S -no_code_signature_warning "$APP/Contents/MacOS/$EXECUTABLE"
 cp Resources/Info.plist "$APP/Contents/"
 cp Resources/AppIcon.icns Resources/report.sh Resources/opencode-plugin.js Resources/opencode-plugin-v1.js "$APP/Contents/Resources/"
-cp -R Resources/web "$APP/Contents/Resources/"
-cp -R Resources/briefs "$APP/Contents/Resources/"
+# office.js is built from Resources/web/office (scripts/buildoffice), and
+# committed: checked here, never rebuilt, so a change made in office.js itself
+# isn't lost. The pages, office.js and the briefs are inside the `smolcorp`
+# command below (go:embed, web.go), so the app carries no copy of Resources/web
+# or Resources/briefs: nothing reads one. The GM's plugin stays a folder, as the
+# command finds it beside itself (desktop/hirestart.go).
+go run ./scripts/buildoffice -check
 cp -R Resources/gm "$APP/Contents/Resources/"
 # Signed already, so the app's signature seals it as it is.
 cp -R "build/Smolcorp Office.saver" "$APP/Contents/Resources/"
-# The `smolcorp` command (the GM's hands and the guard), for Apple silicon and
-# Intel in one file. Setup can link it into Terminal. Signed with the app below.
-# cgo is on because the tray the other computers use needs it to build; on the Mac
-# the app is Smolcorp.app, so the command refuses to start another (cmd/smolcorp/start_darwin.go).
+# The `smolcorp` command, for Apple silicon and Intel in one file: the app's
+# engine (`smolcorp core`, which the app starts and is the shell of), and the
+# GM's hands and the guard. Setup can link it into Terminal. Signed with the app
+# below. cgo is on because the tray the other computers use needs it to build;
+# on the Mac only the app starts the engine, so the command refuses to start an
+# app of its own (cmd/smolcorp/start_darwin.go).
 mkdir -p "$APP/Contents/Resources/bin"
-if command -v go >/dev/null 2>&1; then
-  CLI_VERSION="$(sed -n '/CFBundleShortVersionString/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist)"
-  CLI_TMP="$(mktemp -d)"
-  for goarch in arm64 amd64; do
-    CGO_ENABLED=1 MACOSX_DEPLOYMENT_TARGET=13.0 GOOS=darwin GOARCH="$goarch" go build -trimpath -buildvcs=false \
-      -ldflags "-s -w -X main.version=$CLI_VERSION" -o "$CLI_TMP/smolcorp-$goarch" ./cmd/smolcorp
-  done
-  lipo -create "$CLI_TMP/smolcorp-arm64" "$CLI_TMP/smolcorp-amd64" -output "$APP/Contents/Resources/bin/smolcorp"
-  chmod 755 "$APP/Contents/Resources/bin/smolcorp"
-  rm -rf "$CLI_TMP"
-elif [ "${1:-}" = "universal" ]; then
-  echo "A release needs Go (to build the smolcorp command inside the app)."
-  exit 1
-else
-  echo "Go isn't installed: this build has no smolcorp command inside it (brew install go)."
-  rmdir "$APP/Contents/Resources/bin"
-fi
+CLI_VERSION="$(sed -n '/CFBundleShortVersionString/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist)"
+CLI_TMP="$(mktemp -d)"
+for goarch in arm64 amd64; do
+  CGO_ENABLED=1 MACOSX_DEPLOYMENT_TARGET=13.0 GOOS=darwin GOARCH="$goarch" go build -trimpath -buildvcs=false \
+    -ldflags "-s -w -X main.version=$CLI_VERSION" -o "$CLI_TMP/smolcorp-$goarch" ./cmd/smolcorp
+done
+lipo -create "$CLI_TMP/smolcorp-arm64" "$CLI_TMP/smolcorp-amd64" -output "$APP/Contents/Resources/bin/smolcorp"
+chmod 755 "$APP/Contents/Resources/bin/smolcorp"
+rm -rf "$CLI_TMP"
 # With a code-signing identity of your own in your keychain, the app is signed
 # with it: the Keychain then knows each rebuild as the same app, and an "Always
 # Allow" lasts. Which one: $SMOLCORP_SIGN_IDENTITY, else the name in

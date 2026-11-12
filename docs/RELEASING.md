@@ -14,7 +14,9 @@ release notes:
 | `build/Smolcorp.zip` | The same app, zipped, for the Homebrew cask and older links. Keep uploading it. |
 
 The script won't run with uncommitted changes or untracked files: commit them
-or set them aside first.
+or set them aside first. It needs [Go](https://go.dev) 1.26 or later, as any
+build of the app does: the app's core, `Contents/Resources/bin/smolcorp`, is
+built from `cmd/smolcorp` for both architectures.
 
 ## The DMG
 
@@ -50,8 +52,8 @@ build/dmg-venv/bin/python packaging/macos/dmg/preview.py build/dmg-preview.png
 ## Signing and notarisation
 
 By default the app is **signed ad hoc**: it works, but the first time people
-open it, macOS asks them to approve it in System Settings → Privacy & Security
-(the README explains how). A Developer ID and Apple's notarisation remove that
+open it, macOS asks them to approve it in System Settings → Privacy & Security.
+A Developer ID and Apple's notarisation remove that
 step. `release.sh` does both when two environment variables are set. Without
 them it signs ad hoc, as it always has.
 
@@ -117,8 +119,8 @@ SMOLCORP_NOTARY_PROFILE=smolcorp-notary \
 scripts/release.sh
 ```
 
-Notarisation usually takes a few minutes. If Apple rejects it, the script
-stops. See why with:
+Notarisation usually takes a few minutes each time. If Apple rejects it, the
+script stops. See why with:
 
 ```bash
 xcrun notarytool log <submission-id> --keychain-profile smolcorp-notary

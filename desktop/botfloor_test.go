@@ -555,6 +555,10 @@ func TestABotGetsTheDeskItHadBackAfterARestart(t *testing.T) {
 	}
 	d := startDeck(t)
 	d.summaryProviders.set(map[summaryProvider]providerState{})
+	// config.json's fixed count is read but not kept (as the Mac's Layout): six keys here, to see each key's place.
+	d.mu.Lock()
+	d.config.Layout.Keys = 6
+	d.mu.Unlock()
 	keys, _ := seating(d)
 	if !slices.Equal(keys, []string{"", "", "", "", "cloud-manager", ""}) {
 		t.Errorf("the keys are %v, want the manager back at the fifth", keys)
