@@ -102,7 +102,8 @@ func ensureWindowKey(phones *Phones, keyFile string) string {
 			return key
 		}
 	}
-	key := phones.Pair(windowDeviceName)
+	// Its key goes over this computer's loopback only, bare, and never signs.
+	key := phones.Pair(windowDeviceName, false)
 	_ = writePrivate(keyFile, []byte(key+"\n"))
 	return key
 }

@@ -101,7 +101,8 @@ func Serve(deck *Deck) error {
 		return err
 	}
 	// No ReadTimeout: it would end the event streams too. Each request's body
-	// gets its own deadline instead, in ServeHTTP.
+	// gets its own deadline instead, in ServeHTTP, which a stream lifts once
+	// it's let in.
 	server := &http.Server{
 		Handler:           &router{deck: deck},
 		ReadHeaderTimeout: requestTimeout,
@@ -210,10 +211,9 @@ var (
 func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestSize)
 	// A body sent a byte at a time would hold its connection for as long as
-	// it liked. The event streams and launchers stay open, and send nothing.
-	if r.URL.Path != "/events" && r.URL.Path != "/launcher" {
-		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(requestTimeout))
-	}
+	// it liked. The event streams and launchers too, until they're let in
+	// (keepOpen): then they stay open, and send nothing.
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(requestTimeout))
 	host := portSuffix.ReplaceAllString(r.Host, "")
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(remote)
@@ -454,10 +454,11 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	private := r.isLocal || r.isTailnet || fromTailnet(r.Request)
 
 	if r.Method == http.MethodPost && r.URL.Path == "/pair" {
-		// Scanned: the QR code's key, never sent, signs the request.
+		// Scanned: the QR code's key, never sent, signs the request. Its body is read before the deck is held.
 		if isSigned(r.Request) {
+			parts, ok := readSigned(r.Request)
 			d.mu.Lock()
-			why := d.access.Claim(r.Request, r.remoteAddress, time.Now())
+			why := d.access.Claim(parts, ok, r.URL.Query().Get("p"), r.remoteAddress, r.UserAgent(), time.Now())
 			d.mu.Unlock()
 			if why != "" {
 				writeJSON(w, http.StatusForbidden, map[string]any{"error": "That QR code isn't valid any more. Get a new one on your " + d.machine() + ".",
@@ -479,7 +480,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return -1
 		}, stringValue(decodeJSON(r.Body)["code"]))
 		d.mu.Lock()
-		key, ok := d.access.Redeem(code, r.remoteAddress, r.UserAgent())
+		key, ok := d.access.Redeem(code, r.remoteAddress, r.UserAgent(), private)
 		d.mu.Unlock()
 		if !ok {
 			writeJSON(w, http.StatusForbidden, map[string]any{"error": "That code isn't valid. Get a new one on your " + d.machine() + "."})
@@ -527,14 +528,22 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	if key == "" {
 		key = r.Header.Get(hookKeyHeader)
 	}
+	// A signed request's body is read and hashed before the deck is held: anyone on the Wi-Fi can send one
+	// whose body never comes, and the lock is every phone's, the office's, the hooks' and setup's.
+	signed := isSigned(r.Request)
+	var parts signedParts
+	var wellFormed bool
+	if signed {
+		parts, wellFormed = readSigned(r.Request)
+	}
 	d.mu.Lock()
 	phoneID, refused := "", ""
 	// The office in a browser on this computer reads it as a phone does,
 	// from this computer only: a phone that isn't paired, saved or listed.
 	if r.isLocal && d.access.IsWindowKey(key) {
 		phoneID = officeWindowID
-	} else if isSigned(r.Request) {
-		if phone, why := d.access.SignedPhone(r.Request, time.Now()); phone != nil {
+	} else if signed {
+		if phone, why := d.access.SignedPhone(parts, wellFormed, time.Now()); phone != nil {
 			d.access.Phones.MarkSeen(phone)
 			phoneID = phone.ID
 		} else {
@@ -917,12 +926,19 @@ func (s *eventStream) send(state []byte) {
 // close hangs up. The phone's next attempt to reconnect is answered afresh.
 func (s *eventStream) close() { s.once.Do(func() { close(s.closed) }) }
 
+// keepOpen lifts the deadline ServeHTTP gave a request's body, for a stream let in: it sends no body, and
+// the deadline, still on once its body was read, would end it.
+func keepOpen(w http.ResponseWriter) {
+	_ = http.NewResponseController(w).SetReadDeadline(time.Time{})
+}
+
 func (rt *router) events(w http.ResponseWriter, r *request, phone string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	keepOpen(w)
 	stream := rt.deck.attach(phone)
 	defer rt.deck.detach(stream)
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -964,6 +980,7 @@ func (rt *router) launcher(w http.ResponseWriter, r *request) {
 		return
 	}
 	defer rt.deck.launcherGone(id, tab)
+	keepOpen(w)
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(http.StatusOK)
 	encoder := json.NewEncoder(w)
@@ -2194,10 +2211,14 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 	}
 	phones := make([]map[string]any, len(d.access.Phones.All))
 	for i, phone := range d.access.Phones.All {
+		before := !phone.Signs && phone.Name != windowDeviceName && phone.Name != windowDeviceNameBefore
 		phones[i] = map[string]any{
 			"id": phone.ID, "name": phone.Name,
 			"pairedAt": phone.PairedAt.UnixMilli(), "lastSeen": phone.LastSeen.UnixMilli(),
 			"connected": d.isConnected(phone.ID),
+			// Paired before 1.25: its key crossed the Wi-Fi in clear, so it doesn't sign there (B1).
+			// This app's own window on Windows never signs, and isn't a phone.
+			"beforeSigning": before, "pairedAgain": before && d.access.Phones.PairedAgain(phone),
 		}
 	}
 	// Every key a project can be pinned to, even those the phone doesn't

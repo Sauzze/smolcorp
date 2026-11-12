@@ -120,7 +120,7 @@ func TestWindowKeyPairsOnceAndIsKept(t *testing.T) {
 func TestUnpairAllRemovesTheWindowAndItComesBack(t *testing.T) {
 	isolate(t)
 	phones := loadPhones()
-	phone := phones.Pair("Phone")
+	phone := phones.Pair("Phone", true)
 	window := ensureWindowKey(phones, windowKeyFile)
 	if phonesOnly(phones) != 1 || len(phones.All) != 2 {
 		t.Fatalf("the window is not a phone: %d phones of %d devices", phonesOnly(phones), len(phones.All))

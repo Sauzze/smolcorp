@@ -5,12 +5,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -97,7 +104,10 @@ func TestAnOldTimestampIsRefused(t *testing.T) {
 			t.Errorf("signed %v from now: the refusal says the time is %d", off, now)
 		}
 	}
-	// Within the minute, it's taken.
+	// Within the minute, it's taken, once the app has been running that long.
+	d.mu.Lock()
+	d.access.started = time.Now().Add(-time.Hour)
+	d.mu.Unlock()
 	target := signedTarget("POST", "/focus?session=nobody&t="+key, "", time.Now().Add(-30*time.Second))
 	if got := serve(t, d, call{method: "POST", target: target, host: deckOnWiFi, from: aPhone}); got.Code != http.StatusNotFound {
 		t.Errorf("signed 30 s ago: %d, want it taken (404 for no session)", got.Code)
@@ -373,4 +383,253 @@ func readWebBytes(t *testing.T, name string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+// A phone paired before signing (RSECWIFI B1) sent its key as ?t= over the Wi-Fi, and an old saved page still
+// does: anyone who read it there could sign with it. Its key works bare over Tailscale and on this computer
+// only, never signed from the Wi-Fi; setup says so.
+func TestAKeyFromBeforeSigningDoesntSignOverTheWiFi(t *testing.T) {
+	d := newTestDeck(t)
+	d.mu.Lock()
+	// As every phone paired before 1.25, and a setup from before that typed over the Wi-Fi, which keeps it on.
+	legacy := d.access.Phones.Pair("iPhone", false)
+	d.config.PhoneTextWiFi = true
+	d.mu.Unlock()
+	// The old page opened after the upgrade: refused, but its key crossed the Wi-Fi.
+	serve(t, d, call{method: "GET", target: "/?t=" + legacy, host: deckOnWiFi, from: aPhone, bare: true})
+	for _, c := range []call{
+		{method: "POST", target: "/focus?session=nobody&t=" + legacy},
+		{method: "POST", target: "/dictate?session=nobody&t=" + legacy, body: `{"text":"x"}`},
+		{method: "GET", target: "/paired?t=" + legacy},
+	} {
+		c.host, c.from = deckOnWiFi, anotherPhone
+		if got := serve(t, d, c); got.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s signed with a key from before signing, from the Wi-Fi: %d, want 401", c.method, c.target, got.Code)
+		}
+	}
+	// Bare, on this computer and handed on by `tailscale serve`, it still works.
+	if got := serve(t, d, call{method: "GET", target: "/paired?t=" + legacy, host: "localhost:7710", from: thisComputer}); got.Code != http.StatusNoContent {
+		t.Errorf("its key on this computer: %d, want 204", got.Code)
+	}
+	if got := serve(t, d, call{method: "GET", target: "/paired?t=" + legacy, host: "127.0.0.1:7710", from: thisComputer,
+		headers: map[string]string{"X-Forwarded-For": "100.101.102.103"}}); got.Code != http.StatusNoContent {
+		t.Errorf("its key over Tailscale: %d, want 204", got.Code)
+	}
+	// Setup lists it as from before, and, once a phone of that name pairs again, offers to remove it.
+	before := func() map[string]any {
+		state := serve(t, d, call{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer})
+		var answer struct{ Phones []map[string]any }
+		_ = json.Unmarshal(state.Body.Bytes(), &answer)
+		for _, phone := range answer.Phones {
+			if phone["beforeSigning"] == true {
+				return phone
+			}
+		}
+		return nil
+	}
+	if phone := before(); phone == nil || phone["pairedAgain"] != false {
+		t.Fatalf("setup's phone from before signing: %v, want it listed, not yet paired again", phone)
+	}
+	pair(t, d)
+	if phone := before(); phone == nil || phone["pairedAgain"] != true {
+		t.Errorf("setup's phone from before signing, once an iPhone paired again: %v, want pairedAgain", phone)
+	}
+	page := readWeb(t, "setup.html")
+	if !strings.Contains(page, "Paired before 1.25: its key crossed the Wi-Fi in clear. Unpair it and pair again to use the Wi-Fi.") {
+		t.Error("setup doesn't say a phone from before signing should pair again")
+	}
+}
+
+// A signed request whose body never comes (RSECWIFI B2) holds its own connection only: never the deck's lock,
+// which every phone, the office, the hooks and setup wait on. No key is needed to send one.
+func TestAStalledBodyLeavesTheDeckFree(t *testing.T) {
+	for _, path := range []string{"/events", "/act", "/pair"} {
+		t.Run(path, func(t *testing.T) {
+			d := newTestDeck(t)
+			if path == "/pair" {
+				serve(t, d, call{method: "POST", target: "/setup/pair", host: "localhost:7710", from: thisComputer, headers: map[string]string{setupHeader: "1"}})
+			}
+			server := httptest.NewServer(&router{deck: d})
+			defer server.Close()
+			conn, err := net.Dial("tcp", strings.TrimPrefix(server.URL, "http://"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			method := map[bool]string{true: "GET", false: "POST"}[path == "/events"]
+			fmt.Fprintf(conn, "%s %s?ts=%d&n=aaaaaaaaaaaaaaaaaaaa&sig=%s HTTP/1.1\r\nHost: %s\r\nContent-Length: 1000\r\n\r\nx",
+				method, path, time.Now().UnixMilli(), strings.Repeat("ab", sha256.Size), deckOnWiFi)
+			time.Sleep(300 * time.Millisecond)
+			free := make(chan struct{})
+			go func() { d.mu.Lock(); d.mu.Unlock(); close(free) }()
+			select {
+			case <-free:
+			case <-time.After(2 * time.Second):
+				t.Errorf("%s %s, wrongly signed, its body stalled: the deck's lock is held", method, path)
+			}
+			conn.Close()
+			<-free
+		})
+	}
+}
+
+// A signed GET hashes an empty body: one that comes with a body is refused before it's read.
+func TestASignedGetWithABodyIsRefused(t *testing.T) {
+	d := newTestDeck(t)
+	key := pair(t, d)
+	query := "ts=" + strconv.FormatInt(time.Now().UnixMilli(), 10) + "&n=" + randomKey()[:22]
+	target := signWith(key, "GET", "/paired", query, "hello")
+	if got := serve(t, d, call{method: "GET", target: target, body: "hello", host: deckOnWiFi, from: aPhone, bare: true}); got.Code != http.StatusUnauthorized {
+		t.Errorf("a signed GET with a body: %d, want 401", got.Code)
+	}
+}
+
+// A request sniffed in the minute before the app started can't be sent after: the nonces it remembers are
+// gone with the last start, so nothing signed before this one is taken (RSECWIFI N2).
+func TestARequestFromBeforeThisStartIsRefused(t *testing.T) {
+	d := newTestDeck(t)
+	key := pair(t, d)
+	d.mu.Lock()
+	d.access.started = time.Now()
+	d.mu.Unlock()
+	target := signedTarget("POST", "/focus?session=nobody&t="+key, "", time.Now().Add(-10*time.Second))
+	got := serve(t, d, call{method: "POST", target: target, host: deckOnWiFi, from: aPhone, bare: true})
+	if why, _ := signedRefusalOf(t, got.Body); got.Code != http.StatusUnauthorized || why != signedClock {
+		t.Errorf("signed before this start: %d %q, want 401 %q", got.Code, why, signedClock)
+	}
+}
+
+// A photo of the QR code alone isn't the phone's key; with the claim read off the Wi-Fi as the phone pairs, it
+// is (RSECWIFI N1: no key exchange in 1.25.0). The docs say so, and keep "keep it to yourself".
+func TestAPhotoOfTheQRAndASniffedClaimAreTheKeyAsTheDocsSay(t *testing.T) {
+	d := newTestDeck(t)
+	serve(t, d, call{method: "POST", target: "/setup/pair", host: "localhost:7710", from: thisComputer, headers: map[string]string{setupHeader: "1"}})
+	d.mu.Lock()
+	codeKey := d.access.PairingKey()
+	d.mu.Unlock()
+	part := randomKey()
+	if got := serve(t, d, call{method: "POST", target: "/pair?p=" + part + "&t=" + codeKey, host: deckOnWiFi, from: aPhone}); got.Code != http.StatusNoContent {
+		t.Fatalf("the claim: %d", got.Code)
+	}
+	if got := serve(t, d, call{method: "POST", target: "/focus?session=nobody&t=" + phoneKeyFrom(codeKey, part), host: deckOnWiFi, from: anotherPhone}); got.Code != http.StatusNotFound {
+		t.Errorf("the photo's key with the sniffed part: %d, want it taken, as the docs warn", got.Code)
+	}
+	docs, err := os.ReadFile(filepath.Join("..", "docs", "phone.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(strings.Fields(string(docs)), " ")
+	for _, want := range []string{"a photo of the QR code alone, without also watching your Wi-Fi as your phone pairs, isn't your phone's key", "keep it to yourself"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("docs/phone.md doesn't say %q", want)
+		}
+	}
+	if strings.Contains(joined, "so a photo of the QR code isn't your phone's key") {
+		t.Error("docs/phone.md still says a photo of the QR code isn't the key, with no word of the claim")
+	}
+}
+
+// Every route a paired phone reaches, and whether it carries text the phone typed or heard (RSECWIFI N3).
+// A route with text must ask d.typesFrom(r): over the Wi-Fi, anyone there could read it. A new route goes here,
+// with the answer, or this test fails.
+var phoneRoutes = map[string]bool{
+	"/paired": false, "/events": false, "/focus": false,
+	// Its actions are keys, floors, styles, music, a hire's desk and role: never free text.
+	"/act": false, "/hire/window": false, "/t3code": false, "/t3code/open": false,
+	"/dictate": true, "/peek": false, "/choose": true, "/choice": false, "/approvals": false,
+	"/conversation": false, "/session/info": false, "/summary": false,
+}
+
+func TestEveryPhoneRouteWithTextAsksTypesFrom(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "server.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The switch in router.handle past the key's check: the one with /dictate.
+	var routes *ast.SwitchStmt
+	ast.Inspect(file, func(n ast.Node) bool {
+		if fn, ok := n.(*ast.FuncDecl); ok && fn.Name.Name == "handle" && fn.Recv != nil {
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if s, ok := n.(*ast.SwitchStmt); ok && routes == nil && len(pathsIn(s)) > 0 && slices.Contains(pathsIn(s), "/dictate") {
+					routes = s
+				}
+				return true
+			})
+		}
+		return true
+	})
+	if routes == nil {
+		t.Fatal("no switch of the phone's routes in router.handle")
+	}
+	seen := map[string]bool{}
+	for _, clause := range routes.Body.List {
+		clause := clause.(*ast.CaseClause)
+		var paths []string
+		for _, test := range clause.List {
+			paths = append(paths, routePaths(test)...)
+		}
+		asks, readsBody, windowOnly := false, false, false
+		ast.Inspect(clause, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.SelectorExpr:
+				if id, ok := n.X.(*ast.Ident); ok && id.Name == "d" && n.Sel.Name == "typesFrom" {
+					asks = true
+				}
+				if id, ok := n.X.(*ast.Ident); ok && id.Name == "r" && n.Sel.Name == "Body" {
+					readsBody = true
+				}
+			case *ast.BinaryExpr:
+				if x, ok := n.X.(*ast.Ident); ok && x.Name == "phoneID" && n.Op == token.NEQ {
+					if y, ok := n.Y.(*ast.Ident); ok && y.Name == "officeWindowID" {
+						windowOnly = true
+					}
+				}
+			}
+			return true
+		})
+		for _, path := range paths {
+			seen[path] = true
+			text, known := phoneRoutes[path]
+			switch {
+			case !known:
+				t.Errorf("%s: a phone route this test doesn't know: add it to phoneRoutes, saying whether it carries text", path)
+			case text && !asks:
+				t.Errorf("%s carries a phone's text but doesn't ask d.typesFrom(r)", path)
+			case readsBody && !asks && !windowOnly:
+				t.Errorf("%s reads a body from a phone but doesn't ask d.typesFrom(r)", path)
+			}
+		}
+	}
+	for path := range phoneRoutes {
+		if !seen[path] {
+			t.Errorf("%s is in phoneRoutes but not among router.handle's phone routes", path)
+		}
+	}
+}
+
+// pathsIn is every route path a switch's cases name.
+func pathsIn(s *ast.SwitchStmt) []string {
+	var paths []string
+	for _, clause := range s.Body.List {
+		for _, test := range clause.(*ast.CaseClause).List {
+			paths = append(paths, routePaths(test)...)
+		}
+	}
+	return paths
+}
+
+// routePaths is every "/path" a case compares r.URL.Path with.
+func routePaths(test ast.Expr) []string {
+	var paths []string
+	ast.Inspect(test, func(n ast.Node) bool {
+		if b, ok := n.(*ast.BinaryExpr); ok && b.Op == token.EQL {
+			if sel, ok := b.X.(*ast.SelectorExpr); ok && sel.Sel.Name == "Path" {
+				if lit, ok := b.Y.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					paths = append(paths, strings.Trim(lit.Value, `"`))
+				}
+			}
+		}
+		return true
+	})
+	return paths
 }

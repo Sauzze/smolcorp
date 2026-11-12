@@ -89,7 +89,7 @@ const smolcorpSign = (() => {
     },
     /**
      * Pairing by the QR code: a part of this phone's own, sent as it claims the code's key, and the phone's key,
-     * made of both (desktop/access.go's phoneKeyFrom). A photo of the QR code alone is not the key.
+     * made of both (desktop/access.go's phoneKeyFrom). A photo of the QR code alone is not the key; with the claim read off the Wi-Fi, it is.
      */
     ownPart: () => nonce(32),
     phoneKey: (codeKey, part) => base64url(hmac(utf8(codeKey), utf8(part))),

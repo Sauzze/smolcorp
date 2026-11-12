@@ -161,7 +161,10 @@ final class SetupFreshEyesPageTests: XCTestCase {
         XCTAssertFalse(page.contains("Pairs with the code beside it"))
         // The QR code holds the key it hands over, not the code (SECWIFI): a typed code works over Tailscale only.
         XCTAssertTrue(page.contains(#"<div class="qr-note">Works once, as the 6 digits do. It hands your phone its key without sending it over the Wi-Fi: keep it to yourself.</div>"#))
-        XCTAssertTrue(page.contains(#"<span id="pair-tailnet" hidden>, or from anywhere, with Tailscale on your phone: <span class="address" id="pair-tailnet-address"></span></span>"#))
+        // Over the Wi-Fi the QR code is the only way, so it comes first; the code is typed over Tailscale (FXSEC N8).
+        XCTAssertTrue(page.contains(#"<li>Get a code, then scan the QR code with your phone's camera: it opens <span class="address" id="address"></span> and pairs.</li>"#))
+        XCTAssertTrue(page.contains(#"<li>Over Tailscale, you can type this code instead<span id="pair-tailnet" hidden>, from anywhere, with Tailscale on your phone: <span class="address" id="pair-tailnet-address"></span></span></li>"#))
+        XCTAssertFalse(page.contains("with this code\""), "a QR code carries a key that works once, not the code")
         XCTAssertTrue(page.contains("$('pair-tailnet').hidden = !p.tailnet || !p.address;"))
     }
 }

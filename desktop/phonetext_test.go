@@ -743,7 +743,11 @@ func TestTheLauncherPastesThePhonesTextAndSaysSo(t *testing.T) {
 // signed with key, as the deck signs on the Wi-Fi (signed.go).
 func phoneAsk(t *testing.T, d *Deck, method, path, key string, body any, header http.Header) (int, string) {
 	t.Helper()
-	data, _ := json.Marshal(body)
+	// No body, not "null", when there's none: a signed GET with a body is refused, and a phone sends none.
+	var data []byte
+	if body != nil {
+		data, _ = json.Marshal(body)
+	}
 	if key != "" {
 		path = signedTarget(method, path+map[bool]string{true: "&", false: "?"}[strings.Contains(path, "?")]+"t="+url.QueryEscape(key), string(data), time.Now())
 	}
@@ -761,7 +765,7 @@ func phoneAsk(t *testing.T, d *Deck, method, path, key string, body any, header 
 func TestTheWiFiTypesWithAPairedPhonesKeyOnly(t *testing.T) {
 	d, mac := phoneDeck(t)
 	d.mu.Lock()
-	key := d.access.Phones.Pair("Phone")
+	key := d.access.Phones.Pair("Phone", true)
 	window := d.access.WindowKey
 	d.config.PhoneTextWiFi = true // Typing over Wi-Fi, off for a new setup (SECWIFI)
 	d.mu.Unlock()
@@ -829,7 +833,7 @@ func TestTheOfficeWindowTypesNothing(t *testing.T) {
 func TestThePeekOverTailscaleOnceASecond(t *testing.T) {
 	d, mac := phoneDeck(t)
 	d.mu.Lock()
-	key := d.access.Phones.Pair("Phone")
+	key := d.access.Phones.Pair("Phone", true)
 	d.mu.Unlock()
 	// As `tailscale serve` hands a request on: from this computer's loopback, with a proxy's headers.
 	r := httptest.NewRequest(http.MethodPost, "/peek?session=s1", nil)
@@ -909,7 +913,7 @@ func TestOnAMacTailscaleIsToldByItsAddressesAndServedByItsName(t *testing.T) {
 	}
 	d, _ := phoneDeck(t)
 	d.mu.Lock()
-	key := d.access.Phones.Pair("Phone")
+	key := d.access.Phones.Pair("Phone", true)
 	d.mu.Unlock()
 	peek := func(host, remote string) (int, string) {
 		r := httptest.NewRequest(http.MethodPost, "/peek?session=s1", nil)

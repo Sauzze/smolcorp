@@ -41,6 +41,10 @@ const (
 	mostNonces = 4096
 )
 
+// When this app started. The nonces seen before are gone with the last start,
+// so a request signed earlier, which could be one sniffed then, isn't taken.
+var processStarted = time.Now()
+
 // Why a signed request was refused, as the page is told (it acts on "clock").
 const (
 	signedBad    = "signature"
@@ -62,7 +66,14 @@ func isSigned(r *http.Request) bool { return strings.Contains(r.URL.RawQuery, "s
 
 // readSigned reads what r says of itself, or false if it isn't a well-formed
 // signed request. Its body is read and put back for whoever reads it next.
+// Called before the deck's lock is taken: a body that comes slowly, from
+// anyone on the Wi-Fi, holds its own request only, until the request's
+// deadline (the router's) ends it. A GET has no body: one that comes with
+// one isn't read.
 func readSigned(r *http.Request) (signedParts, bool) {
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && (r.ContentLength != 0 || len(r.TransferEncoding) > 0) {
+		return signedParts{}, false
+	}
 	raw := r.URL.RawQuery
 	end := strings.LastIndex(raw, "&sig=")
 	if end < 0 {
@@ -115,9 +126,10 @@ func (parts signedParts) signedBy(keyHash string) bool {
 }
 
 // fresh says why a correctly signed request is refused, "" if it isn't: its
-// time too far from now, or its nonce seen before. The nonce is used up.
+// time too far from now or from before this app started, or its nonce seen
+// before. The nonce is used up.
 func (a *Access) fresh(parts signedParts, now time.Time) string {
-	if gap := now.Sub(parts.at); gap > signedWindow || gap < -signedWindow {
+	if gap := now.Sub(parts.at); gap > signedWindow || gap < -signedWindow || parts.at.Before(a.started) {
 		return signedClock
 	}
 	if a.nonces == nil {
@@ -141,14 +153,15 @@ func (a *Access) fresh(parts signedParts, now time.Time) string {
 	return ""
 }
 
-// SignedPhone is the paired phone that signed r, or nil and why not.
-func (a *Access) SignedPhone(r *http.Request, now time.Time) (*PairedPhone, string) {
-	parts, ok := readSigned(r)
+// SignedPhone is the paired phone that signed parts (readSigned's, with its
+// ok), or nil and why not. Only a phone whose key never crossed the Wi-Fi in
+// clear may sign (PairedPhone.Signs).
+func (a *Access) SignedPhone(parts signedParts, ok bool, now time.Time) (*PairedPhone, string) {
 	if !ok {
 		return nil, signedBad
 	}
 	for i := range a.Phones.All {
-		if parts.signedBy(a.Phones.All[i].KeyHash) {
+		if a.Phones.All[i].Signs && parts.signedBy(a.Phones.All[i].KeyHash) {
 			if why := a.fresh(parts, now); why != "" {
 				return nil, why
 			}

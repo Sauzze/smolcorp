@@ -578,12 +578,9 @@ func (d *Deck) ChoiceDetail(id string) (int, string) {
 	return http.StatusNotFound, notAsking
 }
 
-// fromTailnet says whether a request came through Tailscale, where reading a terminal is given: to this
-// computer's Tailscale address from another device's (WireGuard carries it encrypted), or passed on by
-// `tailscale serve` on this computer (from its loopback, with a proxy's headers, or on a Mac to a ts.net
-// name, as the Mac app's Request.isTailnet). Never the Wi-Fi's plain http.
 // typesFrom is whether the phone's text may come by r: over Tailscale or on this computer, always; over
-// plain http on the Wi-Fi, where anyone on it could read it, only with Typing over Wi-Fi on.
+// plain http on the Wi-Fi, where anyone on it could read it, only with Typing over Wi-Fi on. Every route that
+// carries a phone's text asks it (TestEveryPhoneRouteWithTextAsksTypesFrom).
 func (d *Deck) typesFrom(r *request) bool {
 	if r.isLocal || r.isTailnet || fromTailnet(r.Request) {
 		return true
@@ -593,6 +590,10 @@ func (d *Deck) typesFrom(r *request) bool {
 	return d.config.PhoneTextWiFi
 }
 
+// fromTailnet says whether a request came through Tailscale, where reading a terminal is given: to this
+// computer's Tailscale address from another device's (WireGuard carries it encrypted), or passed on by
+// `tailscale serve` on this computer (from its loopback, with a proxy's headers, or on a Mac to a ts.net
+// name, as the Mac app's Request.isTailnet). Never the Wi-Fi's plain http.
 func fromTailnet(r *http.Request) bool {
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(remote)

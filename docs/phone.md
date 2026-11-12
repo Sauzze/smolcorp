@@ -51,10 +51,12 @@ You can pin projects to specific desks and furnish the office your way.
    QR code.
 2. Scan the QR code with your phone's camera. The key it hands your phone
    is after `#` in its link, a part a browser never sends, so it never crosses
-   your Wi-Fi, and your phone adds a part of its own as it pairs, so a photo
-   of the QR code isn't your phone's key. Until your phone has scanned it,
-   though, a photo could pair another phone: keep it to yourself, and if your
-   phone says the code isn't valid, check **Paired phones** in setup. Typing
+   your Wi-Fi, and your phone adds a part of its own as it pairs. That part
+   does cross the Wi-Fi as your phone pairs, unencrypted: a photo of the QR
+   code alone, without also watching your Wi-Fi as your phone pairs, isn't
+   your phone's key, but the two together are. And until your phone has
+   scanned it, a photo could pair another phone: keep it to yourself, and if
+   your phone says the code isn't valid, check **Paired phones** in setup. Typing
    the code instead (open the address shown with it, for example
    `192.168.1.20:7710`) works over Tailscale only: over plain Wi-Fi it's
    refused, since the answer would carry your phone's key unencrypted.
@@ -78,10 +80,18 @@ Turn it on under **Paired phones** in setup if you need it, and off again if
 you don't. A setup from before this switch keeps typing over Wi-Fi as it did,
 and setup shows the warning beside the switch.
 
-A page saved before signing (its address ends in `?t=` and a long key) sends
-its key unencrypted, so it no longer works over the Wi-Fi: unpair that phone
-in setup, since its key may have been read, then pair it again and add the
-new page to your Home Screen. Over Tailscale it still works.
+A phone paired before 1.25 sent its key unencrypted over the Wi-Fi, and a
+page saved then (its address ends in `?t=` and a long key) still does, so its
+key no longer works over the Wi-Fi at all, signed or not. Setup lists it as
+paired before 1.25: unpair it, since its key may have been read, then pair it
+again with the QR code and add the new page to your Home Screen. Once it has,
+setup offers to remove the old entry. Over Tailscale, and on this computer,
+the old key still works.
+
+Tailscale is told apart by where a request comes from. A reverse proxy on
+the same computer (Caddy, nginx and the like) that hands requests from your
+Wi-Fi on to Smolcorp makes them look as if they came through Tailscale:
+don't put one in front of Smolcorp, other than `tailscale serve`.
 
 While the deck is open, your phone's screen stays on, from your first tap. If
 an agent has been waiting on you for five minutes, the deck reminds you once,

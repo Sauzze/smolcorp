@@ -80,7 +80,8 @@
 
   // Scanned: the QR code holds a key after #, which never crossed the network. It comes out of the address
   // first, since it only works once, and this phone claims it with a request signed with it, sending a part
-  // of its own: its key is made of both, so a photo of the QR code isn't it.
+  // of its own: its key is made of both, so a photo of the QR code alone isn't it (this request, read off the
+  // Wi-Fi as it goes, would give the rest: keep the QR code to yourself).
   async function claim(key, again) {
     try {
       const part = smolcorpSign.ownPart();

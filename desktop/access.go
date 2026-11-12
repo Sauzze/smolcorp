@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -57,7 +56,9 @@ type Access struct {
 	// it never crosses the network (see Claim).
 	pairKey string
 	// The nonces of signed requests, until their time runs out (signed.go).
-	nonces      map[string]time.Time
+	nonces map[string]time.Time
+	// When this app started: the nonces before it are gone, so nothing signed earlier is taken (signed.go).
+	started     time.Time
 	misses      map[string]int // wrong codes since the current one, by address
 	totalMisses int
 }
@@ -73,7 +74,7 @@ const (
 
 func NewAccess() *Access {
 	return &Access{Phones: loadPhones(), HookKey: loadHookKey(), SetupKey: newSetupKey(), WindowKey: randomKey(),
-		misses: map[string]int{}}
+		misses: map[string]int{}, started: processStarted}
 }
 
 func (a *Access) IsHookKey(candidate string) bool {
@@ -197,18 +198,19 @@ func (a *Access) PairingKey() string {
 // the key the code carried, so the key itself never travels. Like a typed
 // code, it works once, and wrong tries count towards the lockouts. Refused,
 // it says why (signed.go's reasons): a phone whose clock is off may try again.
-func (a *Access) Claim(r *http.Request, address string, now time.Time) string {
+// The request was read already (readSigned), so the deck isn't held while its
+// body comes.
+func (a *Access) Claim(parts signedParts, ok bool, part, address, userAgent string, now time.Time) string {
 	key := a.PairingKey()
 	if key == "" || a.misses[address] >= maxAttemptsPerAddress {
 		return signedBad
 	}
-	part := r.URL.Query().Get("p")
-	if parts, ok := readSigned(r); ok && parts.signedBy(hashKey(key)) && len(part) == 43 && isNonce(part) {
+	if ok && parts.signedBy(hashKey(key)) && len(part) == 43 && isNonce(part) {
 		if why := a.fresh(parts, now); why != "" {
 			return why
 		}
 		a.code, a.pairKey = "", ""
-		a.Phones.PairKey(phoneKeyFrom(key, part), phoneName(r.UserAgent()))
+		a.Phones.PairKey(phoneKeyFrom(key, part), phoneName(userAgent), true)
 		return ""
 	}
 	a.misses[address]++
@@ -221,7 +223,8 @@ func (a *Access) Claim(r *http.Request, address string, now time.Time) string {
 
 // phoneKeyFrom is the key of a phone that claimed the QR code's key with a part
 // of its own (32 random bytes, base64url), as sign.js makes it: a photo of the
-// code alone isn't it.
+// code alone isn't it, though with the claim read off the Wi-Fi (the part
+// crosses it unencrypted) it is. No key exchange in 1.25.0.
 func phoneKeyFrom(codeKey, part string) string {
 	mac := hmac.New(sha256.New, []byte(codeKey))
 	mac.Write([]byte(part))
@@ -229,15 +232,17 @@ func phoneKeyFrom(codeKey, part string) string {
 }
 
 // Redeem returns a key for a newly paired phone if attempt is the active
-// code and address isn't locked out. The code is spent on success.
-func (a *Access) Redeem(attempt, address, userAgent string) (string, bool) {
+// code and address isn't locked out. The code is spent on success. The key
+// signs over the Wi-Fi only if it came over a private way: this computer's
+// loopback or Tailscale.
+func (a *Access) Redeem(attempt, address, userAgent string, private bool) (string, bool) {
 	active := a.ActiveCode()
 	if active == "" || a.misses[address] >= maxAttemptsPerAddress {
 		return "", false
 	}
 	if constantTimeEqual(attempt, active) {
 		a.code = ""
-		return a.Phones.Pair(phoneName(userAgent)), true
+		return a.Phones.Pair(phoneName(userAgent), private), true
 	}
 	a.misses[address]++
 	a.totalMisses++
@@ -309,6 +314,12 @@ type PairedPhone struct {
 	// also the secret the phone signs its requests with (signed.go), so this
 	// file, readable by you only, is kept as private as the keys.
 	KeyHash string `json:"keyHash"`
+	// Signs: its key never crossed the Wi-Fi in clear (paired with the QR code,
+	// or a code typed on this computer or over Tailscale), so it may sign there.
+	// A phone paired before 1.25 sent its key as ?t= over the Wi-Fi, where
+	// anyone could have read it: its key works only over this computer's
+	// loopback and Tailscale, until it pairs again.
+	Signs bool `json:"signs"`
 }
 
 // Phones is every paired phone. Each has its own key, so one can be revoked
@@ -331,16 +342,17 @@ func loadPhones() *Phones {
 }
 
 // Pair adds a phone and returns its key: the only time the key exists here.
-func (p *Phones) Pair(name string) string {
+// signs: whether it may sign over the Wi-Fi (see PairedPhone.Signs).
+func (p *Phones) Pair(name string, signs bool) string {
 	key := randomKey()
-	p.PairKey(key, name)
+	p.PairKey(key, name, signs)
 	return key
 }
 
 // PairKey adds a phone holding key, made already for the QR code.
-func (p *Phones) PairKey(key, name string) {
+func (p *Phones) PairKey(key, name string, signs bool) {
 	now := time.Now().UTC().Truncate(time.Second)
-	p.All = append(p.All, PairedPhone{ID: newID(), Name: name, PairedAt: now, LastSeen: now, KeyHash: hashKey(key)})
+	p.All = append(p.All, PairedPhone{ID: newID(), Name: name, PairedAt: now, LastSeen: now, KeyHash: hashKey(key), Signs: signs})
 	p.save()
 }
 
@@ -356,6 +368,18 @@ func (p *Phones) WithKey(key string) *PairedPhone {
 		}
 	}
 	return nil
+}
+
+// PairedAgain is whether a phone of the same name that may sign was paired
+// after phone, one from before signing: it may be the same phone, paired
+// again, whose old entry setup offers to remove.
+func (p *Phones) PairedAgain(phone PairedPhone) bool {
+	for _, other := range p.All {
+		if other.Signs && other.Name == phone.Name && !other.PairedAt.Before(phone.PairedAt) && other.ID != phone.ID {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Phones) MarkSeen(phone *PairedPhone) {

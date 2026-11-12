@@ -451,7 +451,7 @@ func TestTheAppsOpsAreTheFixtures(t *testing.T) {
 	d.mu.Lock()
 	d.mac.host = app
 	d.config.GuideDone = true
-	d.access.Phones.Pair("Test phone")
+	d.access.Phones.Pair("Test phone", true)
 	window := d.access.WindowKey
 	d.mu.Unlock()
 	for i, op := range fixture.Ops {
@@ -540,7 +540,7 @@ func TestTheMenuIsSentWheneverItChanges(t *testing.T) {
 		t.Fatalf("the menu once ready: %+v", a)
 	}
 	d.mu.Lock()
-	d.access.Phones.Pair("Test phone")
+	d.access.Phones.Pair("Test phone", true)
 	d.changed()
 	d.mu.Unlock()
 	if a := next(); a.ID != 0 || a.Menu == nil || a.Menu.Phones != 1 {
