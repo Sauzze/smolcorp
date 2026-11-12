@@ -468,6 +468,11 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		serveFile(w, "Resources/web/guide.js")
 		return
 	}
+	// The open-source notices of what's built into this copy (tmux and its libraries), a file as it is: setup links to it.
+	if r.Method == http.MethodGet && r.URL.Path == "/licenses" {
+		serveLicenses(w)
+		return
+	}
 	// Its recordings, the keyboards and the talk, in either kind a browser plays.
 	if r.Method == http.MethodGet && slices.Contains(sounds, r.URL.Path) {
 		serveFile(w, "Resources/web"+r.URL.Path)

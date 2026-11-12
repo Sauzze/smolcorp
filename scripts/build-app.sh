@@ -67,6 +67,26 @@ done
 lipo -create "$CLI_TMP/smolcorp-arm64" "$CLI_TMP/smolcorp-amd64" -output "$APP/Contents/Resources/bin/smolcorp"
 chmod 755 "$APP/Contents/Resources/bin/smolcorp"
 rm -rf "$CLI_TMP"
+# tmux, beside the command, for the same two processors, and the notices of the libraries inside it. scripts/build-tmux.sh
+# builds it once and keeps it (build/tmux/), so a rebuild of the app only copies it. It is the same file with or without
+# `universal`. If it can't be built (no network the first time, a broken toolchain) the app is built without it and says so:
+# it then uses the tmux the Mac has, so a copy of your own never fails over tmux. scripts/release.sh doesn't allow that.
+HAS_TMUX=0
+echo "tmux (kept after the first build, which takes a few minutes)…"
+if scripts/build-tmux.sh >build/tmux-build.log 2>&1; then
+  TMUX_BUILT="$(tail -n 1 build/tmux-build.log)"
+  if [ -x "$TMUX_BUILT" ] && [ -s "$(dirname "$TMUX_BUILT")/THIRD-PARTY-NOTICES.txt" ]; then
+    cp "$TMUX_BUILT" "$APP/Contents/Resources/bin/tmux"
+    chmod 755 "$APP/Contents/Resources/bin/tmux"
+    mkdir -p "$APP/Contents/Resources/licenses"
+    cp "$(dirname "$TMUX_BUILT")/THIRD-PARTY-NOTICES.txt" "$APP/Contents/Resources/licenses/THIRD-PARTY-NOTICES.txt"
+    HAS_TMUX=1
+  fi
+fi
+if [ "$HAS_TMUX" = 0 ]; then
+  tail -n 15 build/tmux-build.log
+  echo "Warning: tmux couldn't be built (build/tmux-build.log has the whole log). Smolcorp is built without it and will use the tmux this Mac has, if any."
+fi
 # With a code-signing identity of your own in your keychain, the app is signed
 # with it: the Keychain then knows each rebuild as the same app, and an "Always
 # Allow" lasts. Which one: $SMOLCORP_SIGN_IDENTITY, else the name in
@@ -80,8 +100,10 @@ IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null || true)"
 # is signed first, with the same identity, and the app's signature then seals it.
 if grep -qF "\"$IDENTITY\"" <<<"$IDENTITIES"; then
   [ -f "$APP/Contents/Resources/bin/smolcorp" ] && codesign --force --sign "$IDENTITY" --identifier io.github.sauzze.smolcorp-cli "$APP/Contents/Resources/bin/smolcorp"
+  [ "$HAS_TMUX" = 1 ] && codesign --force --sign "$IDENTITY" --identifier io.github.sauzze.smolcorp-tmux "$APP/Contents/Resources/bin/tmux"
   codesign --force --sign "$IDENTITY" --identifier io.github.sauzze.agentdeck "$APP"
 else
   [ -f "$APP/Contents/Resources/bin/smolcorp" ] && codesign --force --sign - "$APP/Contents/Resources/bin/smolcorp"
+  [ "$HAS_TMUX" = 1 ] && codesign --force --sign - --identifier io.github.sauzze.smolcorp-tmux "$APP/Contents/Resources/bin/tmux"
   codesign --force --sign - "$APP"
 fi
