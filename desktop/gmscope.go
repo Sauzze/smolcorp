@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -21,6 +22,10 @@ import (
 //   - send, brief, fire, contacts, nickname, pin, unpin, watch and unwatch only for its own hires, folders
 //     and watches;
 //   - nothing else that changes the office (its switches, roles, layout, windows…); what it reads is as before.
+// A demo's GM (its scope is a demo's project, <demo folder>/app) is held closer, whatever its fence reads (WIN125c):
+//   - it hires only the roles the demo offers, as the demo registered them and its registry row keeps them;
+//   - a worktree of the project it hires into, briefs or reaches has its top inside the demo folder, not only the
+//     project's git folder: `cd elsewhere && git --git-dir=<project>/.git worktree add wt` makes one outside.
 // Each refusal is one sentence. A GM with no scope, every other, is as it always was. `smolcorp demo`
 // hires its GM so. Go only: the Mac's Swift engine has no scope (M7).
 
@@ -49,6 +54,26 @@ func checkedGMScope(given any, h setupHire, home string) (string, int, string) {
 		return "", http.StatusBadRequest, "A General Manager's scope is the folder it's hired into."
 	}
 	return folder, 0, ""
+}
+
+// isDemoProject is whether folder has the shape of a demo's project: app in a folder smolcorp demo names so.
+// Judged by its shape alone, so a GM held to one is held as a demo's even when its roles weren't kept.
+func isDemoProject(folder string) bool {
+	return folder != "" && filepath.Base(folder) == demoRepoName && demoFolderNamed(filepath.Base(filepath.Dir(folder)))
+}
+
+// demoScopeRoles is what a GM held to scope may hire when scope is a demo's project: the roles the demo was
+// registered with, a comma between. "" for any other project; a status and why when the app wasn't told about
+// that demo.
+func demoScopeRoles(scope string) (string, int, string) {
+	if !isDemoProject(scope) {
+		return "", 0, ""
+	}
+	f, roles, why := registeredDemo(filepath.Dir(scope))
+	if why != "" || f.repo != scope || len(roles) == 0 {
+		return "", http.StatusConflict, "A General Manager held to a demo's project is hired from that demo's page: run smolcorp demo again."
+	}
+	return strings.Join(roles, ","), 0, ""
 }
 
 // gmScopeNow is the scope of the GM whose token works now, "" for none.
@@ -83,9 +108,26 @@ func gmAccountWords(account string) string {
 type gmScope struct {
 	root string
 	git  gitRunner
+	// A demo's GM: the demo folder, where every worktree it's held to must be, and the roles it may hire
+	// (none when its row kept none). "" and nil for any other GM.
+	demo  string
+	roles []string
 }
 
-// holds is whether folder is the project itself or the top of one of its own worktrees, and is there.
+// gmScopeOf is the scope GM gm is held to: a demo's (isDemoProject) with its demo folder and roles.
+func gmScopeOf(gm Hire) gmScope {
+	s := gmScope{root: gm.Scope, git: runGit}
+	if isDemoProject(gm.Scope) {
+		s.demo = filepath.Dir(gm.Scope)
+		if gm.ScopeRoles != "" {
+			s.roles = strings.Split(gm.ScopeRoles, ",")
+		}
+	}
+	return s
+}
+
+// holds is whether folder is the project itself or the top of one of its own worktrees, and is there; for a
+// demo's GM, a worktree inside the demo folder.
 func (s gmScope) holds(folder string) bool { _, ok := s.place(folder); return ok }
 
 // place is folder, links followed, when it is held. Links are followed in folder, never in the project's
@@ -104,7 +146,7 @@ func (s gmScope) place(folder string) (string, bool) {
 	if real == s.root {
 		return real, true
 	}
-	if _, err := os.Lstat(filepath.Join(real, ".git")); err != nil {
+	if _, err := os.Lstat(filepath.Join(real, ".git")); err != nil || s.demo != "" && !within(s.demo, real) {
 		return "", false
 	}
 	status, out, ok := s.git(real, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
@@ -154,7 +196,7 @@ func (d *Deck) gmScopeRefusal(r *request) (int, string) {
 	if root == "" || r.Method == http.MethodGet {
 		return 0, ""
 	}
-	s := gmScope{root: root, git: runGit}
+	s := gmScopeOf(gm)
 	where := " in " + root
 	refuse := func(text string) (int, string) { return http.StatusForbidden, "This General Manager " + text }
 	raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -193,12 +235,22 @@ func (d *Deck) gmScopeRefusal(r *request) (int, string) {
 		} else {
 			asked["account"] = claudeDefaultName
 		}
+		// A demo's GM hires the demo's roles alone, each on Claude Code, so each reads the demo's fence too.
+		if role, _ := asked["role"].(string); s.demo != "" && !slices.Contains(s.roles, role) {
+			if len(s.roles) == 0 {
+				return refuse("hires no one: the demo's roles weren't kept at its hire, so hire it again from the demo's page.")
+			}
+			return refuse("hires only the demo's roles, " + strings.Join(s.roles, ", ") + ".")
+		}
 		if t3, known := checkedHireEngine(asked["engine"]); t3 || !known {
 			return refuse("hires only in a terminal of Smolcorp's.")
 		}
 		folder, why := gmHireFolder(asked["folder"])
 		real, held := s.place(folder)
 		if why != "" || !held {
+			if s.demo != "" {
+				return refuse("hires only into " + root + " or the top of one of its worktrees in " + s.demo + ", a folder that is there.")
+			}
 			return refuse("hires only into " + root + " or the top of one of its worktrees, a folder that is there.")
 		}
 		// The route hires into the folder as checked, links followed, never the words it was sent.

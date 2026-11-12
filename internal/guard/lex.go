@@ -15,11 +15,16 @@ const unreadable = "\x01"
 // away and escapes undone. Words with no command word of their own (an
 // operator, a redirection's target) are left out, except that the target of
 // an output redirection (> >> &>) comes out as its own two-word command,
-// redirMark and the file, so that the guard can see what is written.
+// redirMark and the file, so that the guard can see what is written, and the
+// target of an input one (<) as redirInMark and the file, so that it can see
+// what is read.
 type simple []string
 
 // redirMark starts the two-word command that stands for an output redirection.
 const redirMark = "\x00redir"
+
+// redirInMark starts the one that stands for an input redirection: only the setup key is looked for in it.
+const redirInMark = "\x00redirin"
 
 // commands splits a command line into the simple commands the shell could
 // run, wherever they are: after ; && || | & or a newline, inside ( ) { },
@@ -116,6 +121,8 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 		if skipOne {
 			if redirOut {
 				out = append(out, append(simple{redirMark}, finishWord(word, unq, ps)...))
+			} else {
+				out = append(out, append(simple{redirInMark}, finishWord(word, unq, ps)...))
 			}
 			skipOne, redirOut = false, false
 		} else {
@@ -710,12 +717,12 @@ func finishWord(word []byte, unq []bool, ps bool) []string {
 
 // protectedNames are the files and variable a hire may not name by any
 // spelling (the GM token, in its file or where a computer with no secret
-// store keeps it, the guard file). protectedByPattern says which a
+// store keeps it, the guard file, the app's setup key). protectedByPattern says which a
 // pattern word (gm-t*, hire-g?ard.json) fills in on the disk, matched
 // in lower case on its last path part. A pattern with fewer than three
 // plain characters (*, g*, *.json) is no more than a pattern, unless the
 // path before it is the app's own folder.
-var protectedNames = []string{"gm-token", "gm-token-kept", "smolcorp_gm_token", "hire-guard.json", "hire-guard"}
+var protectedNames = []string{"gm-token", "gm-token-kept", "smolcorp_gm_token", "hire-guard.json", "hire-guard", setupKeyFile}
 
 func protectedByPattern(s string, unq []bool) []string {
 	glob := false

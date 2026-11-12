@@ -70,6 +70,9 @@ type Hire struct {
 	// Scope: a General Manager the owner hired held to one project (gmscope.go), as the full path of that
 	// project; written only when set. Go only: the Mac's Swift engine has no scope (M7).
 	Scope string `json:"scope,omitempty"`
+	// ScopeRoles: for a GM held to a demo's project, the roles the demo offers, the only ones it may hire
+	// (gmscope.go), by id with a comma between; written only then. Text, so a row stays comparable.
+	ScopeRoles string `json:"scopeRoles,omitempty"`
 }
 
 // liveSession is a session as the deck follows it, with where it sits.

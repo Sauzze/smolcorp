@@ -68,6 +68,8 @@ type engineRequest struct {
 	Profiles    []claudeProfile
 	// Scope: the project a General Manager is held to (gmscope.go), kept in its registry row; "" for none.
 	Scope string
+	// ScopeRoles: the roles a GM held to a demo's project may hire, kept in its registry row; nil for any other.
+	ScopeRoles string
 }
 
 // engineAutoMode is whether an engine hire's settings put it in auto mode: on

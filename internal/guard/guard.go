@@ -41,8 +41,9 @@
 //     fnm exec, pyenv exec, uvx, pipx run, expect -c, script -c, limactl
 //     shell, zellij run, entr, at); there are too many to chase;
 //   - a file in the app's support folder reached by a glob after a cd, or
-//     by a glob earlier in the path (cd <folder>; cat gm*, cat ~/Lib*/App*/A*/g*):
-//     the guard tests each word alone. This is not chased with more patterns,
+//     by a glob earlier in the path (cd <folder>; cat gm*, cat ~/Lib*/App*/A*/g*,
+//     cat A*/Ag*/s*), or by a command that reads the whole folder (grep -r .
+//     <folder>): the guard tests each word alone. The setup key too. This is not chased with more patterns,
 //     because the GM token file is gone by default in 1.24 (the GM gets the
 //     token in its environment only, T310) and the deny rules (T306) guard
 //     the folder for Edit, Write and Read;
@@ -124,6 +125,28 @@ func namesAlways(text string) string {
 	return ""
 }
 
+// setupKeyFile is the app's setup key, which opens every setup route of the
+// owner's office that a tool may use. A word that is that file (its last
+// path part, quotes and escapes taken away, any case: echo setup-key too) or a pattern that fills
+// it in (setup-k?y, setup-*) is refused, whatever the command: reading it is
+// the harm. Only as a word, not anywhere in the line as the token is, so a
+// commit message or a grep for the word in Smolcorp's own code still runs.
+// Nothing in the app can stop a process of the owner's reading a file of the
+// owner's; the per-hire deny rules cover Read, and this covers Bash.
+const setupKeyFile = "setup-key"
+
+// namesSetupKey is whether any word of the command is the setup key's file.
+func namesSetupKey(words simple) bool {
+	for _, w := range words {
+		low := strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(w, unreadable), `\`, "/"))
+		// After a /, and after an @ or = (curl's @file, dd's if=file, --file=…).
+		if low[strings.LastIndexAny(low, "/@=")+1:] == setupKeyFile {
+			return true
+		}
+	}
+	return false
+}
+
 // guardFile is the owner's guard file: one edit from a hire would switch
 // every group off, as the guard reads it at each command. A command that
 // names it is refused unless it is one that only reads (see readsGuardFile),
@@ -195,6 +218,12 @@ func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
 	if words[0] == "\x00long" {
 		return &Refusal{Group: "guard", Rule: "a command with more words than the guard reads", Command: strings.Join(words[1:], " ")}
 	}
+	if words[0] == redirInMark {
+		if namesSetupKey(words[1:]) {
+			return &Refusal{Group: "guard", Rule: setupKeyFile, Command: "< " + strings.TrimPrefix(words[len(words)-1], unreadable)}
+		}
+		return nil
+	}
 	if words[0] == redirMark {
 		for _, w := range words[1:] {
 			if strings.Contains(strings.ToLower(w), guardFile) {
@@ -202,6 +231,9 @@ func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
 			}
 			if namesFence(simple{w}) {
 				return &Refusal{Group: "guard", Rule: fenceRule, Command: "> " + strings.TrimPrefix(w, unreadable)}
+			}
+			if namesSetupKey(simple{w}) {
+				return &Refusal{Group: "guard", Rule: setupKeyFile, Command: "< " + strings.TrimPrefix(w, unreadable)}
 			}
 		}
 		return nil
@@ -218,6 +250,9 @@ func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
 		// git's own programs by name ($(git --exec-path)/git-push) are git push.
 		args = append([]string{name[len("git-"):]}, args...)
 		name = "git"
+	}
+	if namesSetupKey(words) {
+		return &Refusal{Group: "guard", Rule: setupKeyFile, Command: strings.Join(unmark(words), " ")}
 	}
 	if namesGuardFile(words) && !readsGuardFile(name, args) {
 		return &Refusal{Group: "guard", Rule: guardFile, Command: strings.Join(words, " ")}

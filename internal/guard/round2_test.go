@@ -233,3 +233,27 @@ func TestUnclosedUnitsAreNotSlow(t *testing.T) {
 		}
 	}
 }
+
+// WIN125c (RWIN2 B3): no spelling names the app's setup key either, as a word, a pattern that fills it in, or the
+// file a < reads; for the GM and every hire. The word in a message, or a grep for it in Smolcorp's own code, runs.
+func TestNoSpellingNamesTheSetupKey(t *testing.T) {
+	const dir = `~/Library/Application\ Support/AgentDeck/`
+	lines := []string{
+		"cat " + dir + "setup-key", "cat " + dir + "setup-k?y", "cat " + dir + "setup-*", "cat " + dir + `setup-"k"ey`,
+		"cat " + dir + `setup-\key`, "cat " + dir + "SETUP-KEY", "cat " + dir + "setup-k{ey,}", "cat ~/.config/Smol*/setup-k?y",
+		"cat ~/.config/sauzzedeck-pro/setup-key", `type "C:\Users\ada\AppData\Roaming\SauzzeDeck Pro\setup-key"`,
+		"cat < " + dir + "setup-key", "x=$(< setup-key)", "while read k; do echo $k; done <setup-k*",
+		"sh -c 'cat setup-k?y'", "cp setup-key /tmp/k", "curl -H @setup-key localhost:7710/setup/state",
+		"dd if=setup-key", "echo setup-key",
+	}
+	mustRefuse(t, "setup key", lines)
+	for _, line := range lines {
+		if r := Check(line, ForGM(DefaultGroups())); r == nil {
+			t.Errorf("the GM: %q let through", line)
+		}
+	}
+	mustRun(t, "the word as text", []string{
+		`git commit -m "the setup-key file is the owner's"`, "grep -n 'setup-key file' docs/setup.md", "cat setup-keys.md", "ls setup-*.md",
+		"sort < in.txt", "cat docs/setup.md",
+	})
+}

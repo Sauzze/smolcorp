@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -41,7 +42,13 @@ import (
 //     builds ($X mcp);
 //   - a send, brief or fire (or contacts) for anyone but a hire the demo made: one whose
 //     folder is inside the demo, as the office's team says;
-//   - a line or a path that names the setup key: it opens the owner's whole setup;
+//   - a line or a path that names the setup key: it opens the owner's whole setup; a Read, Grep or
+//     Glob, or a word of a line, that reaches into the app's support folder, where it is;
+//   - fail-closed, what it doesn't read (WIN125c): in any line, eval, env -S (--split-string), a
+//     nested shell's -c and cmd, powershell or pwsh, which build a command line of their own; and
+//     in a line that runs smolcorp (or gm) or git worktree, outside quotes, a # comment, a
+//     redirection, cd, pushd, popd, env -C, --git-dir, --work-tree, a GIT_…= setting, a $( ),
+//     a backtick or a ^. Those lines are refused, not read: the GM runs the plain command alone;
 //   - git config writes, and git checkout or switch: a branch with another fence; a
 //     git worktree added outside the demo folder;
 //   - whatever the hire guard refuses the GM by default: push, deploy, publish,
@@ -49,9 +56,13 @@ import (
 //
 // Like the guard, it reads one command line and never the scripts it runs: a
 // Bash command that writes outside the folder isn't caught here (the office's
-// own fence and the owner's permission prompts stay the other layers). The wall
-// is the app's: the demo hires its GM held to the project (gmscope.go), so every
-// hire, send, brief or fire its token asks for, by whatever way, stays in it.
+// own fence and the owner's permission prompts stay the other layers). Nor is a
+// command built at run time: source <(printf '\163molcorp …'), python3 -c
+// "os.system('smol'+'corp mcp')", a copy of the program under another name. So
+// the fence is never the wall for a hire. The wall is the app's: the demo hires
+// its GM held to the project (gmscope.go), so every hire, send, brief or fire
+// its token asks for, by whatever way, stays in it: the demo's roles alone, into
+// the project or a worktree of it inside the demo folder.
 
 // demoCall is the part of Claude Code's PreToolUse input the fence reads.
 type demoCall struct {
@@ -65,6 +76,8 @@ type demoFence struct {
 	root  string   // the demo folder, resolved
 	roles []string // the roles the GM may hire
 	home  string
+	// support is the app's support folder, resolved, where the setup key is: "" for none to keep out of.
+	support string
 	// team is the office's team as the GM's own token reads it: who a send, brief or fire is for.
 	team func() ([]demoMember, error)
 	// hireSession: the call is a hire's (its send key is set). The app lets a hire write only to
@@ -91,6 +104,27 @@ func (f demoFence) check(c demoCall) string {
 		return demoFenceRefusal + "the setup key is the owner's: the demo never reads or sends it."
 	}
 	switch name := c.ToolName; {
+	case name == "Read" || name == "Grep" || name == "Glob" || name == "LS" || name == "NotebookRead":
+		// What they read: a path, or Glob's pattern up to its first wildcard; Grep's glob by its name.
+		for _, key := range []string{"file_path", "path", "notebook_path", "pattern"} {
+			value, _ := input[key].(string)
+			if key == "pattern" && name != "Glob" {
+				continue
+			}
+			if at := strings.IndexAny(value, "*?[{"); key == "pattern" && at >= 0 {
+				value = value[:at]
+			}
+			if value != "" && f.inSupport(value, c.Cwd) {
+				return demoFenceRefusal + "the app's own folder holds the setup key, which is the owner's: the demo never reads it."
+			}
+		}
+		for _, key := range []string{"glob", "pattern"} {
+			value, _ := input[key].(string)
+			last := strings.ToLower(value[strings.LastIndexAny(value, `/\`)+1:])
+			if matched, err := path.Match(last, "setup-key"); err == nil && matched {
+				return demoFenceRefusal + "the setup key is the owner's: the demo never reads or sends it."
+			}
+		}
 	case name == "PowerShell":
 		// PowerShell builds words the fence can't read: ('smol'+'corp'), quotes like ‘ ’, --% with %VAR%. The
 		// demo's GM works in Bash (Git Bash on Windows), as its task says.
@@ -173,6 +207,22 @@ func (f demoFence) command(line, cwd string) string {
 	// (Windows, C:\Users\…). A hire either reading refuses is refused.
 	bashRead, plainRead := demoCommands(line, true, 0), demoCommands(line, false, 0)
 	all := append(slices.Clip(bashRead), plainRead...)
+	// Fail-closed: what the fence doesn't read is refused, not read (WIN125c).
+	if why := demoUnread(line); why != "" {
+		return demoFenceRefusal + why + ", which builds a command line the fence doesn't read: run the plain command alone, in Bash."
+	}
+	if slices.ContainsFunc(all, func(words []string) bool { return namesSmolcorp(words) || gitWorktree(words) }) {
+		if why := demoUnreadHere(line); why != "" {
+			return demoFenceRefusal + "a smolcorp or git worktree line with " + why + " outside quotes, which the fence doesn't read: run the plain command alone, on a line of its own, with any text in single quotes."
+		}
+	}
+	for _, words := range all {
+		for _, word := range words {
+			if (strings.HasPrefix(word, "~") || strings.ContainsAny(word, `/\`)) && f.inSupport(word, cwd) {
+				return demoFenceRefusal + "the app's own folder holds the setup key, which is the owner's: the demo never reads it."
+			}
+		}
+	}
 	// A command whose name the shell builds ($X mcp, after X=smolcorp in another call) can't be read.
 	for _, words := range demoSegments(line, true) {
 		if name := demoCommandName(words); strings.ContainsAny(name, "$`") {
@@ -218,6 +268,112 @@ func (f demoFence) command(line, cwd string) string {
 		}
 	}
 	return ""
+}
+
+// demoTopWords are the words of a line's simple commands, as bash reads it and as a plain reading does (a \ a
+// letter), quoted text one word: not read again as a line of its own.
+func demoTopWords(line string) []string {
+	var words []string
+	for _, escapes := range []bool{true, false} {
+		for _, segment := range demoSegments(line, escapes) {
+			words = append(words, segment...)
+		}
+	}
+	return words
+}
+
+// demoProgram is a word as a program's name: its last path part, in lower case, without .exe.
+func demoProgram(word string) string {
+	name := strings.ToLower(strings.ReplaceAll(word, `\`, "/"))
+	return strings.TrimSuffix(name[strings.LastIndexByte(name, '/')+1:], ".exe")
+}
+
+// demoShells are the shells whose -c runs a line of its own.
+var demoShells = []string{"sh", "bash", "zsh", "dash", "ksh", "mksh", "fish", "csh", "tcsh", "busybox"}
+
+// demoUnread is what in any line builds a command line the fence doesn't read, "" for nothing: eval, env -S
+// (--split-string, where \_ is a blank), a shell's -c, and cmd, powershell and pwsh (^, %VAR%, ('smol'+'corp')).
+func demoUnread(line string) string {
+	for _, escapes := range []bool{true, false} {
+		for _, words := range demoSegments(line, escapes) {
+			for i, word := range words {
+				switch name := demoProgram(word); {
+				case name == "eval":
+					return "eval"
+				case name == "cmd" || name == "powershell" || name == "pwsh":
+					return name
+				case name == "env" && slices.ContainsFunc(words[i+1:], func(a string) bool {
+					return strings.HasPrefix(a, "--s") || !strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-") && strings.Contains(a, "S")
+				}):
+					return "env -S"
+				case slices.Contains(demoShells, name) && slices.ContainsFunc(words[i+1:], func(a string) bool {
+					return strings.HasPrefix(a, "--c") || !strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-") && strings.Contains(a, "c")
+				}):
+					return "a nested " + name + " -c"
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// demoUnreadHere is what a smolcorp or git worktree line holds that the fence doesn't read, "" for nothing:
+// outside quotes, a # (bash's comment, zsh's glob), < or > (a redirection, which can hide a flag or bring a
+// file in), ^ (cmd's escape, zsh's glob), $( or a backtick; and as a word, cd, pushd, popd, env -C, --git-dir,
+// --work-tree or a GIT_…= setting, which move where git and the folder written are read from. It reads the line
+// both ways, a \ escaping the letter after it (bash) or not (a path's), and finds either's.
+func demoUnreadHere(line string) string {
+	for _, escapes := range []bool{true, false} {
+		single, double := false, false
+		for i := 0; i < len(line); i++ {
+			switch c := line[i]; {
+			case escapes && c == '\\' && !single && i+1 < len(line):
+				// A quote or a \ after it is a letter; any other letter is still seen (\# is refused too).
+				if strings.IndexByte(`'"\`, line[i+1]) >= 0 {
+					i++
+				}
+			case c == '\'' && !double:
+				single = !single
+			case c == '"' && !single:
+				double = !double
+			case !single && (c == '`' || c == '$' && i+1 < len(line) && line[i+1] == '('):
+				return "a command substitution"
+			case single || double:
+			case c == '#':
+				return "a #"
+			case c == '<' || c == '>':
+				return "a redirection"
+			case c == '^':
+				return "a ^"
+			}
+		}
+	}
+	for _, escapes := range []bool{true, false} {
+		for _, words := range demoSegments(line, escapes) {
+			for i, word := range words {
+				low := strings.ToLower(word)
+				switch name := demoProgram(word); {
+				case name == "cd" || name == "pushd" || name == "popd":
+					return name
+				case strings.HasPrefix(low, "--git-dir") || strings.HasPrefix(low, "--work-tree"):
+					return word
+				case strings.HasPrefix(low, "git_") && strings.Contains(low, "="):
+					return "a GIT_ setting"
+				case name == "env" && slices.ContainsFunc(words[i+1:], func(a string) bool {
+					return strings.HasPrefix(a, "--c") || !strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-") && strings.Contains(a, "C")
+				}):
+					return "env -C"
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// gitWorktree says whether a simple command's words run git worktree.
+func gitWorktree(words []string) bool {
+	at := slices.IndexFunc(words, func(word string) bool { return demoProgram(word) == "git" })
+	return at >= 0 && slices.ContainsFunc(words[at+1:], func(word string) bool { return strings.EqualFold(word, "worktree") })
 }
 
 // namesSmolcorp says whether a simple command's words name smolcorp (the program, by any path) or gm and a word.
@@ -704,6 +860,19 @@ func (f demoFence) inFenceFolder(path, cwd string) bool {
 	return false
 }
 
+// inSupport says whether path (~ is home, a relative one is from cwd) is the app's support folder or in it,
+// links followed either way.
+func (f demoFence) inSupport(path, cwd string) bool {
+	p := f.paths()
+	path, ok := f.whole(path, cwd)
+	if f.support == "" || !ok {
+		return false
+	}
+	_, cleanIn := p.below(f.support, p.resolveExisting(path))
+	_, physicalIn := p.below(f.support, p.resolvePhysical(path))
+	return cleanIn || physicalIn
+}
+
 // inside says whether path (~ is home, a relative one is from cwd) is the demo folder or below it, links followed.
 func (f demoFence) inside(path, cwd string) bool {
 	p := f.paths()
@@ -862,7 +1031,7 @@ func demoSegments(line string, escapes bool) [][]string {
 // runDemoFence is `smolcorp demo fence --root R --roles a,b`: the call on stdin, an answer only to refuse.
 // Anything it can't read is refused: a fence that fails open isn't one.
 func runDemoFence(args []string, stdin io.Reader, stdout io.Writer) int {
-	f := demoFence{home: homeDir, team: demoTeamHere, hireSession: strings.TrimSpace(os.Getenv(hireKeyEnvironment)) != ""}
+	f := demoFence{home: homeDir, support: resolveExisting(supportDir), team: demoTeamHere, hireSession: strings.TrimSpace(os.Getenv(hireKeyEnvironment)) != ""}
 	for i := 0; i+1 < len(args); i += 2 {
 		switch args[i] {
 		case "--root":

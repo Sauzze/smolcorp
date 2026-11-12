@@ -47,6 +47,8 @@ type setupHire struct {
 	APIKey bool
 	// Scope: the GM alone, the project it is held to (gmscope.go), the folder it is hired into; "" for none.
 	Scope string
+	// ScopeRoles: for a scope that is a demo's project, the roles that demo was registered with (gmscope.go).
+	ScopeRoles string
 }
 
 // apply puts what setup asked for into an engine hire's request. Its worktree
@@ -57,7 +59,7 @@ func (h *setupHire) apply(r *engineRequest, managerOn bool) {
 	r.Task = h.Task
 	r.Nickname = h.Nickname
 	r.AccountName = h.Account
-	r.Scope = h.Scope
+	r.Scope, r.ScopeRoles = h.Scope, h.ScopeRoles
 	if h.Model != "" {
 		r.Role.Model = h.Model
 	}
@@ -147,6 +149,9 @@ func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home 
 	hire.Folder = folder
 	// Only the owner's hire of the GM names a scope: the GM's token never hires the gm role.
 	if hire.Scope, status, why = checkedGMScope(given["scope"], hire, home); status != 0 {
+		return setupHire{}, status, why
+	}
+	if hire.ScopeRoles, status, why = demoScopeRoles(hire.Scope); status != 0 {
 		return setupHire{}, status, why
 	}
 	switch task := given["task"].(type) {
