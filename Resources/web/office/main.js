@@ -6700,15 +6700,17 @@
   const LABEL_SMALLEST = 8;
   /**
    * How long a turn has run, short enough for its name tag: 9:41 for the
-   * first ten minutes, then 12m, then 2h. `short`, where a long name needs
-   * the room, says 41s, then 9m, then 12m.
+   * first ten minutes, then 12m, then 2h, then 4d from 100 hours on, never
+   * stopping at a cap that would read as less than it is. `short`, where a
+   * long name needs the room, says 41s, then 9m, then 12m.
    */
   function turnLength(seconds, short = false) {
     const minutes = Math.floor(seconds / 60);
     if (short && minutes < 1) return `${seconds}s`;
     if (minutes < 10 && !short) return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
     if (minutes < 60) return `${minutes}m`;
-    return `${Math.min(Math.floor(minutes / 60), 99)}h`;
+    const hours = Math.floor(minutes / 60);
+    return hours > 99 ? `${Math.floor(hours / 24)}d` : `${hours}h`;
   }
 
   /** Waiting on you longer than this, in seconds, an agent gets agitated, and more so the longer it goes on… */
@@ -30128,10 +30130,11 @@
       const inLine = DESKS[desk].off && crowdAnchors.has(desk);
       if (DESKS[desk].off && !inLine) return;
       const between = inLine ? (desk === selectedDesk ? DESK_WIDTH : CROWD_GAP - 1) : DESK_COLUMNS[1] - DESK_COLUMNS[0] - 2;
-      // How long the agent has been at work, between the dot and the name: its room kept as wide as its widest
-      // digits, so the name doesn't shift as they change. Shorter before the name is cut, and left out where even
-      // that would cut a name that fits on its own, as on a phone.
-      const seconds = sessionSecondsAt(desk);
+      // How long the agent has been on its current turn (owner: the tag is the turn, not the session; the ⓘ card
+      // keeps the working time and the session's age), between the dot and the name, empty while it's idle: its room
+      // kept as wide as its widest digits, so the name doesn't shift as they change. Shorter before the name is cut,
+      // and left out where even that would cut a name that fits on its own, as on a phone.
+      const seconds = turnSecondsAt(desk);
       const clockRoom = (text) => (text ? ctx.measureText(text.replace(/\d/g, '0')).width + gap : 0);
       const nameFits = (text) => ctx.measureText(name).width <= between * scale - dotSize - gap - padding * 2 - clockRoom(text);
       let clock = seconds === null ? null : turnLength(seconds);
@@ -30446,20 +30449,8 @@
     function turnSecondsAt(desk) {
       const session = sessionAt(desk);
       if (DESKS[desk].off || !session || !session.turnStartedAt || (session.state !== 'thinking' && session.state !== 'asking')) return null;
+      if (session.startedAt && session.turnStartedAt < session.startedAt) return null;
       return Math.max(0, Math.floor((Date.now() - session.turnStartedAt) / 1000));
-    }
-
-    /**
-     * How long the agent at a desk has been at work, in seconds, while it
-     * works or asks, or null: from its session's start, which /clear and
-     * compaction don't move, or its turn's if that's earlier or the start
-     * isn't said, as the portable viewer doesn't. Its name tag shows it.
-     */
-    function sessionSecondsAt(desk) {
-      const session = sessionAt(desk);
-      if (DESKS[desk].off || !session || (session.state !== 'thinking' && session.state !== 'asking')) return null;
-      const from = Math.min(session.startedAt || Infinity, session.turnStartedAt || Infinity);
-      return from === Infinity ? null : Math.max(0, Math.floor((Date.now() - from) / 1000));
     }
 
     /**
