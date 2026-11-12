@@ -653,6 +653,20 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			send = &value
 		}
 		writeStatus(w)(d.TypePhoneText(stringValue(body["text"]), session, send))
+	// The office window's words typed into the session's agent, by the same code as /dictate (talksay.go): the
+	// window's key from this computer only, never a phone's.
+	case r.Method == http.MethodPost && r.URL.Path == "/talk/say":
+		if phoneID != officeWindowID {
+			writeStatus(w)(http.StatusForbidden, d.shownOnlyInTheWindow("The conversation"))
+			return
+		}
+		body := decodeJSON(r.Body)
+		// Send is the words and Return: the window's page says so, and an older one that doesn't gets it too.
+		var send *bool
+		if value, ok := body["send"].(bool); ok {
+			send = &value
+		}
+		writeStatus(w)(d.TypeWindowText(stringValue(body["text"]), session, send))
 	// The last lines of the session's tab, read-only, to see what was typed: over Tailscale only.
 	case r.Method == http.MethodPost && r.URL.Path == "/peek":
 		if !fromTailnet(r.Request) {
