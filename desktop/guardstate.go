@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -142,9 +141,11 @@ func swiftStrings(raw json.RawMessage) ([]string, bool) {
 
 // loadGuard is what the file holds, or the defaults and what is wrong with
 // it, as GuardFile.load reads it. A file that isn't there is not a problem.
+// It is read as the guard reads it (guard.ReadFile): a link, a pipe or a file
+// over 64 KiB can't be read, at once.
 func loadGuard(path string) (guardStored, string) {
 	fresh := guardDefaults()
-	data, err := os.ReadFile(path)
+	data, err := guard.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return fresh, ""
 	}
