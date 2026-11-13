@@ -157,6 +157,27 @@ var hasProgram = func(name string) bool {
 // app opened from the Finder or the Dock has no Homebrew on its PATH. A variable, for the tests.
 var brewPlaces = []string{"/opt/homebrew/bin", "/usr/local/bin"}
 
+// tmuxCameWithSmolcorp is whether path, the tmux this computer found, is the one that came with Smolcorp
+// (bundled is where Smolcorp's own lookup puts it, "" if it has none). Only the Mac app carries a tmux, so
+// only a Mac counts: on Linux a tmux beside the program is just the distro's (/usr/bin/tmux) or one the person
+// built in ~/.local/bin, and calling it "bundled" would be false. Piece 5 widens this to Linux's own library
+// folder once it ships a tmux there. goos is a parameter for the tests.
+func tmuxCameWithSmolcorp(path, bundled, goos string) bool {
+	return path != "" && goos == "darwin" && path == bundled
+}
+
+// tmuxAvailable is the tmux this computer has, and whether it's the one that came with Smolcorp (the Mac app
+// carries its own, so a Mac needs no install step). A variable, for the tests.
+//
+// MERGE WITH PIECE 3 (the bundled-first resolver): the one line to change is the return below, to
+// `return path, tmuxCameWithSmolcorp(path, bundledTmux(), runtime.GOOS)`. Comparing with bundledTmux() rather
+// than asking the path again keeps the two lookups from disagreeing. Before the merge nothing counts as
+// bundled, so today's guidance stays; after it, this comment can lose this paragraph.
+var tmuxAvailable = func() (path string, bundled bool) {
+	path = tmuxPath()
+	return path, false
+}
+
 // tmuxInstall is the command that installs tmux with this computer's package manager, "" if none is known.
 func tmuxInstall() string {
 	for _, pm := range [][2]string{{"apt-get", "sudo apt install tmux"}, {"dnf", "sudo dnf install tmux"}, {"pacman", "sudo pacman -S tmux"},
@@ -300,12 +321,20 @@ func (d *Deck) gmPreflightOn(account string) preflightReport {
 	} else if testCopy {
 		add(preflightItem{ID: "account", Title: gmNeedsAccount, Fix: "A test copy on this computer can't use one yet: hire your General Manager from the real Smolcorp."})
 	}
-	terminals, tmux := hireWays()
+	// Terminals only: tmux comes from the seam below, so it's looked up once.
+	var terminals []hireOpener
+	if canOpenWindows() {
+		terminals = installedOpeners()
+	}
+	tmuxFound, bundled := tmuxAvailable()
+	tmux := tmuxFound != ""
 	terminal, hasTerminal := hireTerminal(chosen, terminals)
-	tmuxCommand := tmuxInstall()
+	// The install step is only for a computer with no tmux: one that came with Smolcorp leaves nothing to install.
 	var tmuxAction *preflightAction
-	if tmuxCommand != "" {
-		tmuxAction = &preflightAction{Kind: "copy", Label: "Copy", Command: tmuxCommand}
+	if !tmux {
+		if tmuxCommand := tmuxInstall(); tmuxCommand != "" {
+			tmuxAction = &preflightAction{Kind: "copy", Label: "Copy", Command: tmuxCommand}
+		}
 	}
 	switch {
 	case hasTerminal:
@@ -321,7 +350,11 @@ func (d *Deck) gmPreflightOn(account string) preflightReport {
 	}
 	if hasTmuxHires && inTmux && hasTerminal {
 		if tmux {
-			add(preflightItem{ID: "tmux", OK: true, Title: "tmux is installed."})
+			title := "tmux is installed."
+			if bundled {
+				title = "tmux comes with Smolcorp."
+			}
+			add(preflightItem{ID: "tmux", OK: true, Title: title})
 		} else {
 			fix := "You can hire anyway, in a plain " + terminal.name + " window. For tmux, install it with your system's package manager, then press Check again."
 			if tmuxAction != nil {

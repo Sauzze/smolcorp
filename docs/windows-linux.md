@@ -22,6 +22,10 @@ pairing, the same agents, roles and hiring. What's different from the Mac:
   launcher it only selects the session, because the launcher can't tell which
   window it's in.
 - **Two-finger scrolling** works in tmux and kitty.
+- **tmux isn't bundled here.** The Mac app carries its own tmux; on Linux,
+  install it with your package manager (`sudo apt install tmux`, or your
+  distribution's equivalent) if you want hires in tmux, and the setup page
+  can show the command to copy. Windows has no tmux hires.
 - **Show Office**, in the tray menu: on Windows, the office in a window of its
   own; on Linux, in your browser, where Chrome and Edge can **POP OUT** it on
   top of your other windows.

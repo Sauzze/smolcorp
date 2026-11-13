@@ -218,3 +218,6 @@ that needs no Accessibility at all.
   these agents, run it inside tmux.
 - **Hiring** opens new hires in Terminal, iTerm2 or Ghostty, as you choose on
   the setup page, and with **Start inside tmux**, in a tmux session of their own.
+- **tmux comes with Smolcorp on the Mac**: there's nothing to install.
+  Smolcorp uses its own copy, and uses one you installed yourself only if the
+  app's copy is missing or can't be used.

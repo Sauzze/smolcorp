@@ -18,7 +18,9 @@ func preflightDeck(t *testing.T) (*Deck, *hiring, *string, *signIn) {
 	t.Helper()
 	d, h, _ := hiringDeck(t, "")
 	saved := []any{claudeFoundAt, claudeSignIn, hasProgram, brewPlaces}
+	savedTmux := tmuxAvailable
 	t.Cleanup(func() {
+		tmuxAvailable = savedTmux
 		claudeFoundAt = saved[0].(func() string)
 		claudeSignIn = saved[1].(func(string, string) signIn)
 		hasProgram = saved[2].(func(string) bool)
@@ -313,6 +315,129 @@ func TestTheGMPreflightSaysTmuxIsMissingWithoutStoppingTheHire(t *testing.T) {
 	tmuxPath = func() string { return "/usr/bin/tmux" }
 	if line := preflightLine(t, d.gmPreflight(), "tmux"); !line.OK {
 		t.Errorf("tmux there: %+v", line)
+	}
+}
+
+// A tmux that came with Smolcorp leaves no install step: no line asks for one, with a desktop or without.
+func TestTheGMPreflightWithABundledTmuxHasNoInstallLine(t *testing.T) {
+	d, _, _, _ := preflightDeck(t)
+	tmuxAvailable = func() (string, bool) { return "/Applications/Smolcorp.app/Contents/Resources/bin/tmux", true }
+	// No desktop to open a window on: the hires run in tmux, ticked, with nothing to paste.
+	canOpenWindows = func() bool { return false }
+	report := d.gmPreflight()
+	if line := preflightLine(t, report, "terminal"); !report.Ready || !line.OK || line.Action != nil || line.Fix != "" {
+		t.Errorf("no desktop, bundled tmux: ready %v, %+v", report.Ready, line)
+	}
+	for _, item := range report.Items {
+		if item.Action != nil && item.Action.Kind == "copy" || strings.Contains(item.Fix, "install") {
+			t.Errorf("an install step with a bundled tmux: %+v", item)
+		}
+	}
+	if !hasTmuxHires {
+		return
+	}
+	// A desktop, and hires in tmux: the tmux line is ticked and says where tmux came from.
+	canOpenWindows = func() bool { return true }
+	d.config.HireInTmux = true
+	line := preflightLine(t, d.gmPreflight(), "tmux")
+	if !line.OK || line.Optional || line.Action != nil || line.Title != "tmux comes with Smolcorp." {
+		t.Errorf("tmux line with a bundled tmux: %+v", line)
+	}
+}
+
+// Without a bundled tmux (a dev build, Linux for now) the guidance is today's, whether tmux is found or not.
+func TestTheGMPreflightWithoutABundledTmuxKeepsTodaysGuidance(t *testing.T) {
+	d, _, _, _ := preflightDeck(t)
+	canOpenWindows = func() bool { return false }
+	tmuxAvailable = func() (string, bool) { return "", false }
+	line := preflightLine(t, d.gmPreflight(), "terminal")
+	if line.OK || line.Action == nil || line.Action.Command != "sudo apt install tmux" || !strings.Contains(line.Fix, "install tmux") {
+		t.Errorf("no tmux at all: %+v", line)
+	}
+	tmuxAvailable = func() (string, bool) { return "/usr/bin/tmux", false }
+	if line := preflightLine(t, d.gmPreflight(), "terminal"); !line.OK || line.Action != nil {
+		t.Errorf("a tmux of the system's: %+v", line)
+	}
+	if !hasTmuxHires {
+		return
+	}
+	canOpenWindows = func() bool { return true }
+	d.config.HireInTmux = true
+	if line := preflightLine(t, d.gmPreflight(), "tmux"); !line.OK || line.Title != "tmux is installed." {
+		t.Errorf("a system tmux: %+v", line)
+	}
+	tmuxAvailable = func() (string, bool) { return "", false }
+	if line := preflightLine(t, d.gmPreflight(), "tmux"); line.OK || !line.Optional || line.Action == nil || line.Action.Command != "sudo apt install tmux" {
+		t.Errorf("tmux missing: %+v", line)
+	}
+}
+
+// Only the Mac app carries a tmux: on a Linux reading, a tmux beside the program (the distro's, or one built
+// in ~/.local/bin) is not called bundled, so Linux keeps today's wording.
+func TestOnlyTheMacCountsATmuxAsComingWithSmolcorp(t *testing.T) {
+	const beside = "/usr/bin/tmux"
+	for _, c := range []struct {
+		path, bundled, goos string
+		want                bool
+	}{
+		{"/Applications/Smolcorp.app/Contents/Resources/bin/tmux", "/Applications/Smolcorp.app/Contents/Resources/bin/tmux", "darwin", true},
+		{beside, beside, "linux", false},
+		{beside, beside, "windows", false},
+		{"/opt/homebrew/bin/tmux", "/Applications/Smolcorp.app/Contents/Resources/bin/tmux", "darwin", false},
+		{"/usr/bin/tmux", "", "darwin", false},
+		{"", "", "darwin", false},
+	} {
+		if got := tmuxCameWithSmolcorp(c.path, c.bundled, c.goos); got != c.want {
+			t.Errorf("%+v: got %v, want %v", c, got, c.want)
+		}
+	}
+	// And the page's wording stays today's for that Linux tmux: ticked "installed", no step to copy.
+	if !hasTmuxHires {
+		return
+	}
+	d, _, _, _ := preflightDeck(t)
+	canOpenWindows = func() bool { return true }
+	d.config.HireInTmux = true
+	tmuxAvailable = func() (string, bool) { return beside, tmuxCameWithSmolcorp(beside, beside, "linux") }
+	line := preflightLine(t, d.gmPreflight(), "tmux")
+	if !line.OK || line.Action != nil || line.Title != "tmux is installed." {
+		t.Errorf("a Linux tmux beside the program: %+v", line)
+	}
+}
+
+// What Setup's page is given (the route it draws its Hire steps from): no step to copy a tmux install with a
+// bundled tmux, the step as before without one.
+func TestSetupsPreflightRouteShowsTheTmuxState(t *testing.T) {
+	d, _, _, _ := preflightDeck(t)
+	canOpenWindows = func() bool { return false }
+	copySteps := func() int {
+		_, text := pageCall(t, d, "GET", "/setup/hire/gm/preflight")
+		var report struct {
+			Items []struct {
+				ID     string `json:"id"`
+				Action *struct {
+					Kind string `json:"kind"`
+				} `json:"action"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal([]byte(text), &report); err != nil {
+			t.Fatalf("answer %q: %v", text, err)
+		}
+		n := 0
+		for _, item := range report.Items {
+			if item.Action != nil && item.Action.Kind == "copy" {
+				n++
+			}
+		}
+		return n
+	}
+	tmuxAvailable = func() (string, bool) { return "/x/Resources/bin/tmux", true }
+	if n := copySteps(); n != 0 {
+		t.Errorf("%d install steps on the page with a bundled tmux", n)
+	}
+	tmuxAvailable = func() (string, bool) { return "", false }
+	if n := copySteps(); n != 1 {
+		t.Errorf("%d install steps on the page with no tmux, want today's one", n)
 	}
 }
 
