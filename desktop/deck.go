@@ -30,6 +30,11 @@ type Deck struct {
 	gmToken  string         // the GM's token, in memory, kept by gmKept, and under the Mac app in a file for a GM started by hand (gmbyhand.go)
 	gmKept   *gmTokenKeeper // where the token is kept between runs: the Keychain, a secret store or a file (gmtokenstore.go)
 	gmHand   gmByHandState
+	// Floors from other Macs (peers_mac.go): the Macs paired here and the code to join with, under mu; where the
+	// Macs this one joined are kept, with their keys (the secret store); joinMu, held through a join, never with mu.
+	macPeers *macPeers
+	peerKeys peerKeyStore
+	joinMu   sync.Mutex
 	config   *Config
 	sessions *Sessions
 	// Under the Mac app: what it last said of this Mac (see hostsetup.go, hostoffice.go).
@@ -218,6 +223,9 @@ func NewDeck() *Deck {
 	// The hires in T3 Code and their desks, before anything lays the office out.
 	d.t3 = newT3Follower()
 	d.t3Desks = newT3Desks(registry)
+	// Floors from other Macs: those paired here, from the support folder; those joined, in the secret store.
+	d.macPeers = loadMacPeers(macPeersFile())
+	d.peerKeys = peerKeyStoreFor(d.mac.host)
 	// Under the Mac app, a pasted key is kept in its Keychain (hostshell.go).
 	d.summaryKeys = newSummaryKeys(summaryStore(d.mac.host), os.Getenv)
 	d.summaries = newSummaries(d.summaryKeys.Read)

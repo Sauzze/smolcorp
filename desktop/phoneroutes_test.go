@@ -51,6 +51,7 @@ var everyPhoneRoute = [][2]string{
 	{"GET", "/talk"}, {"GET", "/talk/asking"}, {"POST", "/talk/say"}, {"POST", "/talk/pick"},
 	{"GET", "/dictate"}, {"GET", "/peek"}, {"POST", "/choice"}, {"POST", "/approvals"}, {"POST", "/conversation"},
 	{"POST", "/talk"}, {"PUT", "/talk"}, {"POST", "/talk/asking"}, {"GET", "/talk/say"}, {"GET", "/talk/pick"},
+	{"GET", "/peer/hello"}, {"POST", "/peer/pair"}, {"GET", "/peer/nowhere"},
 	{"GET", "/nowhere"},
 }
 
@@ -161,9 +162,10 @@ var reachTheTable = []string{"phone-wifi", "phone-wireguard", "phone-serve-mac",
 // dump of every route.
 func TestEachRowLetsInItsClassOnly(t *testing.T) {
 	d, phoneKey := probeDeck(t)
-	// FR1 moved 7; the talk bubble adds GET /talk, GET /talk/asking, POST /talk/say and POST /talk/pick (1.26).
-	if len(phoneRouteTable) != 12 {
-		t.Errorf("%d rows; want 12", len(phoneRouteTable))
+	// FR1 moved 7; the talk bubble adds GET /talk, GET /talk/asking, POST /talk/say and POST /talk/pick (1.26);
+	// floors from other Macs, GET /peer/hello (M1).
+	if len(phoneRouteTable) != 13 {
+		t.Errorf("%d rows; want 13", len(phoneRouteTable))
 	}
 	for key, row := range phoneRouteTable {
 		if !slices.ContainsFunc(everyPhoneRoute, func(route [2]string) bool {
@@ -188,9 +190,11 @@ func TestEachRowLetsInItsClassOnly(t *testing.T) {
 			t.Errorf("%s: %d bytes in %s, as before the move %d in %s", key, most, wait, maxRequestSize, requestTimeout)
 		}
 	}
-	// Another Mac's class lets no one in until a piece gives it its checks.
-	if accessPeer.lets(&request{Request: httptest.NewRequest("GET", "/", nil)}, "phone") {
-		t.Error("the peer class let a phone in")
+	// Another Mac's class never lets in a phone or the window: another Mac is let in by servePeer (peers_mac_test.go).
+	for _, phoneID := range []string{"phone", officeWindowID} {
+		if accessPeer.lets(&request{Request: httptest.NewRequest("GET", "/", nil)}, phoneID) {
+			t.Errorf("the peer class let %s in", phoneID)
+		}
 	}
 }
 
@@ -278,5 +282,8 @@ PUT /talk: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phon
 POST /talk/asking: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 GET /talk/say: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 GET /talk/pick: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
+GET /peer/hello: 403 403 403 403 403 403 403 403 403 403 403; let in: nobody
+POST /peer/pair: 403 403 403 403 403 403 403 403 403 403 403; let in: nobody
+GET /peer/nowhere: 404 404 404 404 404 404 404 404 404 404 404; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-mac-text-off, phone-serve-other, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
 GET /nowhere: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 `

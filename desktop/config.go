@@ -144,6 +144,9 @@ type Config struct {
 	// Kept under the Mac's names. Setup has no switch for them here yet: see phonetext.go.
 	PhoneMicEnabled  bool `json:"phoneMicEnabled"`
 	PhoneMicAutoSend bool `json:"phoneMicSkipsConfirm"`
+	// Floors from other Macs (peers_mac.go): whether another Mac may pair with this one, or this one join another,
+	// and a Mac paired use its routes. Off unless you turn it on, from the setup page alone.
+	FloorsFromOtherMacs bool `json:"floorsFromOtherMacs,omitempty"`
 	// Whether the file had BotFloor: one from before it has it worked out
 	// again once the bots that were upstairs are settled (see settleBots).
 	botFloorKept bool

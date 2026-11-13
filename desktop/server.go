@@ -234,6 +234,11 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (rt *router) handle(w http.ResponseWriter, r *request) {
 	d := rt.deck
+	// Another Mac's, first: /peer/ and a peer's key are answered there alone, never as a phone's, the window's,
+	// setup's or the hook's (peers_mac.go).
+	if d.servePeer(w, r) {
+		return
+	}
 	switch {
 	// Fetched by the phone itself for the home-screen icon, with no key to send.
 	case r.URL.Path == "/icon.png":
@@ -877,6 +882,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		return
 	}
 
+	// Floors from other Macs: the setting, a code, the Macs paired and joined (peers_mac_join.go).
+	if rt.peerSetupRoutes(w, r) {
+		return
+	}
 	// What only macOS does, under the Mac app (hostsetup.go): not served elsewhere.
 	if rt.macSetup(w, r) {
 		return
