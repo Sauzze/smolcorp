@@ -374,7 +374,12 @@
     try { kept = localStorage.getItem(LITE_KEY); } catch {}
     return kept ? kept === 'on' : true;
   }
-  const office = !window.AgentOffice ? { show() {}, close() {}, select() {}, setVisible() {}, setFramed() {}, setFloating() {}, setSaving() {}, setLite() {}, moved() {}, openStyles() {} } : AgentOffice.create($('office-canvas'), {
+  // The pull request badge on each desk (1.26 R2): the computer's own office window only, whose key is the one the
+  // computer answers /desk/git and /desk/pr/open to. A phone's page, the preview and the screen saver have none of it.
+  const gitHere = whole && !preview && !saver;
+  const office = !window.AgentOffice ? { show() {}, close() {}, select() {}, setVisible() {}, setFramed() {}, setFloating() {}, setSaving() {}, setLite() {}, setPR() {}, moved() {}, openStyles() {} } : AgentOffice.create($('office-canvas'), {
+    // A desk's pull request tag tapped: the computer opens it (it looks up the address itself, and checks it).
+    ...(gitHere ? { pr(id) { tick(); send('/desk/pr/open', { session: id }); } } : {}),
     ...(talkHere ? { talk: { get, post, flash, tick } } : {}),
     select(id) {
       tick();
@@ -1695,6 +1700,36 @@
     return signedFetch('POST', pathname, params, { signal, ...body }).catch(() => (signal && signal.aborted ? { timedOut: true } : undefined));
   }
 
+  /*
+   * The pull request badges: each desk's /desk/git, every GIT_EVERY ms while the window is in sight, one desk after
+   * another (the computer keeps its answers, and reads gh in the background, so a PR shows from the second look on).
+   * An answer that says no, as any page but the computer's own window gets, ends the asking for good.
+   */
+  const GIT_EVERY = 15000;
+  let gitAsking = false, gitOff = false, gitAt = 0;
+  async function askGit() {
+    if (!gitHere || gitOff || gitAsking || document.hidden || !sessions.length) return;
+    gitAsking = true;
+    gitAt = Date.now();
+    try {
+      const found = {};
+      for (const { id } of sessions.slice(0, 24)) {
+        const res = await get('/desk/git', { session: id });
+        if (res && (res.status === 401 || res.status === 403)) {
+          gitOff = true;
+          office.setPR({});
+          return;
+        }
+        const answer = res && res.ok ? await res.json().catch(() => null) : null;
+        if (answer && answer.pr) found[id] = answer.pr;
+      }
+      office.setPR(found);
+    } finally {
+      gitAsking = false;
+    }
+  }
+  if (gitHere) setInterval(askGit, GIT_EVERY);
+
   /** What the computer streams: the sessions at their desks and the layout. */
   function receive(data) {
     // Upstairs too, an agent there can be picked and driven as on the ground floor: only it has no key.
@@ -1737,6 +1772,7 @@
     windowSnapshot = data;
     t3Snapshot = data;
     office.show({ ...withMacKeys(data), theme: {} });
+    if (gitHere && !gitAt) askGit();
     $('status').classList.remove('off');
     render();
   }

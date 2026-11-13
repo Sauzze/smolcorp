@@ -539,7 +539,7 @@ var phoneRoutes = map[string]bool{
 	"/dictate": true, "/peek": false, "/choose": true, "/choice": false, "/approvals": false,
 	"/conversation": false, "/session/info": false, "/summary": false,
 	// The office's own window alone (1.26): no phone reaches them, over the Wi-Fi or anywhere.
-	"/desk/git": false, "/talk": false, "/talk/asking": false, "/talk/say": false, "/talk/pick": false, "/talk/listen": false,
+	"/desk/git": false, "/desk/pr/open": false, "/talk": false, "/talk/asking": false, "/talk/say": false, "/talk/pick": false, "/talk/listen": false,
 }
 
 // phoneRouteCode is one route's code as this test reads it: its paths, its code, and whether only the window reaches it.
