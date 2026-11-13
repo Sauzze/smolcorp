@@ -75,6 +75,8 @@ type Deck struct {
 	talkPicks map[string]int64
 	// When each session's input line, and its prompt's details, were last looked at from the phone: once a second.
 	lastPeek, lastChoiceLook map[string]time.Time
+	// The hire queue and the plan it hires from (hirequeue.go, hireplan.go).
+	hq *hireQueue
 	// The hires whose launcher hasn't connected yet, by their token, and
 	// when the last hire was made: see hire.go.
 	hires    map[string]*pendingHire
@@ -188,6 +190,7 @@ func NewDeck() *Deck {
 		d.keepGMToken()
 	}
 	d.mail = d.newDeckOutbox()
+	d.hq = d.newHireQueue()
 	// The folders are taken now, not at each look, so a look never reads a variable a test changes.
 	registry, support := registryPath(), supportDir
 	d.watchers = newWatchers(support, homeDir,

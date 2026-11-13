@@ -98,6 +98,15 @@ var goOnlyRoutes = []routeRow{
 	{"POST", "/setup/t3code/takeover", []string{"page"}},
 	{"POST", "/setup/t3code/handback", []string{"page"}},
 	{"GET", "/setup/gm/git", []string{"gm", "page", "tool"}},
+	// The hire queue and its plan (hirequeue.go, hireplan.go): the GM proposes a plan, and only the page asks for
+	// one, approves it, resumes the queue or cancels it. A tool, an MCP key and a hire do none of these.
+	{"GET", "/setup/hire/queue", []string{"gm", "page", "tool"}},
+	{"POST", "/setup/hire/plan", []string{"page"}},
+	{"POST", "/setup/hire/plan/propose", []string{"gm", "page"}},
+	{"POST", "/setup/hire/plan/approve", []string{"page"}},
+	{"POST", "/setup/hire/plan/cancel", []string{"page"}},
+	{"POST", "/setup/hire/queue/resume", []string{"page"}},
+	{"POST", "/setup/hire/queue/cancel", []string{"page"}},
 }
 
 // name is how the table spells a caller.
