@@ -68,9 +68,11 @@ type hireStart struct {
 var realSmolcorpPorts = []int{7710, 7720, 7730}
 
 // agentOrClaude is the agent a program names, and Claude for one that isn't
-// known, as the Mac does.
+// known, as the Mac does. An ACP agent ("acp:gemini", known or not) is never read as Claude: it is returned as it
+// is, so every check that asks "is this Claude Code?" says no to it, and the fence's account, hooks and T3 Code
+// checks agree with hireWith's refusal of it.
 func agentOrClaude(program string) Agent {
-	if agent := Agent(program); slices.Contains(agents, agent) {
+	if agent := Agent(program); slices.Contains(agents, agent) || agent.IsACP() {
 		return agent
 	}
 	return Claude
@@ -123,6 +125,10 @@ func sendKeyFor(role Role, hireID string) (string, error) {
 // script is the start script, or why there isn't one (when in doubt, refuse).
 func (h hireStart) script() (string, error) {
 	agent := agentOrClaude(h.Role.Agent)
+	if agent.IsACP() {
+		// Hiring an ACP agent is A5's: its start isn't a script that execs its name.
+		return "", errors.New(acpNotHiredYet)
+	}
 	claude := agent == Claude
 	lines, err := h.environmentLines()
 	if err != nil {

@@ -91,7 +91,7 @@ func t3HireRefusal(role *Role, account string, apiKey, testCopy bool) string {
 		return "Pick a role: a hire in T3 Code starts on its brief."
 	case role.ID == gmRole:
 		return "The General Manager isn't hired into T3 Code."
-	case agentOrClaude(role.Agent) != Claude:
+	case Agent(role.Agent).IsACP() || agentOrClaude(role.Agent) != Claude:
 		return "Only a Claude Code role is hired into T3 Code: the fence there is Claude Code's."
 	case apiKey || account != "":
 		return "A hire in T3 Code works on T3 Code's own Claude account, so no account is picked for it."
