@@ -815,12 +815,30 @@ func (d *Deck) isHookKey(candidate string) bool {
 // eventStream pushes the deck's state to one phone as it changes.
 type eventStream struct {
 	messages chan []byte // nil is a ping
-	closed   chan struct{}
-	once     sync.Once
+	// notes are what only the office's own window is told as it happens, apart from the state: the words a
+	// dictation hears (dictation.go). Never part of the state, so a phone's stream never has one.
+	notes  chan []byte
+	closed chan struct{}
+	once   sync.Once
 }
 
 func newEventStream() *eventStream {
-	return &eventStream{messages: make(chan []byte, 8), closed: make(chan struct{})}
+	return &eventStream{messages: make(chan []byte, 8), notes: make(chan []byte, 8), closed: make(chan struct{})}
+}
+
+// note never waits either: with no room, the oldest note makes way for the newest, as each says where the words are.
+func (s *eventStream) note(text []byte) {
+	for {
+		select {
+		case s.notes <- text:
+			return
+		default:
+		}
+		select {
+		case <-s.notes:
+		default:
+		}
+	}
 }
 
 // send never waits. For a phone that isn't keeping up, the oldest message
@@ -876,6 +894,9 @@ func (rt *router) events(w http.ResponseWriter, r *request, phone string) {
 			} else {
 				_, _ = fmt.Fprintf(w, "data: %s\n\n", state)
 			}
+			flusher.Flush()
+		case note := <-stream.notes:
+			_, _ = fmt.Fprintf(w, "event: dictation\ndata: %s\n\n", note)
 			flusher.Flush()
 		case <-stream.closed:
 			return
