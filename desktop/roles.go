@@ -402,7 +402,9 @@ func (r Role) checked() (Role, bool) {
 		return Role{}, false
 	}
 	agent := Agent(r.Agent)
-	if !slices.Contains(agents, agent) {
+	// As any agent Smolcorp doesn't know, an ACP agent that isn't on the known list is read as Claude Code, which
+	// the fence covers.
+	if _, known := agent.acpKnown(); !slices.Contains(agents, agent) && !known {
 		agent = Claude
 	}
 	model := strings.TrimSpace(r.Model)
@@ -581,7 +583,15 @@ func (r Role) firstMessage(folder string, how roleStart) string {
 // `=`, and the message after `--` where it stands alone, so text starting
 // with a dash is never read as an option. Grok starts as it is: how it takes
 // these hasn't been checked.
+//
+// An ACP agent (an Agent of the kind acpKind) starts as its entry in the known list says, and nothing more: its model
+// and its first message don't go in its arguments, they are asked for through the protocol (session/new, then
+// session/prompt). An ACP agent the list doesn't have starts with none.
 func (r Role) arguments(message string) []string {
+	if Agent(r.Agent).IsACP() {
+		_, args, _ := Agent(r.Agent).acpLaunch()
+		return args
+	}
 	var args []string
 	if r.Model != "" && Agent(r.Agent) != Grok {
 		args = append(args, "--model="+r.Model)

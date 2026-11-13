@@ -24,7 +24,41 @@ const (
 
 var agents = []Agent{Claude, Codex, Gemini, OpenCode, Grok}
 
+// acpKind is the agent kind of an agent that speaks the Agent Client Protocol (internal/acp): an Agent value is
+// "acp:" and the id of its entry in knownACPAgents, as "acp:gemini". It isn't in agents: that list is the agents that
+// report through hooks, and an ACP agent has no hook, no terminal and no keys. Smolcorp talks to it over its stdin
+// and stdout, and its Tab (A3) answers Interrupt and Reject through the protocol, not by pressing keys.
+const acpKind = "acp:"
+
+// ACPAgent is the Agent for the known ACP agent with id.
+func ACPAgent(id string) Agent { return Agent(acpKind + id) }
+
+// IsACP says whether a is an ACP agent, known or not.
+func (a Agent) IsACP() bool { return strings.HasPrefix(string(a), acpKind) }
+
+// acpKnown is a's entry in the list of known ACP agents. Not an ACP agent, or one the list doesn't have: ok false.
+func (a Agent) acpKnown() (known KnownACPAgent, ok bool) {
+	if !a.IsACP() {
+		return KnownACPAgent{}, false
+	}
+	return knownACPAgent(strings.TrimPrefix(string(a), acpKind))
+}
+
+// acpLaunch is the program and the arguments that start a as an ACP agent: the entry's own, never through a shell.
+// The arguments are a copy.
+func (a Agent) acpLaunch() (command string, args []string, ok bool) {
+	known, ok := a.acpKnown()
+	if !ok {
+		return "", nil, false
+	}
+	return known.Command, slices.Clone(known.Args), true
+}
+
 func (a Agent) Name() string {
+	if a.IsACP() {
+		known, _ := a.acpKnown()
+		return known.Name
+	}
 	return map[Agent]string{
 		Claude: "Claude Code", Codex: "Codex", Gemini: "Gemini CLI", OpenCode: "OpenCode", Grok: "Grok",
 	}[a]

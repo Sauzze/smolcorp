@@ -169,6 +169,9 @@ type Config struct {
 	GMByHand bool `json:"gmByHand,omitempty"`
 	// The screen that holds the team when it's tiled (gmscreens.go), where you chose one: the Mac's display id.
 	TeamScreen string `json:"teamScreen,omitempty"`
+	// Whether Settings may browse the Agent Client Protocol's public list of agents (acpagents.go). Off until you
+	// turn it on, and only then may anything look it up; nothing fetches it yet.
+	ACPRegistry bool `json:"acpRegistry,omitempty"`
 	// What the file held that this version doesn't read, as it was: saved
 	// back with the rest, so a setting from another version, older or newer,
 	// or the Mac app's, isn't lost at the next save.

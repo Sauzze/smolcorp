@@ -359,6 +359,11 @@ type hireSpec struct {
 // Under the Mac app, a missing tmux (M4's words) and a pinned folder are said in the engine's own words.
 func fenceRefusal(program, pinned string, tmux, launcher, macApp bool) string {
 	switch {
+	// An ACP agent that runs its tools inside itself is said by name: the fence only reaches what goes through
+	// Smolcorp, and it doesn't. One the list doesn't have, or one that doesn't (none yet; hiring is A5's), falls to
+	// the line below.
+	case acpUnfenced(Agent(program)):
+		return Agent(program).Name() + " runs its tools itself, so Smolcorp can't fence it: the General Manager doesn't hire it."
 	case Agent(program) != Claude:
 		return "The General Manager hires only Claude roles: Smolcorp can't fence another agent."
 	case pinned != "" && macApp:
@@ -483,6 +488,12 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 			return http.StatusNotFound, "That role isn't there any more. Pick another."
 		}
 		program = d.config.Roles[i].Agent
+	}
+	// An ACP agent isn't hired yet (A5's): refused on every path, before its program is looked for anywhere and
+	// before any account is asked about, so nothing can run its "acp:<id>" name as a program. The GM route, and the
+	// GM's token on setup's hire, get the fence's sentence; the owner, a line that says it's coming.
+	if Agent(program).IsACP() {
+		return http.StatusConflict, acpHireRefusal(program, s.fenced || extra != nil && extra.byGM)
 	}
 	// One GM per office, by whichever route it is hired.
 	if roleID == "gm" {

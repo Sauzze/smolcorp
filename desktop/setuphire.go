@@ -47,6 +47,9 @@ type setupHire struct {
 	APIKey bool
 	// Scope: the GM alone, the project it is held to (gmscope.go), the folder it is hired into; "" for none.
 	Scope string
+	// byGM: the request came with the GM's token (set by the route, never read from the body), so an ACP role is
+	// refused in the fence's sentence (acpHireRefusal).
+	byGM bool
 }
 
 // apply puts what setup asked for into an engine hire's request. Its worktree
@@ -131,7 +134,8 @@ func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home 
 	}
 	// The API-key account is a Claude Code hire's alone (the Mac's Deck.hire); T3 Code refuses it in its own words.
 	if apiKey && !t3 {
-		if agentOrClaude(role.Agent) != Claude {
+		// An ACP role is refused later in its own words, once the caller is known (setupHireRoute).
+		if agent := agentOrClaude(role.Agent); agent != Claude && !agent.IsACP() {
 			return setupHire{}, http.StatusBadRequest, apiKeyNotClaude
 		}
 		hire.APIKey = true
@@ -343,11 +347,18 @@ func (d *Deck) setupHireRoute(w http.ResponseWriter, method, path string, body i
 		writeStatus(w)(status, why)
 		return true
 	}
+	hire.byGM = who == callerGM
 	// Hiring off is off for setup's sheet and the GM too: once the request is checked, the
 	// Mac's Deck.hire refuses first, for every caller. Start here's own GM hire
 	// (hireFromSetup) keeps its rule.
 	if off {
 		writeStatus(w)(http.StatusForbidden, hiringOff)
+		return true
+	}
+	// An ACP role is never hired yet: refused here for every caller, with the fence's sentence for the GM, before
+	// the API-key offer or the lane is looked at.
+	if i := slices.IndexFunc(roles, func(r Role) bool { return r.ID == hire.Role }); i >= 0 && Agent(roles[i].Agent).IsACP() {
+		writeStatus(w)(http.StatusConflict, acpHireRefusal(roles[i].Agent, hire.byGM))
 		return true
 	}
 	// On the API-key account: only while it's offered, refused in the Mac's words (or this computer's) before anything is made.
@@ -379,6 +390,10 @@ func (d *Deck) hireFromSetupSheetIntoT3(h setupHire, roles []Role) (int, any, st
 	i := slices.IndexFunc(roles, func(r Role) bool { return r.ID == h.Role })
 	if i < 0 {
 		return http.StatusNotFound, nil, "That role isn't there any more. Pick another."
+	}
+	// An ACP role is refused in its own words (the fence's sentence for the GM), not T3 Code's "Claude Code only".
+	if Agent(roles[i].Agent).IsACP() {
+		return http.StatusConflict, nil, acpHireRefusal(roles[i].Agent, h.byGM)
 	}
 	_, expected, pinned, status, why := d.setupSheetDesk(h)
 	if status != 0 {

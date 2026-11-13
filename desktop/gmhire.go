@@ -136,7 +136,7 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 	if t3 {
 		// T3 Code works on its own account: what was named is kept for its own refusal, as setup's hire does.
 		d.gmHireIntoT3(w, setupHire{Role: role, Folder: folder, Floor: int(floor), Answers: []string{}, Worktree: true, T3: true,
-			Account: named, Task: briefTask(task)})
+			Account: named, Task: briefTask(task), byGM: true})
 		return
 	}
 	seat := -1

@@ -328,6 +328,11 @@ func roleArguments(id, folder string, how roleStart, message string) ([]string, 
 	roles := loadConfig().Roles
 	for _, role := range roles {
 		if role.ID == id {
+			// An ACP role's agent is "acp:<id>", not a program: hiring it is A5's, and until then a launcher
+			// started by hand never looks that name up on PATH.
+			if Agent(role.Agent).IsACP() {
+				return nil, errors.New(acpNotHiredYet)
+			}
 			if message == "" {
 				message = role.firstMessage(folder, how)
 			}
