@@ -939,6 +939,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	if d.setupHireRoute(w, r.Method, path, r.Body, r.caller) {
 		return
 	}
+	// The hire queue and its plan (hirequeue.go, hireplan.go).
+	if d.hireQueueRoute(w, r) {
+		return
+	}
 	// The demo's page: Setup opened at `smolcorp demo`'s hire (demopage.go).
 	if d.demoRoute(w, r) {
 		return
@@ -1896,42 +1900,8 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			writeStatus(w)(status, text)
 			return
 		}
-		// One at a time, as the Mac claims it: a second click while one runs would read the switches
-		// the first turned on as its own "before", and could leave them on when both fail.
-		if !d.gmHiring.TryLock() {
-			writeStatus(w)(http.StatusConflict, gmBeingHired)
-			return
-		}
-		defer d.gmHiring.Unlock()
-		// The manager is switched on before the hire (the GM is a managed hire) and back if the hire
-		// fails, as the Mac does (DeckRouter.swift). d.mu is not held across the hire. Hire and fire
-		// from the office goes on with it too, as the GM hires its team, and back off the same way.
-		// In the folder for your hires, never your home folder: Start here's first step sets it.
-		d.mu.Lock()
-		if _, ok := existingFolder(d.config.HireFolder); !ok {
-			d.mu.Unlock()
-			writeStatus(w)(http.StatusConflict, chooseHireFolderFirst)
-			return
-		}
-		before, hiring := d.config.ManagerEnabled, d.config.HiringEnabled
-		d.config.ManagerEnabled = true
-		d.config.HiringEnabled = true
-		d.config.save()
-		d.changed()
-		d.mu.Unlock()
-		// The Claude account named (with one account it is left out) and a worktree of its own (worktree=1),
-		// passed on as the Mac's (DeckRouter.swift).
-		worktree := query.Get("worktree") == "1"
-		status, text := d.hireWith(hireSpec{roleID: gmRole, fromSetup: true, account: strings.Trim(query.Get("account"), " \t"), worktree: &worktree})
-		if status >= http.StatusBadRequest {
-			d.mu.Lock()
-			d.config.ManagerEnabled = before
-			d.config.HiringEnabled = hiring
-			d.config.save()
-			d.changed()
-			d.mu.Unlock()
-		}
-		writeStatus(w)(status, text)
+		// The rest is hireGMFromSetup's (the hire queue makes the same hire).
+		writeStatus(w)(d.hireGMFromSetup(query.Get("account"), query.Get("worktree") == "1"))
 
 	// routes.json: POST /setup/gm/hire is an action for gm and page (see gmhire.go).
 	case r.Method == http.MethodPost && path == "/setup/gm/hire":
