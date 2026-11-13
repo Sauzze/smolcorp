@@ -48,6 +48,9 @@ func runWithTempSupport(m *testing.M) int {
 	os.Setenv("XDG_CONFIG_HOME", filepath.Join(homeDir, ".config"))
 	os.Setenv("APPDATA", filepath.Join(homeDir, "AppData"))
 	// Tailscale's command line is never run by a test: no Tailscale here, unless a test puts in its own.
+	// The tmux that came with Smolcorp is looked for beside the real program: a test binary has none, and
+	// a test that wants one gives its own (hirebundledtmux_test.go).
+	bundledTmux = func() string { return "" }
 	askTailnet = func() (tailnetAnswer, bool) { return tailnetAnswer{}, false }
 	return m.Run()
 }

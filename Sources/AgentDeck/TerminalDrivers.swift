@@ -94,6 +94,17 @@ enum Tool {
         }
     }
 
+    /// Whether `path` is a program you can run that nobody else could have swapped: a regular file, not a link, with an
+    /// execute bit, that isn't group- or world-writable, in a folder that isn't world-writable.
+    static func isTrusted(_ path: String) -> Bool {
+        let fm = FileManager.default
+        guard let file = try? fm.attributesOfItem(atPath: path), file[.type] as? FileAttributeType == .typeRegular,
+              let mode = (file[.posixPermissions] as? NSNumber)?.intValue, mode & 0o111 != 0, mode & 0o022 == 0,
+              let folder = try? fm.attributesOfItem(atPath: URL(fileURLWithPath: path).deletingLastPathComponent().resolvingSymlinksInPath().path),
+              let folderMode = (folder[.posixPermissions] as? NSNumber)?.intValue, folderMode & 0o002 == 0 else { return false }
+        return fm.isExecutableFile(atPath: path)
+    }
+
     /// The first of `paths` that can be run: an app in the menu bar has no
     /// Homebrew on its PATH.
     static func find(_ paths: [String]) -> String? {
@@ -152,8 +163,24 @@ struct Tmux: TerminalDriver {
     var abilities: TerminalAbilities { [.keys, .text, .focus, .fire, .scroll] }
     var keysNeedAccessibility: Bool { false }
 
+    /// Where tmux is looked for, in order: the one that came with the app (Contents/Resources/bin, where the Go core
+    /// looks beside itself, so both engines pick the same tmux), then the usual places.
+    static func places(resources: URL? = Bundle.main.resourceURL) -> [String] {
+        (resources.map { [$0.appendingPathComponent("bin/tmux").path] } ?? [])
+            + ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/opt/local/bin/tmux", "/usr/bin/tmux"]
+    }
+
+    /// The tmux to run: the bundled one when it's a file nobody else could have swapped (`Tool.isTrusted`), else the
+    /// first of the usual places that can be run (a link is how Homebrew puts tmux there, so only the bundle is held
+    /// to the stricter rule, as the Go core holds it).
+    static func find(resources: URL? = Bundle.main.resourceURL) -> String? {
+        let all = places(resources: resources)
+        if let bundled = resources.map({ $0.appendingPathComponent("bin/tmux").path }), Tool.isTrusted(bundled) { return bundled }
+        return Tool.find(Array(all.dropFirst(resources == nil ? 0 : 1)))
+    }
+
     /// Settable for tests, which give a stand-in.
-    static var path = Tool.find(["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/opt/local/bin/tmux", "/usr/bin/tmux"])
+    static var path = find()
 
     private func run(_ tab: TabAddress, _ arguments: [String], input: Data? = nil) -> (status: Int32, output: String)? {
         guard let path = Tmux.path else { return nil }

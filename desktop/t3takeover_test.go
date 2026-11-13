@@ -744,6 +744,10 @@ func TestT3HandBackOfAHireAlreadyResumedOnlyClearsTheRegistry(t *testing.T) {
 	if got.Code != http.StatusOK || k.saved.T3Session != "" || k.saved.State != "working" || !slices.Equal(k.log, []string{"save"}) || len(k.runs()) != 0 {
 		t.Errorf("%d %s %+v %q %q", got.Code, got.Body, k.saved, k.log, k.runs())
 	}
+	// The tmux that now drives its server is the one its row says, not the old stopped server's.
+	if want := recordableTmux(tmuxPath()); k.saved.TmuxProgram != want {
+		t.Errorf("its row's tmux: %q, want %q", k.saved.TmuxProgram, want)
+	}
 	// Taken over (in T3 Code, or with its thread on record), its session at its tmux is no proof: a Hand back as any other.
 	for _, h := range []Hire{{Engine: t3Engine}, {T3Thread: t3ImportedThread + t3TakeOverSession}} {
 		h.T3Session = t3TakeOverSession

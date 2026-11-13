@@ -44,6 +44,9 @@ type Hire struct {
 	Worktree   string `json:"worktree"`
 	Repo       string `json:"repo"`
 	TmuxSocket string `json:"tmuxSocket"`
+	// TmuxProgram is the tmux that started that server (1.26): it keeps driving it while the file is there.
+	// Written only when known, so a 1.25 row is as it was, and read as "today's order" (findTmux).
+	TmuxProgram string `json:"tmuxProgram,omitempty"`
 	// ViaLauncher: the hire engine made it in a window run by the launcher, which is known by this hire's id.
 	ViaLauncher bool    `json:"viaLauncher,omitempty"`
 	Account     string  `json:"account"`

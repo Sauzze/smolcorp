@@ -65,7 +65,7 @@ var showTeamGrid = func(h hostBridge, sockets []string, terminal string, testPor
 	var panes []string
 	for _, hire := range sockets {
 		if hireTmuxAt(hire, testPort, run) != nil {
-			panes = append(panes, teamGridPane(tmux, hire))
+			panes = append(panes, teamGridPane(tmuxDriving(hire), hire))
 		}
 	}
 	if len(panes) == 0 {

@@ -111,7 +111,7 @@ func openHireViewer(hire Hire, terminal hireOpener) error {
 	if folder == "" {
 		folder = hire.Folder
 	}
-	window, err := showWindow(terminal, folder, []string{tmuxPath(), "-S", server.socket, "attach", "-t", "=" + hireSession})
+	window, err := showWindow(terminal, folder, []string{cmpOr(server.program, tmuxPath()), "-S", server.socket, "attach", "-t", "=" + hireSession})
 	recordHireWindow(hire.ID, window)
 	return err
 }

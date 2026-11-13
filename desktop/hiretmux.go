@@ -45,6 +45,9 @@ type tmuxRunner func(args []string) (output string, status int, ran bool)
 type hireTmux struct {
 	socket string
 	run    tmuxRunner
+	// program is the tmux that runs it, when it's the real one: what a hire's row records (TmuxProgram), and
+	// what a window attaches with. "" for a stand-in runner.
+	program string
 }
 
 // hireSocketName is a hire's socket's file name, or "" for an id that
@@ -105,23 +108,31 @@ func newHireTmux(hireID string, testPort int, run tmuxRunner) *hireTmux {
 	if name == "" || !ownSocketFolder(folder) {
 		return nil
 	}
-	return hireTmuxAt(filepath.Join(folder, name), testPort, run)
+	// A server to be started: the tmux this system picks now, whatever an older row for this hire says.
+	return hireTmuxUsing(filepath.Join(folder, name), testPort, run, func(string) string { return tmuxPath() })
 }
 
 // hireTmuxAt is the server on socket, when it is one of ours: in a hire
 // socket folder, named like a hire's (a test copy owns only its own port's), never the default.
 func hireTmuxAt(socket string, testPort int, run tmuxRunner) *hireTmux {
+	return hireTmuxUsing(socket, testPort, run, tmuxDriving)
+}
+
+// hireTmuxUsing is hireTmuxAt with pick, which says what real tmux to run for a socket.
+func hireTmuxUsing(socket string, testPort int, run tmuxRunner, pick func(socket string) string) *hireTmux {
 	if !ownsHireSocket(socket, testPort) || len(socket) > maxSocketPath {
 		return nil
 	}
+	program := ""
 	if run == nil {
-		path := tmuxPath()
-		if path == "" {
+		program = pick(socket)
+		if program == "" {
 			return nil
 		}
-		run = realTmux(path)
+		run = realTmux(program)
+		program = recordableTmux(program)
 	}
-	return &hireTmux{socket: filepath.Clean(socket), run: run}
+	return &hireTmux{socket: filepath.Clean(socket), run: run, program: program}
 }
 
 // ownsHireSocket says whether socket is one of ours: a hire's, in a hire socket
