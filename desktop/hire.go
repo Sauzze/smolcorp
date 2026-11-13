@@ -3,14 +3,17 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -123,10 +126,43 @@ var tmuxLoginPath = func() []string {
 	return nil
 }
 
-// findTmux is the tmux program, or "": on this program's PATH, then in the
-// usual places, then on the PATH your login shell sets. The shell is asked
-// only when the first two have nothing.
+// bundledTmux is the tmux that came with Smolcorp, or "": beside this program in the Mac app
+// (Contents/Resources/bin, where its tmux is put next to the core), or in ~/.local/lib/smolcorp on Linux.
+// A variable, for the tests. Looked up each time, not kept: an app that was replaced while this runs
+// must not leave a path that's gone.
+var bundledTmux = bundledTmuxBesideThisProgram
+
+func bundledTmuxBesideThisProgram() string {
+	program, err := executable()
+	if err != nil {
+		return ""
+	}
+	return bundledTmuxFor(program, homeDir, runtime.GOOS)
+}
+
+// bundledTmuxFor is the bundled tmux of a Smolcorp running as program, on goos with home as the home folder:
+// next to the program (with its links resolved: Setup links smolcorp into Terminal's PATH, and the bundle is
+// still beside the real file), then in Linux's library folder. "" when neither has a tmux you can run.
+func bundledTmuxFor(program, home, goos string) string {
+	if resolved, err := filepath.EvalSymlinks(program); err == nil {
+		program = resolved
+	}
+	if path := trustedExecutableIn(filepath.Dir(program), "tmux"); path != "" {
+		return path
+	}
+	if goos == "linux" && home != "" {
+		return trustedExecutableIn(filepath.Join(home, ".local", "lib", "smolcorp"), "tmux")
+	}
+	return ""
+}
+
+// findTmux is the tmux program, or "": the one that came with Smolcorp, then on this program's PATH,
+// then in the usual places, then on the PATH your login shell sets. The shell is asked only when the
+// first three have nothing.
 func findTmux() string {
+	if path := bundledTmux(); path != "" {
+		return path
+	}
 	if path, err := exec.LookPath("tmux"); err == nil {
 		return path
 	}
@@ -143,6 +179,87 @@ func findTmux() string {
 	return ""
 }
 
+// recordedTmux is the tmux that started the hire server on socket, as its registry row says (TmuxProgram), when
+// that file is still a program you can run; "" for a hire with no path recorded (made before 1.26), one that
+// isn't on socket, or a tmux that's gone or refused. The tmux that started a server drives it while it can: a
+// later tmux may not speak the same protocol.
+func recordedTmux(socket string) string {
+	path, _, _ := recordedTmuxChecked(socket)
+	return path
+}
+
+// recordedTmuxChecked is recordedTmux that also says what it skipped: when the row names a tmux that isn't used,
+// path is "", recorded is that name and why says why (see untrustedWhy). With no tmux recorded all three are "".
+func recordedTmuxChecked(socket string) (path, recorded, why string) {
+	// Only a hire's own socket has a row: any other tab's tmux (a tab polls) costs no registry read.
+	if !hasTmuxHires || !strings.HasPrefix(filepath.Base(socket), hireSocketPrefix) {
+		return "", "", ""
+	}
+	for _, h := range readRegistry(registryPath(), false).hires {
+		if h.TmuxProgram == "" || h.TmuxSocket == "" || !sameSocket(h.TmuxSocket, socket) {
+			continue
+		}
+		if !filepath.IsAbs(h.TmuxProgram) {
+			return "", h.TmuxProgram, "it isn't a full path"
+		}
+		if why := untrustedWhy(filepath.Dir(h.TmuxProgram), filepath.Base(h.TmuxProgram)); why != "" {
+			return "", h.TmuxProgram, why
+		}
+		return h.TmuxProgram, h.TmuxProgram, ""
+	}
+	return "", "", ""
+}
+
+// skippedTmuxLogged holds the hires (socket and recorded path) whose skipped tmux has been said, so it is one
+// line per hire, not one per poll.
+var (
+	skippedTmuxMu     sync.Mutex
+	skippedTmuxLogged = map[string]bool{}
+)
+
+// sayTmuxSkipped logs, once per socket and recorded path, that the tmux a hire's row names isn't used, why, and
+// the tmux that drives its server instead: a different tmux never takes over a running server unsaid.
+func sayTmuxSkipped(socket, recorded, why, instead string) {
+	if recorded == "" {
+		return
+	}
+	key := filepath.Clean(socket) + "\x00" + recorded
+	skippedTmuxMu.Lock()
+	seen := skippedTmuxLogged[key]
+	skippedTmuxLogged[key] = true
+	skippedTmuxMu.Unlock()
+	if !seen {
+		log.Printf("tmux: the hire on %s was started by %s, which isn't used: %s. %s drives it instead.", filepath.Base(socket), recorded, why, instead)
+	}
+}
+
+// recordableTmux is program as a hire's row keeps it: with its links resolved, so a tmux that is a link by design
+// (Homebrew's /opt/homebrew/bin/tmux) is recorded as the file it points to, which trustedExecutableIn accepts, while
+// a link put there later is refused.
+func recordableTmux(program string) string {
+	if resolved, err := filepath.EvalSymlinks(program); err == nil {
+		return resolved
+	}
+	return program
+}
+
+// sameSocket says whether a and b are one socket file, however spelt (tmux says /private/tmp for /tmp).
+func sameSocket(a, b string) bool {
+	return filepath.Clean(a) == filepath.Clean(b) || physical(filepath.Dir(a)) == physical(filepath.Dir(b)) && filepath.Base(a) == filepath.Base(b)
+}
+
+// tmuxDriving is the tmux to run for the hire server on socket: its recorded one, else tmuxPath (today's
+// order, bundled first).
+func tmuxDriving(socket string) string {
+	path, recorded, why := recordedTmuxChecked(socket)
+	if path != "" {
+		return path
+	}
+	instead := tmuxPath()
+	sayTmuxSkipped(socket, recorded, why, instead)
+	return instead
+}
+
 // tmuxProgram is what a tab's tmux command runs: tmux where it was found, or
 // the bare name, left to the PATH (a system with no tmux then fails to start
 // it, as before). It looks for itself, not through tmuxPath, which the tests
@@ -156,6 +273,18 @@ func tmuxProgram() string {
 	return "tmux"
 }
 
+// tmuxProgramFor is tmuxProgram for a tab on socket: the tmux that started that hire's server when its row says
+// so (recordedTmux).
+func tmuxProgramFor(socket string) string {
+	path, recorded, why := recordedTmuxChecked(socket)
+	if path != "" {
+		return path
+	}
+	instead := tmuxProgram()
+	sayTmuxSkipped(socket, recorded, why, instead)
+	return instead
+}
+
 // executableIn is folder/name when that is a program you can run, or "".
 func executableIn(folder, name string) string {
 	if folder == "" {
@@ -164,6 +293,43 @@ func executableIn(folder, name string) string {
 	path := filepath.Join(folder, name)
 	if info, err := os.Stat(path); err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0 {
 		return path
+	}
+	return ""
+}
+
+// trustedExecutableIn is folder/name when that is a program you can run and nobody else could have swapped: a
+// regular file, not a link, with an execute bit, that isn't group- or world-writable, in a folder that isn't
+// world-writable; else "". For the paths Smolcorp runs without the user having chosen them (the bundled tmux, the
+// one a hire's row records), never for the usual places, where a link is how Homebrew puts tmux.
+func trustedExecutableIn(folder, name string) string {
+	if untrustedWhy(folder, name) != "" {
+		return ""
+	}
+	return filepath.Join(folder, name)
+}
+
+// untrustedWhy is why trustedExecutableIn refuses folder/name, in words for a log line, or "" when it accepts it.
+// A Windows computer has no execute bits on a regular file, so it always lands on "can't be run" there: tmux isn't
+// run on Windows.
+func untrustedWhy(folder, name string) string {
+	if folder == "" {
+		return "it has no folder"
+	}
+	info, err := os.Lstat(filepath.Join(folder, name))
+	switch {
+	case err != nil:
+		return "it's gone"
+	case !info.Mode().IsRegular():
+		return "it isn't a regular file (a link, or a folder)"
+	case info.Mode().Perm()&0o111 == 0:
+		return "it can't be run"
+	case info.Mode().Perm()&0o022 != 0:
+		return "it's writable by others"
+	}
+	if dir, err := os.Stat(folder); err != nil {
+		return "its folder is gone"
+	} else if dir.Mode().Perm()&0o002 != 0 {
+		return "its folder is writable by others"
 	}
 	return ""
 }

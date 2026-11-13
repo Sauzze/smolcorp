@@ -387,7 +387,8 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 		return ways.Save(h.ID, func(r *Hire) {
 			r.T3Session, r.T3Transcript, r.State = "", "", "working"
 			if socket != "" {
-				r.TmuxSocket = socket
+				// A new server, started by the tmux this system picks now: its row says so.
+				r.TmuxSocket, r.TmuxProgram = socket, recordableTmux(tmuxPath())
 			}
 		})
 	}) {
@@ -597,7 +598,11 @@ func (d *Deck) handBackFromT3(id string) (int, any) {
 	case t3AlreadyResumed(hire, d.t3SessionOf(hire)):
 		// Resumed by an earlier Hand back whose last save failed (RM5c N2): its own Claude Code runs that session in
 		// its own tmux, so only the registry is behind. Nothing is stopped, removed or resumed.
-		if ways.Save(hire.ID, func(r *Hire) { r.T3Session, r.T3Transcript, r.State = "", "", "working" }) != nil {
+		// Its server came from the pick of that Hand back, so its row says today's, not the old stopped server's.
+		if ways.Save(hire.ID, func(r *Hire) {
+			r.T3Session, r.T3Transcript, r.State = "", "", "working"
+			r.TmuxProgram = recordableTmux(tmuxPath())
+		}) != nil {
 			err = t3Refused(http.StatusInternalServerError, "The registry couldn't be written, so "+calledHire(hire)+" still shows as handed over.")
 		}
 	default:
