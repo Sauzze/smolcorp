@@ -338,6 +338,11 @@
   const saver = whole && new URLSearchParams(location.search).has('saver');
   const bare = whole && new URLSearchParams(location.search).has('window');
   if (bare) document.documentElement.classList.add('bare');
+  // The office's own window on this computer, which its address marks (?window on a Mac, &own elsewhere).
+  const ownWindow = bare || new URLSearchParams(location.search).has('own');
+  // The talk bubble (1.26) is that window's alone: the room gets the network for it only there. A phone's page, the
+  // portable viewer, the setup page's preview and the screen saver have none, and keep the four ✓ ✕ keys.
+  const talkHere = ownWindow && whole && !preview && !saver;
   const $ = (id) => document.getElementById(id);
 
   let sessions = [];   // the sessions at desks: the ground floor's keys, then those driven upstairs
@@ -370,6 +375,7 @@
     return kept ? kept === 'on' : true;
   }
   const office = !window.AgentOffice ? { show() {}, close() {}, select() {}, setVisible() {}, setFramed() {}, setFloating() {}, setSaving() {}, setLite() {}, moved() {}, openStyles() {} } : AgentOffice.create($('office-canvas'), {
+    ...(talkHere ? { talk: { get, post, flash, tick } } : {}),
     select(id) {
       tick();
       selected = id;
@@ -1152,7 +1158,9 @@
    * only while its foot is in sight.
    */
   let board = null; // { session, items, before, size, timer }
-  const byOrder = (a, b) => a.offset - b.offset || a.n - b.n;
+  // Its rows and pages, as the talk bubble draws and merges them (talk/bubble.js).
+  const conversation = window.AgentOffice && AgentOffice.conversation;
+  const byOrder = (a, b) => conversation.byOrder(a, b);
 
   function openBoard(id) {
     const session = sessions.find((s) => s.id === id);
@@ -1197,20 +1205,11 @@
     if (!page || board !== shown) return;
     boardProblem('');
     shown.size = page.size;
-    const known = new Set(shown.items.map((i) => i.id));
-    const fresh = page.items.filter((i) => !known.has(i.id));
-    const first = page.items[0];
-    const last = shown.items[shown.items.length - 1];
-    if (!shown.items.length) shown.before = page.before;
-    // A gap after a long time away: the newest page in place of what was here.
-    if (first && last && byOrder(first, last) > 0 && page.before !== null && !known.has(first.id)) {
-      shown.items = page.items;
-      shown.before = page.before;
-    } else if (fresh.length) {
-      shown.items = [...shown.items, ...fresh].sort(byOrder);
-    } else if (shown.drawn) {
-      return;
-    }
+    // New messages after what's here; after a gap (a long time away), the newest page in place of what was here.
+    const merged = conversation.merge(shown, page);
+    shown.items = merged.items;
+    shown.before = merged.before;
+    if (!merged.changed && shown.drawn) return;
     drawBoard(false);
   }
 
@@ -1260,24 +1259,7 @@
   }
 
   function boardRow(item) {
-    const row = document.createElement('div');
-    row.className = `board-row ${item.kind}`;
-    if (item.kind === 'peer' || item.kind === 'question') {
-      const from = document.createElement('span');
-      from.className = 'from';
-      from.textContent = item.kind === 'question' ? 'Asked you' : item.from || 'Another session';
-      row.append(from);
-    }
-    const prefix = { tool: '⚙︎ ', result: '↳ ', answer: '→ ' }[item.kind] || '';
-    row.append(prefix + item.text);
-    if (item.kind === 'tool' || item.kind === 'result') row.title = item.text;
-    if (item.more) {
-      const more = document.createElement('span');
-      more.className = 'more';
-      more.textContent = ' … more';
-      row.append(more);
-    }
-    return row;
+    return conversation.row(document, item);
   }
 
   /*
@@ -1323,9 +1305,8 @@
   let t3Snapshot = null; // the last snapshot, to show again with the key once it's allowed
   let t3For = null;    // the session the card is for
 
-  // Asked only from the office's own window on this computer, which its address marks (?window on a Mac, &own
-  // elsewhere): a browser paired with its own key would only be refused (403), so it never asks.
-  const ownWindow = bare || new URLSearchParams(location.search).has('own');
+  // Asked only from the office's own window on this computer (ownWindow): a browser paired with its own key would
+  // only be refused (403), so it never asks.
   if (ownWindow && whole && !preview && !saver && !matchMedia('(pointer: coarse)').matches) {
     get('/t3code').then((res) => {
       if (!res || !res.ok) return;

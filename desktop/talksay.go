@@ -41,7 +41,7 @@ const (
 	windowTypedNotSent = "Typed, not sent: it began asking you something, or a Return had just gone. Look at the desk."
 	// typeInItsOwnWindow is a desk in a Mac terminal app (Terminal, iTerm2, Ghostty): typing there goes through
 	// the clipboard and ⌘V, which brings that window forward (D3). The window never does.
-	typeInItsOwnWindow = "Type in its own window."
+	typeInItsOwnWindow = "The bubble can't type into a Terminal, iTerm2 or Ghostty tab: type in its own window."
 	// oneLineOnly is said before anyone types, to a desk whose terminal (WezTerm, kitty) can't take a paste.
 	oneLineOnly = "This desk's terminal takes one line at a time."
 )

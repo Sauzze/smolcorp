@@ -52,6 +52,9 @@
  * (`anchor.again` false when the desk's card was asked for within the second), `on.talk.hover(null)` when it leaves.
  * The `anchor` is { id, state, since, art: { box, tip }, css: { box, tip } }: the bubble's box and the point its
  * tail aims at, in art pixels and in CSS pixels on the page. Without `on.talk` the room draws and answers as before.
+ * With the page's network in it too, `on.talk.get(path, params)` and `on.talk.post(path, params, signal, json)` (and
+ * `flash(text)`, `tick()`), the room opens the bubbles itself (TALK_BUBBLE): the conversation over a head, the
+ * small question bubbles of the desks waiting on you, and the Needs you key.
  *
  * The snapshot's `floors` (before them, its `upstairs`) are the floors over
  * this one, up to six in all, each with its name, its style and the desks on
@@ -73,6 +76,10 @@
  */
 (() => {
   'use strict';
+
+  //#include talk/style.js
+
+  //#include talk/bubble.js
 
   /* ------------------------------------------------------------ the floor */
 
@@ -33465,6 +33472,7 @@
     let talkHover = TALK_ANCHORS.hover(); // the mouse over a talk bubble: see TALK_ANCHORS.hoverStep
     let talkTimer = null;    // the wait before a hovered bubble's tag shows
     const talkAsked = new Map(); // when hovering last asked for each desk's card, so it isn't asked for more than once a second
+    let talkPanels = null;   // the talk bubbles on the page (TALK_BUBBLE.create), where the page gives its network
     let roleDown = null;     // the role last tapped, on a held empty desk: { id, at, held }
     let roleOffset = 0;      // how far the roles are slid along, in art pixels
     let rolesAt = null;      // where the roles were last drawn, in art pixels: { roles, box, most }
@@ -33806,6 +33814,17 @@
       win.document.addEventListener('pointerdown', tapped, { capture: true });
       win.document.addEventListener('keydown', typed);
       host = { window: win, resizing, seen, tapped, typed };
+      if (on.talk && on.talk.get) talkPanels = TALK_BUBBLE.create(win, on.talk, talkRoom());
+    }
+
+    /** What the talk bubbles are told of the room: where each bubble is, and who sits there. */
+    function talkRoom() {
+      const name = (id) => {
+        const session = sessionOf(id);
+        return session ? TALK_BUBBLE.nameOf(session, memberOf(session) && memberOf(session).name) : 'Agent';
+      };
+      // cog: the settings' key where the room last drew it, in art pixels ({ x, y, w, h }), or null with none drawn
+      return { canvas, anchor: talkAnchor, view: talkView, shape: () => shape, session: sessionOf, name, cog: () => styleKeyAt };
     }
 
     /** The next frame, or step, called off. */
@@ -33824,6 +33843,8 @@
       host.window.document.removeEventListener('keydown', host.typed);
       if (talkTimer !== null) host.window.clearTimeout(talkTimer);
       talkTimer = null;
+      if (talkPanels) talkPanels.remove();
+      talkPanels = null;
       host = null;
     }
 
@@ -34282,6 +34303,7 @@
       styleKeyAt = key && key.at;
       // The talk bubbles the ground floor drew; upstairs and on the ride, none is there to click
       bubblesAt = storey < 2 && !ride && frames[1].talk ? frames[1].talk.bubbles : [];
+      if (talkPanels) talkPanels.frame(bubblesAt);
       keysAt = keys && keys.at ? { keys: keys.at, box: keys.box } : null;
       rolesAt = hires && hires.at ? { roles: hires.at, box: hires.box, most: hires.most, arrows: hires.arrows || [] } : null;
     }
@@ -34557,12 +34579,16 @@
       talkTimer = null;
       const step = TALK_ANCHORS.hoverStep(talkHover, id, at);
       talkHover = step.state;
-      if (step.hide) on.talk.hover?.(null);
+      if (step.hide) {
+        talkPanels?.hover(null);
+        on.talk.hover?.(null);
+      }
       if (step.show !== null) {
         const anchor = talkAnchor(step.show);
         if (anchor) {
           anchor.again = TALK_ANCHORS.mayAsk(talkAsked.get(step.show), at);
           if (anchor.again) talkAsked.set(step.show, at);
+          talkPanels?.hover(step.show, anchor);
           on.talk.hover?.(step.show, anchor);
         }
       }
@@ -34723,6 +34749,7 @@
       }
       if (target.kind === 'talk') {
         hoverTalk(null);
+        talkPanels?.open(target.id);
         return on.talk?.open?.(target.id, talkAnchor(target.id));
       }
       if (target.kind === 'session') return on.select?.(target.id);
@@ -35207,8 +35234,9 @@
       if (finger) return; // one finger at a time
       if (floorShown === 1 && !ride && skipComingAt(e.clientX, e.clientY)) return;
       const target = targetAt(e.clientX, e.clientY);
-      // A tap on the floor, with nothing there, puts away whatever was held out.
+      // A tap on the floor, with nothing there, puts away whatever was held out, and the open talk bubble.
       if (!target) {
+        talkPanels?.close();
         held = null;
         musicPanel = null;
         keysFor = null;
@@ -35435,6 +35463,7 @@
       close() {
         latest = null;
         gaps = [];
+        talkPanels?.away();
         office.close();
         closeUppers();
         dropArt(canvas);
@@ -35830,6 +35859,8 @@
     // Your team's skin tones, hair colours and clothes colours, as CSS, for the setup page's swatches
     teamColours: Object.fromEntries(Object.entries({ skin: SKIN_TONES, hair: HAIR_COLOURS, colour: SHIRT_COLOURS })
       .map(([part, colours]) => [part, Object.fromEntries(Object.entries(colours).map(([id, hex]) => [id, css(hex)]))])),
+    // The conversation's rows and pages as the talk bubble draws them, for the ▤ slate to draw them the same way
+    conversation: { row: TALK_BUBBLE.row, byOrder: TALK_BUBBLE.byOrder, merge: TALK_BUBBLE.merge },
     // The badges a role can wear, in setup's order, and each one's icon on a canvas of its own for a role's card
     badges: BADGE_IDS, badgeIcon: (id, scale = 1) => (Object.hasOwn(BADGES, id) ? paintIcon(BADGES[id].icon, Math.max(1, Math.round(scale))) : null),
   };

@@ -51,7 +51,7 @@ type talkQuestion struct {
 // talkAsking is what a desk waiting on you is about. Since is when it began asking, in ms: a pick says which
 // prompt it means by it. Kind is "question" (AskUserQuestion), "permission" or "unknown" (asking with nothing said:
 // a notification, or another agent). Pickable is whether its choices can be offered by label: one question that
-// isn't multi-select, or a permission prompt (Yes and No: n 1 and 2), of an agent whose menus take a choice's
+// isn't multi-select, or a Bash, Write or Edit permission prompt (Yes and No: n 1 and 2), of an agent whose menus take a choice's
 // number (POST /talk/pick), in a tab whose screen a pick can read to see the menu is still there (talkShowsScreen);
 // otherwise the window shows the four keys.
 type talkAsking struct {
@@ -117,6 +117,11 @@ func talkAskingOf(s *Session) *talkAsking {
 			}
 			_ = json.Unmarshal([]byte(s.askedInput), &input)
 			asking.file = input.FilePath
+		}
+		// Only a menu a pick can tell from another's (talkMenuOn): a Bash command's, a Write or Edit file's. Any other
+		// tool's Yes would only ever be refused, so its card offers the four keys up front (FXP3c).
+		if asking.command == "" && asking.file == "" {
+			asking.Pickable = false
 		}
 	}
 	// Only where a choice can be pressed (Agent.Pick): another agent's menu is answered with the four keys. And
