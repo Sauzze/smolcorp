@@ -876,6 +876,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	if d.demoRoute(w, r) {
 		return
 	}
+	// The night shift's jobs (nightshift.go; goOnlyRoutes lists who may use each).
+	if d.nightRoute(w, r) {
+		return
+	}
 
 	// What only macOS does, under the Mac app (hostsetup.go): not served elsewhere.
 	if rt.macSetup(w, r) {

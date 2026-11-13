@@ -93,11 +93,19 @@ var routeTable = []routeRow{
 }
 
 // goOnlyRoutes are setup routes only this app serves (INVENTORY.md's "Served by the Go app only"), so they aren't
-// in the Mac's fixture: Take over in T3 Code and Hand back (t3takeover.go), the page alone; and a hire's git state (gitstate.go), a read.
+// in the Mac's fixture: Take over in T3 Code and Hand back (t3takeover.go), the page alone; a hire's git state (gitstate.go), a read;
+// and the night shift's jobs (nightshift.go): listed by the page, the GM and a tool, proposed by the GM (or the page),
+// made, changed, approved, paused and deleted by the page alone. An MCP key and a night job are refused them all (gates.go).
 var goOnlyRoutes = []routeRow{
 	{"POST", "/setup/t3code/takeover", []string{"page"}},
 	{"POST", "/setup/t3code/handback", []string{"page"}},
 	{"GET", "/setup/gm/git", []string{"gm", "page", "tool"}},
+	{"GET", nightListPath, []string{"gm", "page", "tool"}},
+	{"POST", nightProposePath, []string{"gm", "page"}},
+	{"POST", nightSavePath, []string{"page"}},
+	{"POST", nightApprovePath, []string{"page"}},
+	{"POST", nightPausePath, []string{"page"}},
+	{"POST", nightDeletePath, []string{"page"}},
 }
 
 // name is how the table spells a caller.

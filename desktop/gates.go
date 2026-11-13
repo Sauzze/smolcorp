@@ -137,6 +137,9 @@ func askOwner(what string) verdict {
 
 const askOwnerAnswer = "This waits for the owner's OK: "
 
+// nightRefusal is what an MCP key or a night job is told at the night shift's routes.
+const nightRefusal = "Only the setup page or the GM itself can see or propose night jobs."
+
 func (v verdict) allowed() bool { return v.kind == verdictAllow }
 
 // shellGates are more checks of a shell line, after the guard's, for an actor the guard holds. None yet: FS3's
@@ -163,6 +166,11 @@ func (d *Deck) decide(a actor, what action) verdict {
 func (d *Deck) decideRoute(a actor, r routeAsk) verdict {
 	if r.path != "/setup" && !routeAllows(a.routeCaller(), r.method, r.path) {
 		return refuse(http.StatusForbidden, routeRefusal(r.method, r.path))
+	}
+	// The night shift's jobs are the owner's, and proposed by the GM itself (answer 9): an MCP key or a night job,
+	// held as the GM elsewhere, can't list, propose or change one.
+	if isNightRoute(r.path) && (a.kind() == "mcp" || a.kind() == "night") {
+		return refuse(http.StatusForbidden, nightRefusal)
 	}
 	d.mu.Lock()
 	managerOn := d.config.ManagerEnabled

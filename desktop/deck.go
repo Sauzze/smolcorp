@@ -130,6 +130,8 @@ type Deck struct {
 	looking sync.Mutex
 	// What the GM asked the app to watch, kept in the support folder (see watchers.go).
 	watchers *watchers
+	// The night shift's jobs and their scheduler (nightshift.go), kept in the support folder.
+	night *nightShift
 	// stopWatchers ends the watchers' two loops, the mail pump and the deck's rounds, and waits for them; the app lets them run as long as the process does, the tests' deck helpers call it.
 	stopWatchers func()
 	// The deck's timed rounds, and the looks it starts by itself: see deckRounds.
@@ -218,6 +220,8 @@ func NewDeck() *Deck {
 	// The hires in T3 Code and their desks, before anything lays the office out.
 	d.t3 = newT3Follower()
 	d.t3Desks = newT3Desks(registry)
+	// The night shift's jobs, read now. Its scheduler is started by the runner (N2): until then nothing falls due.
+	d.night = newNightShift(filepath.Join(support, nightFileName), nil)
 	// Under the Mac app, a pasted key is kept in its Keychain (hostshell.go).
 	d.summaryKeys = newSummaryKeys(summaryStore(d.mac.host), os.Getenv)
 	d.summaries = newSummaries(d.summaryKeys.Read)
