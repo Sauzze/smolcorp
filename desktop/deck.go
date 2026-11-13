@@ -120,6 +120,8 @@ type Deck struct {
 	summaries   *summaries
 	// The coding agents a summary can be made by instead, and whether each is here and signed in.
 	summaryProviders *summaryProviders
+	// The one sign-in to Claude, Codex or Gemini setup's Accounts may have running (signinrun.go).
+	logins loginRunner
 	// The portable office (beta): the office on a phone from anywhere, view only. Off at every start.
 	portable *portableOffice
 	// What the sessions did, kept in the support folder for the GM to read.

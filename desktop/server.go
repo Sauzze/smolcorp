@@ -1856,6 +1856,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodPost && path == "/setup/gm/hire":
 		d.gmHire(w, r)
 
+	// Signing in to Claude, Codex or Gemini (signinrun.go; goOnlyRoutes lists them: the page alone).
+	case path == "/setup/accounts/login" || strings.HasPrefix(path, "/setup/accounts/login/"):
+		rt.accountsLogin(w, r)
+
 	// A hire's git state, read only (gitstate.go; goOnlyRoutes lists it: gm, page and tool). A GET, so a GM's scope passes it.
 	case r.Method == http.MethodGet && path == "/setup/gm/git":
 		rt.gmGit(w, r)
