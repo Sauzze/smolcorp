@@ -1,5 +1,9 @@
 # Smolcorp 1.26.0 (beta)
 
+## HTTPS through tailscale serve: Mac only until SN1
+- **On the Mac,** setup's **Use from anywhere** now says where Tailscale stands, and **Turn it on…** runs the `tailscale serve` line for you, after showing you exactly what it runs and what it opens to your tailnet.
+- **On Windows and Linux,** setup shows where Tailscale stands too, but Smolcorp still refuses a phone handed on by `tailscale serve`, as in 1.25, so there's no **Turn it on**. Open the deck at this computer's own Tailscale address instead. It opens there with SN1, once Smolcorp can tell for certain which device a request comes from.
+
 ## tmux comes with Smolcorp
 - **Open-source notices.** The Mac app now includes tmux 3.8 (ISC licence), with libevent, ncurses, utf8proc and jemalloc built into it. Their licence notices are in the app, and setup links to them (**Open-source notices**).
 

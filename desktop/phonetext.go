@@ -639,8 +639,9 @@ func (d *Deck) typesFrom(r *request) bool {
 
 // fromTailnet says whether a request came through Tailscale, where reading a terminal is given: to this
 // computer's Tailscale address from another device's (WireGuard carries it encrypted), or passed on by
-// `tailscale serve` on this computer (from its loopback, with a proxy's headers, or on a Mac to a ts.net
-// name, as the Mac app's Request.isTailnet). Never the Wi-Fi's plain http.
+// `tailscale serve` on this computer (from its loopback, with a proxy's headers, or on a Mac to a ts.net name, as
+// the Mac app's Request.isTailnet; elsewhere not until SN1, serveHandOnHere). Never the Wi-Fi's plain http, and
+// never a proxy's headers or a ts.net Host sent from anywhere but this computer's own loopback.
 func fromTailnet(r *http.Request) bool {
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(remote)
@@ -648,7 +649,7 @@ func fromTailnet(r *http.Request) bool {
 		return false
 	}
 	if ip.IsLoopback() {
-		return isProxied(r.Header) || macTailscale && isTailnetName(portSuffix.ReplaceAllString(r.Host, ""))
+		return isProxied(r.Header) || serveHandOnHere() && isTailnetName(portSuffix.ReplaceAllString(r.Host, ""))
 	}
 	local, _ := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
 	if local == nil || ip.To4() == nil || !tailnet.Contains(ip.To4()) {
