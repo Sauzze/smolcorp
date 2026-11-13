@@ -66,7 +66,7 @@ func init() {
 	registerPhoneRoute(phoneRoute{method: http.MethodGet, path: "/approvals", access: accessPhoneSecure,
 		refusal: says("The approvals show only over Tailscale's HTTPS address."),
 		serve: func(d *Deck, w http.ResponseWriter, _ *request, _ string) {
-			writeJSON(w, http.StatusOK, approvalsAnswer(d.approvalItems(), nowMillis()))
+			writeJSON(w, http.StatusOK, d.approvalsWithAsks(nowMillis()))
 		}})
 }
 
@@ -159,5 +159,14 @@ func (rt *router) approvals(w http.ResponseWriter, r *request) {
 		writeStatus(w)(http.StatusMethodNotAllowed, "The approvals only show. A prompt is answered by your tap alone.")
 		return
 	}
-	writeJSON(w, http.StatusOK, approvalsAnswer(rt.deck.approvalItems(), float64(time.Now().UnixMilli())))
+	writeJSON(w, http.StatusOK, rt.deck.approvalsWithAsks(float64(time.Now().UnixMilli())))
+}
+
+// approvalsWithAsks is approvalsAnswer and, beside the sessions asking, "asks": what a GM, an MCP key, a night job or
+// a hire waits to be allowed, for the owner to answer (grants.go). The Mac's wire format has no such key, which its
+// reader leaves alone.
+func (d *Deck) approvalsWithAsks(now float64) map[string]any {
+	answer := approvalsAnswer(d.approvalItems(), now)
+	answer["asks"] = d.grants.asksAnswer(now)
+	return answer
 }

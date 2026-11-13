@@ -1,7 +1,9 @@
 package desktop
 
 import (
+	"net"
 	"net/http"
+	"slices"
 	"time"
 )
 
@@ -22,6 +24,12 @@ const (
 	accessPhone
 	// A paired phone over Tailscale (request.secure): never the Wi-Fi's plain http, nor the window.
 	accessPhoneSecure
+	// The owner's own device: the Mac app's own office window, under the Mac app, with its key, or a paired phone
+	// over Tailscale (never the Wi-Fi's plain http). Never the office in a browser, whose key the browser keeps in
+	// its history, so never a window off a Mac (RT126FS2b N1); never the paired device the Windows window holds,
+	// whose key is in a file any program here can read; never a request from this computer's own Tailscale address,
+	// nor, off a Mac, from its loopback with a proxy's headers. The routes that take the owner's tap (grants.go).
+	accessOwnerTap
 	// Another Mac's office (floors): no route has it yet, so it lets no one in.
 	accessPeer
 )
@@ -74,6 +82,21 @@ func requestLimits(method, path string) (int64, time.Duration) {
 // plain http. Asked only by a route that needs it, as reading Tailscale's addresses isn't free (fromTailnet).
 func (r *request) secure() bool { return fromTailnet(r.Request) }
 
+// ownerTapOverTailnet is secure, less what a program on this computer can say for itself: `tailscale serve` hands a
+// phone on only on a Mac (hostphonemic.go), so elsewhere a request from the loopback with a proxy's headers is a
+// local program's, and only WireGuard's path is a phone's tap. A request from one of this computer's own Tailscale
+// addresses is a program here too, on any system (RT126FS2b N2).
+func (r *request) ownerTapOverTailnet() bool {
+	ip := net.ParseIP(r.remoteAddress)
+	if !macTailscale && (ip == nil || ip.IsLoopback()) {
+		return false
+	}
+	if ip != nil && slices.Contains(tailscaleAddresses(), ip.String()) {
+		return false
+	}
+	return r.secure()
+}
+
 // lets says whether a class lets in a caller already known: phoneID is a paired phone's, or the window's.
 func (a access) lets(r *request, phoneID string) bool {
 	switch a {
@@ -83,6 +106,11 @@ func (a access) lets(r *request, phoneID string) bool {
 		return phoneID != officeWindowID
 	case accessPhoneSecure:
 		return phoneID != officeWindowID && r.secure()
+	case accessOwnerTap:
+		if phoneID == officeWindowID {
+			return r.ownWindow
+		}
+		return !r.windowDevice && r.ownerTapOverTailnet()
 	}
 	return false
 }
@@ -97,6 +125,7 @@ func (d *Deck) servePhoneRoute(w http.ResponseWriter, r *request, phoneID string
 		writeStatus(w)(http.StatusForbidden, row.refusal(d))
 		return true
 	}
+	r.phoneID = phoneID
 	row.serve(d, w, r, r.URL.Query().Get("session"))
 	return true
 }

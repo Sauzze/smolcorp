@@ -179,6 +179,13 @@ type request struct {
 	isTailnet     bool
 	remoteAddress string
 	caller        caller // who is asking setup: set only for /setup and /bots
+	phoneID       string // the paired phone's id, or officeWindowID: set only for a route in the phone table
+	// windowDevice is whether the key is the paired device the office's window holds on Windows (window.go), whose
+	// key sits in a file on this computer: a phone's for the office, never the owner's tap (accessOwnerTap).
+	windowDevice bool
+	// ownWindow is whether the key is the Mac app's own office window's, under the Mac app: the one office window
+	// whose key never passes through a browser's address, and so the only one that is the owner's tap.
+	ownWindow bool
 }
 
 // caller is who is asking for setup: the page, a tool of yours, or no one.
@@ -453,6 +460,12 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			writeJSON(w, http.StatusForbidden, map[string]any{"error": "That code isn't valid. Get a new one on your " + d.machine() + "."})
 			return
 		}
+		if key == "" {
+			// The code was right, but the phone couldn't be kept: a key handed out now would never work.
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Your " + d.machine() +
+				" couldn't keep this phone: Smolcorp can't write its support folder. Fix that, then get a new code."})
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"key": key})
 		return
 	}
@@ -479,14 +492,16 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		return
 	}
 
-	// The tray's Show Office: its token, good once, swapped for the office's
-	// own key on this computer, which the page then reads the office with.
+	// The tray's Show Office: its token, good once, swapped for the key of the
+	// office in a browser on this computer, which the page then reads the
+	// office with. Never the Mac app's window's key: this one ends up in the
+	// browser's history.
 	if r.Method == http.MethodGet && r.URL.Path == "/office" && r.isLocal && r.URL.Query().Has("o") {
 		d.mu.Lock()
-		redeemed, windowKey := d.access.RedeemOfficeToken(r.URL.Query().Get("o")), d.access.WindowKey
+		redeemed, browserKey := d.access.RedeemOfficeToken(r.URL.Query().Get("o")), d.access.BrowserKey
 		d.mu.Unlock()
 		if redeemed {
-			http.Redirect(w, r.Request, "/office?t="+url.QueryEscape(windowKey)+"&"+ownWindowMark, http.StatusSeeOther)
+			http.Redirect(w, r.Request, "/office?t="+url.QueryEscape(browserKey)+"&"+ownWindowMark, http.StatusSeeOther)
 			return
 		}
 	}
@@ -497,13 +512,17 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	}
 	d.mu.Lock()
 	phoneID := ""
-	// The office in a browser on this computer reads it as a phone does,
-	// from this computer only: a phone that isn't paired, saved or listed.
+	// The office in the Mac app's window, or in a browser on this computer,
+	// reads it as a phone does, from this computer only: a phone that isn't
+	// paired, saved or listed. Only the Mac app's own window, under the Mac
+	// app, is the owner's tap (accessOwnerTap): off a Mac, no window is.
 	if r.isLocal && d.access.IsWindowKey(key) {
+		phoneID, r.ownWindow = officeWindowID, d.mac.host != nil
+	} else if r.isLocal && d.access.IsBrowserKey(key) {
 		phoneID = officeWindowID
 	} else if phone := d.access.Phones.WithKey(key); phone != nil {
 		d.access.Phones.MarkSeen(phone)
-		phoneID = phone.ID
+		phoneID, r.windowDevice = phone.ID, phone.isWindowDevice()
 	}
 	d.mu.Unlock()
 
@@ -1087,6 +1106,23 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Lock()
 		d.unpair(id)
 		d.mu.Unlock()
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
+	// An entry of phones.json this app can't vouch for, let in by the owner's own tap on the setup page (access.go's
+	// Confirm): the page's cookie alone, never a tool's key nor the GM's token (goOnlyRoutes; RT126FS2c B1 b). The tap
+	// names the row the page showed, by its id and its digest (entry), so it lets in that row or nothing (RT126FS2R4 B1).
+	case r.Method == http.MethodPost && path == "/setup/phones/confirm":
+		if r.caller != callerPage {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		d.mu.Lock()
+		confirmed := d.access.Phones.Confirm(query.Get("phone"), query.Get("entry"))
+		d.mu.Unlock()
+		if !confirmed {
+			writeStatus(w)(http.StatusNotFound, "No such phone waits for you to confirm it.")
+			return
+		}
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	case r.Method == http.MethodPost && (path == "/setup/pin" || path == "/setup/unpin"):
@@ -1869,6 +1905,11 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case path == "/setup/gm/approvals":
 		rt.approvals(w, r)
 
+	// The owner's yes or no to an ask (grants.go): the page's cookie alone; the route table keeps every other caller
+	// out and answer refuses them again.
+	case r.Method == http.MethodPost && path == "/setup/grants/answer":
+		d.answerGrant(w, actorOf(r.caller), query)
+
 	// routes.json: POST /setup/gm/registry is an action for gm and page, never a
 	// tool. The table has let in only those two by here; this keeps it so.
 	case r.Method == http.MethodPost && path == "/setup/gm/registry":
@@ -2065,6 +2106,18 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 			"connected": d.isConnected(phone.ID),
 		}
 	}
+	// What phones.json lists that waits for the owner to confirm it (access.go's Waiting): the page's alone, as
+	// only its tap confirms one. Each row carries its digest, which the tap sends back, and nothing the planter of a
+	// row could choose freely: a name this app gives phones, the date listed and the key's short fingerprint
+	// (RT126FS2R4 B1, B2).
+	var waitingPhones []map[string]any
+	if who == callerPage {
+		waitingPhones = []map[string]any{}
+		for _, phone := range d.access.Phones.Waiting() {
+			waitingPhones = append(waitingPhones, map[string]any{"id": phone.ID, "entry": EntryDigest(phone), "name": phone.Name,
+				"pairedAt": phone.PairedAt.UnixMilli(), "key": KeyPrint(phone)})
+		}
+	}
 	// Every key a project can be pinned to, even those the phone doesn't
 	// show: with Auto, a pin there adds keys up to it; with a fixed number,
 	// a pin left beyond them can still be undone.
@@ -2156,6 +2209,9 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"profiles":      slices.Clone(d.config.Profiles),
 		"activeProfile": d.config.ActiveProfile,
 		"profileEdited": d.config.profileEdited(),
+	}
+	if waitingPhones != nil {
+		state["waitingPhones"] = waitingPhones
 	}
 	// What to type to start an agent through the launcher. Not under the Mac app, even while it doesn't answer:
 	// the page takes "launcher" for a Linux or Windows computer and words everything for one (its Keychain

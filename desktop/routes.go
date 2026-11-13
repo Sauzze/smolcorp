@@ -98,6 +98,10 @@ var goOnlyRoutes = []routeRow{
 	{"POST", "/setup/t3code/takeover", []string{"page"}},
 	{"POST", "/setup/t3code/handback", []string{"page"}},
 	{"GET", "/setup/gm/git", []string{"gm", "page", "tool"}},
+	// The owner's yes or no to an ask (grants.go): the page's cookie alone, never a tool's key nor the GM's token.
+	{"POST", "/setup/grants/answer", []string{"page"}},
+	// A phone phones.json lists that this app can't vouch for, let in by the owner (access.go's Confirm): the page alone.
+	{"POST", "/setup/phones/confirm", []string{"page"}},
 }
 
 // name is how the table spells a caller.

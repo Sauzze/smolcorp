@@ -42,11 +42,13 @@ var knownGaps = []knownGap{
 	{"setup-state", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
 	{"setup-state", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
+	{"setup-state", ".waitingPhones", "extra", "the phones phones.json lists with no seal of this app's, for the owner to confirm or revoke (1.26 FS2)", "stays: Go-only; the page's alone, and the phones' seal is this app's"},
 	{"setup-state-tool", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state-tool", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state-tool", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
 	{"setup-state-tool", ".pairing.codeExpiresIn", "extra", "a tool is told how long the code lasts; the Mac tells only the page", "stays: Go-only, a tool's; the page has it in its own state on both apps"},
 	{"setup-state-tool", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
+	{"GET /setup/gm/approvals", ".asks", "extra", "the asks a GM, an MCP key, a night job or a hire waits on, for the owner to answer (1.26 FS2), beside the sessions asking", "stays: Go-only; a reader that doesn't know the key leaves it alone, and the owner's asks are this app's record (grants.go)"},
 }
 
 // contractAsk is a fixture's request: who asks, its query, headers and body, and what's set up first.

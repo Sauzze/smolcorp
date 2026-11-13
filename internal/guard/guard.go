@@ -110,9 +110,14 @@ func (r *Refusal) Error() string {
 // line and in any word of it (quotes, escapes and braces taken away, and
 // compared in lower case: the Mac's disk doesn't mind case): what would make
 // a hire the GM (its token, from its file or from the GM's own environment,
-// as ps shows it) or switch the hooks off. A pattern that fills in the
-// token file's name (gm-t*) comes out of the lexer as the name itself.
-var always = []string{"gm-token", "SMOLCORP_GM_TOKEN", "disableAllHooks"}
+// as ps shows it) or switch the hooks off, or would forge the owner's yes:
+// the grant record's file and its key's name (desktop/grants.go), the
+// paired phones whose tap answers it and their seal's key (phones.json,
+// phones-seal: desktop/access.go), and the Windows window's key, whose
+// device reads as a phone. A pattern that fills in a file's name (gm-t*)
+// comes out of the lexer as the name itself.
+var always = []string{"gm-token", "SMOLCORP_GM_TOKEN", "disableAllHooks", "grants-key", "grants.jsonl",
+	"phones.json", "phones-seal", "window-key"}
 
 func namesAlways(text string) string {
 	low := strings.ToLower(text)

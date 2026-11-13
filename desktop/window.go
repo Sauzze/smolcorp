@@ -95,7 +95,8 @@ func localBase() string { return fmt.Sprintf("http://localhost:%d", Port) }
 // ensureWindowKey is the key of the window's own paired device. It is read from
 // the private file next to the other keys; if there is none, or no device holds
 // it any more (Unpair All removed it), a new device is paired and its key kept.
-// The caller holds the deck's lock.
+// If no device can be paired (Pair), it is "" and no key is written: the window
+// opens locked, and the next start tries again. The caller holds the deck's lock.
 func ensureWindowKey(phones *Phones, keyFile string) string {
 	if saved, err := os.ReadFile(keyFile); err == nil {
 		if key := strings.TrimSpace(string(saved)); phones.WithKey(key) != nil {
@@ -103,7 +104,9 @@ func ensureWindowKey(phones *Phones, keyFile string) string {
 		}
 	}
 	key := phones.Pair(windowDeviceName)
-	_ = writePrivate(keyFile, []byte(key+"\n"))
+	if key != "" {
+		_ = writePrivate(keyFile, []byte(key+"\n"))
+	}
 	return key
 }
 
@@ -111,9 +114,22 @@ func ensureWindowKey(phones *Phones, keyFile string) string {
 func phonesOnly(phones *Phones) int {
 	n := 0
 	for _, p := range phones.All {
-		if p.Name != windowDeviceName && p.Name != windowDeviceNameBefore {
+		if !p.isWindowDevice() {
 			n++
 		}
 	}
 	return n
+}
+
+// phonesKnown is phonesOnly plus the entries waiting for the owner to confirm them (access.go's Waiting): his own
+// phones from before 1.26 among them. They count as paired where the count decides what to offer or keep open, so
+// an update that leaves every phone waiting doesn't hide Unpair All or lock a phone out of the home Wi-Fi
+// (RT126FS2R4 nits 1, 2).
+func phonesKnown(phones *Phones) int {
+	return phonesOnly(phones) + len(phones.Waiting())
+}
+
+// isWindowDevice is whether the paired device is the office window's own (ensureWindowKey), by either name.
+func (p PairedPhone) isWindowDevice() bool {
+	return p.Name == windowDeviceName || p.Name == windowDeviceNameBefore
 }

@@ -28,6 +28,7 @@ type Deck struct {
 	gmHiring sync.Mutex
 	access   *Access
 	gmToken  string         // the GM's token, in memory, kept by gmKept, and under the Mac app in a file for a GM started by hand (gmbyhand.go)
+	grants   *grantStore    // the owner's asks and grants (grants.go): its own lock, never mu
 	gmKept   *gmTokenKeeper // where the token is kept between runs: the Keychain, a secret store or a file (gmtokenstore.go)
 	gmHand   gmByHandState
 	config   *Config
@@ -175,7 +176,7 @@ func NewDeck() *Deck {
 		// The Mac app it runs under, or none, taken now: the deck reads only its own (hostsetup.go).
 		mac: macState{host: host},
 	}
-	if settleListenScope(d.config, phonesOnly(d.access.Phones), runtime.GOOS) {
+	if settleListenScope(d.config, phonesKnown(d.access.Phones), runtime.GOOS) {
 		d.config.save()
 	}
 	// The GM's token kept from the last run (gmtokenstore.go): a GM hired before it, or one started by hand, goes on
@@ -187,6 +188,7 @@ func NewDeck() *Deck {
 	if !d.gmKept.readFailed() {
 		d.keepGMToken()
 	}
+	d.grants = newGrantStore(filepath.Join(supportDir, "grants.jsonl"))
 	d.mail = d.newDeckOutbox()
 	// The folders are taken now, not at each look, so a look never reads a variable a test changes.
 	registry, support := registryPath(), supportDir
