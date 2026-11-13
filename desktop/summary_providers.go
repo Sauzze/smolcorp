@@ -665,13 +665,19 @@ func (c *cappedBuffer) Bytes() []byte { return c.kept.Bytes() }
 // ends it and anything it started, gives it input, and reads at most
 // summaryOutputMost of its output and summaryErrorMost of its errors.
 func spawnSummary(program string, args []string, input []byte, env []string, folder string, timeout time.Duration) summaryRan {
+	return spawnCapped(program, args, input, env, folder, timeout, summaryOutputMost, summaryErrorMost)
+}
+
+// spawnCapped is spawnSummary with the caps given: at most outputMost bytes of
+// output and errorMost of errors are kept.
+func spawnCapped(program string, args []string, input []byte, env []string, folder string, timeout time.Duration, outputMost, errorMost int) summaryRan {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := summaryCommand(ctx, program, args)
 	cmd.Dir = folder
 	cmd.Env = env
 	cmd.Stdin = bytes.NewReader(input)
-	output, errors := &cappedBuffer{most: summaryOutputMost}, &cappedBuffer{most: summaryErrorMost}
+	output, errors := &cappedBuffer{most: outputMost}, &cappedBuffer{most: errorMost}
 	cmd.Stdout, cmd.Stderr = output, errors
 	ownGroup(cmd)
 	// Ended, with all it started, only while it's still running: Cancel is

@@ -95,6 +95,7 @@ var routeTable = []routeRow{
 // goOnlyRoutes are setup routes only this app serves (INVENTORY.md's "Served by the Go app only"), so they aren't
 // in the Mac's fixture: Take over in T3 Code and Hand back (t3takeover.go), the page alone; a hire's git state (gitstate.go), a read;
 // and Phone over HTTPS (phonehttps.go), all of it the page's alone, the tap that runs `tailscale serve` included.
+// The sign-in status (signinstatus.go) is the page's alone too.
 var goOnlyRoutes = []routeRow{
 	{"GET", "/setup/tailnet/status", []string{"page"}},
 	{"GET", "/setup/tailnet/serve", []string{"page"}},
@@ -113,6 +114,8 @@ var goOnlyRoutes = []routeRow{
 	{"POST", "/setup/hire/plan/cancel", []string{"page"}},
 	{"POST", "/setup/hire/queue/resume", []string{"page"}},
 	{"POST", "/setup/hire/queue/cancel", []string{"page"}},
+	// Whether each coding agent is signed in (signinstatus.go): the page alone, never the GM, a hire, a tool or a phone.
+	{"GET", "/setup/accounts/status", []string{"page"}},
 }
 
 // name is how the table spells a caller.
