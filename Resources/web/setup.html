@@ -468,6 +468,12 @@
   .tailnet #tailnet-url { white-space: normal; word-break: break-all; }
   .tailnet #tailnet-found { overflow-wrap: anywhere; }
   .tailnet .pad { display: grid; gap: 10px; }
+  .https-status { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--sep); border-radius: 10px; }
+  .https-status .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .https-status .result.good, #https-copied.good { color: var(--unread); }
+  .https-status .result.wrong, #https-copied.wrong { color: var(--error); }
+  .https-status .confirm { display: grid; gap: 6px; padding-top: 4px; }
+  .https-status .confirm ul { margin: 0; padding-left: 18px; color: var(--dim); display: grid; gap: 3px; }
   .device { display: flex; align-items: center; gap: 10px; padding: 9px 14px; }
   #phones > * + * { border-top: 1px solid var(--sep); }
   .device .what { flex: 1; min-width: 0; }
@@ -1384,6 +1390,27 @@
       <h2>Use from anywhere (Tailscale)</h2>
       <div class="box"><div class="pad">
         <p class="hint">Over HTTPS the phone's own mic works too (iPhones only allow it there), and the deck reaches this computer from anywhere, but only from your own devices.</p>
+        <div class="https-status" id="https-status">
+          <div><strong>Phone over HTTPS:</strong> <span id="https-state">Looking at Tailscale…</span></div>
+          <div id="https-line" hidden>
+            <span class="detail" id="https-line-label"></span><br>
+            <code class="address" id="https-command"></code> <button class="link" id="https-copy">Copy</button> <span class="detail" id="https-copied"></span>
+          </div>
+          <div class="actions">
+            <button class="btn" id="https-on" hidden>Turn it on…</button>
+            <button class="btn" id="https-off" hidden>Turn it off…</button>
+          </div>
+          <div class="confirm" id="https-confirm" role="group" aria-label="Check the command before it runs" hidden>
+            <div>Smolcorp will run exactly this, and nothing else:</div>
+            <code class="address" id="https-confirm-command"></code>
+            <ul id="https-exposes"></ul>
+            <div class="actions">
+              <button class="btn primary" id="https-go">Run it</button>
+              <button class="link" id="https-cancel">Cancel</button>
+            </div>
+          </div>
+          <div class="detail result" id="https-result" role="status"></div>
+        </div>
         <ol>
           <li>Install Tailscale on this computer and on the phone, and sign in to both with the same account.</li>
           <li>In Tailscale's admin console, under DNS, check that MagicDNS and HTTPS Certificates are on.</li>
@@ -1968,6 +1995,7 @@
     renderOfficeKey();
     renderSummary();
     renderPhoneMic();
+    renderTailnet();
     renderWebhook();
     matchStartHere();
   }
@@ -2786,7 +2814,6 @@
   function renderPhoneMic() {
     const m = state.phoneMic;
     $('step-phonemic').hidden = !m;
-    $('tailnet').hidden = !m || !m.enabled;
     if (!m) return;
     mark('step-phonemic', m.enabled);
     $('phonemic').classList.toggle('on', m.enabled);
@@ -2811,6 +2838,82 @@
     const src = `/setup/qr.png?via=tailnet&code=${code}&at=${encodeURIComponent(url || '')}`;
     if (url && code && $('tailnet-qr').getAttribute('src') !== src) $('tailnet-qr').src = src;
   }
+
+  /**
+   * Use from anywhere (Tailscale), on every system (1.26): shown on a Mac with the phone mic on, as before, and on
+   * Linux and Windows always. Its status and the exact line to copy come from the app (/setup/tailnet/status), and
+   * Turn it on / Turn it off show the exact command and what it exposes before anything runs.
+   */
+  let https = null, httpsAskedAt = 0, httpsAction = null;
+  function renderTailnet() {
+    const m = state.phoneMic;
+    const shown = m ? m.enabled : true;
+    $('tailnet').hidden = !shown;
+    if (!shown) return;
+    // Asked again at most every 10 s, and at once while the app is still looking.
+    if (!https || https.status === 'checking' || Date.now() - httpsAskedAt > 10000) loadHttps();
+  }
+  async function loadHttps() {
+    httpsAskedAt = Date.now();
+    const res = await fetch('/setup/tailnet/status', { cache: 'no-store', headers: setupHeaders() }).catch(() => null);
+    if (!res || !res.ok) return;
+    https = await res.json();
+    drawHttps();
+  }
+  function drawHttps() {
+    const h = https;
+    if (!h) return;
+    const words = {
+      checking: 'Looking at Tailscale…',
+      notInstalled: "Tailscale isn't installed on this computer. Install it here and on your phone, then come back.",
+      signedOut: "Tailscale is here but isn't signed in. Open it and sign in with the same account as on your phone.",
+      off: "Not turned on: this app isn't handed on over HTTPS.",
+      on: h.address ? `On, at ${h.address}` : 'On.',
+    };
+    $('https-state').textContent = wording(words[h.status] || '');
+    $('https-status').classList.toggle('on', h.status === 'on');
+    $('https-line').hidden = h.status === 'checking';
+    $('https-line-label').textContent = h.status === 'on' ? 'To stop it from Terminal, run:' : wording('To turn it on from Terminal on this computer, run:');
+    $('https-command').textContent = h.status === 'on' ? h.offCommand : h.command;
+    $('tailnet-command').textContent = h.command;
+    // Where there's no phone mic section to say it (Linux and Windows), the address Tailscale gave is said here.
+    if (!state.phoneMic && h.address) $('tailnet-url').textContent = h.address;
+    $('https-on').hidden = h.status !== 'off';
+    $('https-off').hidden = h.status !== 'on';
+  }
+  /** The confirmation: the app says the exact command and what it exposes; nothing runs until Run it. */
+  async function askHttps(action) {
+    said('https-result', '');
+    const res = await fetch(`/setup/tailnet/serve?action=${action}`, { cache: 'no-store', headers: setupHeaders() }).catch(() => null);
+    if (!res || !res.ok) return said('https-result', res ? await res.text() : "Couldn't reach Smolcorp.", 'wrong');
+    const plan = await res.json();
+    httpsAction = plan;
+    $('https-confirm-command').textContent = plan.command;
+    $('https-exposes').replaceChildren(...plan.exposes.map((line) => Object.assign(document.createElement('li'), { textContent: line })));
+    $('https-confirm').hidden = false;
+    $('https-go').focus();
+  }
+  $('https-on').onclick = () => askHttps('on');
+  $('https-off').onclick = () => askHttps('off');
+  $('https-cancel').onclick = () => { httpsAction = null; $('https-confirm').hidden = true; };
+  $('https-copy').onclick = () => copyText($('https-command').textContent, 'https-copied');
+  $('https-go').onclick = async () => {
+    if (!httpsAction) return;
+    const { action, command } = httpsAction;
+    $('https-go').disabled = true;
+    said('https-result', 'Running it…');
+    // What is sent back is the command that was shown: the app runs it only if it is still the one it would run.
+    const res = await fetch('/setup/tailnet/serve', { method: 'POST', headers: setupHeaders(true), body: JSON.stringify({ action, command }) }).catch(() => null);
+    $('https-go').disabled = false;
+    httpsAction = null;
+    $('https-confirm').hidden = true;
+    if (!res || !res.ok) return said('https-result', res ? await res.text() : "Couldn't reach Smolcorp.", 'wrong');
+    https = await res.json();
+    httpsAskedAt = Date.now();
+    drawHttps();
+    said('https-result', action === 'on' ? 'Done: Tailscale now hands this app on.' : 'Done: Tailscale no longer hands this app on.', 'good');
+    load();
+  };
 
   /** What each event the webhook can send is called here. */
   const WEBHOOK_EVENTS = [

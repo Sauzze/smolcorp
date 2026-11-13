@@ -2,9 +2,14 @@ package desktop
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
+
+// realAskTailnet is Tailscale's look as the app does it, before the tests put a stand-in for it: for a test that
+// points it at a stand-in `tailscale` of its own.
+var realAskTailnet = askTailnet
 
 // TestMain points every path the package keeps its state in at a fresh
 // temporary folder before any test runs, so a test that forgets isolate(t)
@@ -49,5 +54,9 @@ func runWithTempSupport(m *testing.M) int {
 	os.Setenv("APPDATA", filepath.Join(homeDir, "AppData"))
 	// Tailscale's command line is never run by a test: no Tailscale here, unless a test puts in its own.
 	askTailnet = func() (tailnetAnswer, bool) { return tailnetAnswer{}, false }
+	// Nor is one looked for along PATH, or in the places it is usually put: a test that wants one points
+	// tailnetCandidates at its own stand-in (withStandInTailscale).
+	tailnetLookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+	tailnetCandidates = nil
 	return m.Run()
 }

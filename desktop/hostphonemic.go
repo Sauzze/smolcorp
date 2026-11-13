@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -23,14 +25,51 @@ import (
 // Tailscale's command line is only ever read (`tailscale status --json`,
 // `tailscale serve status --json`), at most once a minute, never needed:
 // without it setup just shows the steps. On Windows and Linux setup has no
-// such section: the route is 404 and the state has no phoneMic.
+// phone mic switch: the route is 404 and the state has no phoneMic. What it
+// shares with the Mac, on every system, is Tailscale's side: the look below,
+// and setup's Phone over HTTPS status and its tap (phonehttps.go).
 
-// tailnetCandidates are where Tailscale's command line can be: the Mac app's own, then Homebrew's and the
-// open-source one's (Tailnet.candidates).
-var tailnetCandidates = []string{
-	"/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-	"/opt/homebrew/bin/tailscale",
-	"/usr/local/bin/tailscale",
+// tailnetCandidates are where Tailscale's command line can be on this system, before a look along PATH.
+var tailnetCandidates = tailnetCandidatesOn(runtime.GOOS)
+
+// tailnetLookPath is the look along PATH for Tailscale's command line. A variable so a test never finds the real one.
+var tailnetLookPath = exec.LookPath
+
+// tailnetCandidatesOn is where Tailscale's command line can be on a system, by Go's name for it. On a Mac, the app's
+// own, then Homebrew's and the open-source one's (Tailnet.candidates); on Linux the package's, and a snap's; on
+// Windows its installer's folder.
+func tailnetCandidatesOn(system string) []string {
+	switch system {
+	case "linux":
+		return []string{"/usr/bin/tailscale", "/usr/sbin/tailscale", "/usr/local/bin/tailscale", "/snap/bin/tailscale"}
+	case "windows":
+		var found []string
+		for _, variable := range []string{"ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"} {
+			if folder := os.Getenv(variable); folder != "" {
+				found = append(found, filepath.Join(folder, "Tailscale", "tailscale.exe"))
+			}
+		}
+		return found
+	}
+	return []string{
+		"/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+		"/opt/homebrew/bin/tailscale",
+		"/usr/local/bin/tailscale",
+	}
+}
+
+// tailscaleTool is Tailscale's command line on this computer, or "" if it isn't here: a place it's usually put,
+// then PATH. Windows files have no execute bit, so there it's a file that exists.
+func tailscaleTool() string {
+	for _, candidate := range tailnetCandidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && (runtime.GOOS == "windows" || info.Mode()&0o111 != 0) {
+			return candidate
+		}
+	}
+	if found, err := tailnetLookPath("tailscale"); err == nil {
+		return found
+	}
+	return ""
 }
 
 const (
@@ -40,32 +79,34 @@ const (
 	tailnetTimeout = 3 * time.Second
 )
 
-// tailnetAnswer is what Tailscale says: this Mac's HTTPS address ("" for none), and whether `tailscale
+// tailnetAnswer is what Tailscale says: this computer's HTTPS address ("" for none), and whether `tailscale
 // serve` hands the deck on (nil when that can't be told).
 type tailnetAnswer struct {
 	url     string
 	serving *bool
+	// Tailscale is running and signed in (its BackendState is Running).
+	signedIn bool
+	// `tailscale serve` hands something else on, not this deck: turning it on would replace that.
+	busy bool
+	// Set by the look, never by askTailnet: whether Tailscale's command line is here, and whether it was asked at all.
+	installed, asked bool
 }
 
 // askTailnet asks Tailscale's command line, if it's here: false when it isn't installed. A variable, so
 // the tests never run it.
 var askTailnet = func() (tailnetAnswer, bool) {
-	tool := ""
-	for _, candidate := range tailnetCandidates {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
-			tool = candidate
-			break
-		}
-	}
+	tool := tailscaleTool()
 	if tool == "" {
 		return tailnetAnswer{}, false
 	}
 	var answer tailnetAnswer
 	if status, ok := runTailscale(tool, "status", "--json"); ok {
 		answer.url = tailnetURL(status)
+		answer.signedIn = tailnetSignedIn(status)
 	}
 	if status, ok := runTailscale(tool, "serve", "status", "--json"); ok {
 		answer.serving = servesDeck(status, Port)
+		answer.busy = answer.serving != nil && !*answer.serving && servesAnything(status)
 	}
 	return answer, true
 }
@@ -77,6 +118,7 @@ func runTailscale(tool string, arguments ...string) ([]byte, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), tailnetTimeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, tool, arguments...)
+	hideGitWindow(command) // no console window flashing up on Windows
 	command.Env = os.Environ()
 	if os.Getenv("TERM") == "" {
 		command.Env = append(command.Env, "TERM=dumb")
@@ -105,6 +147,23 @@ func tailnetURL(status []byte) string {
 		return ""
 	}
 	return "https://" + host
+}
+
+// tailnetSignedIn says whether `tailscale status --json` has Tailscale running and signed in: its BackendState is
+// Running (NeedsLogin, Stopped and the rest are not).
+func tailnetSignedIn(status []byte) bool {
+	var said struct{ BackendState string }
+	return json.Unmarshal(status, &said) == nil && said.BackendState == "Running"
+}
+
+// servesAnything says whether `tailscale serve status --json` hands anything at all on (a web handler or a TCP
+// forward), whatever it points at.
+func servesAnything(status []byte) bool {
+	var said struct {
+		TCP map[string]any
+		Web map[string]any
+	}
+	return json.Unmarshal(status, &said) == nil && (len(said.TCP) > 0 || len(said.Web) > 0)
 }
 
 // tailnetScheme is a target's scheme, taken off before its address is compared.
@@ -161,18 +220,34 @@ func (d *Deck) tailnetNow() tailnetAnswer {
 	defer tailnetLook.mu.Unlock()
 	if !tailnetLook.looking && time.Since(tailnetLook.lookedAt) >= tailnetLookAgainAfter {
 		tailnetLook.looking = true
-		d.rounds.run(func() {
-			answer, _ := askTailnet()
-			tailnetLook.mu.Lock()
-			changed := answer.url != tailnetLook.answer.url || !sameServing(answer.serving, tailnetLook.answer.serving)
-			tailnetLook.answer, tailnetLook.lookedAt, tailnetLook.looking = answer, time.Now(), false
-			tailnetLook.mu.Unlock()
-			if changed {
-				d.Refresh()
-			}
-		})
+		d.rounds.run(func() { d.tailnetLookNow(true) })
 	}
 	return tailnetLook.answer
+}
+
+// tailnetLookNow asks Tailscale's command line now, keeps the answer, and tells the office and setup if it's
+// different. Waits on Tailscale (a few seconds at most): off the request that is waiting for nothing else.
+// background says it is the one tailnetNow started, so it lets the next look start.
+func (d *Deck) tailnetLookNow(background bool) tailnetAnswer {
+	answer, installed := askTailnet()
+	answer.installed, answer.asked = installed, true
+	tailnetLook.mu.Lock()
+	changed := !sameAnswer(answer, tailnetLook.answer)
+	tailnetLook.answer, tailnetLook.lookedAt = answer, time.Now()
+	if background {
+		tailnetLook.looking = false
+	}
+	tailnetLook.mu.Unlock()
+	if changed {
+		d.Refresh()
+	}
+	return answer
+}
+
+// sameAnswer says whether two looks found the same.
+func sameAnswer(a, b tailnetAnswer) bool {
+	return a.url == b.url && sameServing(a.serving, b.serving) && a.signedIn == b.signedIn && a.busy == b.busy &&
+		a.installed == b.installed && a.asked == b.asked
 }
 
 func sameServing(a, b *bool) bool {

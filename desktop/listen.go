@@ -131,8 +131,8 @@ var tailnet = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)
 var tailnet6 = &net.IPNet{IP: net.ParseIP("fd7a:115c:a1e0::"), Mask: net.CIDRMask(48, 128)}
 
 // macTailscale: on a Mac, Tailscale's adapter is a utunN like any VPN's, so it's
-// told by its addresses, and `tailscale serve`'s ts.net names are let in as the
-// Mac app lets them in (see router.ServeHTTP). A variable so a test can say either.
+// told by its addresses. (`tailscale serve`'s ts.net names are let in on every
+// system, see router.ServeHTTP.) A variable so a test can say either.
 var macTailscale = runtime.GOOS == "darwin"
 
 // tailscaleFrom picks the Tailscale addresses out of one adapter: it must be

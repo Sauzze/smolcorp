@@ -881,7 +881,7 @@ func TestTailscaleIsToItsAddressFromATailnetAddress(t *testing.T) {
 
 // On a Mac, Tailscale's adapter is a utunN like any VPN's: it's told by its addresses, 100.64/10 with
 // Tailscale's own IPv6 range. And `tailscale serve` hands the phone's request on to its ts.net name, let in
-// as the Mac app lets it in: from this computer's loopback, with the phone's text on.
+// as the Mac app lets it in: from this computer's loopback, with the phone's text on (on every system since 1.26).
 func TestOnAMacTailscaleIsToldByItsAddressesAndServedByItsName(t *testing.T) {
 	saved := macTailscale
 	t.Cleanup(func() { macTailscale = saved })
@@ -932,13 +932,22 @@ func TestOnAMacTailscaleIsToldByItsAddressesAndServedByItsName(t *testing.T) {
 	if status, _ := peek("my-mac.tail1234.ts.net", "127.0.0.1:50000"); status != http.StatusForbidden {
 		t.Errorf("the phone's text off: %d", status)
 	}
-	// Elsewhere than a Mac, as before: a ts.net name isn't let in.
+	// Elsewhere than a Mac, on Linux and Windows, `tailscale serve` is let in the same (1.26, FR2), and the same
+	// is refused: a ts.net name from elsewhere, another name, the phone's text off.
 	d.mu.Lock()
 	d.config.PhoneMicEnabled = true
 	d.mu.Unlock()
 	macTailscale = false
-	if status, _ := peek("my-mac.tail1234.ts.net", "127.0.0.1:50000"); status != http.StatusForbidden {
-		t.Errorf("not a Mac: %d", status)
+	d.mu.Lock()
+	d.lastPeek = map[string]time.Time{} // one look a second: the first of these is another's
+	d.mu.Unlock()
+	if status, body := peek("my-mac.tail1234.ts.net", "127.0.0.1:50000"); status != http.StatusOK || body != `{"lines":["❯ hello"]}` {
+		t.Errorf("not a Mac: %d %s", status, body)
+	}
+	for _, c := range [][2]string{{"my-mac.tail1234.ts.net", "100.101.102.103:5000"}, {"my-mac.example.net", "127.0.0.1:50000"}, {"ts.net", "127.0.0.1:50000"}} {
+		if status, _ := peek(c[0], c[1]); status != http.StatusForbidden {
+			t.Errorf("not a Mac, %v: %d", c, status)
+		}
 	}
 }
 
