@@ -140,11 +140,16 @@ func TestMoreWrappersNotInTheList(t *testing.T) {
 		"doppler run -- git push", "doppler run -p x -c y -- git push", "doppler run --command 'git push'", "dotenv -e .env -- git push",
 		"dotenv -f .env run -- git push", "pipenv run git push", "conda run git push", "conda run -n env git push", "rbenv exec git push",
 		"corepack pnpm@9 publish",
+		// RWIN7 N6: the Mac's taskpolicy, rlwrap, hyperfine's commands, util-linux's script -c.
+		"taskpolicy -b git push", "taskpolicy -c utility git push", "taskpolicy -t 4 -l 4 git push", "rlwrap git push",
+		"rlwrap -a -H h.txt git push", "hyperfine 'git push'", "hyperfine -w 3 --prepare 'git push' 'ls'",
+		"script -c 'git push' /dev/null", "script -qc 'git push' /dev/null", "script --command='git push' /dev/null",
 	})
 	mustRun(t, "wrappers", []string{
 		"xcrun --find git", "sandbox-exec -f p ls", "ssh-agent ls", "op run -- ls", "direnv exec . ls", "mise exec -- ls", "uv run pytest",
 		"poetry run pytest", "bundle exec rspec", "corepack enable", "corepack pnpm install", "doppler run -- ls", "dotenv -e .env -- ls",
 		"pipenv run pytest", "conda run -n env python x.py", "rbenv exec ruby x.rb", "uv sync", "bundle install", "mise ls",
+		"taskpolicy -b make", "rlwrap sqlite3 x.db", "hyperfine 'go test ./...'", "script -q /dev/null ls",
 	})
 }
 

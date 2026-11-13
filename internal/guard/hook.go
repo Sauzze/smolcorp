@@ -65,6 +65,7 @@ func Hook(stdin io.Reader, stdout io.Writer, groups []Group, problem string) int
 	var call struct {
 		ToolName  *string         `json:"tool_name"`
 		ToolInput json.RawMessage `json:"tool_input"`
+		Cwd       string          `json:"cwd"`
 	}
 	data, err := io.ReadAll(io.LimitReader(stdin, 4<<20))
 	if err != nil || json.Unmarshal(data, &call) != nil || call.ToolName == nil {
@@ -86,10 +87,24 @@ func Hook(stdin io.Reader, stdout io.Writer, groups []Group, problem string) int
 		// A broken file is never read as "allow": every command waits until it is fixed.
 		return deny(stdout, "Refused by Smolcorp's hire guard: "+fileName+" is broken ("+problem+"). Ask the owner to fix it.")
 	}
+	// A call made from inside a .claude folder or the app's own folder reaches what the guard keeps by a short name
+	// (rm ../settings.json): Claude Code keeps a cd that ends in the project for the next call (RWIN9 B1).
+	if KeptCwd(call.Cwd) {
+		return deny(stdout, "Refused by Smolcorp's hire guard ("+keptDirRule+"): this call runs in "+call.Cwd+". "+keptDirWhy)
+	}
 	if r := Check(*command, groups); r != nil {
 		return deny(stdout, r.Error())
 	}
 	return exitOK
+}
+
+// KeptCwd says whether a tool call's folder (the hook input's cwd, a real path: no pattern in it) is in a .claude
+// folder or the app's support folder (keptFolderName): a command there reaches Claude Code's settings or the app's
+// files by a short name. The demo's fence asks it too. So a hire started inside Claude Code's own .claude/worktrees/…
+// can run nothing (Smolcorp starts none there today), and a cwd in .git isn't refused here as it is in the demo's
+// fence, as nothing the guard keeps is in .git (RWIN10 N3).
+func KeptCwd(cwd string) bool {
+	return keptFolderName(cwd)
 }
 
 // Run is `smolcorp guard`:
