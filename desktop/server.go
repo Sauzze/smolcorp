@@ -1931,6 +1931,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// Whether Claude, Codex and Gemini are signed in (signinstatus.go; goOnlyRoutes lists it: the page alone).
 	case r.Method == http.MethodGet && path == "/setup/accounts/status":
 		rt.accountsStatus(w, r)
+	// Signing in to Claude, Codex or Gemini (signinrun.go; goOnlyRoutes lists them: the page alone).
+	case path == "/setup/accounts/login" || strings.HasPrefix(path, "/setup/accounts/login/"):
+		rt.accountsLogin(w, r)
 
 	// A hire's git state, read only (gitstate.go; goOnlyRoutes lists it: gm, page and tool). A GET, so a GM's scope passes it.
 	case r.Method == http.MethodGet && path == "/setup/gm/git":

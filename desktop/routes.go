@@ -96,6 +96,7 @@ var routeTable = []routeRow{
 // in the Mac's fixture: Take over in T3 Code and Hand back (t3takeover.go), the page alone; a hire's git state (gitstate.go), a read;
 // and Phone over HTTPS (phonehttps.go), all of it the page's alone, the tap that runs `tailscale serve` included.
 // The sign-in status (signinstatus.go) is the page's alone too.
+// Signing in to an agent (signinrun.go) is the page's alone too.
 var goOnlyRoutes = []routeRow{
 	{"GET", "/setup/tailnet/status", []string{"page"}},
 	{"GET", "/setup/tailnet/serve", []string{"page"}},
@@ -116,6 +117,11 @@ var goOnlyRoutes = []routeRow{
 	{"POST", "/setup/hire/queue/cancel", []string{"page"}},
 	// Whether each coding agent is signed in (signinstatus.go): the page alone, never the GM, a hire, a tool or a phone.
 	{"GET", "/setup/accounts/status", []string{"page"}},
+	// Signing in to a coding agent (signinrun.go): the page alone, never the GM, a hire, a tool or a phone.
+	{"POST", "/setup/accounts/login", []string{"page"}},
+	{"GET", "/setup/accounts/login", []string{"page"}},
+	{"POST", "/setup/accounts/login/code", []string{"page"}},
+	{"POST", "/setup/accounts/login/cancel", []string{"page"}},
 }
 
 // name is how the table spells a caller.
