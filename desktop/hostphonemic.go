@@ -194,7 +194,7 @@ func (d *Deck) phoneMicState(found tailnetAnswer) map[string]any {
 
 // tailnetPairingLink is the pairing link at this Mac's tailnet address, for the phone mic over HTTPS: "" with
 // the phone mic off or no address. Without the deck's lock.
-func (d *Deck) tailnetPairingLink(code string) string {
+func (d *Deck) tailnetPairingLink(key string) string {
 	found := d.tailnetNow()
 	d.mu.Lock()
 	on := d.config.PhoneMicEnabled
@@ -202,5 +202,5 @@ func (d *Deck) tailnetPairingLink(code string) string {
 	if !on || found.url == "" {
 		return ""
 	}
-	return found.url + "/?pair=" + code
+	return found.url + "/#pair=" + key
 }

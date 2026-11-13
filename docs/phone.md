@@ -1,6 +1,6 @@
 # Smolcorp on your phone
 
-The office in your phone's browser: what each tap does, pairing, and voice. Back to the [README](../README.md).
+The office in your phone's browser: what each tap does, pairing, voice, and typing to your agents. Back to the [README](../README.md).
 
 <p align="center">
   <img src="demo.gif" alt="Smolcorp on a phone held sideways: the office fills the screen, and the new hire, in an orange tie, works at their desk while coffee mugs drop in as their effort rises; a finger held on their desk brings up their keys along the foot of the room; they wait for an answer, the phone's edge glows orange and ✓ is tapped; then the jukebox plays and heads bob to the beat" width="800">
@@ -49,12 +49,49 @@ You can pin projects to specific desks and furnish the office your way.
 1. On your computer, click the Smolcorp icon in the menu bar or tray and
    choose **Pair a Phone…**. The setup page opens with a six-digit code and a
    QR code.
-2. Scan the QR code with your phone's camera. Or open your phone's browser, go
-   to the address shown with the code (for example `192.168.1.20:7710`) and
-   type the code.
+2. Scan the QR code with your phone's camera. The key it hands your phone
+   is after `#` in its link, a part a browser never sends, so it never crosses
+   your Wi-Fi, and your phone adds a part of its own as it pairs. That part
+   does cross the Wi-Fi as your phone pairs, unencrypted: a photo of the QR
+   code alone, without also watching your Wi-Fi as your phone pairs, isn't
+   your phone's key, but the two together are. And until your phone has
+   scanned it, a photo could pair another phone: keep it to yourself, and if
+   your phone says the code isn't valid, check **Paired phones** in setup. Typing
+   the code instead (open the address shown with it, for example
+   `192.168.1.20:7710`) works over Tailscale only: over plain Wi-Fi it's
+   refused, since the answer would carry your phone's key unencrypted.
 3. Add the deck to your Home Screen: on an iPhone, tap **Share → Add to Home
    Screen**; on Android, open the browser's menu and tap **Add to Home
    screen**. Smolcorp now opens full screen and stays paired.
+
+### Wi-Fi or Tailscale
+
+**Use the Tailscale link when you can.** Tailscale encrypts everything between
+your phone and your computer. Plain Wi-Fi doesn't: the deck is plain http
+there, so anyone on the same Wi-Fi can read what it shows and what you type.
+Your phone's key never travels: each request is signed with it, names its
+time, and works once, so a request someone captured can't be sent again.
+Someone who can tamper with the Wi-Fi's traffic, not just read it, could still
+change the page itself, which only Tailscale prevents.
+
+**Typing over Wi-Fi** is off for a new setup: the deck's keys work over the
+Wi-Fi, but text typed or dictated from the phone goes only over Tailscale.
+Turn it on under **Paired phones** in setup if you need it, and off again if
+you don't. A setup from before this switch keeps typing over Wi-Fi as it did,
+and setup shows the warning beside the switch.
+
+A phone paired before 1.25 sent its key unencrypted over the Wi-Fi, and a
+page saved then (its address ends in `?t=` and a long key) still does, so its
+key no longer works over the Wi-Fi at all, signed or not. Setup lists it as
+paired before 1.25: unpair it, since its key may have been read, then pair it
+again with the QR code and add the new page to your Home Screen. Once it has,
+setup offers to remove the old entry. Over Tailscale, and on this computer,
+the old key still works.
+
+Tailscale is told apart by where a request comes from. A reverse proxy on
+the same computer (Caddy, nginx and the like) that hands requests from your
+Wi-Fi on to Smolcorp makes them look as if they came through Tailscale:
+don't put one in front of Smolcorp, other than `tailscale serve`.
 
 While the deck is open, your phone's screen stays on, from your first tap. If
 an agent has been waiting on you for five minutes, the deck reminds you once,
@@ -85,23 +122,63 @@ Voice input needs Claude Code signed in with a Claude.ai account. Claude Code
 sends your audio to Anthropic to be transcribed. Smolcorp itself never
 hears it.
 
-**Typing from the phone** (Mac, with setup's Phone microphone on):
-⚙︎ → *Type to …* types into the picked agent, over Tailscale or the Wi-Fi
-(where it isn't encrypted). Several lines go as one paste: in tmux when the
-agent asked for it, and in Terminal, iTerm2 and Ghostty through the clipboard
-and ⌘V, for Claude Code only, waiting at its prompt with nothing else open in
-its tab (Terminal and iTerm2 come to the front for it, never while the Mac is
-locked or in use); other agents there are told to send one line. The clipboard
-is put back afterwards, except a
-password you'd copied, which is cleared, not put back. A clipboard manager, or
-iTerm2's paste history, may keep a copy of text sent this way. Left in `!` mode
-or with a menu open at the Mac (/resume, /model, Ctrl-R), Claude Code looks
-idle, so Smolcorp still reads it as waiting: several lines go to that mode or
-menu, and Return runs them or picks the highlighted item.
-
 **Clean up dictation with Claude** (Mac, setup → Phone and voice; off until
 you turn it on): with the Mac's own dictation on, the dictated *text*, never
 the audio, goes to Claude Haiku before it's typed, with
 [your own API key](extras.md#summaries-with-claude): fillers and stutters go, and
 misheard names come back as the glossary beside it spells them. If that
 fails, there's no key, or it takes over 2.5 s, the text goes in as heard.
+
+## Typing from the phone
+
+**⚙︎ → Type to …** types into the picked agent, on the Mac, Windows and
+Linux, over Tailscale, or your Wi-Fi with **Typing over Wi-Fi** on
+([off for a new setup](#wi-fi-or-tailscale)). Over the Wi-Fi, what you type isn't
+encrypted, and the deck says so: Tailscale is the private option. It's on
+unless you turn it off: on the Mac with setup's **Phone microphone** switch
+(Phone and voice); on Windows and Linux, which have no switch in setup yet,
+with `"phoneMicEnabled": false` in `config.json`.
+
+What you type goes to the agent as text, with Return pressed on its own once
+it's in. Nothing is typed to an agent that's asking you something (that's
+checked again right before the words go in), text starting with `!` is
+refused, since Claude Code would run it as a shell command, and 2,000
+characters is the most at a time.
+
+Several lines go in as one paste, never with a Return part way through:
+
+- **In tmux**, when the agent asked for it, and **in a window of Smolcorp's
+  launcher** on Windows and Linux, the same way.
+- **On a Mac, in Terminal, iTerm2 and Ghostty**, through the clipboard and
+  ⌘V, for Claude Code only, waiting at its prompt with nothing else open in its
+  tab. Terminal and iTerm2 come to the front for it, and it never happens
+  while the Mac is locked or in use. Afterwards your clipboard is put back,
+  except a password you'd copied, which is cleared, not put back. **A
+  clipboard manager, or iTerm2's paste history, may keep a copy of text sent
+  this way.**
+- **Anywhere else**, such as WezTerm and kitty, or another agent in Terminal,
+  it's one line at a time: several lines are refused with a sentence saying
+  so, and nothing is typed.
+
+Left in `!` mode or with a menu open at the Mac (/resume, /model, Ctrl-R),
+Claude Code looks idle, so Smolcorp still reads it as waiting: several lines
+go to that mode or menu, and Return runs them or picks the highlighted item.
+
+## The phone's own mic (Mac, over Tailscale)
+
+With **Phone microphone** on, the phone can do the listening itself. Browsers
+give a page the mic only over HTTPS, so open the deck through Tailscale: setup's
+**Use from anywhere** gives the `tailscale serve` line to run on your Mac, and
+a QR code that pairs your phone at that address. Then hold the mic and speak:
+the phone recognises your words, and only the text reaches your Mac. Nothing
+is kept. On an iPhone, Apple does the recognising, and may send your voice to
+Apple for it.
+
+Let go, and the phone shows what it heard: **Send** it, **Type only** (it's
+typed, and you press Return when you're ready), or cancel. Setup can send it
+by itself instead, when it's three words or more. Once it's typed, the phone
+shows the last lines of that agent's terminal (over Tailscale only). It's
+typed by the same rules as [Typing from the phone](#typing-from-the-phone).
+
+Over plain http on your Wi-Fi, holding the mic uses the Mac's mic, as above.
+On Windows and Linux, the phone's own mic isn't offered.

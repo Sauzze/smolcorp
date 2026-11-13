@@ -29,7 +29,7 @@
  * control a finger held on it opens, 'previous', 'playpause' or 'next',
  * `on.key(action)` for one of the picked agent's keys along the foot of the
  * room, out from a finger held on the agent till a tap elsewhere, 'esc', 'send',
- * 'clear', 'up', 'down', 'summary' (personal build: what the agent has been
+ * 'clear', 'up', 'down', 'summary' (what the agent has been
  * doing, where its session has a transcript to read) or 'button:<id>' for one of the layout's own
  * buttons (/clear and a button marked `confirm` on a second tap),
  * `on.hire(desk, role, floor)` for an empty desk held and hired into: by the id
@@ -1864,7 +1864,9 @@
         const name = typeof f.name === 'string' ? f.name.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 24) : '';
         // How many there wait on you, as the computer counts them: none from one from before it did
         const asking = Number(f.asking) > 0 ? Math.round(Number(f.asking)) : 0;
-        return { n: i + 1, name: name || `${i + 1}F`, preset: typeof f.preset === 'string' ? f.preset : '', desks: Array.isArray(f.desks) ? f.desks : [], asking };
+        // Each desk's pin, by its folder's name, as a key's: one from before floors had pins has none
+        const pins = Array.isArray(f.pins) ? f.pins.slice(0, UPSTAIRS_MOST).map((pin) => (typeof pin === 'string' && pin ? pin : null)) : [];
+        return { n: i + 1, name: name || `${i + 1}F`, preset: typeof f.preset === 'string' ? f.preset : '', desks: Array.isArray(f.desks) ? f.desks : [], asking, pins };
       });
     }
     const up = snapshot && snapshot.upstairs && Array.isArray(snapshot.upstairs.desks) ? snapshot.upstairs.desks : [];
@@ -1909,9 +1911,11 @@
    * state), named after its folder, at the desk the computer says it has, or
    * the first free one. An agent the computer says can be driven there keeps
    * its controls and its role, as on the ground floor; anyone else, a
-   * headless run, a cloud bot or the viewer's, has nothing to press.
+   * headless run, a cloud bot or the viewer's, has nothing to press. A desk
+   * pinned to a folder (`pins`, by desk) shows its name, as a pinned key does
+   * downstairs, kept for it while nobody of it is there.
    */
-  function upstairsSeatsOf(given, ahead) {
+  function upstairsSeatsOf(given, ahead, pins = []) {
     const named = new Map();
     const entries = given.filter((entry) => entry && typeof entry === 'object').slice(0, UPSTAIRS_MOST).map((entry) => {
       const name = String(entry.project || entry.name || '');
@@ -1933,8 +1937,9 @@
       while (keys[free]) free += 1;
       keys[free] = entry;
     }
-    return seatsOf({ keys: Array.from(keys, (k) => k || {}) }, ahead).map((seat) => ({
-      pin: null,
+    const pinned = pins.reduce((last, pin, desk) => (pin ? desk + 1 : last), 0);
+    return seatsOf({ keys: Array.from({ length: Math.max(keys.length, pinned) }, (_, desk) => keys[desk] || {}) }, ahead).map((seat, desk) => ({
+      pin: pins[desk] || null,
       session: !seat.session ? seat.session : seat.session.drivable === true ? seat.session
         : { ...seat.session, maxPressedAt: null, messagedAt: null, role: null, keys: false, fire: false, mic: false, dial: false },
     }));
@@ -6707,15 +6712,17 @@
   const LABEL_SMALLEST = 8;
   /**
    * How long a turn has run, short enough for its name tag: 9:41 for the
-   * first ten minutes, then 12m, then 2h. `short`, where a long name needs
-   * the room, says 41s, then 9m, then 12m.
+   * first ten minutes, then 12m, then 2h, then 4d from 100 hours on, never
+   * stopping at a cap that would read as less than it is. `short`, where a
+   * long name needs the room, says 41s, then 9m, then 12m.
    */
   function turnLength(seconds, short = false) {
     const minutes = Math.floor(seconds / 60);
     if (short && minutes < 1) return `${seconds}s`;
     if (minutes < 10 && !short) return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
     if (minutes < 60) return `${minutes}m`;
-    return `${Math.min(Math.floor(minutes / 60), 99)}h`;
+    const hours = Math.floor(minutes / 60);
+    return hours > 99 ? `${Math.floor(hours / 24)}d` : `${hours}h`;
   }
 
   /** Waiting on you longer than this, in seconds, an agent gets agitated, and more so the longer it goes on… */
@@ -6766,7 +6773,7 @@
   };
   /** How wide `text` is in the pixel font. */
   const textWidth = (text) => [...text].reduce((w, c) => w + GLYPHS[c][0].length + 1, -1);
-  /** Personal build: how long a dictation's note shows over its desk, and the last part of that, fading, in seconds. */
+  /** How long a dictation's note shows over its desk, and the last part of that, fading, in seconds. */
   const VOICE_NOTE_FOR = 4;
   const VOICE_NOTE_FADE = 1;
   /** How long everyone looks up when the mic goes on, as if the boss were shouting. */
@@ -6941,7 +6948,7 @@
   const KEY_NAMES = { enter: '⏎', escape: 'esc', tab: '⇥', 'shift-tab': '⇤', up: '↑', down: '↓', 'ctrl-c': '^C' };
   /** ⏎, in pixels. */
   const SEND_MARK = ['0000001', '0000001', '0100001', '1111111', '0100000'];
-  /** ✨ Summary (personal build): for an agent whose session has a transcript to read, with the setting on. */
+  /** ✨ Summary: for an agent whose session has a transcript to read, with the setting on. */
   const SUMMARY_KEY = { action: 'summary', label: '✨ summary' };
   /** The picked agent's key to put them on another floor, where the page can and there's a floor to go to. */
   const MOVE_KEY = { action: 'floor', label: '⇅ floor' };
@@ -30065,7 +30072,7 @@
      * below.
      */
     /**
-     * Personal build: how a desk's dictation went, a small pill over its
+     * How a desk's dictation went, a small pill over its
      * agent for a few seconds: green once cleaned, grey when typed as heard.
      */
     function drawVoiceNote({ desk, text, cleaned, alpha }) {
@@ -30088,7 +30095,7 @@
     }
 
     /**
-     * Personal build: what the phone hears while its mic is held, live, in a
+     * What the phone hears while its mic is held, live, in a
      * bubble over the listening desk: the latest words, a mic before them.
      */
     function drawHearing({ desk, text }) {
@@ -30142,10 +30149,11 @@
       const inLine = DESKS[desk].off && crowdAnchors.has(desk);
       if (DESKS[desk].off && !inLine) return;
       const between = inLine ? (desk === selectedDesk ? DESK_WIDTH : CROWD_GAP - 1) : DESK_COLUMNS[1] - DESK_COLUMNS[0] - 2;
-      // How long the agent has been at work, between the dot and the name: its room kept as wide as its widest
-      // digits, so the name doesn't shift as they change. Shorter before the name is cut, and left out where even
-      // that would cut a name that fits on its own, as on a phone.
-      const seconds = sessionSecondsAt(desk);
+      // How long the agent has been on its current turn (owner: the tag is the turn, not the session; the ⓘ card
+      // keeps the working time and the session's age), between the dot and the name, empty while it's idle: its room
+      // kept as wide as its widest digits, so the name doesn't shift as they change. Shorter before the name is cut,
+      // and left out where even that would cut a name that fits on its own, as on a phone.
+      const seconds = turnSecondsAt(desk);
       const clockRoom = (text) => (text ? ctx.measureText(text.replace(/\d/g, '0')).width + gap : 0);
       const nameFits = (text) => ctx.measureText(name).width <= between * scale - dotSize - gap - padding * 2 - clockRoom(text);
       let clock = seconds === null ? null : turnLength(seconds);
@@ -30460,20 +30468,8 @@
     function turnSecondsAt(desk) {
       const session = sessionAt(desk);
       if (DESKS[desk].off || !session || !session.turnStartedAt || (session.state !== 'thinking' && session.state !== 'asking')) return null;
+      if (session.startedAt && session.turnStartedAt < session.startedAt) return null;
       return Math.max(0, Math.floor((Date.now() - session.turnStartedAt) / 1000));
-    }
-
-    /**
-     * How long the agent at a desk has been at work, in seconds, while it
-     * works or asks, or null: from its session's start, which /clear and
-     * compaction don't move, or its turn's if that's earlier or the start
-     * isn't said, as the portable viewer doesn't. Its name tag shows it.
-     */
-    function sessionSecondsAt(desk) {
-      const session = sessionAt(desk);
-      if (DESKS[desk].off || !session || (session.state !== 'thinking' && session.state !== 'asking')) return null;
-      const from = Math.min(session.startedAt || Infinity, session.turnStartedAt || Infinity);
-      return from === Infinity ? null : Math.max(0, Math.floor((Date.now() - from) / 1000));
     }
 
     /**
@@ -31789,7 +31785,7 @@
     if (frame.hiredCard) drawHiredCard(frame.hiredCard);
     if (frame.floorPicker) drawFloorPicker(frame.floorPicker);
     if (frame.styles) drawStyleMenu(frame.styles);
-    // Personal build: the phone mic's live words, over everything, as they're what you're watching while you speak.
+    // The phone mic's live words, over everything, as they're what you're watching while you speak.
     if (frame.hearing) drawHearing(frame.hearing);
 
     if (layer) layer.ops.push(['mark', []]); // and what's round it starts
@@ -33452,10 +33448,10 @@
     let music = null;        // what the computer says of its music, with the jukebox on: { playing: true | false | null }
     let musicTap = null;     // a music piece just tapped: { part, at, was }, for a moment's ▶ or ❚❚ over it
     let dictation = null;    // the Mac's dictation, from the snapshot: { on, language, cleanup }
-    // Personal build: each desk's last dictation note, by session id, as it came in: { id, text, cleaned, from }
+    // Each desk's last dictation note, by session id, as it came in: { id, text, cleaned, from }
     const voiceNotes = new Map();
     const voiceNotesSeen = new Map(); // the last note's id each session showed, so a snapshot again doesn't show it twice
-    // Personal build: what the phone's own mic hears while it's held, from the deck: { id, text }, or null.
+    // What the phone's own mic hears while it's held, from the deck: { id, text }, or null.
     let hearing = null;
     let musicPanel = null;   // a music piece's control, held open: { part, at }, `at` when it was last used
     let musicDown = null;    // the music control's key last pressed: { action, at, held }
@@ -33557,7 +33553,7 @@
      */
     function applyUpstairs(snapshot, now) {
       const floors = floorsOf(snapshot);
-      for (const floor of floors.slice(1)) onUpper(floor.n, (there) => there.apply(upstairsSeatsOf(floor.desks, ahead), snapshot.theme, now));
+      for (const floor of floors.slice(1)) onUpper(floor.n, (there) => there.apply(upstairsSeatsOf(floor.desks, ahead, floor.pins), snapshot.theme, now));
       for (const n of [...uppers.keys()]) {
         if (n <= floors.length) continue;
         uppers.get(n).office.close();
@@ -33845,7 +33841,7 @@
     }
 
     /**
-     * Personal build: the mic's other quick switch, beside FR or EN: Claude's
+     * The mic's other quick switch, beside FR or EN: Claude's
      * clean-up of the text, AI while it's on, RAW while it's off; a tap flips
      * it, for every phone. Over any desk with a mic, so a Claude Code desk
      * back on its own /voice can turn it on again.
@@ -33860,7 +33856,7 @@
       return { left: Math.round(at.x) - w - 2, top: Math.round(at.y), w, h: 9, label, on: dictation.cleanup, next: !dictation.cleanup };
     }
 
-    /** Personal build: the dictation notes still showing, each with its desk and how faded it is. */
+    /** The dictation notes still showing, each with its desk and how faded it is. */
     function voiceNotesShown(now) {
       const shown = [];
       for (const [id, note] of voiceNotes) {
@@ -33875,7 +33871,7 @@
       return shown;
     }
 
-    /** Personal build: the phone mic's live words, over the desk they're for, while it's there. */
+    /** The phone mic's live words, over the desk they're for, while it's there. */
     function hearingShown() {
       if (!hearing) return null;
       const desk = deskInView(hearing.id);
@@ -33939,8 +33935,8 @@
     function hiresHere(desk) {
       if (!desk.floor) return hiresInto(desk.desk);
       if (framed || !hiring.hire || desk.floor !== floorShown || ride || !on.hire) return false;
-      // Still empty: someone who sat down there meanwhile has it
-      return upstairs((upper) => !(upper.seats[desk.desk] && upper.seats[desk.desk].session));
+      // Still empty: someone who sat down there meanwhile has it; and not kept for a folder
+      return upstairs((upper) => !(upper.seats[desk.desk] && (upper.seats[desk.desk].session || upper.seats[desk.desk].pin)));
     }
 
     /** The empty desks upstairs on the floor in view, to a finger, where a hire would sit. */
@@ -33948,7 +33944,7 @@
       if (framed || !hiring.hire || !on.hire) return [];
       return upstairs((upper) => DESKS.slice(0, UPSTAIRS_MOST).flatMap((d, desk) => {
         const seat = upper.seats[desk];
-        if (!d || d.off || (seat && seat.session)) return [];
+        if (!d || d.off || (seat && (seat.session || seat.pin))) return [];
         return [{ desk, box: { left: d.x - 2, right: d.x + DESK_WIDTH + 2, top: d.y, bottom: d.y + 27 } }];
       }));
     }
@@ -34222,6 +34218,7 @@
             firing: firing && { ...fireDialog(), title: `Fire ${firing.name}?`, detail: 'Its agent stops, and its tab closes.' },
             maxing: maxing && { ...maxDialog(), title: `Max effort for ${maxing.name}?`, detail: 'It uses much more of your usage.' },
             keyRow: keys, roleRow: hires, styleKey: key, voiceNotes: voiceNotesShown(now), hearing: hearingShown(),
+            carrying: carrying && carrying.floor === n ? carrying : null,
           });
         }
       }
@@ -34230,7 +34227,8 @@
         // Arranging a floor upstairs, it's drawn as that floor is: its walls, and its number over the elevator
         ...(arranging && arrangingFloor ? { upstairs: true, elevator: { floor: arrangingFloor.n + 1, top: FLOORS_MOST, open: 0, riding: null } } : {}),
         selected, mic, wobble: wobbling, buttonDown, framed, floating, choices: choices(), choiceDown, chips: chips(), chipDown,
-        deskButton: heldButton(), carrying, micLanguage: micLanguageKey(), talk: on.talk ? { bubbles: [] } : null,
+        deskButton: heldButton(), carrying: carrying && carrying.floor === 1 ? carrying : null, micLanguage: micLanguageKey(),
+        talk: on.talk ? { bubbles: [] } : null,
         firing: firing && { ...fireDialog(), title: `Fire ${firing.name}?`, detail: 'Its agent stops, and its tab closes.' },
         maxing: maxing && { ...maxDialog(), title: `Max effort for ${maxing.name}?`, detail: 'It uses much more of your usage.' },
         // Over the desks on the floor in view: downstairs only while it's the ground floor
@@ -34318,8 +34316,8 @@
      * reaches, down to the desk's front; and its label below. A tall one
      * reaches up into the label of the desk behind it, where it wins.
      */
-    function deskBoxes(desk) {
-      const { x, y } = DESKS[desk], seat = office.seats[desk] || {};
+    function deskBoxes(desk, there = office) {
+      const { x, y } = DESKS[desk], seat = there.seats[desk] || {};
       const left = x - 2, right = x + DESK_WIDTH + 2;
       return [
         { left, right, top: y + WORKSPACES[workspaceOf(seat.session, desk)].top, bottom: y + 18 },
@@ -34327,10 +34325,14 @@
       ];
     }
 
-    /** The key's desk under a point of the room, if there is one: where a carried agent would land. */
-    function deskAt(x, y) {
+    /**
+     * The desk under a point of the room, if there is one: where a carried agent would land. Downstairs a key's;
+     * upstairs, run in that floor's room (see inView), any of its desks.
+     */
+    function deskAt(x, y, there = office) {
       const within = (box) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
-      const boxes = DESKS.slice(0, office.seats.length).map((d, desk) => (d.off ? null : deskBoxes(desk)));
+      const count = there === office ? office.seats.length : Math.min(DESKS.length, UPSTAIRS_MOST);
+      const boxes = DESKS.slice(0, count).map((d, desk) => (d.off ? null : deskBoxes(desk, there)));
       let desk = boxes.findIndex((box) => box && within(box[0]));
       if (desk < 0) desk = boxes.findIndex((box) => box && within(box[1]));
       return desk >= 0 ? desk : null;
@@ -34785,11 +34787,12 @@
         }
       }
       if (carrying) {
-        const { from, over, toLift, person } = carrying;
+        const { from, over, toLift, person, floor } = carrying;
         carrying = null;
         finger = null;
         if (dropped && toLift && person && person.session) return openMoving(person.session.id);
-        if (dropped && over !== null && over !== from) on.swap?.(from, over);
+        // Upstairs, the floor's desks, counted from 0 for the ground floor: the ground floor's keys go as they always did
+        if (dropped && over !== null && over !== from) on.swap?.(from, over, floor > 1 ? floor - 1 : 0);
         return;
       }
       // A quick tap on a music piece plays or pauses the computer's music; held, it opened the control instead.
@@ -35365,23 +35368,26 @@
       roleOffset = Math.max(0, Math.min(rolesAt ? rolesAt.most : 0, finger.from + a.x - b.x));
     }
 
-    /** A finger held on an agent's desk, then moved, picks the agent up and carries them. */
-    /** Who is at each desk, and which are pinned: the desks a swap is counted by, by number. */
-    const desksNow = () => office.seats.map((s) => `${s.session ? s.session.id : ''} ${s.pin || ''}`).join('\n');
+    /** Who is at each desk of the floor in view, and which are pinned: the desks a swap is counted by, by number. */
+    const desksNow = () => `${floorShown}\n${inView((there) => there.seats.map((s) => `${s && s.session ? s.session.id : ''} ${(s && s.pin) || ''}`).join('\n'))}`;
 
+    /**
+     * A finger held on an agent's desk, then moved, picks the agent up and carries them: on the floor in view,
+     * upstairs as downstairs, to be let go at another desk on it.
+     */
     function carry(e) {
       const { x, y } = roomAt(e.clientX, e.clientY);
       if (!carrying) {
         if (!finger.held || finger.target.kind !== 'session') return;
         if (Math.hypot(e.clientX - finger.x, e.clientY - finger.y) < CARRY_AFTER) return;
-        const from = office.seats.findIndex((s) => s.session && s.session.id === finger.target.id);
+        const from = deskInView(finger.target.id);
         if (from < 0) return;
         held = null;
-        const person = office.people.find((p) => !p.isStaff && !p.isLeaving && p.session.id === finger.target.id) || null;
-        carrying = { person, from, x, y, over: from, desks: desksNow() };
+        const person = inView((there) => there.people.find((p) => !p.isStaff && !p.isLeaving && p.session.id === finger.target.id)) || null;
+        carrying = { person, from, x, y, over: from, desks: desksNow(), floor: floorShown };
         on.held?.();
       }
-      const over = deskAt(x, y);
+      const over = inView((there) => deskAt(x, y, there));
       if (over !== null && over !== carrying.over && over !== carrying.from) on.held?.(); // a tick for each desk passed over
       // Over the elevator, with another floor to go to: let go there, the floor list opens for them.
       const lift = on.move && floorList().length > 1 && elevatorBox();
@@ -35402,7 +35408,7 @@
         askMax = snapshot.maxConfirm !== false;
         music = snapshot.music || null;
         dictation = snapshot.dictation || null;
-        // Personal build: a dictation note new since the last snapshot, and only while it's fresh on the computer's clock.
+        // A dictation note new since the last snapshot, and only while it's fresh on the computer's clock.
         // The keys' agents, and those driven upstairs, whose desks are the floors' own.
         const upstairsSessions = floorsOf(snapshot).slice(1).flatMap((f) => f.desks).filter((s) => s && typeof s === 'object');
         for (const session of [...(snapshot.keys || []).map((key) => key.session), ...upstairsSessions]) {
@@ -35520,7 +35526,7 @@
         if (row) rideTo(row.n);
         else picker = null;
       },
-      /** Personal build: what the phone's mic hears for session `id`, shown live over its desk; null hides it. */
+      /** What the phone's mic hears for session `id`, shown live over its desk; null hides it. */
       hearing(state) { hearing = state && state.id ? { id: String(state.id), text: String(state.text || '') } : null; },
       /** Floats the room's window in a 'window' of its own or a whole 'screen', fills it from 'edge' to edge, or stops, with null. */
       setFloating(how) { floating = how; },

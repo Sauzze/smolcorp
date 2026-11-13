@@ -29,7 +29,8 @@ func TestOfficeJSIsTheBuildOfItsSources(t *testing.T) {
 }
 
 // The Mac app's build and the Windows and Linux release check office.js
-// against its sources first, and the Mac app leaves the sources out.
+// against its sources first, and the Mac app carries no copy of Resources/web
+// (the pages are inside its `smolcorp` command), so the sources stay out.
 func TestTheBuildsCheckOfficeJS(t *testing.T) {
 	for _, script := range []string{"scripts/build-app.sh", "scripts/release-desktop.sh"} {
 		text, err := os.ReadFile(filepath.Join(root, script))
@@ -43,10 +44,8 @@ func TestTheBuildsCheckOfficeJS(t *testing.T) {
 		if script != "scripts/build-app.sh" {
 			continue
 		}
-		copied := strings.Index(string(text), "cp -R Resources/web \"$APP/Contents/Resources/\"\n")
-		removed := strings.Index(string(text), "rm -rf \"$APP/Contents/Resources/web/office\"\n")
-		if copied < 0 || check > copied || removed < copied {
-			t.Errorf("%s: check office.js, then copy Resources/web, then remove the sources from the copy", script)
+		if strings.Contains(string(text), "cp -R Resources/web") {
+			t.Errorf("%s copies Resources/web into the app, which would carry office.js's sources", script)
 		}
 	}
 }

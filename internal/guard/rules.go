@@ -299,8 +299,18 @@ func wrapped(name string, args []string) []inner {
 				break // a later -c has no more words after it than this one
 			}
 		}
-		for _, a := range args {
-			if !strings.HasPrefix(a, "-") {
+		for i := 0; i < len(args); i++ {
+			a := args[i]
+			if strings.IndexByte(a, subMark) >= 0 {
+				break // a script, an rcfile or an option's value from a <( ) or a $( ): a pipe (bash --rcfile <(…) -i)
+			}
+			switch {
+			case a == "--rcfile" || a == "--init-file" || a == "-o" || a == "+o" || a == "-O" || a == "+O":
+				if i+1 < len(args) && strings.IndexByte(args[i+1], subMark) >= 0 {
+					return []inner{{words: simple{"\x00stdin"}}}
+				}
+				i++ // its value
+			case !strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "+"):
 				return nil // a script file: not seen here
 			}
 		}
@@ -320,11 +330,7 @@ func wrapped(name string, args []string) []inner {
 		}
 		return nil
 	case name == "cmd":
-		for i, a := range args {
-			if low := strings.ToLower(a); low == "/c" || low == "/k" || low == "/r" {
-				return []inner{{line: strings.Join(args[i+1:], " "), ps: true}}
-			}
-		}
+		return cmdLines(args)
 	case name == "invoke-expression" || name == "iex":
 		if len(args) == 0 {
 			return []inner{{words: simple{"\x00stdin"}}} // ... | iex runs what it is piped
@@ -370,6 +376,10 @@ func wrapped(name string, args []string) []inner {
 		}
 		return out
 	case name == "eval":
+		// eval -- 'git push' is eval 'git push' (RWIN8 B4).
+		if len(args) > 0 && args[0] == "--" {
+			args = args[1:]
+		}
 		return []inner{{line: strings.Join(args, " ")}}
 	case name == "su":
 		for i, a := range args {
@@ -502,6 +512,47 @@ func wrapped(name string, args []string) []inner {
 		return rest(nil, 0)
 	case name == "setsid" || name == "chronic" || name == "busybox" || name == "coproc":
 		return rest(nil, 0)
+	case name == "noglob" || name == "nocorrect" || name == "-":
+		// zsh's precommand modifiers (RWIN7 B2), beside builtin, command and exec: noglob git push is git push.
+		return rest(nil, 0)
+	case name == "repeat":
+		// zsh's repeat N command: the words after its count.
+		return afterFirst(rest(nil, 0))
+	case name == "emulate":
+		// zsh's emulate [-LR] [zsh|sh|ksh|csh [flags]] -c line: the line runs in that mode. Every word after the
+		// -c is read as a line: the safe side.
+		for i, a := range args {
+			if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.ContainsRune(a, 'c') {
+				var out []inner
+				for _, b := range args[i+1:] {
+					out = append(out, inner{line: b})
+				}
+				return out
+			}
+		}
+	case name == "taskpolicy":
+		// The Mac's taskpolicy [-b] [-c clamp] … program args (RWIN7 N6).
+		return rest([]string{"-d", "-g", "-c", "-p", "-m", "-j", "-P", "-S", "-t", "-l"}, 0)
+	case name == "hyperfine":
+		// hyperfine runs each command it's given (and --prepare's, --setup's) in a shell: every plain word is
+		// read as a line.
+		var out []inner
+		for _, a := range args {
+			if !strings.HasPrefix(a, "-") {
+				out = append(out, inner{line: a})
+			}
+		}
+		return out
+	case name == "rlwrap":
+		// rlwrap's options take values attached or not, and nobody lists them all: each plain word may start
+		// the command.
+		var out []inner
+		for i, a := range args {
+			if !strings.HasPrefix(a, "-") && len(out) < 8 {
+				out = append(out, inner{words: args[i:]})
+			}
+		}
+		return out
 	case name == "unshare":
 		return rest([]string{"--setgroups", "--propagation", "--map-user", "--map-group", "--map-users", "--map-groups",
 			"-R", "--root", "-w", "--wd", "-S", "--setuid", "-G", "--setgid", "--monotonic", "--boottime"}, 0)
@@ -517,6 +568,13 @@ func wrapped(name string, args []string) []inner {
 			}
 		}
 		return afterFirst(rest([]string{"-w", "-E", "--timeout", "--conflict-exit-code"}, 0))
+	case name == "jobs":
+		// bash's jobs -x runs its words as a command, a job's number in them swapped for its process group (RWIN9 B5).
+		for i, a := range args {
+			if a == "-x" {
+				return []inner{{words: args[i+1:]}}
+			}
+		}
 	case name == "trap":
 		// trap 'line' SIGNAL: the first plain word is the line.
 		for _, a := range args {
@@ -621,12 +679,50 @@ func wrapped(name string, args []string) []inner {
 	case name == "rbenv":
 		return afterSub(args, nil, "exec")
 	case name == "script":
-		// script [-q] [file [command …]]
+		// script [-q] [file [command …]] on the Mac; util-linux's script -c line [file] (-qc too).
+		for i, a := range args {
+			if (a == "--command" || strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.HasSuffix(a, "c")) && i+1 < len(args) {
+				return []inner{{line: args[i+1]}}
+			} else if strings.HasPrefix(a, "--command=") {
+				return []inner{{line: strings.TrimPrefix(a, "--command=")}}
+			}
+		}
 		if r := rest([]string{"-t", "-T"}, 0); len(r) == 1 && len(r[0].words) > 1 {
 			return []inner{{words: r[0].words[1:]}}
 		}
 	}
 	return nil
+}
+
+// cmdLines are the lines cmd.exe runs (RWIN10 B1): after a /c, /k or /r switch (any case), however it's spelled. Git
+// Bash turns a lone /c into a drive's path, so cmd //c is its usual spelling: a word starting // loses one /. cmd
+// reads switches run together (/q/c) and a switch glued to its text (/cgit push, /c"git push"): each part of a switch
+// word between its slashes is read, and the first that starts with c, k or r starts the line, with the rest of that
+// word. Every such word gives a line, not only the first, so that no reading of cmd's is left out.
+func cmdLines(args []string) []inner {
+	var out []inner
+	for i, a := range args {
+		w := strings.TrimPrefix(a, "/")
+		if !strings.HasPrefix(a, "/") {
+			continue
+		}
+		if !strings.HasPrefix(w, "/") {
+			w = "/" + w
+		}
+		parts := strings.Split(w[1:], "/")
+		for k, p := range parts {
+			if p == "" || strings.IndexByte("ckrCKR", p[0]) < 0 {
+				continue
+			}
+			text := strings.Join(append([]string{p[1:]}, parts[k+1:]...), "/")
+			out = append(out, inner{line: strings.TrimSpace(text + " " + strings.Join(args[i+1:], " ")), ps: true})
+			break
+		}
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
 }
 
 // takesNext is whether the option a takes the next word as its value:

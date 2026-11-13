@@ -68,6 +68,8 @@ type engineRequest struct {
 	Profiles    []claudeProfile
 	// Scope: the project a General Manager is held to (gmscope.go), kept in its registry row; "" for none.
 	Scope string
+	// ScopeRoles: the roles a GM held to a demo's project may hire, kept in its registry row; nil for any other.
+	ScopeRoles string
 }
 
 // engineAutoMode is whether an engine hire's settings put it in auto mode: on
@@ -206,11 +208,19 @@ func startedIn(h Hire) string {
 	return h.Worktree
 }
 
+// hiredPlace is where a hire works, for whoever hired it: the folder it started in, and the branch of its own
+// worktree when it has one (then the folder is that worktree, not the one it was asked to work in).
+type hiredPlace struct{ WorksIn, Branch string }
+
 // hiredInto is what the Mac's Deck.open keeps of a hire that started, with the lock held: the folder it
 // started in, first among setup's recent ones (Config.noteHire), and, for a hire in a worktree of its own,
 // its nickname on its desk, which the office names by that folder's name (Deck.nicknamed).
 func (d *Deck) hiredInto(h Hire) {
 	folder := startedIn(h)
+	d.lastPlace = hiredPlace{WorksIn: folder}
+	if h.Worktree != "" {
+		d.lastPlace.Branch = h.Branch
+	}
 	d.config.noteHireFolder(folder)
 	if name := firstRunes(trimSwiftSpace(h.Nickname), nicknameLimit); h.Worktree != "" && name != "" {
 		team := maps.Clone(d.config.Layout.Room.Team)

@@ -23,10 +23,13 @@ Commands:
   hire --role R [--folder F] [--account A] [--model M] [--nickname N]
        [--floor K] [--worktree] [--api-key] [--t3] [--task TEXT | --task-file F]
                                 hire an employee (the folder defaults to the
-                                one set up for new hires). Not the gm role:
+                                one set up for new hires). It works in a
+                                worktree of its own beside the folder
+                                (<folder>-hires/<name>), not in the folder
+                                itself: the answer says where. Not the gm role:
                                 the owner hires the GM from Setup. --t3 hires
-                                into T3 Code (experimental, Mac only): its own
-                                worktree and a T3 Code thread
+                                into T3 Code (experimental; needs T3 Code and its
+                                t3 command): its own worktree and a T3 Code thread
   brief <hire> (--text TEXT | --file F)
                                 send a later brief to a hire already working
                                 (it comes to the hire as mail)
@@ -48,10 +51,13 @@ Commands:
   contacts [allow|remove <a> <b> [--one-way]]
                                 which hires may write to each other; with no
                                 argument, the pairs now
-  pin [--desk N] [--folder F]   pin a project to a desk (N counts from 1, as the
-                                office shows; without --desk, the desk its session
-                                sits at now; the folder is this one unless given)
-  unpin --desk N                take what is pinned to desk N away
+  pin [--desk N [--floor N]] [--folder F]
+                                pin a project to a desk (N counts from 1, as the
+                                office shows; --floor 2 for 2F, the ground floor
+                                unless given; without --desk, the desk its session
+                                sits at now, on any floor; the folder is this one
+                                unless given)
+  unpin --desk N [--floor N]    take what is pinned to desk N away
   nickname <name> [--folder F]  name whoever works in the folder (an empty name,
                                 "", takes the nickname away; 16 characters at most)
   tile                          put each hire's window over its desk (a read-only

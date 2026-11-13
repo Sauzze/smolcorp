@@ -160,9 +160,15 @@ func TestOnlyTheOfficesOwnWindowPicks(t *testing.T) {
 	talkPermission(d, 200)
 	since := talkSinceOf(d, "s1")
 	target := fmt.Sprintf("/talk/pick?session=s1&n=1&since=%d", since)
-	got := serve(t, d, call{method: "POST", target: target + "&t=" + phone, from: aPhone, host: deckOnWiFi})
+	// A phone that sends its key (on this computer, as over Tailscale) is told the window's sentence.
+	got := serve(t, d, call{method: "POST", target: target + "&t=" + phone, from: thisComputer, host: "127.0.0.1:7710"})
 	if got.Code != http.StatusForbidden || strings.TrimSpace(got.Body.String()) != "The talk bubble shows only in the office's window on your computer." {
 		t.Errorf("a phone: %d %s", got.Code, got.Body)
+	}
+	// On the Wi-Fi a phone signs (1.25), and its signature's nonce is n too: a second n is never well signed, so it is
+	// refused before the table (401). Refused all the same; the window never signs.
+	if got := serve(t, d, call{method: "POST", target: target + "&t=" + phone, from: aPhone, host: deckOnWiFi}); letIn(got.Code) {
+		t.Errorf("a phone on the Wi-Fi: %d %s", got.Code, got.Body)
 	}
 	if got := serve(t, d, call{method: "POST", target: target, host: "127.0.0.1:7710", from: thisComputer, withoutSetupKey: true}); got.Code != http.StatusUnauthorized {
 		t.Errorf("no key: %d %s", got.Code, got.Body)

@@ -204,7 +204,7 @@ func TestKnownBypassesAreDocumentedNotFixed(t *testing.T) {
 		". /dev/stdin <<< 'git push'",   // a here-string given to a sourcing dot
 		"aws-vault exec p -- aws s3 ls", // a wrapper not listed
 		"fakeroot git push", "strace git push", "gdb --args git push", "runuser -u x git push", "asdf exec git push", "volta run git push",
-		"fnm exec git push", "pyenv exec git push", "uvx git push", "pipx run git push", "expect -c 'spawn git push'", "script -qc 'git push' /dev/null",
+		"fnm exec git push", "pyenv exec git push", "uvx git push", "pipx run git push", "expect -c 'spawn git push'",
 		"limactl shell x git push", "zellij run -- git push", "proxychains4 git push", "screen -dm git push",
 	} {
 		if r := Check(line, DefaultGroups()); r != nil {

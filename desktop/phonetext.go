@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 )
 
-// The phone's text (personal build on the Mac, I5 here): what the phone typed,
+// The phone's text (I5): what the phone typed,
 // or heard with its own mic, typed into a desk's agent by POST /dictate, as the
 // Mac app's PhoneDictation.swift and Deck.typePhoneDictation do. One line goes
 // as typed text; several lines as ONE paste (a bracketed paste, where the
@@ -34,13 +34,18 @@ const (
 )
 
 // The phone's routes (phoneroutes.go). /dictate: the phone's text (typed, or heard by its own mic), typed into the
-// session's agent, from a paired phone with its key, over the Wi-Fi as over Tailscale (I34), never from the office's
-// own window. /choose: a typed answer to a menu's "Type something", as /dictate, one line only. /peek: the last lines
+// session's agent, from a paired phone with its key, over Tailscale, and over the Wi-Fi with Typing over Wi-Fi on
+// (I34, SECWIFI: typesFrom), never from the office's own window. /choose: a typed answer to a menu's "Type
+// something", as /dictate, one line only. /peek: the last lines
 // of the session's tab, read-only, to see what was typed, and /choice: what a permission prompt is about, both over
 // Tailscale only.
 func init() {
 	registerPhoneRoute(phoneRoute{method: http.MethodPost, path: "/dictate", access: accessPhone, refusal: says(phoneTextPhonesOnly),
 		serve: func(d *Deck, w http.ResponseWriter, r *request, session string) {
+			if !d.typesFrom(r) {
+				writeStatus(w)(http.StatusForbidden, typingOverWiFiOff)
+				return
+			}
 			body := decodeJSON(r.Body)
 			// The confirm box's choice, Send ⏎ or Type only; an older page's says nothing.
 			var send *bool
@@ -51,6 +56,10 @@ func init() {
 		}})
 	registerPhoneRoute(phoneRoute{method: http.MethodPost, path: "/choose", access: accessPhone, refusal: says(phoneTextPhonesOnly),
 		serve: func(d *Deck, w http.ResponseWriter, r *request, session string) {
+			if !d.typesFrom(r) {
+				writeStatus(w)(http.StatusForbidden, typingOverWiFiOff)
+				return
+			}
 			if r.URL.Query().Get("option") != "other" {
 				writeStatus(w)(http.StatusBadRequest, pickWithKeys)
 				return
@@ -100,6 +109,12 @@ const (
 	// A failure once the words were on their way: never "Tab not found".
 	launcherLate = "The window didn't say in time whether it typed the text: it may have landed, but no Return went. Look at the desk before you try again."
 	pasteUnsaid  = "The terminal didn't say it took the text, so nothing more went. Look at the desk before you try again."
+)
+
+// Typing over Wi-Fi off (SECWIFI), and pairing by a typed code on the Wi-Fi, whose answer is the phone's key.
+const (
+	typingOverWiFiOff = "Typing over Wi-Fi is off on this computer: open the deck with its Tailscale link, or turn on Typing over Wi-Fi in setup, under Paired phones."
+	pairOverWiFi      = "Over the Wi-Fi, scan the QR code instead: a typed code would send this phone's key unencrypted. A typed code works over Tailscale."
 )
 
 // phoneLineBreaks end a line: a line feed, a return (CRLF is one), and Unicode's next-line, line and paragraph separators.
@@ -560,8 +575,8 @@ func readScreen(t Tab, agent Agent, most int) ([]string, error) {
 
 // AnswerOther is POST /choose with option=other: the menu's "Type something", with text, typed as keys
 // once the field is open. One line only: as keys, a line feed would press Return. This app doesn't follow
-// what a menu offers (the iPhone app's menus, the Mac's PendingChoice), so once the text passes every rule
-// no question can be claimed, and nothing is typed: 409, as the Mac answers a question gone.
+// what a menu offers, so once the text passes every rule no question can be claimed, and nothing is typed:
+// 409, as the Mac answers a question gone.
 func (d *Deck) AnswerOther(text, choiceID, id string) (int, string) {
 	d.mu.Lock()
 	on := d.config.PhoneMicEnabled
@@ -608,6 +623,18 @@ func (d *Deck) ChoiceDetail(id string) (int, string) {
 		return http.StatusTooManyRequests, peekTooSoon
 	}
 	return http.StatusNotFound, notAsking
+}
+
+// typesFrom is whether the phone's text may come by r: over Tailscale or on this computer, always; over
+// plain http on the Wi-Fi, where anyone on it could read it, only with Typing over Wi-Fi on. Every route that
+// carries a phone's text asks it (TestEveryPhoneRouteWithTextAsksTypesFrom).
+func (d *Deck) typesFrom(r *request) bool {
+	if r.isLocal || r.isTailnet || fromTailnet(r.Request) {
+		return true
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.config.PhoneTextWiFi
 }
 
 // fromTailnet says whether a request came through Tailscale, where reading a terminal is given: to this

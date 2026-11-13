@@ -40,8 +40,10 @@ empty, and voice has to be in tap mode: see [Voice](phone.md#voice).
 
 **The phone can't connect.** Check that both devices are on the same Wi-Fi.
 If macOS or Windows Firewall asked whether Smolcorp may accept incoming
-connections, allow it. On a Mac the question names `smolcorp`, the engine
-inside the app. On Windows the server answers only on this PC and on
+connections, allow it. On a Mac the question names `smolcorp`, the part of
+the app that serves the office, and macOS asks it only when **Automatically
+allow downloaded signed software to receive incoming connections** is off in
+the firewall's options. On Windows the server answers only on this PC and on
 Tailscale's address, so the phone must be on Tailscale too: see
 [Who can reach Smolcorp](windows-linux.md#who-can-reach-smolcorp-windows-and-linux).
 
@@ -51,6 +53,21 @@ desk, or a pinned project's. With no roles
 set up, it's a single **HIRE**. Hiring works on the Mac, on Windows (a new
 Windows Terminal tab) and on Linux, where a hire needs a terminal the setup
 page lists, or tmux.
+
+**"Hires need tmux on your Mac to start fenced."** On a Mac, the General
+Manager and the hires it manages run in tmux, each in a session of its own.
+Install it (`brew install tmux`), then hire again.
+
+**Firing a hire made by Smolcorp 1.24 doesn't close its Terminal tab.** A hire
+that 1.24 opened in a Terminal tab of its own, outside tmux, can't be found by
+the General Manager or setup with certainty, so they never close its tab: they
+say so, and with force they only mark it fired and keep its worktree. Fire it
+from its desk in the office, which closes its tab once it's sure the tab is
+that hire's, or close the tab yourself.
+
+**Several lines from the phone are refused.** The desk's terminal can't take
+them as one paste: send them as one line, or see where several lines work in
+[Typing from the phone](phone.md#typing-from-the-phone).
 
 **The screen saver says to open Smolcorp, or to pair again.** Make sure
 Smolcorp is running. If it was unpaired, open System Settings → Screen

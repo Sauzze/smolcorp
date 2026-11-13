@@ -370,7 +370,7 @@ func fenceRefusal(program, pinned string, tmux, launcher, macApp bool) string {
 	case macApp:
 		return macHireNeedsTmux
 	case launcherHires:
-		return "Turn on managed windows in Setup: the General Manager hires only into a hire Smolcorp can fence."
+		return `Turn on managed windows ("hireManagedWindows": true in config.json, then restart Smolcorp): the General Manager hires only into a hire Smolcorp can fence.`
 	}
 	return "Install tmux: the General Manager hires only into a hire Smolcorp can fence."
 }

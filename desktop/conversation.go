@@ -25,8 +25,8 @@ import (
 // conversationTextMost, and nothing of a tool's input or output beyond what
 // Summary takes. Only the office's own window on this computer reads it (see
 // the router), where nothing leaves the computer, so it's shown as it was
-// written, as the Mac's window had it: the phone's redacted reading was the
-// iPhone app's, in the personal build, which this app doesn't serve.
+// written, as the Mac's window had it. A redacted reading for a phone isn't
+// served: nothing here sends a conversation off this computer.
 
 const (
 	// Messages in a page, at most.

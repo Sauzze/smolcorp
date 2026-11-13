@@ -6,9 +6,15 @@ Desks, profiles, buttons, and everything about the office: its floors, styles, o
 
 The setup page also has:
 
-- **Desks.** There is one desk for each running session. Drag a running
-  session onto a desk to keep that project there; desks you don't pin go to
-  the next session that starts.
+- **Pinned desks.** There is one desk for each running session. In the
+  office, drag a running session onto a desk to keep that project there;
+  desks you don't pin go to the next session that starts. Pins work on every
+  floor: drag someone to another desk upstairs and their project keeps that
+  desk on that floor, and its sessions go up there unless you've put them
+  on another floor or a rule for their folder says otherwise. A pinned desk
+  nobody of its project is at stays empty, with the project's name on it.
+  Under *Your team*, the setup page lists every pinned desk, on every floor,
+  each with **Unpin** to give it back. The General Manager can unpin too.
 - **Profiles.** Save your office and your buttons under a name, and switch
   between them in a click: one for the couch, one for the desk. Default is
   always the standard office. Export a profile to back it up or share it.
@@ -35,9 +41,9 @@ Setup…** in the tray on Windows and Linux), or by opening Smolcorp again from
 Applications. A bookmark of the page won't open it: the menu opens it with a
 link that works once, for five minutes.
 
-On a Mac, **Keep the office on top of other windows** is a switch in the Office
-pane, and the office's corner key is **⚙︎ Settings**. Beside it, **Shortcut to
-show and hide the office** is ⌥⌘O until you change it: click it and press the
+On a Mac, the office's corner key is **⚙︎ Settings**, and setup's General →
+Window has **Keep the office on top of other windows** and, below it,
+**Shortcut to show and hide the office**, ⌥⌘O until you change it: click it and press the
 keys you want, with ⌘, ⌥ or ⌃. It works at once, from any app, and needs no
 permission. **Reset to default** brings back ⌥⌘O and **Off** turns it off.
 The keys are shown as your keyboard prints them: on a French AZERTY Mac, ⌥⌘A
@@ -227,7 +233,7 @@ Two more things work there:
 
 | In the office | What it does |
 |---|---|
-| An agent's desk, held, then dragged | Picks the agent up, chair and all. Let go over another desk and the two swap. They stay that way: each project is pinned to its new desk, as on the setup page's *Desks*, where you can undo it. |
+| An agent's desk, held, then dragged | Picks the agent up, chair and all. Let go over another desk on the same floor and the two swap. They stay that way: each project is pinned to its new desk, on that floor; the setup page's *Pinned desks* undoes it. Works on every floor. |
 | A desk, held | With hiring and firing on, also **YOU'RE FIRED**, or the roles to hire on any free desk (see below). |
 
 **Hire and fire**, once you turn on **Let the office hire and fire** on the

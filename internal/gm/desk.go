@@ -22,7 +22,7 @@ type HireOptions struct {
 	Role, Folder, Account, Model, Nickname, Task string
 	Floor                                        int // -1: not given
 	Worktree, APIKey                             bool
-	T3                                           bool // into T3 Code (experimental, the Mac app only)
+	T3                                           bool // into T3 Code (experimental; needs T3 Code and its t3 command)
 }
 
 // body is the request as POST /setup/gm/hire takes it.
@@ -299,7 +299,7 @@ func runDesk(cmd string, args []string, env Env, stdout, stderr io.Writer) int {
 	if cmd == "hire" {
 		raw, err := Hire(c, o)
 		return finish(show(err, *asJSON, stdout, raw, func() error {
-			_, err := fmt.Fprintf(stdout, "Hired a %s.%s\n", oneLine(o.Role), deskNote(raw))
+			_, err := fmt.Fprintf(stdout, "Hired a %s.%s%s\n", oneLine(o.Role), deskNote(raw), worksNote(raw))
 			return err
 		}), stderr)
 	}
@@ -318,6 +318,22 @@ func runDesk(cmd string, args []string, env Env, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, `{"ok": true}`)
 	}
 	return finish(err, stderr)
+}
+
+// worksNote is " Works in /path/repo-hires/name (a worktree of its own on branch hire/name, not the project folder
+// itself)." from the hire's answer, when it says where the hire works.
+func worksNote(raw []byte) string {
+	var a struct {
+		WorksIn string `json:"worksIn"`
+		Branch  string `json:"branch"`
+	}
+	if json.Unmarshal(raw, &a) != nil || a.WorksIn == "" {
+		return ""
+	}
+	if a.Branch == "" {
+		return " Works in " + oneLine(a.WorksIn) + "."
+	}
+	return fmt.Sprintf(" Works in %s (a worktree of its own on branch %s, not the project folder itself).", oneLine(a.WorksIn), oneLine(a.Branch))
 }
 
 // deskNote is " At desk 3." from the hire's answer, when it names one.

@@ -1,47 +1,9 @@
 import XCTest
 @testable import AgentDeck
 
-/// Phone microphone (personal build): who a request is for behind Tailscale's
-/// HTTPS, the text the phone sends, and the tailnet address setup shows. Offline.
+/// The phone's microphone and text: the words it sends, how they are checked
+/// and where they go. Offline.
 final class PhoneMicTests: XCTestCase {
-    // MARK: Addressing
-
-    func testTheHostLosesItsPortAndCase() {
-        XCTAssertEqual(Addressing.host("My-Mac.Tail1234.TS.NET:443"), "my-mac.tail1234.ts.net")
-        XCTAssertEqual(Addressing.host("192.168.1.4:7710"), "192.168.1.4")
-        XCTAssertEqual(Addressing.host(nil), "")
-    }
-
-    func testLanAddressesAreDirectAsBefore() {
-        XCTAssertTrue(Addressing.isDirectAddress("192.168.1.4"))
-        XCTAssertTrue(Addressing.isDirectAddress("100.101.102.103")) // a tailnet IP, over plain http
-        XCTAssertTrue(Addressing.isDirectAddress("my-mac.local"))
-        XCTAssertTrue(Addressing.isDirectAddress("localhost"))
-        XCTAssertFalse(Addressing.isDirectAddress("my-mac.tail1234.ts.net"))
-        XCTAssertFalse(Addressing.isDirectAddress("evil.example.com"))
-    }
-
-    func testATailnetNameCountsOnlyFromThisMacsLoopback() {
-        XCTAssertTrue(Addressing.isTailnet("my-mac.tail1234.ts.net", fromLoopback: true))
-        XCTAssertTrue(Addressing.isTailnet("mac.cat-crocodile.ts.net", fromLoopback: true))
-        // Straight from the network, as only `tailscale serve` on this Mac should bring it.
-        XCTAssertFalse(Addressing.isTailnet("my-mac.tail1234.ts.net", fromLoopback: false))
-    }
-
-    func testLookalikesAreNotTailnetNames() {
-        for host in ["ts.net", "tail1234.ts.net", "a.b.c.ts.net", "my-mac.tail1234.ts.net.evil.com", "evilts.net",
-                     "my-mac.tail1234.ts.network", "-bad.tail1234.ts.net", "my_mac.tail1234.ts.net"] {
-            XCTAssertFalse(Addressing.isTailnet(host, fromLoopback: true), host)
-        }
-    }
-
-    func testAProxiedRequestIsSeenAsOne() {
-        XCTAssertTrue(Addressing.isProxied(["x-forwarded-for": "100.64.0.2"]))
-        XCTAssertTrue(Addressing.isProxied(["x-forwarded-host": "my-mac.tail1234.ts.net"]))
-        XCTAssertTrue(Addressing.isProxied(["tailscale-user-login": "me@example.com"]))
-        XCTAssertFalse(Addressing.isProxied(["host": "localhost:7710", "user-agent": "Safari"]))
-    }
-
     // MARK: The text
 
     func testOneLineIsFlattenedAsBefore() {
@@ -302,8 +264,10 @@ final class PhoneMicTests: XCTestCase {
         XCTAssertTrue(page.contains("textContent: \"\(clipboard)\""))
         let setup = try String(contentsOf: Self.repo.appendingPathComponent("Resources/web/setup.html"), encoding: .utf8)
         XCTAssertTrue(setup.contains("over the Wi-Fi too, where what you type isn't encrypted: Tailscale is the private option. \(clipboard)\"></div>"))
+        // The doc's safety notes, whatever its line wrapping: lines joined with single spaces.
         let docs = try String(contentsOf: Self.repo.appendingPathComponent("docs/phone.md"), encoding: .utf8)
-        XCTAssertTrue(docs.contains("A clipboard manager, or\niTerm2's paste history, may keep a copy of text sent this way."), "RI34c N3")
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        XCTAssertTrue(docs.contains("A clipboard manager, or iTerm2's paste history, may keep a copy of text sent this way."), "RI34c N3")
         XCTAssertTrue(docs.contains("and ⌘V, for Claude Code only,"), "RI34c B1")
         XCTAssertFalse(docs.contains("OpenCode waiting"), "RI34c B1")
         XCTAssertTrue(docs.contains("idle, so Smolcorp still reads it as waiting: several lines go to that mode or"), "RI34c's residual note")
@@ -349,101 +313,6 @@ final class PhoneMicTests: XCTestCase {
             index = text.index(after: index)
         }
         return nil
-    }
-
-    // MARK: The tailnet address
-
-    func testTheAddressComesFromTailscalesStatus() {
-        let status = Data(#"{"BackendState":"Running","Self":{"DNSName":"My-Mac.tail1234.ts.net.","HostName":"My-Mac"}}"#.utf8)
-        XCTAssertEqual(Tailnet.url(fromStatus: status), "https://my-mac.tail1234.ts.net")
-    }
-
-    func testTailscaleRunsWithATerm() {
-        // Opened from Finder, the app has no TERM, and the Mac app's Tailscale
-        // then starts its window instead of answering.
-        let fromFinder = Tailnet.environment(["HOME": "/Users/me", "PATH": "/usr/bin:/bin"])
-        XCTAssertEqual(fromFinder["TERM"], "dumb")
-        XCTAssertEqual(fromFinder["HOME"], "/Users/me")
-        XCTAssertEqual(fromFinder["PATH"], "/usr/bin:/bin")
-        XCTAssertEqual(Tailnet.environment(["TERM": ""])["TERM"], "dumb")
-        // From a terminal, its own TERM is kept.
-        XCTAssertEqual(Tailnet.environment(["TERM": "xterm-256color"])["TERM"], "xterm-256color")
-    }
-
-    /// The setup check waits for Tailscale's first answer, so it's right on its first run.
-    func testTheFirstSetupCheckWaitsForTailscale() {
-        let real = Tailnet.ask
-        defer { Tailnet.ask = real; Tailnet.forget() }
-        Tailnet.forget()
-        var asked = 0
-        Tailnet.ask = {
-            asked += 1
-            Thread.sleep(forTimeInterval: 0.1)
-            return ("https://my-mac.tail1234.ts.net", true)
-        }
-        var changed = 0
-        let first = expectation(description: "answered")
-        Tailnet.whenFresh(within: 2, changed: { changed += 1 }) {
-            XCTAssertEqual(Tailnet.url, "https://my-mac.tail1234.ts.net")
-            XCTAssertEqual(Tailnet.serving, true)
-            first.fulfill()
-        }
-        wait(for: [first], timeout: 10)
-        XCTAssertEqual(changed, 1)
-
-        // Fresh: answered at once, and Tailscale isn't asked again.
-        var now = false
-        Tailnet.whenFresh(within: 2, changed: {}) { now = true }
-        XCTAssertTrue(now)
-        XCTAssertEqual(asked, 1)
-    }
-
-    /// A Tailscale that doesn't answer holds the check up only as long as it's given, and once.
-    func testASlowTailscaleHoldsTheCheckUpNoLongerThanItsWait() {
-        let real = Tailnet.ask
-        defer { Tailnet.ask = real }
-        Tailnet.forget()
-        Tailnet.ask = {
-            Thread.sleep(forTimeInterval: 1)
-            return ("https://my-mac.tail1234.ts.net", nil)
-        }
-        var answers = 0
-        let answered = expectation(description: "answered without it")
-        Tailnet.whenFresh(within: 0.2, changed: {}) {
-            answers += 1
-            // Answered before Tailscale's answer, which takes a second, came in: not by the
-            // clock, which a busy Mac can hold up, but by what's known when it answers.
-            XCTAssertNil(Tailnet.url)
-            answered.fulfill()
-        }
-        wait(for: [answered], timeout: 10)
-        // Its late answer is kept for next time, and `then` isn't called again.
-        let late = expectation(description: "the late answer")
-        Tailnet.refresh(changed: {}) { late.fulfill() }
-        wait(for: [late], timeout: 10)
-        XCTAssertEqual(Tailnet.url, "https://my-mac.tail1234.ts.net")
-        XCTAssertEqual(answers, 1)
-        Tailnet.forget()
-    }
-
-    func testNoAddressWithoutAName() {
-        XCTAssertNil(Tailnet.url(fromStatus: Data(#"{"Self":{"DNSName":""}}"#.utf8)))
-        XCTAssertNil(Tailnet.url(fromStatus: Data(#"{"BackendState":"NeedsLogin"}"#.utf8)))
-        XCTAssertNil(Tailnet.url(fromStatus: Data("not json".utf8)))
-        XCTAssertNil(Tailnet.url(fromStatus: Data(#"{"Self":{"DNSName":"evil.example.com."}}"#.utf8)))
-    }
-
-    func testWhetherTailscaleServesTheDeck() {
-        let served = Data(#"{"TCP":{"443":{"HTTPS":true}},"Web":{"my-mac.tail1234.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:7710"}}}}}"#.utf8)
-        XCTAssertEqual(Tailnet.servesDeck(fromServeStatus: served), true)
-        let local = Data(#"{"Web":{"h:443":{"Handlers":{"/":{"Proxy":"http://localhost:7710/"}}}}}"#.utf8)
-        XCTAssertEqual(Tailnet.servesDeck(fromServeStatus: local), true)
-        let forwarded = Data(#"{"TCP":{"443":{"TCPForward":"127.0.0.1:7710"}}}"#.utf8)
-        XCTAssertEqual(Tailnet.servesDeck(fromServeStatus: forwarded), true)
-        let other = Data(#"{"Web":{"h:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:77100"}}}}}"#.utf8)
-        XCTAssertEqual(Tailnet.servesDeck(fromServeStatus: other), false)
-        XCTAssertEqual(Tailnet.servesDeck(fromServeStatus: Data("{}".utf8)), false, "nothing served")
-        XCTAssertNil(Tailnet.servesDeck(fromServeStatus: Data("not json".utf8)))
     }
 
     // MARK: Settings

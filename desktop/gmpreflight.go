@@ -319,7 +319,19 @@ func (d *Deck) gmPreflightOn(account string) preflightReport {
 		}
 		add(preflightItem{ID: "terminal", Title: "There's no terminal on this " + d.machine() + " to open your General Manager in.", Fix: fix, Action: tmuxAction})
 	}
-	if hasTmuxHires && inTmux && hasTerminal {
+	if hasTmuxHires && hasTerminal && underMacApp(terminal, hasTerminal) {
+		// Under the Mac app every General Manager is hired fenced, in tmux, or not at all (macHireNeedsTmux): so
+		// tmux is a step of its own, whether or not "Start inside tmux" is on, and Hire isn't Ready without it.
+		if tmux {
+			add(preflightItem{ID: "tmux", OK: true, Title: "tmux is installed."})
+		} else {
+			fix := "Install tmux (it needs Homebrew: brew.sh), then press Check again."
+			if tmuxAction != nil {
+				fix = "Paste this in Terminal to install tmux (it needs Homebrew), then press Check again."
+			}
+			add(preflightItem{ID: "tmux", Title: "Your General Manager needs tmux on your Mac to start fenced, and it isn't installed.", Fix: fix, Action: tmuxAction, Todo: true})
+		}
+	} else if hasTmuxHires && inTmux && hasTerminal {
 		if tmux {
 			add(preflightItem{ID: "tmux", OK: true, Title: "tmux is installed."})
 		} else {

@@ -79,6 +79,8 @@ type Deck struct {
 	// when the last hire was made: see hire.go.
 	hires    map[string]*pendingHire
 	lastHire time.Time
+	// Where the hire made last works, for the GM route's answer (hiredInto).
+	lastPlace hiredPlace
 	// t3 follows the hires in T3 Code (t3deskdeck.go); t3Desks are their desks in the office (t3desks.go).
 	t3      *t3Follower
 	t3Desks *t3Desks
@@ -1471,7 +1473,26 @@ func (d *Deck) setStyle(preset string) (int, string) {
 func (d *Deck) swapKeys(query url.Values) (int, string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	keys, _ := d.layout()
+	// On the floor shown: the ground floor's keys, with no floor given, as from a page before floors had pins; or
+	// a floor's desks upstairs.
+	floor := 0
+	if given := query.Get("floor"); given != "" {
+		var err error
+		if floor, err = strconv.Atoi(given); err != nil || floor < 0 || floor >= floorCount {
+			return http.StatusBadRequest, "Unknown floor"
+		}
+	}
+	keys, overflow := d.layout()
+	if floor > 0 {
+		seated, _ := d.seatedBuilding(overflow)
+		keys = make([]deckKey, desksPerFloor)
+		for desk := range keys {
+			keys[desk].pin = d.config.pinAt(floor, desk)
+		}
+		for _, one := range seated[floor] {
+			keys[one.desk].session = one.person
+		}
+	}
 	a, errA := strconv.Atoi(query.Get("from"))
 	b, errB := strconv.Atoi(query.Get("to"))
 	if errA != nil || errB != nil || a == b || a < 0 || b < 0 || a >= len(keys) || b >= len(keys) {
@@ -1499,7 +1520,7 @@ func (d *Deck) swapKeys(query url.Values) (int, string) {
 	case first != nil && second != nil && *first == *second:
 		return http.StatusConflict, "Both desks are the same project, so they stay as they are."
 	}
-	d.config.SwapPins(first, a, second, b)
+	d.config.SwapPinsOn(floor, first, a, second, b)
 	d.changed()
 	return http.StatusNoContent, ""
 }

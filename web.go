@@ -1,6 +1,6 @@
 // Package agentdeck holds what Smolcorp's apps share: the phone,
-// pairing and setup pages, and OpenCode's plugin. The Mac app copies them
-// into its bundle; the Windows and Linux app builds them in.
+// pairing and setup pages, and OpenCode's plugin, built into the smolcorp
+// command: the Mac app's (inside its bundle), and the Windows and Linux app.
 package agentdeck
 
 import "embed"

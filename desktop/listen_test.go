@@ -375,7 +375,7 @@ func TestPhonesAreGivenTailscalesAddressWhenThatIsTheWayIn(t *testing.T) {
 	if got := phoneAddress(); got != "http://100.101.102.103:"+strconv.Itoa(Port) {
 		t.Errorf("phone address %s", got)
 	}
-	if got := pairingLink("123456"); got != phoneAddress()+"/?pair=123456" {
+	if got := pairingLink("a-key"); got != phoneAddress()+"/#pair=a-key" {
 		t.Errorf("pairing link %s", got)
 	}
 	// No Tailscale: no address that can work, so none that looks like it would.

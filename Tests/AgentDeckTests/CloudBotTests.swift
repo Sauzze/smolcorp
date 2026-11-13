@@ -70,14 +70,6 @@ final class CloudBotTests: XCTestCase {
         XCTAssertNil(GrokBotApp.key(ofFile: "not base32!.blob"))
     }
 
-    func testTheBotIsFoundByNameAndOnlyASafeIDIsTaken() {
-        let roster = #"{"schemaVersion":4,"value":{"rows":[{"name":"Other","id":"AAAA"},{"name":"Smolcorp Mini","id":"6322898C-71DA-4BB8"}]}}"#
-        XCTAssertEqual(GrokBotApp.botID(named: "smolcorp mini", inRoster: Data(roster.utf8)), "6322898C-71DA-4BB8")
-        XCTAssertNil(GrokBotApp.botID(named: "nobody", inRoster: Data(roster.utf8)))
-        let sneaky = #"{"value":{"rows":[{"name":"x","id":"../../secrets"}]}}"#
-        XCTAssertNil(GrokBotApp.botID(named: "x", inRoster: Data(sneaky.utf8)))
-    }
-
     /// The roster as the app keeps it: a group chat, between two of its bots, among the bots' own chats.
     /// Made up: no real names or ids.
     private let groupRoster = #"""

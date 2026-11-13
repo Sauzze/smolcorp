@@ -223,13 +223,15 @@ func mcpTools() []mcpTool {
 				}
 				return build("contacts", append([]string{act}, p...), a, nil, nil, []string{"one-way"})
 			}},
-		{Name: "pin", Description: "Pin a project to a desk (gm pin). Without `desk`, the desk its session sits at now; without `folder`, the server's own folder.",
-			Props: map[string]any{"desk": num("the desk, counted from 1 as the office shows"), "folder": str("the project's folder")},
+		{Name: "pin", Description: "Pin a project to a desk (gm pin), on any floor. Without `desk`, the desk its session sits at now; without `floor`, the ground floor; without `folder`, the server's own folder.",
+			Props: map[string]any{"desk": num("the desk, counted from 1 as the office shows"), "floor": num("the floor, 1 for 1F (the ground floor) to 6 for 6F"),
+				"folder": str("the project's folder")},
 			Args: func(a map[string]any) ([]string, error) {
-				return build("pin", nil, a, []string{"folder"}, []string{"desk"}, nil)
+				return build("pin", nil, a, []string{"folder"}, []string{"desk", "floor"}, nil)
 			}},
-		{Name: "unpin", Description: "Take what is pinned to a desk away (gm unpin).",
-			Props: map[string]any{"desk": num("the desk, counted from 1 as the office shows")}, Required: []string{"desk"},
+		{Name: "unpin", Description: "Take what is pinned to a desk away (gm unpin), on any floor.",
+			Props:    map[string]any{"desk": num("the desk, counted from 1 as the office shows"), "floor": num("the floor, 1 for 1F (the ground floor) to 6 for 6F")},
+			Required: []string{"desk"},
 			Args: func(a map[string]any) ([]string, error) {
 				if _, ok, err := argInt(a, "desk"); err != nil || !ok {
 					if err == nil {
@@ -237,7 +239,7 @@ func mcpTools() []mcpTool {
 					}
 					return nil, err
 				}
-				return build("unpin", nil, a, nil, []string{"desk"}, nil)
+				return build("unpin", nil, a, nil, []string{"desk", "floor"}, nil)
 			}},
 		{Name: "nickname", Description: "Name whoever works in a folder (gm nickname). An empty `name` takes the nickname away; 16 characters at most.",
 			Props:    map[string]any{"name": str("the nickname, or empty for none"), "folder": str("the project's folder; the server's own if left out")},

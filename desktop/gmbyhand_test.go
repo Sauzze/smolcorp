@@ -22,15 +22,15 @@ func fromPage(t *testing.T, d *Deck, method, target string, headers map[string]s
 	return w.Code, said, w.Body.String()
 }
 
-// tokenInFile is the gm-token file's token, "" for none, and checks it is yours alone.
+// tokenInFile is the gm-token file's token, "" for none, and checks it is yours alone (yoursAlone: 0600, or on
+// Windows an access list for you, the system and the administrators only).
 func tokenInFile(t *testing.T) string {
 	t.Helper()
-	info, err := os.Stat(gmTokenPath())
-	if err != nil {
+	if _, err := os.Stat(gmTokenPath()); err != nil {
 		return ""
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("gm-token is %v, want 0600", info.Mode().Perm())
+	if err := yoursAlone(gmTokenPath()); err != nil {
+		t.Errorf("gm-token isn't yours alone: %v", err)
 	}
 	data, _ := os.ReadFile(gmTokenPath())
 	return validGMToken(string(data))

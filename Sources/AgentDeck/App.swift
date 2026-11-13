@@ -9,8 +9,7 @@ enum AgentDeckApp {
         }
         let app = NSApplication.shared
         // The engine: the Go core, with this app as its shell. An engine config.json still names is logged once, and ignored.
-        let (_, ignored) = Engine.chosen(Config.shared.engine)
-        if let ignored { FileHandle.standardError.write(Data((ignored + "\n").utf8)) }
+        if let ignored = Engine.ignored(Config.shared.engine) { FileHandle.standardError.write(Data((ignored + "\n").utf8)) }
         let delegate = GoShellDelegate()
         app.delegate = delegate
         // In the Dock, or the menu bar only, as set up, from the start.

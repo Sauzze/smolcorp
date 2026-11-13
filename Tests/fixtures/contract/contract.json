@@ -57,6 +57,16 @@
             "folder" : "\/work\/alpha",
             "key" : "0"
           }
+        },
+        {
+          "as" : "page",
+          "method" : "POST",
+          "path" : "\/setup\/pin",
+          "query" : {
+            "floor" : "2",
+            "folder" : "\/work\/delta",
+            "key" : "4"
+          }
         }
       ]
     },
@@ -387,6 +397,14 @@
         "dock" : {
           "enabled" : "bool"
         },
+        "floorPins" : [
+          {
+            "desk" : "number",
+            "floor" : "number",
+            "folder" : "string",
+            "name" : "string"
+          }
+        ],
         "floorRules" : [
           {
             "exact" : "bool",
@@ -949,6 +967,14 @@
         "dock" : {
           "enabled" : "bool"
         },
+        "floorPins" : [
+          {
+            "desk" : "number",
+            "floor" : "number",
+            "folder" : "string",
+            "name" : "string"
+          }
+        ],
         "floorRules" : [
           {
             "exact" : "bool",
@@ -1472,6 +1498,9 @@
             ],
             "n" : "number",
             "name" : "string",
+            "pins" : [
+              "string|null"
+            ],
             "preset" : "string"
           },
           {
@@ -1564,6 +1593,9 @@
             ],
             "n" : "number",
             "name" : "string",
+            "pins" : [
+              "string|null"
+            ],
             "preset" : "string"
           }
         ],

@@ -1,6 +1,6 @@
 # Your team
 
-Hiring by role, the General Manager, the fence, the agents Smolcorp works with, and the terminals it drives. Back to the [README](../README.md).
+Hiring by role, the General Manager, the fence, hires in the background and T3 Code, the agents Smolcorp works with, and the terminals it drives. Back to the [README](../README.md).
 
 ## Run a team
 
@@ -56,15 +56,19 @@ Only you answer a permission prompt: neither the GM nor any hire can. The GM
 and the Claude Code hires it manages also start inside a fence against
 mistakes: see [The fence, and who gets it](#the-fence-and-who-gets-it).
 
-That is the Mac. On Windows and Linux, `smolcorp gm`, `smolcorp guard` and
-`smolcorp mcp` are installed, but the app answers the GM only for its version and
-the manager switch in setup, and, once the manager is on, for the team, the log
-of events and who is waiting for your answer; `gm pin`, `unpin` and `nickname`
-work there too. Hiring and firing for you, briefs, messages, watches, tiling
-and a General Manager started by hand are the Mac's for now (the fence is
-[below](#the-fence-and-who-gets-it), platform by platform), and the
-General Manager role there is the plain one from 1.22: you hire it, but it
-doesn't run a team for you.
+The General Manager runs its team on Windows and Linux too: it hires, briefs
+and fires, messages its hires, sets watches, names people and pins desks. It
+hires only into a hire Smolcorp can fence: on Linux in tmux, and on Windows
+only with managed hires turned on, a beta that's off by default
+(`"hireManagedWindows": true` in `config.json`). Otherwise its hire is refused,
+saying what to install or turn on. Tiling the team's windows, choosing the
+screen that holds them, and a General Manager started by hand are the Mac's.
+On Windows and Linux, a General Manager you hired keeps its token across
+restarts; for a new one, hire it again from Setup.
+
+On a Mac, the General Manager and the hires it manages run in tmux, each in a
+session of its own: if tmux isn't installed, hiring them says so
+(`brew install tmux`).
 
 Smolcorp puts the whole team in one room, so you see at a glance who's
 working, who's waiting for you and who's done, and you answer any of them from
@@ -148,21 +152,62 @@ setup, under Advanced → **Guard**; [docs/manager](manager/README.md) says more
 
 Who gets the fence:
 
-- **On the Mac:** the General Manager, and every Claude Code hire made while
-  the manager is on (setup's **Let a General Manager run your team**), or
-  made into a worktree of its own.
-- **On Linux:** a role's Claude Code hire started inside tmux (setup's
-  **Start inside tmux**, or when there's no terminal window to open), the
-  General Manager's included, unless it's hired at a pinned project's desk or
-  on a floor with a folder of its own.
+- **On the Mac:** the General Manager, and a role's Claude Code hire whenever
+  tmux is installed, unless it's hired at a pinned project's desk or on a floor
+  with a folder of its own. While the manager is on (setup's **Let a General
+  Manager run your team**), a Claude Code hire that couldn't be fenced (no
+  tmux, a pinned desk, or no role) is refused rather than started without it.
+- **On Linux:** a role's Claude Code hire that runs in tmux (setup's **Start
+  inside tmux**, hires in the background, no terminal window to open, or a hire
+  by the General Manager), the General Manager's included, unless it's hired
+  at a pinned project's desk or on a floor with a folder of its own.
 - **On Windows:** a role's Claude Code hire, only with managed hires turned
   on: a beta, off by default (`"hireManagedWindows": true` in `config.json`).
 
-**Not fenced:** a Claude Code session you hire at a desk with the manager off
-on the Mac, or outside tmux on Linux; a hire with no role on Windows and
-Linux; and every hire of Codex, Gemini CLI, OpenCode and Grok. They run with
-their own settings, as they would if you'd started them yourself. The hire
-sheet in setup and the office say so when you pick one.
+**Not fenced:** on the Mac with the manager off, a Claude Code hire with no
+role, at a pinned desk, or without tmux; on Linux, a Claude Code hire with no
+role, at a pinned desk, or outside tmux; on Windows, a hire with no role, and
+every hire while managed hires are off; and everywhere, every hire of Codex,
+Gemini CLI, OpenCode and Grok. They run with their own settings, as they would
+if you'd started them yourself. The hire sheet in setup and the office say so
+when you pick one.
+
+## Hires in the background, and T3 Code
+
+Two choices, asked once on Start here and kept in setup under Hires and roles
+→ Hiring:
+
+- **Agent windows.** Each hire opens in a window of its own (as Smolcorp
+  always has), or runs in the background, in a tmux session of its own with no
+  window. Watch one any time with **Open a window** in setup's team list, or
+  the **⧉ window** key in the office on this computer. The background needs
+  tmux, so it isn't offered on Windows. Switching to it closes only windows
+  Smolcorp opened for its hires, and says which it left open. A hire's session
+  never depends on its window: closing the window, or detaching it, leaves the
+  hire running. But the window shows the hire's own pane, so what you type
+  there reaches the agent: quitting it (Ctrl-D at an empty prompt, `/exit`)
+  ends that hire. If you type in your hires' windows, choose the background
+  and open a window from the team list only to watch.
+- **T3 Code** ([t3.codes](https://t3.codes)), off by default. Off, Smolcorp
+  never looks for it and shows no T3 Code button. On:
+  - **Open in T3 Code**, on a hire's row in setup or the **T3 Code** key in
+    the office on this computer (never on a phone), opens the hire's worktree
+    in a new T3 Code thread, with T3 Code's own agent, separate from your hire.
+  - **Hire into T3 Code** (experimental): setup's hire sheet offers **Where
+    its agent runs: In T3 Code**, and the General Manager can ask for the same
+    (`smolcorp gm hire … --t3`). The hire gets its own worktree and branch, its
+    brief as the first message of a T3 Code thread, and the same fence as any
+    fenced hire, written into its worktree before T3 Code hears of it. It has a
+    desk in the office and gets the General Manager's mail. T3 Code has no stop,
+    so it isn't fired: **Let go**, in setup's team list or on its desk's card,
+    removes its thread in T3 Code and keeps its worktree and branch. It works
+    only with T3 Code's `t3` v0.1.8. On Windows and Linux it hasn't been tried
+    on a real install yet.
+  - **Take over in T3 Code** (experimental, the Mac and Linux): on a hire's
+    row in setup, it stops the hire's Claude Code in its own tmux session (only
+    while it's idle, with nothing typed) and carries on the same session in T3
+    Code, in its worktree, with its fence. **Hand back** brings it home. Until
+    then nobody can fire it. A hire on the API-key account can't be taken over.
 
 ## Supported agents
 

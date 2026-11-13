@@ -193,9 +193,13 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		data, _ := json.Marshal(input)
 		return demoCall{ToolName: name, ToolInput: data, Cwd: repo}
 	}
+	// Claude Code's Bash is bash, Git Bash on Windows, where a \ escapes: a Windows path goes in with /, as the
+	// demo writes it for the GM. PowerShell is refused whatever it says (RWIN B3).
+	bash := demoShellFolder
+	powerShell := func(command string) demoCall { return tool("PowerShell", map[string]any{"command": command}) }
 	allowed := []demoCall{
 		bashCall("smolcorp gm hire --role tester --folder "+shellPath(repo)+" --worktree --task 'fix it'", repo),
-		bashCall("smolcorp gm hire --role=reviewer --folder="+repo, repo),
+		bashCall("smolcorp gm hire --role=reviewer --folder="+bash(repo), repo),
 		bashCall("smolcorp gm hire --role tester --folder .", repo),
 		bashCall("smolcorp gm fire tester-1", repo),
 		bashCall("python3 -m unittest && git diff main...hire/tester-1", repo),
@@ -204,15 +208,15 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		tool("Read", map[string]any{"file_path": "/etc/hosts"}),
 		tool("mcp__smolcorp__hire", map[string]any{"role": "tester", "folder": repo}),
 		// On the default account, said or not; a $ in single quotes is text, not the shell's.
-		bashCall("smolcorp gm hire --role tester --folder "+repo+" --account default", repo),
-		bashCall("smolcorp gm hire --role tester --folder "+repo+" --task 'parse_amount reads $12.50'", repo),
+		bashCall("smolcorp gm hire --role tester --folder "+bash(repo)+" --account default", repo),
+		bashCall("smolcorp gm hire --role tester --folder "+bash(repo)+" --task 'parse_amount reads $12.50'", repo),
 		tool("mcp__smolcorp__hire", map[string]any{"role": "tester", "folder": repo, "account": "default", "api-key": false}),
 		// A $ in a line that doesn't name smolcorp, though its paths do (smolcorp-demo).
-		bashCall("ls "+root+" && echo $?", repo),
+		bashCall("ls "+bash(root)+" && echo $?", repo),
 		// git reads its config, and puts files back.
 		bashCall("git config user.email", repo),
 		bashCall("git config --get core.hooksPath", repo),
-		bashCall("git -C "+repo+" config --list --show-origin", repo),
+		bashCall("git -C "+bash(repo)+" config --list --show-origin", repo),
 		bashCall("git restore bill.py && git status", repo),
 		bashCall("cat .git/HEAD .claude/settings.json", repo),
 		write(filepath.Join(repo, "docs", "claude.md")),
@@ -222,13 +226,16 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		bashCall("smolcorp --version && smolcorp help", repo),
 		bashCall("smolcorp gm team", repo),
 		// RX1b S3: a hire over several lines, as models write them.
-		bashCall("smolcorp gm hire --role tester \\\n  --folder "+repo+" \\\n  --worktree \\\n  --task 'Fix the rounding'", repo),
+		bashCall("smolcorp gm hire --role tester \\\n  --folder "+bash(repo)+" \\\n  --worktree \\\n  --task 'Fix the rounding'", repo),
 		// FXX1c: the top of a worktree of the project, as the office makes them; paths in the demo name it.
-		bashCall("smolcorp gm hire --role reviewer --folder "+worktree, repo),
+		bashCall("smolcorp gm hire --role reviewer --folder "+bash(worktree), repo),
 		tool("mcp__smolcorp__hire", map[string]any{"role": "reviewer", "folder": worktree}),
-		bashCall("cd "+worktree+" && python3 -m unittest", repo),
-		bashCall("git -C "+repo+" worktree list && git worktree add ../app-hires/extra -b extra", repo),
-		bashCall("smolcorp gm hire --role tester --folder="+repo+" --worktree", repo),
+		bashCall("cd "+bash(worktree)+" && python3 -m unittest", repo),
+		bashCall("git -C "+bash(repo)+" worktree list && git worktree add ../app-hires/extra -b extra", repo),
+		bashCall("smolcorp gm hire --role tester --folder="+bash(repo)+" --worktree", repo),
+		// RWIN B5: text in quotes is text: braces, globs and an escaped quote in it.
+		bashCall("smolcorp gm hire --role tester --folder "+bash(repo)+` --task "Fix {all} the *bugs*? say \"done\""`, repo),
+		bashCall("smolcorp gm send tester-1 --text 'h?re [x] {a,b}'", repo),
 	}
 	refused := []demoCall{
 		bashCall("smolcorp gm hire --role tester --folder ~", repo),
@@ -348,8 +355,39 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		bashCall("git -C "+elsewhere+" worktree add wt", repo),
 		bashCall("git worktree add -b x "+elsewhere+"/wt main", repo),
 	}
+	refused = append(refused,
+		// RWIN B3: PowerShell builds words the fence can't read, so the demo refuses it, whatever it says.
+		powerShell("smolcorp gm hire --role tester --folder "+elsewhere),
+		powerShell("smolcorp gm hire --role tester --folder ~someone/Projects"),
+		powerShell("smolcorp mcp"),
+		powerShell("$S='smolcorp'; & $S mcp"),
+		powerShell("smolcorp gm hire --role tester --folder "+repo+" --worktree --task 'fix it'"),
+		powerShell("Get-ChildItem "+root),
+		powerShell("Set-Location C:/Users; & ('cla'+'ude') -p 'x' --dangerously-skip-permissions"),
+		powerShell("& ('smol'+'corp') run claude"),
+		powerShell("smolcorp gm ‘hire’ --role tester --worktree --folder "+elsewhere),
+		// RWIN B4: cmd's %VAR% and !VAR! in a folder.
+		bashCall(`cmd //c "smolcorp gm hire --role tester --worktree --folder %USERPROFILE%"`, repo),
+		bashCall("git worktree add %USERPROFILE%", repo),
+		bashCall("smolcorp gm hire --role tester --worktree --folder !HOME!", repo),
+		// RWIN B1: zsh's extended globs (x#, ^x, a~b) make a folder something else.
+		bashCall("smolcorp gm hire --role tester --worktree --folder "+bash(in)+"/outsidee#~/../smolcorp-demo/app", repo),
+		bashCall("smolcorp gm hire --role tester --worktree --folder "+bash(in)+"/^demo~/../smolcorp-demo/app", repo),
+		bashCall("git worktree add "+bash(in)+"/outsidee#~/../smolcorp-demo/wt2", repo),
+		// RWIN B5: an escaped quote inside double quotes, braces and globs: the shell's words, not the fence's.
+		bashCall("smolcorp gm hire --role tester --worktree --folder "+elsewhere+` --task "\" --folder `+bash(repo)+`"`, repo),
+		bashCall("smolcorp gm {hire,} --role tester --worktree --folder "+elsewhere, repo),
+		bashCall("smolcorp gm {send,} someone-else --text hi", repo),
+		bashCall("smolcorp gm h?re --role tester --worktree --folder "+elsewhere, repo),
+		bashCall("smolcorp gm hi[r]e --role tester --worktree --folder "+elsewhere, repo),
+		bashCall("smolcorp gm hi*e --role tester --worktree --folder "+elsewhere, repo),
+		// bash reads notes\smolcorp-plan.md as notessmolcorp-plan.md: a word that holds smolcorp and isn't a path.
+		bashCall(`cat notes\smolcorp-plan.md`, repo))
 	if runtime.GOOS == "windows" { // elsewhere, C:\ is a folder name like any other
-		refused = append(refused, bashCall(`smolcorp gm hire --role tester --folder C:\Users\someone\elsewhere`, repo))
+		refused = append(refused, bashCall(`smolcorp gm hire --role tester --folder C:\Users\someone\elsewhere`, repo),
+			powerShell(`smolcorp gm hire --role tester --folder C:\Users\someone\elsewhere`),
+			// A hire's folder as bash would get it: C:Users… with the \ taken away.
+			bashCall("smolcorp gm hire --role tester --folder "+repo, repo))
 	}
 	if linked {
 		refused = append(refused, bashCall("smolcorp gm hire --role tester --folder "+filepath.Join(root, "link"), repo),
@@ -387,6 +425,178 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		if denied := strings.Contains(out.String(), `"permissionDecision":"deny"`); denied != c.deny || !c.deny && out.Len() > 0 {
 			t.Errorf("%v %s: %q", c.args, c.input, out.String())
 		}
+	}
+}
+
+// WIN125, RWIN B1: on Windows a ~ is a letter only in a short name's shape (RUNNER~1); elsewhere only ~ and
+// ~/… at the start are plain (zsh reads a~b as a glob). cmd's % and !, and zsh's # and ^, never are.
+func TestTheDemosFenceReadsAShortNamesTildeAsALetter(t *testing.T) {
+	for _, c := range []struct {
+		folder           string
+		windows, unixish bool
+	}{
+		{"C:/Users/RUNNER~1/AppData/Local/Temp/SMOLCO~4/app", true, false},
+		{`C:\PROGRA~1\smolcorp-demo\app`, true, false},
+		{`C:\Users\ada\NOTES~12.TXT`, true, false},
+		{"/Users/ada/smolcorp-demo/app", true, true},
+		{"~/smolcorp-demo/app", true, true},
+		{`~\smolcorp-demo\app`, true, true},
+		{"~", true, true},
+		{"~someone/Projects", false, false},
+		{"app/~x", false, false},
+		{`app\~x`, false, false},
+		{"app/x~", false, false},
+		{"app/x~y", false, false},
+		{"app/x~1y", false, false},
+		{"a=~x", false, false},
+		{"a:~x", false, false},
+		{"~/a/~b", false, false},
+		{"outside~1/../smolcorp-demo/app", true, false}, // a short name to Git Bash; zsh isn't the shell there
+		{"C:/Users/RUNNER~1/$HOME", false, false},
+		{"/Users/ada/outsidee#~/../smolcorp-demo/app", false, false},
+		{"/Users/ada/^demo/app", false, false},
+		{"%USERPROFILE%", false, false},
+		{"/Users/ada/!HOME!", false, false},
+	} {
+		if got := plainFolderOn(true, c.folder); got != c.windows {
+			t.Errorf("on Windows, plainFolder(%q) = %v, want %v", c.folder, got, c.windows)
+		}
+		if got := plainFolderOn(false, c.folder); got != c.unixish {
+			t.Errorf("on a Mac or Linux, plainFolder(%q) = %v, want %v", c.folder, got, c.unixish)
+		}
+	}
+}
+
+// WIN125: the folder the demo tells the GM to hire into is written as bash reads it on each system.
+// WIN125b: the fence reads another system's calls by that system's path rules (goos), so a Windows call is
+// judged on this Mac (or Linux) as on Windows, and the other way round.
+func TestTheDemoWritesAWindowsFolderWithSlashes(t *testing.T) {
+	for _, c := range []struct{ goos, path, want string }{
+		{"windows", `C:\Users\ada\smolcorp-demo\app`, "C:/Users/ada/smolcorp-demo/app"},
+		{"windows", `C:\Users\Ada Lovelace\smolcorp-demo\app`, "'C:/Users/Ada Lovelace/smolcorp-demo/app'"},
+		{"windows", `C:\Users\a,b\smolcorp-demo\app`, "'C:/Users/a,b/smolcorp-demo/app'"},
+		{"windows", `C:\Users\O'Brien Ada\smolcorp-demo\app`, `"C:/Users/O'Brien Ada/smolcorp-demo/app"`}, // RWIN N2
+		{"darwin", "/Users/ada/smolcorp-demo/app", "/Users/ada/smolcorp-demo/app"},
+		{"linux", "/home/ada/smolcorp-demo/app", "/home/ada/smolcorp-demo/app"},
+	} {
+		if got := shellFolderOn(c.goos, c.path); got != c.want {
+			t.Errorf("on %s, %s is written %s, want %s", c.goos, c.path, got, c.want)
+		}
+	}
+	bash := func(command string) demoCall { return bashCall(command, "") }
+	tool := func(name, key, value string) demoCall {
+		input, _ := json.Marshal(map[string]string{key: value})
+		return demoCall{ToolName: name, ToolInput: input}
+	}
+	write := func(path string) demoCall { return tool("Write", "file_path", path) }
+	for _, system := range []struct {
+		goos, root, home string
+		allowed, refused []demoCall
+	}{
+		{"windows", `C:\Users\ada\smolcorp-demo`, `C:\Users\ada`,
+			[]demoCall{
+				// A relative path with either separator is a path: in quotes bash keeps the \.
+				bash(`cat 'notes\smolcorp-plan.md'`),
+				bash(`cat "notes\smolcorp-plan.md"`),
+				bash("cat notes/smolcorp-plan.md"),
+				bash(`cat 'C:\Users\ada\smolcorp-demo\app\notes.md'`),
+				bash("cat C:/Users/ada/smolcorp-demo/app/notes.md ../smolcorp-demo/PLAN.md"),
+				bash("cat c:/users/ADA/Smolcorp-Demo/app/notes.md"), // Windows' disk: case aside
+				bash("ls ~/smolcorp-demo/app"),
+				write(`notes\smolcorp-plan.md`),
+				write("C:/Users/ada/smolcorp-demo/app/bill.py"),
+				write(`..\app-hires\tester-1\bill.py`),
+			},
+			[]demoCall{
+				// bash takes the \ away: notessmolcorp-plan.md, a word, not a path.
+				bash(`cat notes\smolcorp-plan.md`),
+				bash(`cat C:\Users\ada\smolcorp-demo\app\notes.md`),
+				bash("cat C:/Users/ada/smolcorp-x/notes.md"),
+				bash("cat C:/Users/ada/smolcorp-demo/../smolcorp-x/notes.md"),
+				tool("PowerShell", "command", `Get-Content notes\smolcorp-plan.md`),
+				// RWIN B2: a drive with no folder after it is from that drive's own current folder; a : after the
+				// drive is an NTFS stream; \x is the top of some drive.
+				write(`C:..\..\x.txt`),
+				write(`C:.claude\settings.json`),
+				write(`C:\Users\ada\smolcorp-demo\app\.git::$INDEX_ALLOCATION\hooks\pre-push`),
+				write(`notes\a:b.txt`),
+				write(`\Users\ada\smolcorp-demo\app\x.txt`),
+				write(`D:\Users\ada\smolcorp-demo\app\x.txt`),
+				write(`\\server\share\smolcorp-demo\app\x.txt`),
+				bash(`cat 'C:smolcorp-demo\x'`),
+				bash("git worktree add 'C:..\\wt'"),
+				// Windows drops a name's dots and blanks at its end: .git. is .git.
+				write(`.git.\hooks\pre-push`),
+				write(`.claude \settings.json`),
+				write(`C:\Users\ada\smolcorp-demo\app\.CLAUDE\settings.json`),
+				// A hire needs its folder on the disk, and this Mac has no C:\: refused, never let through.
+				bash("smolcorp gm hire --role tester --folder C:/Users/ada/smolcorp-demo/app --worktree"),
+				bash("smolcorp gm hire --role tester --folder C:/Users/someone/elsewhere --worktree"),
+			}},
+		{"darwin", "/Users/ada/smolcorp-demo", "/Users/ada",
+			[]demoCall{
+				bash("cat notes/smolcorp-plan.md"),
+				bash(`cat 'notes\smolcorp-plan.md'`), // a \ in a Mac file's name is a letter
+				bash("cat /Users/ada/smolcorp-demo/app/notes.md"),
+				write("notes/smolcorp-plan.md"),
+				write(`C:\x.txt`), // a name like any other on a Mac
+				write("notes/a:b.txt"),
+			},
+			[]demoCall{
+				bash("cat /Users/ada/smolcorp-x/notes.md"),
+				bash("cat /users/ada/smolcorp-demo/app/notes.md"), // a case variant: refused (fails closed)
+				bash(`cat notes\smolcorp-plan.md`),
+				tool("PowerShell", "command", "Get-Content notes/smolcorp-plan.md"),
+				write("/Users/ada/smolcorp-demo/app/.git/hooks/pre-push"),
+				write("../../elsewhere.txt"),
+			}},
+		{"linux", "/home/ada/smolcorp-demo", "/home/ada",
+			[]demoCall{bash("cat notes/smolcorp-plan.md"), write("notes/smolcorp-plan.md")},
+			[]demoCall{bash("cat /home/ada/smolcorp-x/notes.md"), write("/home/ada/elsewhere.txt")}},
+	} {
+		f := demoFence{root: system.root, roles: []string{"tester"}, home: system.home, goos: system.goos}
+		cwd := f.paths().join(system.root, "app")
+		for _, c := range system.allowed {
+			if c.Cwd = cwd; f.check(c) != "" {
+				t.Errorf("on %s, refused %s %s: %s", system.goos, c.ToolName, c.ToolInput, f.check(c))
+			}
+		}
+		for _, c := range system.refused {
+			if c.Cwd = cwd; !strings.HasPrefix(f.check(c), demoFenceRefusal) {
+				t.Errorf("on %s, let through %s %s", system.goos, c.ToolName, c.ToolInput)
+			}
+		}
+		// A refusal names the word as it was read, its \ once (not Go-quoted), and on Windows says how to write a path.
+		why := f.command(`cat notes\smolcorp-plan.md`, cwd)
+		if !strings.Contains(why, `"notessmolcorp-plan.md" holds smolcorp`) || strings.Contains(why, `\\`) {
+			t.Errorf("on %s, the refusal: %q", system.goos, why)
+		}
+		hint := strings.Contains(why, "In bash, a \\ escapes the letter after it")
+		if hint != (system.goos == "windows") { // RWIN N1: a Mac GM is never told to write a Windows path
+			t.Errorf("on %s, the bash hint shown: %v: %q", system.goos, hint, why)
+		}
+		if why := f.command(`cat 'notes\smolcorp-x\plan.md' 'C:\smolcorp-x'`, cwd); system.goos == "windows" && !strings.Contains(why, `"C:\smolcorp-x" holds smolcorp`) {
+			t.Errorf("on %s, the refusal doubles a \\: %q", system.goos, why)
+		}
+	}
+}
+
+// WIN125b (CI #49): git on Windows checks a worktree out with \r\n (core.autocrlf), and the stand-ins' edits
+// still find their place. The same git setting here makes this computer's checkouts the same.
+func TestTheDryRunWorksWhereGitWritesCRLF(t *testing.T) {
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "core.autocrlf")
+	t.Setenv("GIT_CONFIG_VALUE_0", "true")
+	in := demoTestFolder(t)
+	if code, out := dryRun(t, in); code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	tree := filepath.Join(in, demoFolderName, demoRepoName+"-hires", "bughunter-1")
+	if data, err := os.ReadFile(filepath.Join(tree, "test_bill.py")); err != nil || !strings.Contains(string(data), "\r\n") {
+		t.Errorf("the worktree wasn't checked out with \\r\\n, so this test proves nothing: %v", err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(tree, "bill.py")); !strings.Contains(string(data), "divmod(with_tip, people)\r\n") {
+		t.Errorf("the bug hunter's change isn't in bill.py, in its line ends:\n%q", data)
 	}
 }
 

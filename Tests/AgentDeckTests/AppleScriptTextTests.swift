@@ -67,23 +67,19 @@ final class AppleScriptTextTests: XCTestCase {
         for call in calls { XCTAssertFalse(call.arguments.joined().contains("Caf"), "never an argument") }
     }
 
-    /// Ghostty: its paste (`input text`) and its keys' way (the `text:` action, escaped as Zig
-    /// reads it) both take the text from standard input; a key's own bytes stay an argument.
+    /// Ghostty: its paste (`input text`) takes the text from standard input; a key's own bytes stay an argument.
     func testGhosttyGetsTheTextOnStandardInput() throws {
         Ghostty.learn(tty: tty) // the stand-in says "ok": that's the terminal's id here
         let terminal = try XCTUnwrap(TabAddress("ghostty:\(tty)"))
         XCTAssertTrue(Ghostty().insert(text, in: terminal))
-        XCTAssertTrue(Ghostty().typeKeys(text + #" a\b"#, in: terminal))
         XCTAssertTrue(Ghostty().press(.init(key: .escape), in: terminal))
         let calls = Array(calls.dropFirst()) // the first was learning the terminal
-        XCTAssertEqual(calls.count, 3)
+        XCTAssertEqual(calls.count, 2)
         XCTAssertEqual(Array(calls[0].arguments.dropFirst(2)), ["ok", tty])
         XCTAssertTrue(calls[0].arguments[1].contains("input text givenText to t"))
         XCTAssertEqual(calls[0].stdin, Data(text.utf8))
-        XCTAssertTrue(calls[1].arguments[1].contains(#"perform action ("text:" & givenText) on t"#))
-        XCTAssertEqual(calls[1].stdin, Data((text + #" a\\b"#).utf8))
-        XCTAssertNil(calls[2].stdin)
-        XCTAssertEqual(calls[2].arguments.last, "\\x1b")
+        XCTAssertNil(calls[1].stdin)
+        XCTAssertEqual(calls[1].arguments.last, "\\x1b")
         for call in calls { XCTAssertFalse(call.arguments.joined().contains("Caf"), "never an argument") }
     }
 

@@ -3,6 +3,7 @@ package desktop
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -39,12 +40,13 @@ func TestPairingAndRefusalsSayMacUnderTheMacApp(t *testing.T) {
 		if mac && (strings.Contains(page, "menu bar or tray") || !strings.Contains(page, "On your Mac, click the Smolcorp icon in the menu bar and choose")) {
 			t.Error("the pairing page under the Mac app still names the tray")
 		}
-		wrong := serve(t, d, call{method: "POST", target: "/pair", host: deckOnWiFi, from: aPhone, body: `{"code":"000000"}`})
+		// A typed code works on this computer and over Tailscale (SECWIFI).
+		wrong := serve(t, d, call{method: "POST", target: "/pair", host: "localhost:7710", from: thisComputer, body: `{"code":"000000"}`})
 		if wrong.Code != http.StatusForbidden || !strings.Contains(wrong.Body.String(), "Get a new one on your "+word+".") {
 			t.Errorf("mac %v: a wrong code: %d %s", mac, wrong.Code, wrong.Body)
 		}
 		status, said, _ := claudeAccountsCall(t, d, "POST", `{"profiles":[{"name":"w","dir":"~/.claude-gone"}]}`, false)
-		if status != http.StatusBadRequest || !strings.HasSuffix(said, "/.claude-gone isn't a folder on this "+word+".") {
+		if status != http.StatusBadRequest || !strings.HasSuffix(said, string(filepath.Separator)+".claude-gone isn't a folder on this "+word+".") {
 			t.Errorf("mac %v: an account folder that isn't there: %d %q", mac, status, said)
 		}
 		key := pair(t, d)

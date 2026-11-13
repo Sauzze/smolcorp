@@ -62,11 +62,16 @@ if __name__ == "__main__":
 	}},
 }
 
-// replaceInFile replaces the one place old is in a file with new.
+// replaceInFile replaces the one place old is in a file with new, in the file's own line ends: git on
+// Windows (core.autocrlf) checks a worktree out with \r\n.
 func replaceInFile(path, old, new string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
+	}
+	if strings.Contains(string(data), "\r\n") {
+		crlf := strings.NewReplacer("\r\n", "\r\n", "\n", "\r\n")
+		old, new = crlf.Replace(old), crlf.Replace(new)
 	}
 	if strings.Count(string(data), old) != 1 {
 		return fmt.Errorf("%s has changed: the stand-in can't find its place", filepath.Base(path))

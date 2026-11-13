@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -17,15 +18,16 @@ import (
 type routeCaller struct {
 	name, host, from, local string
 	key                     string // "phone", "window" or none
-	proxied, mac, textOff   bool
+	// signs: the phone's key signs the request, never sent, as a phone on the Wi-Fi asks since 1.25 (sign.js).
+	proxied, mac, textOff, signs bool
 }
 
-// routeCallers is everyone who can knock on the routes past the hook: a stranger, a paired phone over the Wi-Fi,
-// over Tailscale's WireGuard address and through `tailscale serve` (on a Mac and elsewhere), the office's own window,
+// routeCallers is everyone who can knock on the routes past the hook: a stranger, a paired phone over the Wi-Fi
+// (signing, with Typing over Wi-Fi on: probeDeck), over Tailscale's WireGuard address and through `tailscale serve` (on a Mac and elsewhere), the office's own window,
 // and the window's key where it isn't the window's.
 var routeCallers = []routeCaller{
 	{name: "stranger", host: deckOnWiFi, from: aPhone},
-	{name: "phone-wifi", host: deckOnWiFi, from: aPhone, key: "phone"},
+	{name: "phone-wifi", host: deckOnWiFi, from: aPhone, key: "phone", signs: true},
 	{name: "phone-wireguard", host: "100.64.1.2:7710", from: "100.101.102.103:50000", local: "100.64.1.2:7710", key: "phone"},
 	{name: "phone-serve-mac", host: "my-mac.tail1234.ts.net", from: thisComputer, key: "phone", proxied: true, mac: true},
 	{name: "phone-serve-mac-text-off", host: "my-mac.tail1234.ts.net", from: thisComputer, key: "phone", proxied: true, mac: true, textOff: true},
@@ -42,7 +44,7 @@ var routeCallers = []routeCaller{
 var everyPhoneRoute = [][2]string{
 	{"GET", "/icon.png"}, {"GET", "/favicon-16.png"}, {"GET", "/favicon-32.png"},
 	{"POST", "/pair"}, {"GET", "/office.js"}, {"GET", "/guide.js"}, {"GET", "/licenses"}, {"GET", "/sounds/keys.m4a"},
-	{"GET", "/office?o=wrong"}, {"GET", "/"}, {"GET", "/office"}, {"GET", "/events"}, {"POST", "/focus"},
+	{"GET", "/office?o=wrong"}, {"GET", "/"}, {"GET", "/office"}, {"GET", "/paired"}, {"GET", "/events"}, {"POST", "/focus"},
 	{"POST", "/act?action=settings"}, {"GET", "/hire/window"}, {"POST", "/hire/window"},
 	{"GET", "/t3code"}, {"POST", "/t3code/open"}, {"POST", "/act?action=takeover"}, {"POST", "/act?action=handback"},
 	{"POST", "/act?action=letgo"}, {"POST", "/act?action=stop"},
@@ -61,7 +63,15 @@ func probeRoute(t *testing.T, d *Deck, method, target, phoneKey string, c routeC
 	if strings.Contains(target, "?") {
 		sep = "&"
 	}
-	r := httptest.NewRequest(method, target+sep+"session=nobody", strings.NewReader("{}"))
+	target, body := target+sep+"session=nobody", "{}"
+	if c.signs {
+		// Signed as sign.js signs it: the key never sent, and a GET with no body (a signed GET with one is refused).
+		if method == http.MethodGet {
+			body = ""
+		}
+		target = signedTarget(method, target+"&t="+url.QueryEscape(phoneKey), body, time.Now())
+	}
+	r := httptest.NewRequest(method, target, strings.NewReader(body))
 	r.Host, r.RemoteAddr = c.host, c.from
 	// An event stream ends at once: its caller has already gone.
 	ctx, cancel := context.WithCancel(r.Context())
@@ -72,10 +82,11 @@ func probeRoute(t *testing.T, d *Deck, method, target, phoneKey string, c routeC
 	}
 	r = r.WithContext(ctx)
 	d.mu.Lock()
-	switch c.key {
-	case "phone":
+	switch {
+	case c.signs:
+	case c.key == "phone":
 		r.Header.Set(hookKeyHeader, phoneKey)
-	case "window":
+	case c.key == "window":
 		r.Header.Set(hookKeyHeader, d.access.WindowKey)
 	}
 	d.config.PhoneMicEnabled = !c.textOff
@@ -90,7 +101,8 @@ func probeRoute(t *testing.T, d *Deck, method, target, phoneKey string, c routeC
 }
 
 // probeDeck is a deck with a paired phone, where nothing reaches a terminal or a browser, and Tailscale's address is
-// 100.64.1.2; and the phone's key.
+// 100.64.1.2; and the phone's key. Typing over Wi-Fi is on, so a phone on the Wi-Fi reaches what its class lets it
+// (SECWIFI's switch, off by default, is signed_test.go's).
 func probeDeck(t *testing.T) (*Deck, string) {
 	t.Helper()
 	savedHost, savedMac, savedAddresses, savedOpen := host, macTailscale, tailscaleAddresses, openSetupPage
@@ -103,7 +115,8 @@ func probeDeck(t *testing.T) (*Deck, string) {
 	d := newTestDeck(t)
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d, d.access.Phones.Pair("Probe")
+	d.config.PhoneTextWiFi = true
+	return d, d.access.Phones.Pair("Probe", true)
 }
 
 // letIn is whether an answer got past every gate: neither 401 nor 403.
@@ -136,7 +149,8 @@ func dumpPhoneRoutes(t *testing.T) string {
 
 // TestEveryRouteKeepsItsAccessThroughTheMove dumps every phone and window route with who it lets in, and holds it to
 // the dump taken before FR1 moved routes into the table (phoneRouteAccess, from release/1.26.0 at 4209ca71). A new
-// route adds its line there, as the talk bubble's did (1.26: the window only; a phone 403, anyone else 401).
+// route adds its line there, as the talk bubble's did (1.26: the window only; a phone 403, anyone else 401), and 1.25's
+// GET /paired (any paired phone or the window, as /events; still handle's switch, as no one class is both).
 func TestEveryRouteKeepsItsAccessThroughTheMove(t *testing.T) {
 	after := dumpPhoneRoutes(t)
 	if after != phoneRouteAccess {
@@ -213,8 +227,9 @@ func TestARowsLimitsAreItsOwn(t *testing.T) {
 	}
 	d, phoneKey := probeDeck(t)
 	for body, want := range map[string]int{"12345678": http.StatusNoContent, "123456789": http.StatusRequestEntityTooLarge} {
+		// The phone on this computer, its key sent: over the Wi-Fi it signs, and a body too big isn't read to be signed.
 		r := httptest.NewRequest(http.MethodPost, "/test-photo", strings.NewReader(body))
-		r.Host, r.RemoteAddr = deckOnWiFi, aPhone
+		r.Host, r.RemoteAddr = "localhost:7710", thisComputer
 		r.Header.Set(hookKeyHeader, phoneKey)
 		w := httptest.NewRecorder()
 		(&router{deck: d}).ServeHTTP(w, r)
@@ -244,6 +259,7 @@ GET /sounds/keys.m4a: 200 200 200 200 403 403 200 200 200 200 200; let in: stran
 GET /office?o=wrong: 200 200 200 200 403 403 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
 GET /: 200 200 200 200 403 403 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
 GET /office: 200 200 200 200 403 403 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
+GET /paired: 401 204 204 204 403 403 204 204 204 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 GET /events: 401 200 200 200 403 403 200 200 200 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 POST /focus: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 POST /act?action=settings: 401 403 403 403 403 403 403 403 204 401 401; let in: window

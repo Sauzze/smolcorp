@@ -13,6 +13,8 @@ final class SummaryKeyTests: XCTestCase {
 
     private var memory = Memory()
     private var kept: SummaryKey.Store!
+    /// A key starts so; written in two pieces, as no key-shaped text is committed.
+    private let prefix = "sk-" + "ant-"
     private let key = "sk-" + "ant-" + "api03-" + String(repeating: "T3stK3y", count: 12) + "-xY9z"
 
     override func setUp() {
@@ -45,7 +47,7 @@ final class SummaryKeyTests: XCTestCase {
         XCTAssertNil(memory.key)
         XCTAssertTrue(SummaryKey.save("  \(key)\n"))
         XCTAssertEqual(memory.key, key, "kept trimmed")
-        XCTAssertEqual(SummaryKey.shown(environment: [:]), .init(source: .keychain, hint: "sk-ant-…xY9z"))
+        XCTAssertEqual(SummaryKey.shown(environment: [:]), .init(source: .keychain, hint: prefix + "…xY9z"))
         SummaryKey.remove()
         XCTAssertNil(memory.key)
         XCTAssertNil(SummaryKey.shown(environment: [:]))
@@ -55,7 +57,7 @@ final class SummaryKeyTests: XCTestCase {
         let other = "sk-" + "ant-" + "api03-" + String(repeating: "0th3r", count: 10) + "-AbCd"
         let environment = ["ANTHROPIC_API_KEY": other]
         XCTAssertEqual(SummaryKey.read(environment: environment), other)
-        XCTAssertEqual(SummaryKey.shown(environment: environment), .init(source: .environment, hint: "sk-ant-…AbCd"))
+        XCTAssertEqual(SummaryKey.shown(environment: environment), .init(source: .environment, hint: prefix + "…AbCd"))
         SummaryKey.save(key)
         XCTAssertEqual(SummaryKey.read(environment: environment), key)
         XCTAssertEqual(SummaryKey.shown(environment: environment)?.source, .keychain)
@@ -105,7 +107,7 @@ final class SummaryKeyTests: XCTestCase {
         release.signal()
         wait(for: [saved], timeout: 10)
         XCTAssertEqual(kept, true)
-        XCTAssertEqual(SummaryKey.shown(environment: [:]), .init(source: .keychain, hint: "sk-ant-…xY9z"))
+        XCTAssertEqual(SummaryKey.shown(environment: [:]), .init(source: .keychain, hint: prefix + "…xY9z"))
     }
 
     /// The first look for the hint isn't on the main queue: shown() answers at once, then the hint is learned.
@@ -113,7 +115,7 @@ final class SummaryKeyTests: XCTestCase {
         let release = DispatchSemaphore(value: 0)
         let started = DispatchSemaphore(value: 0)
         let memory = self.memory
-        memory.hint = "sk-ant-…xY9z"
+        memory.hint = prefix + "…xY9z"
         SummaryKey.store = SummaryKey.Store(
             read: { nil }, hint: { started.signal(); release.wait(); return memory.hint }, write: { _, _ in true }, delete: {})
         SummaryKey.forgetKnown()
@@ -129,7 +131,7 @@ final class SummaryKeyTests: XCTestCase {
 
         release.signal()
         wait(for: [learned], timeout: 10)
-        XCTAssertEqual(SummaryKey.shown(environment: [:]), .init(source: .keychain, hint: "sk-ant-…xY9z"))
+        XCTAssertEqual(SummaryKey.shown(environment: [:]), .init(source: .keychain, hint: prefix + "…xY9z"))
     }
 
     func testRemovingOffMainDropsTheKeyAndTellsMain() {

@@ -30,9 +30,11 @@ command line tools. In Terminal:
 - **Hiring** opens a new window of the terminal you chose, in the
   folder you chose, with the agent's own command. A role's hire runs a short
   script that removes itself, then starts the role's agent with its model,
-  effort and first message, each quoted for the shell. **Firing** stops the agent's
-  process in its tab, only once it's sure that's the agent, then closes the
-  tab.
+  effort and first message, each quoted for the shell. A role's Claude Code
+  hire runs in a tmux session of its own instead, when tmux is installed.
+  **Firing** a hire in tmux sends `/exit` to it in its own session. In a
+  Terminal tab, Smolcorp stops the agent's process only once it's sure that's
+  the agent, then closes the tab.
 
 One app, in Go, runs the office on every computer, with a handful of
 dependencies: a tray icon, pseudo-terminals, QR codes. On a Mac it runs inside

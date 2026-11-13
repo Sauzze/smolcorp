@@ -41,11 +41,17 @@ var knownGaps = []knownGap{
 	{"setup-state", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
+	{"setup-state", ".wifiTyping", "extra", "Typing over Wi-Fi (SECWIFI), which the Swift engine never had", "stays: Go-only, the page's switch under Paired phones; the Mac runs the Go core"},
+	{"setup-state", ".phones[].beforeSigning", "extra", "a phone paired before 1.25, whose key crossed the Wi-Fi in clear (FXSEC B1), which the Swift engine never had", "stays: Go-only, the page's Paired phones; the Mac runs the Go core"},
+	{"setup-state", ".phones[].pairedAgain", "extra", "a phone of its name paired since, so setup offers to remove the old entry (FXSEC B1)", "stays: Go-only, the page's Paired phones; the Mac runs the Go core"},
 	{"setup-state", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
 	{"setup-state-tool", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state-tool", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state-tool", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},
 	{"setup-state-tool", ".pairing.codeExpiresIn", "extra", "a tool is told how long the code lasts; the Mac tells only the page", "stays: Go-only, a tool's; the page has it in its own state on both apps"},
+	{"setup-state-tool", ".wifiTyping", "extra", "Typing over Wi-Fi (SECWIFI), which the Swift engine never had", "stays: Go-only, the page's switch under Paired phones; the Mac runs the Go core"},
+	{"setup-state-tool", ".phones[].beforeSigning", "extra", "a phone paired before 1.25, whose key crossed the Wi-Fi in clear (FXSEC B1), which the Swift engine never had", "stays: Go-only, the page's Paired phones; the Mac runs the Go core"},
+	{"setup-state-tool", ".phones[].pairedAgain", "extra", "a phone of its name paired since, so setup offers to remove the old entry (FXSEC B1)", "stays: Go-only, the page's Paired phones; the Mac runs the Go core"},
 	{"setup-state-tool", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
 }
 
@@ -475,6 +481,11 @@ func newContractDeck(t *testing.T, c contract, given []string) *contractDeck {
 	// No coding agent is looked for, as in newTestDeck.
 	d.summaryProviders.set(map[summaryProvider]providerState{})
 	cd := &contractDeck{t: t, d: d, c: c}
+	// The Mac's contract types from a phone on the Wi-Fi (I34): a setup from before Typing over Wi-Fi, which
+	// keeps it on. A new setup's, off, is signed_test.go's.
+	cd.d.mu.Lock()
+	cd.d.config.PhoneTextWiFi = true
+	cd.d.mu.Unlock()
 	for _, name := range given {
 		switch name {
 		case "manager on":
@@ -561,11 +572,13 @@ func (cd *contractDeck) request(method, path string, a contractAsk) *http.Reques
 		body = b
 	default:
 		// "$code" is the pairing code asked for.
+		// It's typed on this computer: over the Wi-Fi, a typed code is refused, and the QR code pairs (SECWIFI).
 		if object, ok := b.(map[string]any); ok && object["code"] == "$code" {
 			cd.d.mu.Lock()
 			code := cd.d.access.ActiveCode()
 			cd.d.mu.Unlock()
 			b = map[string]any{"code": code}
+			host, from = "localhost:7710", thisComputer
 		}
 		data, _ := json.Marshal(b)
 		body = string(data)
@@ -573,6 +586,10 @@ func (cd *contractDeck) request(method, path string, a contractAsk) *http.Reques
 	target := path
 	if len(query) > 0 {
 		target += "?" + query.Encode()
+	}
+	// A phone on the Wi-Fi signs what it asks, as the deck does (signed.go).
+	if a.As == "phone" {
+		target = signedTarget(method, target, body, time.Now())
 	}
 	r := httptest.NewRequest(method, target, strings.NewReader(body))
 	r.Host, r.RemoteAddr = host, from
@@ -1219,14 +1236,12 @@ func goSources(t *testing.T) string {
 // ownerNames is who may close a gap: an M piece, with what it does or "via the bridge (M1)", or "stays: <why>".
 var ownerNames = regexp.MustCompile(`^(M[2-6][ab]?( fixes)?( via the bridge \(M1\)|: .{5,}|, .{5,})?|stays: .{10,})$`)
 
-// ownerProblem is what's wrong with a gap's owner, given its why: none, or a personal build's that isn't the
-// personal shell's (M6), or something only macOS does that doesn't go through the bridge (M1).
+// ownerProblem is what's wrong with a gap's owner, given its why: none, or something only macOS does that
+// doesn't go through the bridge (M1).
 func ownerProblem(owner, why string) string {
 	switch {
 	case !ownerNames.MatchString(owner):
 		return "names no M piece (M2 to M6, M4a, M4b) and no \"stays: <why>\""
-	case strings.Contains(why, "personal build") && owner != "M6: personal shell":
-		return "is a personal build's: \"M6: personal shell\", so M7 doesn't drop it"
 	}
 	for _, macOnly := range []string{"Accessibility", "speech recognition", "In the Dock", "Add smolcorp to Terminal", "Grok Bot app", "Terminal command"} {
 		if strings.Contains(why, macOnly) && !strings.HasSuffix(owner, " via the bridge (M1)") {

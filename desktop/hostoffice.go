@@ -106,7 +106,7 @@ func (d *Deck) addMacControls(entry map[string]any, s *Session) {
 		entry["mic"] = can.Text
 	}
 	entry["dictates"] = dictates && can.Text
-	// What a menu asks you to choose is told to the iPhone app (personal build) alone: nothing here.
+	// What a menu asks you to choose isn't followed here: nothing to tell.
 	entry["choice"] = nil
 }
 

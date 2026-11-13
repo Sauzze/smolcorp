@@ -26,7 +26,8 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 - What only the native iPhone app asked (`/glossary`, `/notifications`, `/reviews`, `/setup/notify`) has no rows:
   the app and its Mac side were dropped (M7DROP), and the phone's web page needs none of it.
 - Callers: `page` (the setup page's cookie), `tool` (the setup-key file), `gm` (the GM's token), `hire` (a
-  hire's send key), as `frontdesk/routes.json`; `phone` (a paired phone's key, or the office's own window),
+  hire's send key), as `frontdesk/routes.json`; `phone` (a paired phone: its requests signed with its key, or
+  the key itself on this computer and over Tailscale only (SECWIFI); or the office's own window),
   `window` (the office's window on this computer only), `hook` (the hook's key, from this computer), `anyone`.
   Each route outside setup is also asked by one who isn't its caller ("not one of its callers").
 
@@ -35,7 +36,7 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 
 | Method | Path | Callers | Request | Answer | Statuses | Fixture | Go |
 |---|---|---|---|---|---|---|---|
-| GET | `/` | anyone | `?t=` a phone's key | HTML: the pairing page without a key, the deck with one | 200, 403 (not addressed directly) | none: a file of the app's web folder, which the test bundle doesn't have | served |
+| GET | `/` | anyone | `?t=` a phone's key (this computer and Tailscale only), or signed (SECWIFI); `?deck` the deck alone, its key after `#` | HTML: the pairing page without a key, the deck with one or `?deck` | 200, 403 (not addressed directly) | none: a file of the app's web folder, which the test bundle doesn't have | served |
 | GET | `/office` | anyone | `?t=` | as `/` | 200, 403 | none: a file of the app's web folder, which the test bundle doesn't have | served (Go also swaps a tray token `?o=` for the window key, 303) |
 | GET | `/icon.png` | anyone | — | PNG: the logo's 180 px icon | 200 | none: a file of the app's web folder, which the test bundle doesn't have | served |
 | GET | `/favicon-16.png` | anyone | — | PNG | 200 | none: a file of the app's web folder, which the test bundle doesn't have | served |
@@ -43,18 +44,18 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 | GET | `/office.js` | anyone | — | JS | 200 | none: a file of the app's web folder, which the test bundle doesn't have | served |
 | GET | `/guide.js` | anyone | — | JS | 200 | none: a file of the app's web folder, which the test bundle doesn't have | served |
 | GET | `/sounds/*` | anyone | keys/talk .m4a/.webm | audio | 200 | none: a file of the app's web folder, which the test bundle doesn't have | served |
-| POST | `/pair` | anyone | `{code}` | `{key}` | 200, 403 `{error}` | office.json | served |
+| POST | `/pair` | anyone | `{code}`, on this computer or over Tailscale only (SECWIFI); or the QR code's claim, signed with its key, `?p=` the phone's own part | `{key}`; the claim: empty | 200, 204, 403 `{error}` (a typed code over the Wi-Fi; a claim also `{why, now}`) | office.json | served |
 | POST | `/hook` | hook | hook event; headers `x-agentdeck-agent`, `-tab`, `-tty`, `-project`, `-pid`, `-parent`, `-at`, `-billing` | empty | 204, 400 (a header twice), 401, 404 (not local, not POST) | office.json, frontdesk/hook-events.json | served |
 | GET | `/events` | phone | `?t=` | event stream: `data:` the snapshot at once and at each change, `event: ping` | 200, 401 | state.json | served |
 | POST | `/focus` | phone | `?session=`; a hire in T3 Code's desk opens its own thread in T3 Code (T3D-a) | empty, or text | 204, 404, 409 | office.json | served |
-| POST | `/act` | phone | `?action=` accept, send, reject, esc, up, down, clear, button, effort, scroll, mic, swap, style, music, fire, hire, move, seen, language, cleanup, settings, choose, letgo (a hire in T3 Code's desk, T3D-a; any other action there is 409; on a desk in a terminal Smolcorp can only watch, every control, the effort dial included, is 409 "Smolcorp can't do that in this terminal yet.": FXC2b)…; `&session=` | empty, or text | 204, 400, 403, 404, 409 | office.json | served |
+| POST | `/act` | phone | `?action=` accept, send, reject, esc, up, down, clear, button, effort, scroll, mic, swap (`&from=&to=`, and `&floor=` 0 to 5 for the floor shown, 0 when left out), style, music, fire, hire, move, seen, language, cleanup, settings, choose, letgo (a hire in T3 Code's desk, T3D-a; any other action there is 409; on a desk in a terminal Smolcorp can only watch, every control, the effort dial included, is 409 "Smolcorp can't do that in this terminal yet.": FXC2b)…; `&session=` | empty, or text | 204, 400, 403, 404, 409 | office.json | served |
 | POST | `/summary` | phone | `?session=` | `{summary}` or `{error}` | 200, 400–503 `{error}` | office.json | served |
 | GET | `/approvals` | phone | — | `{approvals, at}` | 200, 403 (not Tailscale) | office.json | served |
 | GET | `/conversation` | phone | `?session=&before=&size=` | a page of the conversation | 200, 204, 400, 403, 404 | office.json | served |
 | GET | `/session/info` | phone | `?id=` or `?session=` | account, model, time, tokens | 200, 403, 404 | office.json | served |
-| POST | `/dictate` | phone | `{text, send}`, over the Wi-Fi or Tailscale (I34); several lines as one paste (tmux by the pane's flag; Terminal.app, iTerm2 and Ghostty through the clipboard and ⌘V, Claude Code only) | empty or text | 204, 400, 403 (the office's window, the phone mic off, no Accessibility for ⌘V), 404, 409 (a hire in T3 Code's desk: nothing types into it; asking; several lines where its terminal or agent can't take one paste, a tmux pane in copy mode, the Mac locked for ⌘V; through the clipboard: working, not in front of its tab, something else reading the tab's keys (an editor, a pager, a shell, anything else), the tab not known, not brought or kept in front, the Mac in use, the clipboard can't be put back, another paste still on it), 503 (the terminal stopped answering; ⌘V went but the paste wasn't read in time, no Return) | office.json | served |
+| POST | `/dictate` | phone | `{text, send}`, over Tailscale, or the Wi-Fi with Typing over Wi-Fi on (I34, SECWIFI); several lines as one paste (tmux by the pane's flag; Terminal.app, iTerm2 and Ghostty through the clipboard and ⌘V, Claude Code only) | empty or text | 204, 400, 403 (the office's window, the phone mic off, Typing over Wi-Fi off, no Accessibility for ⌘V), 404, 409 (a hire in T3 Code's desk: nothing types into it; asking; several lines where its terminal or agent can't take one paste, a tmux pane in copy mode, the Mac locked for ⌘V; through the clipboard: working, not in front of its tab, something else reading the tab's keys (an editor, a pager, a shell, anything else), the tab not known, not brought or kept in front, the Mac in use, the clipboard can't be put back, another paste still on it), 503 (the terminal stopped answering; ⌘V went but the paste wasn't read in time, no Return) | office.json | served |
 | POST | `/peek` | phone | `?session=` | the input line | 200, 403 | office.json | served |
-| POST | `/choose` | phone | `?option=other&choice=`, `{text}`, over the Wi-Fi or Tailscale (I34), one line | empty | 204, 400 (several lines too), 403 | office.json | served |
+| POST | `/choose` | phone | `?option=other&choice=`, `{text}`, over Tailscale, or the Wi-Fi with Typing over Wi-Fi on (I34, SECWIFI), one line | empty | 204, 400 (several lines too), 403 | office.json | served |
 | GET | `/choice` | phone | `?session=` | a prompt's command or file | 200, 403 | office.json | served |
 | GET | `/t3code` | window | `?session=&fresh=1` | `{installed, …, hire}`, and `lane` for a hire in T3 Code | 200, 403 (a phone), 404 (T3 Code off) | office.json | served |
 | POST | `/t3code/open` | window | `?session=` | empty or text | 204, 403, 404 (T3 Code off, not a hire), 409 | office.json | served |
@@ -87,8 +88,8 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 | GET | `/setup/logo/<logo>` | page, tool | — | PNG | 200, 404 | setup.json | served |
 | POST | `/setup/theme` | page, tool | colours | empty | 204 | setup.json | served |
 | POST | `/setup/layout` | gm, page | a layout | empty | 204, 400 | setup.json | served |
-| POST | `/setup/pin` | gm, page | `?key=&folder=` | empty | 204, 400 | setup.json | served |
-| POST | `/setup/unpin` | gm, page | `?key=` | empty | 204, 400 | setup.json | served |
+| POST | `/setup/pin` | gm, page | `?key=&folder=&floor=` (floor 0 to 5, 0 when left out) | empty | 204, 400 | setup.json | served |
+| POST | `/setup/unpin` | gm, page | `?key=&floor=` (floor 0 to 5, 0 when left out) | empty | 204, 400 | setup.json | served |
 | POST | `/setup/floors` | gm, page | `{floors?, rules?}` | the setup state | 200, 400 | setup.json | differs |
 | POST | `/setup/profiles` | gm, page | `?action=switch or save or rename or delete or import or check&name=&to=` | the setup state; check: the profile | 200, 400 | setup.json, frontdesk/profiles.json | differs |
 | POST | `/setup/webhook` | gm, page | `{enabled, url, secret, outside, events}` | the setup state | 200, 400 | setup.json | differs |
@@ -201,6 +202,9 @@ hires its GM so (`desktop/demooffice.go`).
 | POST | `/launcher/screen` | a launcher's answer to a look at its window | none |
 | POST | `/raise` | a second Smolcorp asking this one to show the office | none |
 | GET | `/office?o=` | the tray's one-time token swapped for the window key (303) | the Mac's window has its key |
+| GET | `/sign.js` | what signs a paired phone's requests (SECWIFI), anyone, like `/office.js` | the Mac's too, as it runs the Go app |
+| GET | `/paired` | a phone's signed check that it's still paired, and of its clock (SECWIFI): 204, 401 `{error, why, now}` | the Mac's too, as it runs the Go app |
+| POST | `/setup/wifityping` | Typing over Wi-Fi (SECWIFI), the page alone: `?on=`, the setup state | the Mac's too, as it runs the Go app |
 | POST | `/setup/t3code/takeover` | Take over in T3 Code (EXPERIMENTAL, M5b), the page alone: `{id}`, a hire in a tmux session of its own goes on, the same session, in T3 Code; `{ok, thread, tag}`, 200, 404, 409, 500, 502 | the Mac's too since 1.25.0, as it runs the Go app (the Swift engine had no Take over) |
 | POST | `/setup/t3code/handback` | Hand back (EXPERIMENTAL, M5b), the page alone: `{id}`, T3 Code lets go, the session is checked free, then resumed in its tmux session; `{ok, note}`, 200, 404, 409, 500, 502 | the Mac's too since 1.25.0 (the Swift engine had no Hand back) |
 | GET | `/talk` | 💬 the talk bubble's card of one desk (1.26, P1), the office's own window on this computer only (403 from a phone, 401 without a key): `?session=`, `{state, asking, last, size}`; `asking` is null unless it asks, with `since`, `kind`, `tool`, `label`, `questions`, `pickable`, never a tool's input; 200, 404 | the Mac's too, as it runs the Go app (the Swift engine had no talk bubble) |
@@ -253,6 +257,11 @@ has are the known gaps' "extra" rows.
 | `.dictation.problem` | string or null | same |
 | `.dock` | object | same |
 | `.dock.enabled` | bool | same |
+| `.floorPins` | array | same |
+| `.floorPins[].desk` | number | same |
+| `.floorPins[].floor` | number | same |
+| `.floorPins[].folder` | string | same |
+| `.floorPins[].name` | string | same |
 | `.floorRules` | array | same |
 | `.floorRules[].exact` | bool | same |
 | `.floorRules[].floor` | number | same |
@@ -401,6 +410,7 @@ for hires (`.hiring.roles` is `[]`).
 | `.floors[].desks` | [] or array | same |
 | `.floors[].n` | number | same |
 | `.floors[].name` | string | same |
+| `.floors[].pins` | array | same |
 | `.floors[].preset` | string | same |
 | `.hiring` | object | same |
 | `.hiring.fire` | bool | same |
@@ -509,10 +519,10 @@ in the next table.
 | `snapshot` | `.floors[].desks[].choice` | `object or null` | a menu's options, read from the terminal: none in the given |
 | `snapshot` | `.floors[].desks[].last` | `object or null` | a cloud bot's last report: none in the given |
 | `snapshot` | `.floors[].desks[].subagents` | `[]` | only contract-a, at a key, has a subagent in the given |
-| `snapshot` | `.floors[].desks[].voiceNote` | `object or null` | how the last dictation went, for a moment: none in the given (personal build) |
+| `snapshot` | `.floors[].desks[].voiceNote` | `object or null` | how the last dictation went, for a moment: none in the given |
 | `snapshot` | `.hiring.roles` | `[]` | no folder for hires in the given, so no role to hire as |
 | `snapshot` | `.keys[].session.choice` | `object or null` | a menu's options, read from the terminal: none in the given |
-| `snapshot` | `.keys[].session.voiceNote` | `object or null` | how the last dictation went, for a moment: none in the given (personal build) |
+| `snapshot` | `.keys[].session.voiceNote` | `object or null` | how the last dictation went, for a moment: none in the given |
 | `snapshot` | `.layout.room.dress.rules` | `[]` | no dress rule in the default layout |
 | `snapshot` | `.layout.room.floorPlans` | `map` | a floor's plan by its number: keys are data |
 | `snapshot` | `.layout.room.pet` | `[]` | no pet in the default layout |
@@ -526,7 +536,7 @@ in the next table.
 | `snapshot` | `.upstairs.desks[].choice` | `object or null` | a menu's options, read from the terminal: none in the given |
 | `snapshot` | `.upstairs.desks[].last` | `object or null` | a cloud bot's last report: none in the given |
 | `snapshot` | `.upstairs.desks[].subagents` | `[]` | only contract-a, at a key, has a subagent in the given |
-| `snapshot` | `.upstairs.desks[].voiceNote` | `object or null` | how the last dictation went, for a moment: none in the given (personal build) |
+| `snapshot` | `.upstairs.desks[].voiceNote` | `object or null` | how the last dictation went, for a moment: none in the given |
 
 ## Null allowed
 
@@ -542,7 +552,7 @@ such mark, with why, until M7.
 | `setup-state` | `.dictation.cleanupProblem` | `string or null` | what stops Claude cleaning dictation up: null when nothing does, as in the given |
 | `setup-state` | `.dictation.problem` | `string or null` | what stops dictation: null when nothing does, as this Mac's speech recognition says |
 | `setup-state` | `.phoneMic.serving` | `bool or null` | whether `tailscale serve` hands the deck on: unknown without Tailscale, as Tailscale isn't asked |
-| `setup-state` | `.phoneMic.tailnet` | `string or null` | this Mac's Tailscale name: none, as Tailscale isn't asked (personal build) |
+| `setup-state` | `.phoneMic.tailnet` | `string or null` | this Mac's Tailscale name: none, as Tailscale isn't asked |
 | `setup-state` | `.summary.fallback` | `string or null` | the provider used when the one picked can't answer: none with summaries off, as in the given |
 | `snapshot` | `.floors[].desks[].errorKind` | `string or null` | why its last turn failed: no turn fails in the given |
 | `snapshot` | `.floors[].desks[].hiredBy.id` | `string or null` | the desk of who started it: a cloud bot's hirer has none |
@@ -582,9 +592,15 @@ has until the Go app serves it; the Swift engine's twin is in the history before
 | `setup-state` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |
+| `setup-state` | `.wifiTyping` | extra | Typing over Wi-Fi (SECWIFI), which the Swift engine never had | stays: Go-only, the page's switch under Paired phones; the Mac runs the Go core |
+| `setup-state` | `.phones[].beforeSigning` | extra | a phone paired before 1.25, whose key crossed the Wi-Fi in clear (FXSEC B1), which the Swift engine never had | stays: Go-only, the page's Paired phones; the Mac runs the Go core |
+| `setup-state` | `.phones[].pairedAgain` | extra | a phone of its name paired since, so setup offers to remove the old entry (FXSEC B1) | stays: Go-only, the page's Paired phones; the Mac runs the Go core |
 | `setup-state` | `.summary.noStore` | extra | says there's no secret store for the key, which a Mac always has | stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false |
 | `setup-state-tool` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state-tool` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state-tool` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |
 | `setup-state-tool` | `.pairing.codeExpiresIn` | extra | a tool is told how long the code lasts; the Mac tells only the page | stays: Go-only, a tool's; the page has it in its own state on both apps |
+| `setup-state-tool` | `.wifiTyping` | extra | Typing over Wi-Fi (SECWIFI), which the Swift engine never had | stays: Go-only, the page's switch under Paired phones; the Mac runs the Go core |
+| `setup-state-tool` | `.phones[].beforeSigning` | extra | a phone paired before 1.25, whose key crossed the Wi-Fi in clear (FXSEC B1), which the Swift engine never had | stays: Go-only, the page's Paired phones; the Mac runs the Go core |
+| `setup-state-tool` | `.phones[].pairedAgain` | extra | a phone of its name paired since, so setup offers to remove the old entry (FXSEC B1) | stays: Go-only, the page's Paired phones; the Mac runs the Go core |
 | `setup-state-tool` | `.summary.noStore` | extra | says there's no secret store for the key, which a Mac always has | stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false |

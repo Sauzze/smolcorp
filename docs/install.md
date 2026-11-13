@@ -10,6 +10,10 @@ What you need, every way to install Smolcorp, and the setup page's first steps. 
   Terminal, iTerm2, Ghostty, WezTerm or kitty, or in tmux inside any terminal
   (see [Terminals](team.md#terminals)). Sessions in other terminals (VS Code,
   Alacritty, Warp…) show on the deck, but can't be controlled from it.
+- For the General Manager's team: [tmux](https://github.com/tmux/tmux) on a
+  Mac (`brew install tmux`) or Linux, where its hires run. On Windows, the
+  General Manager hires only with managed hires turned on, a beta that's off
+  by default (see [The fence, and who gets it](team.md#the-fence-and-who-gets-it)).
 - A phone, on the same Wi-Fi as your computer, or anywhere with
   [Tailscale](https://tailscale.com) on both.
 

@@ -138,12 +138,16 @@ type Config struct {
 	// no floor rule names one for them (see CloudBot.Floor); chosen in setup.
 	// Until it is, the floor your bots are on (newBotsFloor).
 	BotFloor int `json:"botFloor"`
-	// The phone's text (personal build on the Mac): whether a paired phone may type what it typed or heard
+	// The phone's text: whether a paired phone may type what it typed or heard
 	// into a desk's agent (POST /dictate, /choose; /peek and /choice over Tailscale), on unless the file says
 	// otherwise, as on the Mac; and whether an older page's text goes with Return once it's a few words.
 	// Kept under the Mac's names. Setup has no switch for them here yet: see phonetext.go.
 	PhoneMicEnabled  bool `json:"phoneMicEnabled"`
 	PhoneMicAutoSend bool `json:"phoneMicSkipsConfirm"`
+	// Typing over Wi-Fi: whether the phone's text is taken over plain http on the Wi-Fi too, where anyone on
+	// it could read what's typed (SECWIFI). Off for a new setup; Tailscale and this computer don't need it.
+	// A file from before the switch keeps what it had: on with the phone's text, once set up.
+	PhoneTextWiFi bool `json:"phoneTextOverWiFi"`
 	// Whether the file had BotFloor: one from before it has it worked out
 	// again once the bots that were upstairs are settled (see settleBots).
 	botFloorKept bool
@@ -152,6 +156,9 @@ type Config struct {
 	Floors floorList `json:"floors"`
 	// The folders whose sessions sit on a floor of their own (see FloorRule).
 	FloorRules floorRuleList `json:"floorRules"`
+	// The desks pinned above the ground floor (see FloorPin). Pins stays the
+	// ground floor's, as it always was, so a file from before reads the same.
+	FloorPins floorPinList `json:"floorPins,omitempty"`
 	// The GM's mail (mail_outbox.go): the longest message in bytes, the most one
 	// sender may send in an hour, and the hours a message waits for a busy hire
 	// before it is left. Each at least 1.
@@ -219,6 +226,10 @@ func loadConfig() *Config {
 				var byHand bool
 				_ = json.Unmarshal(fields["gmByHand"], &byHand)
 				config.GuideDone = config.HasCompletedSetup || config.HireFolder != "" || config.ManagerEnabled || byHand
+			}
+			// Typing over Wi-Fi: a setup from before the switch went on typing over the Wi-Fi, and keeps it.
+			if _, ok := fields["phoneTextOverWiFi"]; !ok {
+				config.PhoneTextWiFi = config.HasCompletedSetup && config.PhoneMicEnabled
 			}
 			// A file from before the two choices: asked already, as the Mac app reads it.
 			if _, ok := fields["choicesAsked"]; !ok {
@@ -294,6 +305,7 @@ func loadConfig() *Config {
 	pins := make([]*string, mostKeys)
 	copy(pins, config.Pins)
 	config.Pins = pins
+	config.FloorPins = config.checkedFloorPins(config.FloorPins)
 	return config
 }
 
@@ -337,34 +349,157 @@ func (c *Config) settleBots(seats map[string]Seat) bool {
 	return true
 }
 
-// Pin pins folder to key index, taking it off any other key it was on.
-func (c *Config) Pin(folder string, index int) {
-	for i, pin := range c.Pins {
-		if pin != nil && *pin == folder {
-			c.Pins[i] = nil
-		}
-	}
-	c.Pins[index] = &folder
-	c.save()
-}
+// Pin pins folder to key index on the ground floor, taking it off any other desk it was on.
+func (c *Config) Pin(folder string, index int) { c.PinOn(folder, 0, index) }
 
-func (c *Config) Unpin(index int) {
-	c.Pins[index] = nil
-	c.save()
-}
+func (c *Config) Unpin(index int) { c.UnpinOn(0, index) }
 
-// SwapPins puts first on key b and second on key a, each taken off any other
-// key it was on: two desks swapped in the office. A nil project is an empty
-// desk, whose key is left free.
+// SwapPins is SwapPinsOn on the ground floor.
 func (c *Config) SwapPins(first *string, a int, second *string, b int) {
+	c.SwapPinsOn(0, first, a, second, b)
+}
+
+// PinOn pins folder to desk on floor (0 for the ground floor's keys, up to 5
+// for 6F), taking it off any other desk it was on, on any floor: a folder has
+// one desk in the building.
+func (c *Config) PinOn(folder string, floor, desk int) {
+	c.dropPins(&folder, nil)
+	c.setPin(floor, desk, &folder)
+	c.save()
+}
+
+// UnpinOn frees desk on floor, whatever was pinned to it.
+func (c *Config) UnpinOn(floor, desk int) {
+	c.setPin(floor, desk, nil)
+	c.save()
+}
+
+// SwapPinsOn puts first on desk b of floor and second on desk a, each taken
+// off any other desk it was on: two desks swapped in the office. A nil
+// project is an empty desk, which is left free.
+func (c *Config) SwapPinsOn(floor int, first *string, a int, second *string, b int) {
+	c.dropPins(first, second)
+	c.setPin(floor, b, first)
+	c.setPin(floor, a, second)
+	c.save()
+}
+
+// FloorPin is a desk above the ground floor kept for a project's sessions, as
+// a pinned key is downstairs: Floor 1 (2F) to 5 (6F), Desk 0 to 8. Its
+// sessions sit there whenever they're on that floor, and on that floor when
+// nothing else says where (see Deck.aboveGround); meanwhile nobody else does.
+type FloorPin struct {
+	Floor  int    `json:"floor"`
+	Desk   int    `json:"desk"`
+	Folder string `json:"folder"`
+}
+
+// floorPinList is the pins as config.json keeps them: one that can't be read
+// loses only itself.
+type floorPinList []FloorPin
+
+func (l *floorPinList) UnmarshalJSON(data []byte) error {
+	var list []json.RawMessage
+	json.Unmarshal(data, &list)
+	pins := floorPinList{}
+	for _, raw := range list {
+		var pin FloorPin
+		if json.Unmarshal(raw, &pin) == nil {
+			pins = append(pins, pin)
+		}
+	}
+	*l = pins
+	return nil
+}
+
+// checkedFloorPins is the pins as they're kept: on a desk there is above the
+// ground floor, one a desk and one a folder, the last given winning; a folder
+// pinned downstairs keeps that pin.
+func (c *Config) checkedFloorPins(given []FloorPin) floorPinList {
+	var pins floorPinList
+	for _, pin := range given {
+		if pin.Floor < 1 || pin.Floor >= floorCount || pin.Desk < 0 || pin.Desk >= desksPerFloor || pin.Folder == "" {
+			continue
+		}
+		pins = slices.DeleteFunc(pins, func(p FloorPin) bool {
+			return p.Folder == pin.Folder || p.Floor == pin.Floor && p.Desk == pin.Desk
+		})
+		pins = append(pins, pin)
+	}
+	return slices.DeleteFunc(pins, func(p FloorPin) bool {
+		return slices.ContainsFunc(c.Pins, func(q *string) bool { return q != nil && *q == p.Folder })
+	})
+}
+
+// pinAt is the folder pinned to desk on floor, or nil.
+func (c *Config) pinAt(floor, desk int) *string {
+	if floor == 0 {
+		if desk >= 0 && desk < len(c.Pins) {
+			return c.Pins[desk]
+		}
+		return nil
+	}
+	for _, pin := range c.FloorPins {
+		if pin.Floor == floor && pin.Desk == desk {
+			folder := pin.Folder
+			return &folder
+		}
+	}
+	return nil
+}
+
+// setPin puts folder on desk of floor, or frees it with nil, leaving every other desk as it is.
+func (c *Config) setPin(floor, desk int, folder *string) {
+	if floor == 0 {
+		c.Pins[desk] = folder
+		return
+	}
+	c.FloorPins = slices.DeleteFunc(c.FloorPins, func(p FloorPin) bool { return p.Floor == floor && p.Desk == desk })
+	if folder != nil {
+		c.FloorPins = append(c.FloorPins, FloorPin{Floor: floor, Desk: desk, Folder: *folder})
+	}
+}
+
+// dropPins takes the folders given (nil for none) off every desk, on every floor.
+func (c *Config) dropPins(first, second *string) {
+	is := func(folder string) bool {
+		return first != nil && folder == *first || second != nil && folder == *second
+	}
 	for i, pin := range c.Pins {
-		if pin != nil && ((first != nil && *pin == *first) || (second != nil && *pin == *second)) {
+		if pin != nil && is(*pin) {
 			c.Pins[i] = nil
 		}
 	}
-	c.Pins[b] = first
-	c.Pins[a] = second
-	c.save()
+	c.FloorPins = slices.DeleteFunc(c.FloorPins, func(p FloorPin) bool { return is(p.Folder) })
+}
+
+// upstairsPin is the desk above the ground floor folder is pinned to, if it is.
+func (c *Config) upstairsPin(folder string) (Seat, bool) {
+	for _, pin := range c.FloorPins {
+		if folder != "" && pin.Folder == folder {
+			return Seat{pin.Floor, pin.Desk}, true
+		}
+	}
+	return Seat{}, false
+}
+
+// everyPin is every folder pinned to a desk, on any floor: the ground floor's nine first, then the ones above.
+func (c *Config) everyPin() []*string {
+	pins := slices.Clone(c.Pins)
+	for _, pin := range c.FloorPins {
+		folder := pin.Folder
+		pins = append(pins, &folder)
+	}
+	return pins
+}
+
+// upstairsPins is every desk pinned above the ground floor.
+func (c *Config) upstairsPins() []Seat {
+	seats := make([]Seat, 0, len(c.FloorPins))
+	for _, pin := range c.FloorPins {
+		seats = append(seats, Seat{pin.Floor, pin.Desk})
+	}
+	return seats
 }
 
 func contains(list []string, value string) bool {

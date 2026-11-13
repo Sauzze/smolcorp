@@ -52,7 +52,7 @@ final class Config: Codable {
     /// Claude Code desks dictate through Smolcorp rather than their own
     /// `/voice`, always: your choice, kept as you left it.
     var dictationForClaude = false
-    /// Personal build, a test: whether dictation's text is cleaned up by
+    /// A test: whether dictation's text is cleaned up by
     /// Claude before it's typed (see `DictationCleanup`), and the names it
     /// knows. While it's on, Claude Code desks dictate through Smolcorp too, so
     /// their text can be cleaned (see `Deck.dictates`); off, everything is as
@@ -81,7 +81,7 @@ final class Config: Codable {
     /// ✨ Summary: whether a held desk offers a summary of its agent's
     /// transcript, written by Claude with your own API key. Off until you turn
     /// it on in setup and confirm what it sends where; and only with a key.
-    /// Saved under its own name: a personal build's "summariesEnabled" never
+    /// Saved under its own name: an older "summariesEnabled" never
     /// turns it on.
     var summaryOptIn = false
     /// What makes summaries: a coding agent's id ("claude", "codex", …) or
@@ -91,11 +91,10 @@ final class Config: Codable {
     /// The portable office's viewer: its address and options. Never its id,
     /// key or write secret, which are in the Keychain.
     var viewer = ViewerSettings()
-    /// Phone microphone (personal build): on a deck opened over HTTPS (through
+    /// Phone microphone: on a deck opened over HTTPS (through
     /// `tailscale serve`), the mic listens on the phone with its own speech
-    /// recognition and sends the text here to be typed. On by default in this
-    /// build; off, the mic is the Mac's again and Tailscale names are refused,
-    /// exactly as before.
+    /// recognition and sends the text here to be typed. On by default; off,
+    /// the mic is the Mac's again and Tailscale names are refused.
     var phoneMicEnabled = true
     /// Whether phone dictation skips the phone's confirm box and goes as it
     /// was heard: sent with Return once it's 3 words or more, as Claude
@@ -117,7 +116,7 @@ final class Config: Codable {
     /// Manager or switch it on in setup, so 1.23's behaviour is what an existing user
     /// keeps. Off, the GM's routes say so; events are still logged. Turning it off never fires anyone.
     var managerEnabled = false
-    /// "Allow a GM started by hand": also keep the GM's token in a file (`Paths.gmToken`) for a
+    /// "Allow a GM started by hand": also keep the GM's token in a file (the core's) for a
     /// General Manager you start yourself. Off, the token is in memory and the Keychain only, and
     /// reaches the GM Smolcorp starts through its environment.
     var gmByHand = false
@@ -569,9 +568,4 @@ enum Logo: String, Codable, CaseIterable {
     init?(stored: String) {
         self.init(rawValue: stored == "sauzze" ? "smolcorp" : stored)
     }
-
-    var icon: URL { Paths.web.appendingPathComponent("icon-\(rawValue).png") }
-    /// Personal build: the same with a TAIL badge, for the deck served at the Tailscale address, so the two Home
-    /// Screen icons can be told apart.
-    var tailIcon: URL { Paths.web.appendingPathComponent("icon-\(rawValue)-tail.png") }
 }

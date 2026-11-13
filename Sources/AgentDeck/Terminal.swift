@@ -28,7 +28,7 @@ enum Terminal {
         case end = 119
         case c = 8
         case tab = 48
-        /// iPhone app (personal build): a menu's options, picked by their number.
+        /// A menu's options, picked by their number (the talk bubble's pick, HostBridge's keys).
         case one = 18, two = 19, three = 20, four = 21, five = 23, six = 22, seven = 26, eight = 28, nine = 25
 
         private static let digits: [Key] = [.one, .two, .three, .four, .five, .six, .seven, .eight, .nine]

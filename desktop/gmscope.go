@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
+	"slices"
 	"strings"
 )
 
@@ -19,8 +19,12 @@ import (
 //     its checkout, and the checkout's git folder is the project's), a folder that is there, in a terminal
 //     of Smolcorp's, on the Claude account the GM was hired on (filled in when left out), never the API key;
 //   - send, brief, fire, contacts, nickname, pin, unpin, watch and unwatch only for its own hires, folders
-//     and watches;
+//     and watches; a pin only on the ground floor or a floor above where it has a session or a pin already;
 //   - nothing else that changes the office (its switches, roles, layout, windows…); what it reads is as before.
+// A demo's GM (its scope is a demo's project, <demo folder>/app) is held closer, whatever its fence reads (WIN125c):
+//   - it hires only the roles the demo offers, as the demo registered them and its registry row keeps them;
+//   - a worktree of the project it hires into, briefs or reaches has its top inside the demo folder, not only the
+//     project's git folder: `cd elsewhere && git --git-dir=<project>/.git worktree add wt` makes one outside.
 // Each refusal is one sentence. A GM with no scope, every other, is as it always was. `smolcorp demo`
 // hires its GM so. Go only: the Mac's Swift engine has no scope (M7).
 
@@ -49,6 +53,26 @@ func checkedGMScope(given any, h setupHire, home string) (string, int, string) {
 		return "", http.StatusBadRequest, "A General Manager's scope is the folder it's hired into."
 	}
 	return folder, 0, ""
+}
+
+// isDemoProject is whether folder has the shape of a demo's project: app in a folder smolcorp demo names so.
+// Judged by its shape alone, so a GM held to one is held as a demo's even when its roles weren't kept.
+func isDemoProject(folder string) bool {
+	return folder != "" && filepath.Base(folder) == demoRepoName && demoFolderNamed(filepath.Base(filepath.Dir(folder)))
+}
+
+// demoScopeRoles is what a GM held to scope may hire when scope is a demo's project: the roles the demo was
+// registered with, a comma between. "" for any other project; a status and why when the app wasn't told about
+// that demo.
+func demoScopeRoles(scope string) (string, int, string) {
+	if !isDemoProject(scope) {
+		return "", 0, ""
+	}
+	f, roles, why := registeredDemo(filepath.Dir(scope))
+	if why != "" || f.repo != scope || len(roles) == 0 {
+		return "", http.StatusConflict, "A General Manager held to a demo's project is hired from that demo's page: run smolcorp demo again."
+	}
+	return strings.Join(roles, ","), 0, ""
 }
 
 // gmScopeNow is the scope of the GM whose token works now, "" for none.
@@ -83,9 +107,26 @@ func gmAccountWords(account string) string {
 type gmScope struct {
 	root string
 	git  gitRunner
+	// A demo's GM: the demo folder, where every worktree it's held to must be, and the roles it may hire
+	// (none when its row kept none). "" and nil for any other GM.
+	demo  string
+	roles []string
 }
 
-// holds is whether folder is the project itself or the top of one of its own worktrees, and is there.
+// gmScopeOf is the scope GM gm is held to: a demo's (isDemoProject) with its demo folder and roles.
+func gmScopeOf(gm Hire) gmScope {
+	s := gmScope{root: gm.Scope, git: runGit}
+	if isDemoProject(gm.Scope) {
+		s.demo = filepath.Dir(gm.Scope)
+		if gm.ScopeRoles != "" {
+			s.roles = strings.Split(gm.ScopeRoles, ",")
+		}
+	}
+	return s
+}
+
+// holds is whether folder is the project itself or the top of one of its own worktrees, and is there; for a
+// demo's GM, a worktree inside the demo folder.
 func (s gmScope) holds(folder string) bool { _, ok := s.place(folder); return ok }
 
 // place is folder, links followed, when it is held. Links are followed in folder, never in the project's
@@ -104,7 +145,7 @@ func (s gmScope) place(folder string) (string, bool) {
 	if real == s.root {
 		return real, true
 	}
-	if _, err := os.Lstat(filepath.Join(real, ".git")); err != nil {
+	if _, err := os.Lstat(filepath.Join(real, ".git")); err != nil || s.demo != "" && !within(s.demo, real) {
 		return "", false
 	}
 	status, out, ok := s.git(real, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
@@ -118,6 +159,35 @@ func (s gmScope) place(folder string) (string, bool) {
 func (s gmScope) pinned(pin string) bool {
 	folder, _ := existingFolder(pin)
 	return s.holds(folder)
+}
+
+// hasFloor is whether a floor above the ground floor (1 to 5) is one the scope has: one where a session of
+// the project or its worktrees sits now, or where one of its folders is pinned to a desk.
+func (s gmScope) hasFloor(d *Deck, floor int) bool {
+	// What's on each floor is read with the lock held; whether it's the project's, which runs git, is not.
+	type sitter struct {
+		floor   int
+		project string
+	}
+	var sitters []sitter
+	d.mu.Lock()
+	for _, pin := range d.config.FloorPins {
+		sitters = append(sitters, sitter{pin.Floor, pin.Folder})
+	}
+	_, overflow := d.layout()
+	seated, _ := d.seatedBuilding(overflow)
+	for at, people := range seated {
+		for _, one := range people {
+			sitters = append(sitters, sitter{at, one.person.Project})
+		}
+	}
+	d.mu.Unlock()
+	for _, one := range sitters {
+		if one.floor == floor && s.holds(one.project) {
+			return true
+		}
+	}
+	return false
 }
 
 // covers is whether path is inside the project or one of its worktrees: the nearest folder holding it is held.
@@ -160,12 +230,16 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 	if !gmScopeHolds(gm, method) {
 		return 0, "", nil
 	}
-	s := gmScope{root: root, git: runGit}
+	s := gmScopeOf(gm)
 	where := " in " + root
 	asked := map[string]any{}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	_ = decoder.Decode(&asked)
+	if asked == nil {
+		// A literal null decodes to a nil map: read as an empty request, never a panic.
+		asked = map[string]any{}
+	}
 	body = asked
 	refuse := func(text string) (int, string, any) {
 		return http.StatusForbidden, "This General Manager " + text, body
@@ -195,12 +269,22 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 		} else {
 			asked["account"] = claudeDefaultName
 		}
+		// A demo's GM hires the demo's roles alone, each on Claude Code, so each reads the demo's fence too.
+		if role, _ := asked["role"].(string); s.demo != "" && !slices.Contains(s.roles, role) {
+			if len(s.roles) == 0 {
+				return refuse("hires no one: the demo's roles weren't kept at its hire, so hire it again from the demo's page.")
+			}
+			return refuse("hires only the demo's roles, " + strings.Join(s.roles, ", ") + ".")
+		}
 		if t3, known := checkedHireEngine(asked["engine"]); t3 || !known {
 			return refuse("hires only in a terminal of Smolcorp's.")
 		}
 		folder, why := gmHireFolder(asked["folder"])
 		real, held := s.place(folder)
 		if why != "" || !held {
+			if s.demo != "" {
+				return refuse("hires only into " + root + " or the top of one of its worktrees in " + s.demo + ", a folder that is there.")
+			}
 			return refuse("hires only into " + root + " or the top of one of its worktrees, a folder that is there.")
 		}
 		// The route hires into the folder as checked, links followed, never the words it was sent.
@@ -228,16 +312,21 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 		}
 		body = given
 	case post && (path == "/setup/pin" || path == "/setup/unpin"):
-		index, err := strconv.Atoi(query.Get("key"))
+		// The desk on whichever floor it's named on, as the route reads it (pinDesk).
+		floor, index, ok := pinDesk(query)
 		d.mu.Lock()
 		var pinned *string
-		if err == nil && index >= 0 && index < len(d.config.Pins) {
-			pinned = d.config.Pins[index]
+		if ok {
+			pinned = d.config.pinAt(floor, index)
 		}
 		d.mu.Unlock()
 		folder, _ := existingFolder(query.Get("folder"))
 		if pinned != nil && !s.pinned(*pinned) || path == "/setup/pin" && !s.holds(folder) {
 			return refuse("pins only" + where + " and its worktrees, never over another desk's pin.")
+		}
+		// A pin upstairs moves the folder's sessions to that floor: only to a floor the GM already has.
+		if ok && floor > 0 && path == "/setup/pin" && !s.hasFloor(d, floor) {
+			return refuse("pins only on the ground floor or a floor where its own sessions sit or it has a pin" + where + ".")
 		}
 	case post && path == "/setup/gm/watch":
 		// Read as the route reads it (watchers.add): the hire by id, nickname or name; a file by its full path,

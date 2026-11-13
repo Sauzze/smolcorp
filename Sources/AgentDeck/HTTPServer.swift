@@ -36,34 +36,3 @@ struct Response {
         404: "Not Found", 409: "Conflict", 500: "Internal Server Error",
     ]
 }
-
-/// What a request's Host header says about who it's for. Pure, for tests.
-enum Addressing {
-    /// The Host header's name, lowercased, without its port.
-    static func host(_ header: String?) -> String {
-        (header ?? "").lowercased().replacingOccurrences(of: #":\d+$"#, with: "", options: .regularExpression)
-    }
-
-    /// An IP address, localhost, or a Bonjour name — never someone's domain.
-    static func isDirectAddress(_ host: String) -> Bool {
-        host == "localhost" || host.hasSuffix(".local") || host.hasPrefix("[")
-            || host.range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#, options: .regularExpression) != nil
-    }
-
-    /// Personal build: a MagicDNS name in a tailnet, such as
-    /// `my-mac.tail1234.ts.net`, reaching this server from this Mac's own
-    /// loopback: how `tailscale serve` hands on a request from the tailnet.
-    /// A web page can't use DNS rebinding with it: Tailscale, not the page,
-    /// says where `ts.net` names point. The same name from anywhere else
-    /// isn't believed.
-    static func isTailnet(_ host: String, fromLoopback: Bool) -> Bool {
-        fromLoopback && host.range(of: #"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.){2}ts\.net$"#, options: .regularExpression) != nil
-    }
-
-    /// Whether a proxy passed the request on, as `tailscale serve` does: it
-    /// says whom for in these headers, and sets them over any the sender put in.
-    static func isProxied(_ headers: [String: String]) -> Bool {
-        ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded", "tailscale-user-login"]
-            .contains { headers[$0] != nil }
-    }
-}

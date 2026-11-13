@@ -17,17 +17,12 @@ final class EngineTests: XCTestCase {
 
     func testEveryMacRunsTheGoEngineWhateverTheFileSays() {
         for setting in [nil, "go"] as [String?] {
-            let (engine, ignored) = Engine.chosen(setting)
-            XCTAssertEqual(engine, .go, "\(String(describing: setting))")
-            XCTAssertNil(ignored, "nothing to say")
+            XCTAssertNil(Engine.ignored(setting), "nothing to say about \(String(describing: setting))")
         }
         for setting in ["swift", "rust", "GO", ""] {
-            let (engine, ignored) = Engine.chosen(setting)
-            XCTAssertEqual(engine, .go, setting)
-            XCTAssertEqual(ignored, Engine.ignoredSetting(setting))
-            XCTAssertEqual(ignored?.split(separator: "\n").count, 1, "one log line")
+            XCTAssertEqual(Engine.ignored(setting)?.split(separator: "\n").count, 1, "one log line for \(setting)")
         }
-        XCTAssertTrue(Engine.ignoredSetting("swift").contains(#""engine": "swift" is ignored"#))
+        XCTAssertTrue(try XCTUnwrap(Engine.ignored("swift")).contains(#""engine": "swift" is ignored"#))
     }
 
     func testTheSettingIsKeptAndNeverAdded() throws {
@@ -73,7 +68,7 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(core.arguments, ["core", "--port", "7779", "--support", folder.path, "--bridge", folder.appendingPathComponent("bridge.sock").path])
         XCTAssertFalse(core.arguments.joined(separator: " ").contains(core.bridge.token))
         let environment = core.environment(base: ["HOME": "/Users/me", "PATH": "/usr/bin:/bin", "SHELL": "/bin/zsh",
-                                                  "GH_TOKEN": "fake-gh", "ANTHROPIC_API_KEY": "sk-ant-fake", "SMOLCORP_SESSION": "s1",
+                                                  "GH_TOKEN": "fake-gh", "ANTHROPIC_API_KEY": "fake-api-key", "SMOLCORP_SESSION": "s1",
                                                   "SSH_AUTH_SOCK": "/fake/agent.sock", "LOGNAME": "me", "LC_CTYPE": "UTF-8", "LC_ALL": "fr_FR.UTF-8",
                                                   "__CF_USER_TEXT_ENCODING": "0x1F5:0x0:0x0", "TMUX_TMPDIR": "/fake/tmux",
                                                   "XPC_SERVICE_NAME": "0", "LCX": "no", "LC_TERMINAL": "iTerm2", "LC_TOKEN": "fake-secret", "SMOLCORP_HIRE_KEY": "fake-send-key"])

@@ -22,7 +22,7 @@ Tell it the goal. It answers with a plan and waits for your OK. After that it ch
 - Hire an employee (its own worktree and branch), send it a brief, fire it.
 - Send a message to a hire, and read the replies in its inbox.
 - Ask Smolcorp to watch a file, a time, or a hire going idle, and be told when it happens.
-- Tile the team's windows on a screen.
+- Tile the team's windows on a screen (on the Mac).
 - Keep notes on each employee.
 
 ## What the GM can't do

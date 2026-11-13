@@ -16,7 +16,6 @@ import Foundation
 /// terminal's tab.
 /// A bare tty, as a deck saved before 1.9 kept, reads as a Terminal.app tab.
 extension TerminalDriver {
-    func typeKeys(_ text: String, in tab: TabAddress) -> Bool { insert(text, in: tab) }
     var showsScreen: Bool { true }
     /// Nowhere by default: WezTerm and kitty send text as it is and can't say whether the agent asked for
     /// bracketed paste, so a line break could press Return part way. Refused before anything waits on them.
@@ -163,13 +162,7 @@ protocol TerminalDriver {
     /// right before the paste itself, once the tab is in front where it must be: nil to go on, or why not,
     /// and nothing is typed (`.refused`).
     func insertLines(_ text: String, in tab: TabAddress, ready: () -> String?) -> LinesPasted
-    /// iPhone app (personal build): `text` typed as keys, never as a paste,
-    /// without Return: into a menu's own text field, as Claude Code's "Type
-    /// something", which a paste may not reach. `insert` where that already
-    /// types keys.
-    func typeKeys(_ text: String, in tab: TabAddress) -> Bool
-    /// iPhone app (personal build): whether `screen` can say what the tab
-    /// shows, for a menu to be seen before a choice's key goes.
+    /// Whether `screen` can say what the tab shows, for the phone's peek.
     var showsScreen: Bool { get }
     func focus(_ tab: TabAddress) -> Bool
     func scroll(lines: Int, in tab: TabAddress) -> Bool

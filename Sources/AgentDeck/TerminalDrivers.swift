@@ -189,13 +189,7 @@ struct Tmux: TerminalDriver {
     func insert(_ text: String, in tab: TabAddress) -> Bool {
         // Escape could end the bracket early and Return would press Enter: refused, as a hire's paste does.
         guard HireTmux.canPaste(text) else { return false }
-        return pasted(text, in: tab, bracketed: true)
-    }
-
-    /// As keys, where `insert` pastes: the same text, without the brackets, a line feed as itself (-r) as send-keys sent it.
-    func typeKeys(_ text: String, in tab: TabAddress) -> Bool {
-        guard HireTmux.canPaste(text) else { return false }
-        return pasted(text, in: tab, bracketed: false)
+        return pasted(text, in: tab)
     }
 
     /// Several lines as one bracketed paste, only while the pane's agent has asked for bracketed paste:
@@ -226,10 +220,10 @@ struct Tmux: TerminalDriver {
 
     /// `text` into the pane through a buffer of its own, loaded from tmux's standard input, byte for
     /// byte: as an argument, its accents would come apart (see `Tool.run`) and a ";" at its end go.
-    private func pasted(_ text: String, in tab: TabAddress, bracketed: Bool) -> Bool {
+    private func pasted(_ text: String, in tab: TabAddress) -> Bool {
         let buffer = "smolcorp-\(UUID().uuidString.prefix(8))"
         guard ran(tab, ["load-buffer", "-b", buffer, "-"], input: Data(text.utf8)) else { return false }
-        if ran(tab, ["paste-buffer", bracketed ? "-p" : "-r", "-d", "-b", buffer, "-t", tab.id]) { return true }
+        if ran(tab, ["paste-buffer", "-p", "-d", "-b", buffer, "-t", tab.id]) { return true }
         _ = ran(tab, ["delete-buffer", "-b", buffer]) // -d only deletes after a paste
         return false
     }
@@ -611,9 +605,6 @@ struct Ghostty: TerminalDriver {
     func screen(of tab: TabAddress) -> String? { nil }
     var showsScreen: Bool { false }
 
-    /// As keys, where `insert` pastes: as `press` types them.
-    func typeKeys(_ text: String, in tab: TabAddress) -> Bool { typeText(text, in: tab) }
-
     /// Several lines through the clipboard and Ghostty's own paste (`paste_from_clipboard`, what ⌘V does),
     /// performed on this terminal, so nothing is brought forward: Ghostty wraps it in bracketed-paste
     /// markers where the agent asked for them, and asks you first, by default, where it didn't.
@@ -675,9 +666,6 @@ struct WezTerm: TerminalDriver {
 
     /// As a paste, which is send-text's own way, without Return.
     func insert(_ text: String, in tab: TabAddress) -> Bool { send(text, in: tab, paste: true) }
-
-    /// As keys, where `insert` pastes.
-    func typeKeys(_ text: String, in tab: TabAddress) -> Bool { send(text, in: tab, paste: false) }
 
     func focus(_ tab: TabAddress) -> Bool {
         guard ran(tab, ["activate-pane", "--pane-id", tab.id]) else { return false }

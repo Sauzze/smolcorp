@@ -98,6 +98,8 @@ var goOnlyRoutes = []routeRow{
 	{"POST", "/setup/t3code/takeover", []string{"page"}},
 	{"POST", "/setup/t3code/handback", []string{"page"}},
 	{"GET", "/setup/gm/git", []string{"gm", "page", "tool"}},
+	// Typing over Wi-Fi (SECWIFI): the owner's page alone, never an agent.
+	{"POST", "/setup/wifityping", []string{"page"}},
 }
 
 // name is how the table spells a caller.

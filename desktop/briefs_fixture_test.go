@@ -15,10 +15,10 @@ import (
 	"time"
 )
 
-// Tests/fixtures/briefs/briefs.json is what the Mac app makes of a fixed set
-// of inputs (BriefFixtureTests.swift writes it): hires' briefs, setup's
-// previews, picked files, a brief's later parts, and the guard's state and
-// saves. This side must make the same, byte for byte. Paths in it start with
+// Tests/fixtures/briefs/briefs.json is what the Mac app made of a fixed set
+// of inputs, back when its own code made briefs (nothing writes it any more):
+// hires' briefs, setup's previews, picked files, a brief's later parts, and
+// the guard's state and saves. This side must make the same, byte for byte. Paths in it start with
 // ~, for each side's home; dates are UTC. A hire marked "normalized": "NFC"
 // is compared with the Mac's brief made precomposed: the Mac decomposes the
 // paths it builds with URL, and this side keeps them as given (GO-PARITY.md).
