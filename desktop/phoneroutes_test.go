@@ -48,9 +48,9 @@ var everyPhoneRoute = [][2]string{
 	{"POST", "/act?action=letgo"}, {"POST", "/act?action=stop"},
 	{"POST", "/dictate"}, {"POST", "/peek"}, {"POST", "/choose?option=other"}, {"GET", "/choice"}, {"GET", "/approvals"},
 	{"GET", "/conversation"}, {"GET", "/session/info"}, {"GET", "/desk/git"}, {"POST", "/summary"},
-	{"GET", "/talk"}, {"GET", "/talk/asking"}, {"POST", "/talk/say"}, {"POST", "/talk/pick"},
+	{"POST", "/desk/pr/open"}, {"GET", "/talk"}, {"GET", "/talk/asking"}, {"POST", "/talk/say"}, {"POST", "/talk/pick"},
 	{"GET", "/dictate"}, {"GET", "/peek"}, {"POST", "/choice"}, {"POST", "/approvals"}, {"POST", "/conversation"},
-	{"POST", "/talk"}, {"PUT", "/talk"}, {"POST", "/talk/asking"}, {"GET", "/talk/say"}, {"GET", "/talk/pick"},
+	{"GET", "/desk/pr/open"}, {"POST", "/talk"}, {"PUT", "/talk"}, {"POST", "/talk/asking"}, {"GET", "/talk/say"}, {"GET", "/talk/pick"},
 	{"GET", "/nowhere"},
 }
 
@@ -161,9 +161,10 @@ var reachTheTable = []string{"phone-wifi", "phone-wireguard", "phone-serve-mac",
 // dump of every route.
 func TestEachRowLetsInItsClassOnly(t *testing.T) {
 	d, phoneKey := probeDeck(t)
-	// FR1 moved 7; the talk bubble adds GET /talk, GET /talk/asking, POST /talk/say and POST /talk/pick (1.26).
-	if len(phoneRouteTable) != 12 {
-		t.Errorf("%d rows; want 12", len(phoneRouteTable))
+	// FR1 moved 7; the talk bubble adds GET /talk, GET /talk/asking, POST /talk/say and POST /talk/pick (1.26), and the
+	// pull request badge's click POST /desk/pr/open (R2).
+	if len(phoneRouteTable) != 13 {
+		t.Errorf("%d rows; want 13", len(phoneRouteTable))
 	}
 	for key, row := range phoneRouteTable {
 		if !slices.ContainsFunc(everyPhoneRoute, func(route [2]string) bool {
@@ -264,6 +265,7 @@ GET /conversation: 401 403 403 403 403 403 403 403 404 401 401; let in: window
 GET /session/info: 401 403 403 403 403 403 403 403 404 401 401; let in: window
 GET /desk/git: 401 403 403 403 403 403 403 403 404 401 401; let in: window
 POST /summary: 401 403 403 403 403 403 403 403 403 401 401; let in: nobody
+POST /desk/pr/open: 401 403 403 403 403 403 403 403 404 401 401; let in: window
 GET /talk: 401 403 403 403 403 403 403 403 404 401 401; let in: window
 GET /talk/asking: 401 403 403 403 403 403 403 403 200 401 401; let in: window
 POST /talk/say: 401 403 403 403 403 403 403 403 400 401 401; let in: window
@@ -273,6 +275,7 @@ GET /peek: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phon
 POST /choice: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 POST /approvals: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 POST /conversation: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
+GET /desk/pr/open: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 POST /talk: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 PUT /talk: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window
 POST /talk/asking: 401 404 404 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, phone-here, window

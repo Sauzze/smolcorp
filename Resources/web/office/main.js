@@ -8,7 +8,7 @@
  * whole number of the screen's pixels so every edge stays sharp.
  *
  *   AgentOffice.create(canvas, on) → { show(snapshot), close(), select(id), setVisible(shown), setFramed(framed), moved(),
- *                                      setSaving(on), setLite(on), onElevator(clientX, clientY), ride() }
+ *                                      setSaving(on), setLite(on), setPR(found), onElevator(clientX, clientY), ride() }
  *
  * `show` takes what the deck streams; `close` empties the office when the
  * stream drops, and whoever is there when it's back is already at work.
@@ -52,6 +52,11 @@
  * (`anchor.again` false when the desk's card was asked for within the second), `on.talk.hover(null)` when it leaves.
  * The `anchor` is { id, state, since, art: { box, tip }, css: { box, tip } }: the bubble's box and the point its
  * tail aims at, in art pixels and in CSS pixels on the page. Without `on.talk` the room draws and answers as before.
+ *
+ * `on.pr(id)` (1.26, the office's own window only; see PR_LOOKS) turns a desk's pull request into a tag on the front of
+ * the desk, and a click or tap on it into `on.pr(id)` for session `id`; the page gives the pull requests to show with
+ * `setPR` ({ <session id>: { number, state, reviewDecision } }). Without `on.pr`, nothing is drawn or tapped, whatever
+ * setPR was given.
  *
  * The snapshot's `floors` (before them, its `upstairs`) are the floors over
  * this one, up to six in all, each with its name, its style and the desks on
@@ -1773,6 +1778,59 @@
   /** A hire in T3 Code's badge, "T3" on a violet tag, on the front of its desk on any floor (T3D-a, experimental). */
   const T3_BADGE = ['.bbbbbbb.', 'bwwwbwwbb', 'bbwbbbbwb', 'bbwbbbwwb', 'bbwbbbbwb', 'bbwbbwwbb', '.bbbbbbb.'];
   const T3_INKS = { b: 0x6d28d9, w: 0xf4f1ea };
+  /**
+   * A desk's pull request badge (1.26 R2, only in the computer's own window): "PR #42" on a tag whose colour and
+   * little 3 × 5 mark say where it stands, on the front of the desk at its right, clear of the T3 badge at its left.
+   * One badge, two parts: the pull request's tag is the first; the second, for the lines changed ("+12 −3", C5), has
+   * its place reserved under it (see PR_BADGE.second) and is drawn by whoever gives it something to say.
+   */
+  const PR_LOOKS = {
+    open: { tone: 0x2f4f8f, mark: ['010', '101', '101', '101', '010'] },
+    approved: { tone: 0x2f7d4a, mark: ['000', '001', '101', '010', '000'] },
+    changes: { tone: 0xb4532a, mark: ['010', '010', '010', '000', '010'] },
+    merged: { tone: 0x8250df, mark: ['101', '101', '010', '010', '010'] },
+    closed: { tone: 0x5b6070, mark: ['101', '101', '010', '101', '101'] },
+  };
+  const PR_INK = 0xf4f1ea;
+  /**
+   * Where the tag goes: `top` rows down the desk, `right` pixels in from its right edge, `height` tall, no wider than
+   * `room` unless a number needs it, and `second` rows under it for the part C5 adds.
+   */
+  const PR_BADGE = { top: 7, right: 3, height: 7, room: 29, second: 8 };
+  /**
+   * Which look a pull request has: 'open', 'approved' (open and approved), 'changes' (open and changes asked for),
+   * 'merged' or 'closed'; or null for anything the computer wouldn't send (no badge, never a guess).
+   */
+  function prKindOf(pr) {
+    if (!pr || typeof pr !== 'object' || !Number.isInteger(pr.number) || pr.number < 1 || pr.number > 100000000) return null;
+    const decision = pr.reviewDecision || '';
+    if (pr.state === 'MERGED') return 'merged';
+    if (pr.state === 'CLOSED') return 'closed';
+    if (pr.state !== 'OPEN') return null;
+    if (decision === 'APPROVED') return 'approved';
+    if (decision === 'CHANGES_REQUESTED') return 'changes';
+    return decision === '' || decision === 'REVIEW_REQUIRED' ? 'open' : null;
+  }
+  /**
+   * The tag for a pull request, or null: its look, what it spells and how wide it is (its mark, then "PR", then the
+   * number; a long number gives up its mark, then its "PR", to keep to the room the desk has).
+   */
+  function prTagOf(pr) {
+    const kind = prKindOf(pr);
+    if (!kind) return null;
+    const number = `#${pr.number}`;
+    const forms = [{ marked: true, label: 'PR' }, { marked: false, label: 'PR' }, { marked: false, label: '' }];
+    const widthOf = (form) => 2 + (form.marked ? 5 : 0) + (form.label ? textWidth(form.label) + 2 : 0) + textWidth(number);
+    const form = forms.find((f) => widthOf(f) <= PR_BADGE.room) || forms[forms.length - 1];
+    return { kind, ...PR_LOOKS[kind], ...form, number, width: widthOf(form) };
+  }
+  /** Where a desk's tag is, in art pixels (the same for drawing and for a tap), or null when it has no pull request. */
+  function prBoxOf(desk, pr) {
+    const tag = prTagOf(pr), place = DESKS[desk];
+    if (!tag || !place) return null;
+    const left = place.x + DESK_WIDTH - PR_BADGE.right - tag.width, top = place.y + PR_BADGE.top;
+    return { tag, left, top, right: left + tag.width, bottom: top + PR_BADGE.height };
+  }
   /**
    * What a floor upstairs never has, in either shape, however it's arranged: the red button and the mic, the ground
    * floor's controls, and the ping-pong table, gone from every lounge.
@@ -6750,7 +6808,7 @@
     3: ['111', '001', '111', '001', '111'], 4: ['101', '101', '111', '001', '001'], 5: ['111', '100', '111', '001', '111'],
     6: ['111', '100', '111', '101', '111'], 7: ['111', '001', '001', '001', '001'], 8: ['111', '101', '111', '101', '111'],
     9: ['111', '101', '111', '001', '111'], ':': ['0', '1', '0', '1', '0'], '+': ['000', '010', '111', '010', '000'],
-    '-': ['000', '000', '111', '000', '000'],
+    '-': ['000', '000', '111', '000', '000'], '#': ['0101', '1111', '0101', '1111', '0101'],
     m: ['000', '000', '111', '111', '101'], h: ['100', '100', '111', '101', '101'],
     // The letters the office's buttons spell
     D: ['110', '101', '101', '101', '110'], E: ['111', '100', '110', '100', '111'], F: ['111', '100', '110', '100', '100'],
@@ -6927,7 +6985,7 @@
    * agent, or fire one. A first finger landing on them for a two-finger
    * scroll sends nothing.
    */
-  const SENT_ON_LIFT = ['key', 'choice', 'chip', 'button', 'fired', 'maxed', 'talk'];
+  const SENT_ON_LIFT = ['key', 'choice', 'chip', 'button', 'fired', 'maxed', 'talk', 'pr'];
   /** How long the question before firing, or max effort, ignores taps, in seconds: a double tap that opened it doesn't answer it too. */
   const FIRE_QUESTION_SETTLES = 0.5;
   /** Return again this soon, by accept or send, is one tap landing twice, in seconds. */
@@ -31550,6 +31608,28 @@
       }));
     }
 
+    /** A desk's pull request, as a tag on the front of the desk: see PR_LOOKS. Nothing at all when it has none. */
+    function drawGitBadge(desk) {
+      const session = office.seats[desk] && office.seats[desk].session;
+      const at = session && frame.pr ? prBoxOf(desk, frame.pr.get(session.id)) : null;
+      if (!at) return;
+      const { tag, left, top } = at;
+      // The tag, its four corners cut as the T3 badge's are
+      fill(left + 1, top, tag.width - 2, PR_BADGE.height, tag.tone);
+      fill(left, top + 1, tag.width, PR_BADGE.height - 2, tag.tone);
+      let x = left + 1;
+      const glyphs = (rows, gx) => rows.forEach((row, r) => [...row].forEach((ink, column) => { if (ink === '1') dot(gx + column, top + 1 + r, PR_INK); }));
+      if (tag.marked) {
+        glyphs(tag.mark, x);
+        x += 5;
+      }
+      if (tag.label) {
+        for (const c of tag.label) { glyphs(GLYPHS[c], x); x += GLYPHS[c][0].length + 1; }
+        x += 1;
+      }
+      for (const c of tag.number) { glyphs(GLYPHS[c], x); x += GLYPHS[c][0].length + 1; }
+    }
+
     /**
      * What stands on the floor upstairs besides what stands downstairs: each headless desk's badge. The racks a floor
      * had in its corner are its chill area's now: the server room's servers, or a style's own, in the lounge's corner.
@@ -31602,6 +31682,8 @@
     if (!frame.arranging) {
       office.seats.forEach((s, desk) => {
         if (s && s.session && s.session.t3 && DESKS[desk] && !DESKS[desk].off) items.push([DESKS[desk].y + 5.1, () => drawT3Badge(desk)]);
+        // A pull request's tag, on any floor, in the computer's own window: the page gives it the PRs to show (setPR)
+        if (frame.pr && s && s.session && DESKS[desk] && !DESKS[desk].off && frame.pr.has(s.session.id)) items.push([DESKS[desk].y + 5.2, () => drawGitBadge(desk)]);
       });
     }
     // Someone being carried is drawn on top, where the finger has them, not at their desk. Someone at
@@ -33343,6 +33425,9 @@
   function create(canvas, on = {}) {
     const ctx = canvas.getContext('2d');
     liteOffered = !!on.lite;
+    // The pull requests the page gave (setPR), by session id: drawn and tapped only where the page took `on.pr`, which
+    // is the computer's own window alone, never a phone's page or the viewer's.
+    let gitPRs = new Map();
     const office = new Office();
     const clock = () => performance.now() / 1000;
     let visible = true;
@@ -33564,6 +33649,15 @@
         uppers.delete(n);
       }
       if (floorShown > floors.length) floorShown = floors.length;
+    }
+
+    /** The pull request tags on a floor's desks, to a finger, by their session's id: none unless the page took `on.pr`. */
+    function prBoxes(there) {
+      if (!on.pr || !gitPRs.size) return [];
+      return there.seats.flatMap((seat, desk) => {
+        const at = seat && seat.session && DESKS[desk] && !DESKS[desk].off ? prBoxOf(desk, gitPRs.get(seat.session.id)) : null;
+        return at ? [{ id: seat.session.id, box: { left: at.left, right: at.right, top: at.top, bottom: at.bottom } }] : [];
+      });
     }
 
     /** The desks upstairs with someone at them, to a finger, by their session's id: as deskBoxes has a desk downstairs. */
@@ -34204,6 +34298,7 @@
       const room = {
         now, hour: date.getHours(), minute: date.getMinutes(), month: date.getMonth(),
         width: canvas.width, height: canvas.height, ratio: host.window.devicePixelRatio || 1, framed, floating, direct: drawsDirect,
+        pr: on.pr ? gitPRs : null,
       };
       // Upstairs, nothing is picked, held or waiting on a key. Only the floors being drawn: the one in view, and those
       // the ride is between.
@@ -34419,6 +34514,8 @@
           return best ? best.target : { kind: 'uncard' };
         }
         for (const { id, box, drivable } of upstairsDeskBoxes()) consider(drivable ? { kind: 'session', id } : { kind: 'upstairsDesk', id }, box, 3);
+        // A desk's pull request tag, over the desk: one tap opens it
+        for (const { id, box } of upstairs(prBoxes) || []) consider({ kind: 'pr', id }, box, 1);
         // An empty desk here, held, hires someone into it, by role, as downstairs.
         for (const { desk, box } of upstairsEmptyBoxes()) consider({ kind: 'empty', desk, floor: floorShown }, box, 4);
         // The settings' cog, in the corner here too
@@ -34474,6 +34571,8 @@
         consider(target, workspace, 2);
         consider(target, label, 3);
       });
+      // A desk's pull request tag, over the desk: one click opens it
+      for (const { id, box } of prBoxes(office)) consider({ kind: 'pr', id }, box, 1);
       return overlaid();
 
       /** What's out over the room for the picked agent or the held desk, which covers what's under it. */
@@ -34724,6 +34823,8 @@
         return on.talk?.open?.(target.id, talkAnchor(target.id));
       }
       if (target.kind === 'session') return on.select?.(target.id);
+      // A pull request's tag opens that pull request, through the page: the computer says what it opens, not the room
+      if (target.kind === 'pr') return on.pr?.(target.id);
       const session = pickedHere();
       if (!session) {
         wobbling = { what: target.kind, at: clock() };
@@ -35458,6 +35559,15 @@
        * and is drawn at most 30 times a second, while the room's own calm setting stays as it is for other screens.
        */
       setLite(on) { liteOffice = !!on; },
+      /**
+       * The pull requests to show, an object (or Map) of session id → { number, state, reviewDecision }, as the computer's
+       * /desk/git gave them, for the computer's own window only: a page that took no `on.pr` shows and taps nothing.
+       * Anything that isn't a pull request the badge knows is left out.
+       */
+      setPR(found) {
+        const entries = found instanceof Map ? [...found] : Object.entries(found || {});
+        gitPRs = new Map(entries.filter(([id, pr]) => typeof id === 'string' && prKindOf(pr)).map(([id, pr]) => [id, { number: pr.number, state: pr.state, reviewDecision: pr.reviewDecision || '' }]));
+      },
       /**
        * Whether a point on the page is on the elevator, as a finger finds it,
        * for a page that takes the room's taps itself, as the portable viewer
