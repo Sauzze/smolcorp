@@ -272,6 +272,12 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 		if w, found := d.watchers.get(id); found && w.By != "gm" {
 			return refuse("takes away only its own watches.")
 		}
+	case post && path == "/setup/preview":
+		// Named as a hire, one of its own: never a desk by its session id, which could be anyone's.
+		h, refused := findWatchHire(text("hire"), readRegistry(registryPath(), false).hires)
+		if text("session") != "" || refused != nil || !s.hasHire(h) {
+			return refuse("sets the preview only of its own hires" + where + ", named as \"hire\".")
+		}
 	case post && (path == "/setup/gm/tile" || path == "/setup/gm/screen"):
 		return refuse("works only" + where + ": it doesn't move the office's windows.")
 	default:

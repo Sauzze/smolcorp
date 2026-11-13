@@ -258,6 +258,20 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			w.WriteHeader(http.StatusNotFound) // empty, as the Mac's 404s
 			return
 		}
+		// Setup and its cookie live on 127.0.0.1 alone: a browser sends a host's cookies to every port of it, and a
+		// desk's own server, whose preview is on localhost (preview.go), must never be sent Setup's. So localhost
+		// (and [::1]) is sent on to 127.0.0.1 before any cookie is set or read; there, a session is never opened, and
+		// anything that carries Setup's cookie is refused. A tool, the GM and a hire carry no cookie, and go on as before.
+		if portSuffix.ReplaceAllString(r.Host, "") != "127.0.0.1" {
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				http.Redirect(w, r.Request, setupBase()+r.URL.RequestURI(), http.StatusFound)
+				return
+			}
+			if _, err := r.Cookie(setupCookie()); err == nil || r.URL.Path == "/setup/session" {
+				writeStatus(w)(http.StatusForbidden, setupOnLoopbackIP())
+				return
+			}
+		}
 		if r.Method != http.MethodGet && r.Header.Get(setupHeader) != "1" {
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -349,9 +363,11 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		if err != nil {
 			at = nowMillis()
 		}
-		// The agent's pid, sent for a headless run: digits only, else ignored.
+		// The agent's pid, sent for a headless run: digits only, else ignored. Taken for a headless run alone, which
+		// has no tab to tell its going by; it says only when the run has ended, and never where a desk's processes
+		// are (preview.go finds those from the tab).
 		pid := 0
-		if text := r.Header.Get("X-AgentDeck-PID"); text != "" && strings.Trim(text, "0123456789") == "" && len(text) < 10 {
+		if text := r.Header.Get("X-AgentDeck-PID"); isHeadless(r.Header.Get("X-AgentDeck-Tab")) && text != "" && strings.Trim(text, "0123456789") == "" && len(text) < 10 {
 			pid, _ = strconv.Atoi(text)
 		}
 		event := decodeJSON(r.Body)
@@ -834,6 +850,10 @@ func (rt *router) launcher(w http.ResponseWriter, r *request) {
 		return
 	}
 	defer rt.deck.launcherGone(id, tab)
+	// Its connection's ends, by which its own process is found for its desk's preview (launcherTab.process).
+	if local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
+		tab.connected(r.RemoteAddr, local.String())
+	}
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(http.StatusOK)
 	encoder := json.NewEncoder(w)
@@ -1859,6 +1879,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// A hire's git state, read only (gitstate.go; goOnlyRoutes lists it: gm, page and tool). A GET, so a GM's scope passes it.
 	case r.Method == http.MethodGet && path == "/setup/gm/git":
 		rt.gmGit(w, r)
+
+	// A desk's preview address declared (preview.go; goOnlyRoutes lets in page, gm and hire).
+	case r.Method == http.MethodPost && path == "/setup/preview":
+		rt.setupPreview(w, r)
 
 	// The front desk. routes.json: GET /setup/gm/team is read for gm, page and tool.
 	case r.Method == http.MethodGet && path == "/setup/gm/team":

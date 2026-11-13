@@ -30,12 +30,18 @@ type call struct {
 	// says not to, or asTool: then they carry the setup key in a header, as a tool does.
 	withoutSetupKey bool
 	asTool          bool
+	// Setup lives on 127.0.0.1 alone (server.go): a call to it at localhost is made at 127.0.0.1, as a browser is
+	// sent there, unless this says to keep the host.
+	keepHost bool
 }
 
 func serve(t *testing.T, d *Deck, c call) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest(c.method, c.target, strings.NewReader(c.body))
 	r.Host, r.RemoteAddr = c.host, c.from
+	if port, atLocalhost := strings.CutPrefix(c.host, "localhost"); atLocalhost && !c.keepHost && (r.URL.Path == "/setup" || strings.HasPrefix(r.URL.Path, "/setup/")) {
+		r.Host = "127.0.0.1" + port
+	}
 	if strings.HasPrefix(c.target, "/setup/") && !c.withoutSetupKey {
 		if c.asTool {
 			r.Header.Set(setupKeyHeader, d.access.SetupKey)

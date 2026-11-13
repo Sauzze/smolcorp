@@ -200,7 +200,7 @@ func newEnvClient(e Env, allowHire bool) (*Client, error) {
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 	if given := strings.TrimSpace(e.Getenv(hireKeyEnv)); given != "" {
 		if !allowHire {
-			return nil, &Error{Code: exitApp, Msg: "this command is for the GM; a hire can't use it. A hire can only `smolcorp gm send`."}
+			return nil, &Error{Code: exitApp, Msg: "this command is for the GM; a hire can't use it. A hire can only `smolcorp gm send` and `smolcorp gm preview`."}
 		}
 		key, kerr := validKey(given)
 		if kerr != nil {

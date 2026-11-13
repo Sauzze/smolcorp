@@ -92,6 +92,15 @@ const ownWindowMark = "own"
 
 func localBase() string { return fmt.Sprintf("http://localhost:%d", Port) }
 
+// setupBase is where Setup opens: 127.0.0.1, never localhost, so its cookie is never sent to a desk's own server,
+// whose preview is on localhost (server.go sends localhost's Setup on here).
+func setupBase() string { return fmt.Sprintf("http://127.0.0.1:%d", Port) }
+
+// setupOnLoopbackIP is what a request to Setup at localhost that carries its cookie is told.
+func setupOnLoopbackIP() string {
+	return "Setup opens at " + setupBase() + "/setup, never at localhost. Open it again from Smolcorp's menu."
+}
+
 // ensureWindowKey is the key of the window's own paired device. It is read from
 // the private file next to the other keys; if there is none, or no device holds
 // it any more (Unpair All removed it), a new device is paired and its key kept.

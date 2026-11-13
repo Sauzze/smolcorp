@@ -93,11 +93,14 @@ var routeTable = []routeRow{
 }
 
 // goOnlyRoutes are setup routes only this app serves (INVENTORY.md's "Served by the Go app only"), so they aren't
-// in the Mac's fixture: Take over in T3 Code and Hand back (t3takeover.go), the page alone; and a hire's git state (gitstate.go), a read.
+// in the Mac's fixture: Take over in T3 Code and Hand back (t3takeover.go), the page alone; a hire's git state (gitstate.go), a read;
+// and a desk's preview address declared (preview.go): the owner from Setup, the GM for a hire, a hire for its own desk.
+// Not under /setup/gm/, so the owner's works with the manager off.
 var goOnlyRoutes = []routeRow{
 	{"POST", "/setup/t3code/takeover", []string{"page"}},
 	{"POST", "/setup/t3code/handback", []string{"page"}},
 	{"GET", "/setup/gm/git", []string{"gm", "page", "tool"}},
+	{"POST", "/setup/preview", []string{"gm", "page", "hire"}},
 }
 
 // name is how the table spells a caller.
