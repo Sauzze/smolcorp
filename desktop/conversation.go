@@ -309,6 +309,8 @@ func conversationItems(entry map[string]any, offset int64, uses map[string]strin
 
 // conversationItemOf is an item, cut at conversationTextMost, with who it's from in a short line.
 func conversationItemOf(kind, text string, offset int64, index int, at *int64, from string) conversationItem {
+	// A photo sent to the desk (photo.go) is said as one, never by its path.
+	text = hidePhotos(text)
 	cut := utf8.RuneCountInString(text) > conversationTextMost
 	if cut {
 		text = string([]rune(text)[:conversationTextMost])

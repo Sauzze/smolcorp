@@ -75,6 +75,9 @@ type Deck struct {
 	talkPicks map[string]int64
 	// When each session's input line, and its prompt's details, were last looked at from the phone: once a second.
 	lastPeek, lastChoiceLook map[string]time.Time
+	// The desks with a photo kept for them (photo.go), by session id: each one's photo folder, a random name that only
+	// the deck knows, so their photos go as they end.
+	photoDesks map[string]string
 	// The hires whose launcher hasn't connected yet, by their token, and
 	// when the last hire was made: see hire.go.
 	hires    map[string]*pendingHire
@@ -261,6 +264,10 @@ func NewDeck() *Deck {
 		d.mu.Unlock()
 	})
 	d.rounds.every(musicInterval, d.followMusic)
+	// The photos from the last run, now, before the deck is anyone's (their folders' names went with it), then those
+	// past their time as they come.
+	clearPhotos(supportDir)
+	d.rounds.every(photoSweepEvery, d.sweepPhotos)
 	// The mail pump, after d.cloud is set; the watchers' stop ends it too, and the deck's rounds.
 	stopWatching, stopMail := d.stopWatchers, d.startMailPump()
 	d.stopWatchers = func() { stopMail(); d.rounds.stop(); stopWatching() }
@@ -455,6 +462,8 @@ func (d *Deck) IngestFrom(event map[string]any, reported, tab, startedIn string,
 	}
 	changed := d.sessions.Apply(canonical, agent, tab, startedIn, at)
 	d.logEvent(canonical, agent, at)
+	// A photo its desk has just read goes at once (photo.go).
+	d.notePhotoRead(canonical)
 	if id, _ := canonical["session_id"].(string); pid > 0 || parent != "" {
 		if session := d.sessions.Get(id); session != nil {
 			if pid > 0 {
@@ -537,6 +546,7 @@ func (d *Deck) launcherFor(event map[string]any, agent Agent) string {
 // changed re-sends the state, with the lock held.
 func (d *Deck) changed() {
 	d.applyQueuedEffort()
+	d.forgetEndedPhotos()
 	d.keepT3Seats()
 	state := d.snapshot()
 	for stream := range d.streams {

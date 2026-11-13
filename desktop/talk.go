@@ -76,6 +76,8 @@ type talkCard struct {
 	Size   int64        `json:"size"`
 	// Whether the window can type into the desk now (talksay.go), so the bubble greys its input with the reason.
 	Typing deskTyping `json:"typing"`
+	// Whether the window can send it a picture now (photo.go): its typing, and an agent that takes pictures.
+	Photo deskPhoto `json:"photo"`
 }
 
 // talkAskingOf is the session's prompt, or nil when it isn't asking. With the deck's lock held.
@@ -252,9 +254,10 @@ func (d *Deck) talk(id string) (int, any) {
 	s := d.sessions.Get(id)
 	var card talkCard
 	path := ""
+	var agent Agent
 	if s != nil {
 		card = talkCard{State: s.State, Asking: talkAskingOf(s)}
-		path = s.Transcript
+		path, agent = s.Transcript, s.Agent
 	}
 	d.mu.Unlock()
 	if s == nil {
@@ -265,6 +268,7 @@ func (d *Deck) talk(id string) (int, any) {
 		return http.StatusNotFound, "That agent has gone."
 	}
 	card.Typing = typing
+	card.Photo = photoTaking(typing, agent)
 	card.Size, card.Last = talkLastOf(path)
 	return http.StatusOK, card
 }
