@@ -2,11 +2,14 @@ package desktop
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/Sauzze/smolcorp/internal/guard"
 )
 
 // WIN125c: the fence fails closed. Every row of RWIN2's tables (B1–B5) is refused, read as Windows, the Mac and
@@ -249,7 +252,22 @@ func TestTheDemosFenceRefusesAPathTheShellBuilds(t *testing.T) {
 				// B2 and B4, in the Mac shape: the guard the fence asks first refuses them.
 				"\u00dfh host", "\ufb02y deploy", "\ufb01rebase deploy", "=git push origin main", "=git -C /elsewhere status",
 				"=git worktree add /Users/ada/elsewhere", "=ssh host",
-			}, []string{"ls 2>/dev/null", "echo x >notes.md", "git diff HEAD~1 -- bill.py", "cat <notes.md"}},
+				// RWIN7 B1: a bracket Go's matcher read otherwise ([!x], POSIX's classes): the demo's own fence, the setup
+				// key, and the app's folder by a pattern (the fence's own patternInSupport).
+				"rm .claude/s[!x]ttings.json", "echo '{}' > .claude/s[!x]ttings.json", "rm -rf .c[!x]aude", "rm -rf .c[[:alpha:]]aude",
+				`cat ~/Library/Application\ Support/AgentDeck/setup-k[!x]y`, "cat setup-k[[:alpha:]]y",
+				`cat ~/Library/Application\ Support/[!x]gentDeck/registry.json`, `cat ~/Library/Application\ Support/[[:alpha:]]gentDeck/registry.json`,
+				`cat /Users/ada/Library/[!x]pplication\ Support/AgentDeck/registry.json`,
+				// B2: zsh's precommand modifiers, repeat, emulate -c and short forms.
+				"noglob git push origin main", "nocorrect git push origin main", "repeat 1 git push origin main",
+				"if [[ -n x ]] git push origin main", "noglob ssh host", "nocorrect git -C /Users/ada/elsewhere status",
+				"true; - git push origin main", "emulate zsh -c 'git push origin main'", "noglob git worktree add /Users/ada/elsewhere",
+				"noglob smolcorp gm hire --role tester --folder /Users/ada/elsewhere", "if noglob git -C /Users/ada/elsewhere status; then :; fi",
+				// B3: zsh's ${(e)…} and bash's @P.
+				"echo ${(e):-'$(git push)'}", "echo ${(e):-'$(cat setup-key)'}", `x='$(git push)'; echo "${x@P}"`,
+			}, []string{"ls 2>/dev/null", "echo x >notes.md", "git diff HEAD~1 -- bill.py", "cat <notes.md",
+				// RWIN7: a - or repeat as an argument, a test with its ;, and a bracket that fills in nothing kept.
+				"echo x | cat -", "grep -n repeat notes.md", "if [[ -f notes.md ]]; then cat notes.md; fi", "ls [!.]*", "git log main^"}},
 		{"linux", "/home/ada/smolcorp-demo", "/home/ada", "/home/ada/.config/sauzzedeck-pro",
 			[]string{`grep -r . "$HOME/.config/sauzzedeck-pro"`, `grep -r . "$XDG_CONFIG_HOME/sauzzedeck-pro"`, `cat $HOME/.config/sauzzedeck-pro/registry.json`,
 				`cat <~/.config/sauzzedeck-pro/registry.json`, `echo x >/home/ada/.config/sauzzedeck-pro/config.json`},
@@ -284,6 +302,14 @@ func TestTheDemosFenceRefusesAPathTheShellBuilds(t *testing.T) {
 			refused = append(refused, bashCall(line, repo))
 		}
 		allowed := []demoCall{bashCall("echo $?", repo), bashCall("grep -n '$HOME/x' notes.md", repo), bashCall(`echo "$HOME"`, repo)}
+		if s.goos == "darwin" {
+			// RWIN7 B1: a Glob from home whose last part could be the setup key, through a bracket.
+			refused = append(refused, tool("Glob", map[string]any{"path": "/Users/ada", "pattern": "**/[!x]etup-key"}),
+				tool("Glob", map[string]any{"path": "/Users/ada", "pattern": "**/[[:alpha:]]m-token"}),
+				tool("Grep", map[string]any{"path": "/Users/ada/Library", "pattern": "x", "glob": "[!x]etup-key"}),
+				tool("Read", map[string]any{"file_path": "/Users/ada/Library/Application Support/[!x]gentDeck/registry.json"}))
+			allowed = append(allowed, tool("Glob", map[string]any{"pattern": "[!.]*.py"}))
+		}
 		for _, line := range s.allowed {
 			allowed = append(allowed, bashCall(line, repo))
 		}
@@ -317,5 +343,216 @@ func TestTheDemosFenceRefusesAPathTheShellBuilds(t *testing.T) {
 	if why := (demoFence{root: "/Users/ada/smolcorp-demo", home: "/Users/ada", support: "/Users/ada/Library/Application Support/AgentDeck", goos: "darwin"}).
 		command(`cat "$HOME/x/y"`, "/Users/ada/smolcorp-demo/app"); !strings.Contains(why, "write the path out plainly") {
 		t.Errorf("the refusal: %q", why)
+	}
+}
+
+// WIN125j (RWIN8): the demo's fence in its Mac reading refuses every row of RWIN8's four tables, with the guard it
+// asks first and its own reading of a pattern (guard.PatternCouldFill): a bracket closed anywhere, zsh's x^y, a
+// pattern earlier in the path, and text the shell runs without eval. Everyday lines still run.
+func TestTheDemosFenceReadsPatternsAsTheGuardDoes(t *testing.T) {
+	f := demoFence{root: "/Users/ada/smolcorp-demo", roles: []string{"tester"}, home: "/Users/ada",
+		support: "/Users/ada/Library/Application Support/AgentDeck", goos: "darwin"}
+	repo := f.paths().join(f.root, demoRepoName)
+	const dir = `~/Library/Application\ Support/AgentDeck/`
+	refused := []string{
+		// B1: a [ inside a bracket, and zsh's [!].
+		"cat " + dir + "setup-k[!x-[:x:]y", "cat " + dir + "setup-k[!x-[:alpha:]y", "cat <" + dir + "setup-k[!x-[:x:]y",
+		"echo '{}' > " + dir + "hire-gu[!x-[:x:]rd.json", "rm " + dir + "hire-gu[!x-[:x:]rd.json", "cat " + dir + "gm-t[!x-[:x:]ken",
+		"rm .claude/s[!x-[:x:]ttings.local.json", "echo '{}' > .claude/s[!x-[:x:]ttings.json", "rm -rf .c[!x-[:x:]aude",
+		"rm .claude/s[!x-[:x:]ttings.json", "cat " + dir + "setup-k[ee-[:x:]y", "rm -rf .c[ll-[:x:]aude",
+		"cat " + dir + "setup-k[!]y", "rm -rf .c[!]aude", "cat " + dir + "setup-k[![:x:]y", "cat [[:alpha:]x]etup-ke[y]",
+		// B2: zsh's x^y.
+		"rm -rf .c^1", "rm -rf .c^", "rm -rf .cl^{tree}", "mv .c^1 /tmp/x", "setopt extendedglob; rm -rf .c^1",
+		"setopt extendedglob; mv .c^1 x", "cat s^1", "cat se^1", "cat hire-g^1", "cat gm^1",
+		// B3: a pattern earlier in the path.
+		"rm .c?aude/settings.json", "echo '{}' > .c?aude/settings.json", "rm .c[!x]aude/settings.json",
+		"rm .c[[:alpha:]]aude/settings.json", "rm .cl*/settings.json", "rm .c?aude/settings.local.json",
+		// B4: text run as a command without eval.
+		"PS4='$(git push origin main)'; set -x; :", "PS4='$(ssh host)'; set -x; :", "export PS4='`git push`'; set -x; :",
+		"setopt promptsubst xtrace; PS4='$(git push)'; :", "setopt promptsubst; print -P '$(git push)'",
+		"zstyle -e ':a' b 'git push'; zstyle -s ':a' b x", "zmodload zsh/zpty; zpty w 'git push'", "functions[f]='git push'; f",
+		"aliases[P]='git push'; eval P", "alias -g P=push; eval 'git P'", "autoload -Uz zargs; zargs -- origin -- git push",
+		"zargs -- origin -- git push", "autoload -U zmv; zmv '(*)' '$(git push)'", "eval -- 'git push'",
+		`zmodload zsh/mapfile; echo "${mapfile[/Users/ada/Library/Application Support/AgentDeck/setup-key]}"`, "echo ${mapfile[setup-key]}",
+		// Found on the way (WIN125j): dot globbing, hash and bash's arithmetic.
+		"setopt globdots; rm -rf ?claude", "shopt -s dotglob; rm -rf *", "hash g=/usr/bin/git; g push origin main",
+		"x='a[$(git push)]'; (( x ))",
+		// A run may take a /: the app's folder by a pattern in an earlier part.
+		"cat ~/Lib*/registry.json", "cat ~/Library/App*/registry.json",
+	}
+	allowed := []string{
+		"[ -f notes.md ] && cat notes.md", "[[ -n $x ]] && echo \"$x\"", "grep '[0-9]' notes.md", "ls *.[ch]",
+		"git log HEAD^1", "git diff main^..HEAD", "rm -rf build/*", "git log main^", "git show v1.2.0^{commit}",
+		"ls [!.]*", "cat docs/pr\u00e9sentation.md", "ls \u00c9quipe/", "git diff HEAD~1 -- bill.py",
+	}
+	for _, line := range refused {
+		if why := f.check(bashCall(line, repo)); !strings.HasPrefix(why, demoFenceRefusal) {
+			t.Errorf("let through %s", line)
+		}
+	}
+	for _, line := range allowed {
+		if why := f.check(bashCall(line, repo)); why != "" {
+			t.Errorf("refused %s: %s", line, why)
+		}
+	}
+	tool := func(name string, input map[string]any) demoCall {
+		data, _ := json.Marshal(input)
+		return demoCall{ToolName: name, ToolInput: data, Cwd: repo}
+	}
+	for _, c := range []demoCall{
+		tool("Glob", map[string]any{"path": "/Users/ada", "pattern": "**/setup-k[!x-[:x:]y"}),
+		tool("Glob", map[string]any{"path": "/Users/ada", "pattern": "**/[[:alpha:]x]etup-ke[y]"}),
+		tool("Read", map[string]any{"file_path": "/Users/ada/Lib*/registry.json"}),
+		tool("Glob", map[string]any{"path": "/Users/ada", "pattern": "Lib*/registry.json"}),
+	} {
+		if why := f.check(c); !strings.HasPrefix(why, demoFenceRefusal) {
+			t.Errorf("let through %s %s", c.ToolName, c.ToolInput)
+		}
+	}
+	if why := f.check(tool("Glob", map[string]any{"pattern": "[!.]*.py"})); why != "" {
+		t.Errorf("a Glob in the project: %s", why)
+	}
+	// The shared reading itself: a match is never narrower than a shell's.
+	for _, c := range []struct {
+		pattern, name string
+		below, want   bool
+	}{
+		{"[!x]gentDeck", "AgentDeck", false, true}, {"A[!x-[:x:]entDeck", "AgentDeck", false, true},
+		{"{A,B}gentDeck", "AgentDeck", false, true}, {"Lib*", "Library", true, true}, {"Libr", "Library", true, false},
+		{"Docs*", "Library", true, false}, {"[!.]*.py", "AgentDeck", false, false},
+	} {
+		if got := guard.PatternCouldFill(c.pattern, c.name, c.below); got != c.want {
+			t.Errorf("PatternCouldFill(%q, %q, %v): %v", c.pattern, c.name, c.below, got)
+		}
+	}
+}
+
+// WIN125k (RWIN9): the demo's fence in its Mac reading refuses every row RWIN9 found it let through: its own fence
+// reached by a path cleaned or a move (B1), a value read as a path (B3), unsetopt +4 (B4), bash's runners (B5) and
+// find's and git's own patterns (B6); a Bash call whose cwd is a .claude or .git folder, or the app's own folder, as
+// in two calls (cd .claude/agents, then rm ../settings.json); and RWIN9's 240 fuzz hits. Everyday lines still run.
+func TestTheDemosFenceRefusesRWIN9sRows(t *testing.T) {
+	f := demoFence{root: "/Users/ada/smolcorp-demo", roles: []string{"tester"}, home: "/Users/ada",
+		support: "/Users/ada/Library/Application Support/AgentDeck", goos: "darwin"}
+	repo := f.paths().join(f.root, demoRepoName)
+	refused := []string{
+		"rm .claude/./settings.json", "echo '{}' > .claude/./settings.json", "rm .claude//settings.json",
+		"rm .claude/agents/../settings.json", "echo '{}' > .claude/commands/../settings.json",
+		"cd .claude/. && rm settings.json", "cd .claude/agents && rm ../settings.json", "pushd .claude/. && rm settings.json",
+		"cd ./.claude/./ && rm settings.json", "git -C .claude/. rm -f settings.json", "HOME=.claude; rm ~/settings.json",
+		"OLDPWD=.claude/agents; cd - && rm ../settings.json", "CDPATH=.claude; cd agents && rm ../settings.json",
+		"cd .claude/agents", "x=.c?aude/settings.json; rm $x", "x=.cl*/settings.json; echo '{}' > $x",
+		"x=.c?aude/settings.json; rm ${~x}", "setopt globsubst; x=.c?aude/settings.json; rm $x",
+		"unsetopt +4; rm -rf ?claude", "unsetopt +4 && rm -rf ?claude", "unsetopt +4; rm -rf *",
+		"compgen -C 'git push' x", "compgen -C 'ssh host' x", "complete -C 'git push' x", "mapfile -t -C 'git push #' -c 1 a <<< x",
+		"readarray -C 'git push #' -c 1 a <<< x", "jobs -x git push", "jobs -x ssh host", "jobs -x vercel deploy",
+		"builtin jobs -x git push", `echo "${ git push; }"`, `echo "${| git push; }"`, `echo "${ ssh host; }"`,
+		"find . -name 'settings.loc*' -delete", "find . -path '*/.c*/s*' -delete", "find . -name settings.json -delete",
+		"git rm -q '.c*/settings.json'", "git rm -q ':(glob).c*/settings.json'", "git rm -q '*settings.json'",
+	}
+	allowed := []string{
+		"find . -name '*.py'", "find . -name __pycache__ -prune", "cd ..", "cd -", "git -C . status", "find . -name '*.pyc' -delete",
+		`rm -f "$tmp"`, "ls [!.]*", "cat docs/présentation.md", "git diff HEAD~1 -- bill.py", "cat .claude/settings.json",
+	}
+	for _, line := range refused {
+		if why := f.check(bashCall(line, repo)); !strings.HasPrefix(why, demoFenceRefusal) {
+			t.Errorf("let through %s", line)
+		}
+	}
+	for _, line := range allowed {
+		if why := f.check(bashCall(line, repo)); why != "" {
+			t.Errorf("refused %s: %s", line, why)
+		}
+	}
+	// The second of two calls, from where the first one's cd left it.
+	for _, c := range []demoCall{
+		bashCall("rm ../settings.json", repo+"/.claude/agents"), bashCall("rm settings.json", repo+"/.claude"),
+		bashCall("echo '{}' > settings.json", repo+"/.claude"), bashCall("ls", repo+"/.git/hooks"),
+		bashCall("echo '{}' > h.json", "/Users/ada/Library/Application Support/AgentDeck"),
+		bashCall("rm settings.json", "/Users/ada/elsewhere/.claude"),
+	} {
+		if why := f.check(c); !strings.HasPrefix(why, demoFenceRefusal) {
+			t.Errorf("let through %s from %s", c.ToolInput, c.Cwd)
+		}
+	}
+	if why := f.check(bashCall("ls", repo+"/src")); why != "" {
+		t.Errorf("a call from the project's own folder: %s", why)
+	}
+	data, err := os.ReadFile("../internal/guard/testdata/rwin9-fuzz-hits.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pattern := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if why := f.check(bashCall("rm "+pattern, repo)); !strings.HasPrefix(why, demoFenceRefusal) {
+			t.Errorf("let through rm %s", pattern)
+		}
+	}
+}
+
+// WIN125l (RWIN10): the demo's fence in its Mac reading refuses the rows RWIN10 found it let through, as it asks the
+// guard first: a move into .claude by a variable or zsh's dirs (B2), an assignment's value in its other forms (B3),
+// find's and git's patterns with a $ run in them and a --opt= value (B4), and find's -regex classes (B6). B7's
+// find lines run.
+func TestTheDemosFenceRefusesRWIN10sRows(t *testing.T) {
+	f := demoFence{root: "/Users/ada/smolcorp-demo", roles: []string{"tester"}, home: "/Users/ada",
+		support: "/Users/ada/Library/Application Support/AgentDeck", goos: "darwin"}
+	repo := f.paths().join(f.root, demoRepoName)
+	refused := []string{
+		"x=.claude/agents; cd $x && rm ../settings.json", "x=.claude/agents; pushd $x && rm ../settings.json",
+		"read x <<< .claude/agents; cd $x && rm ../settings.json", "dirs .claude/agents; popd; rm ../settings.json",
+		"dirs .claude/agents; cd +1; rm ../settings.json", "dirs .claude/agents; cd -1; rm ../settings.json",
+		"a=('.c?aude/settings.json'); rm ${a[@]}", "a+=('.c?aude/settings.json'); rm ${a[@]}",
+		"declare -a a=('.c?aude/settings.json'); rm ${a[@]}", "x+='.c?aude/settings.json'; rm $x",
+		"read x <<< '.c?aude/settings.json'; rm $x", "IFS= read -r x <<< '.c?aude/settings.json'; rm $x",
+		"mapfile -t a <<< '.c?aude/settings.json'; rm ${a[@]}", "printf -v x '.c?aude/settings.json'; rm $x",
+		"for x in '.c?aude/settings.json'; do rm $x; done", "set -- '.c?aude/settings.json'; rm $1",
+		`find . -name "sett${x}ings.json" -delete`, `find . -name "s${x}*" -delete`, `find . -name "$(printf s)ettings.json" -delete`,
+		`find . -name "set${x}tings.json" -exec cp /dev/null {} \;`, `git rm "*sett${x}ings.json"`,
+		"cp settings.json --target-directory=.clau${x}de",
+		`find . -regex '.*/\.\S\S\S\S\S\S/\S\S\S\S\S\S\S\S\.\S\S\S\S' -delete`,
+		`find . -regex '.*/\.\w\w\w\w\w\w/\w\w\w\w\w\w\w\w\.\w\w\w\w' -delete`,
+		`find . -regex '.*/\S\S\S\S\S\S\S\S\.\S\S\S\S\S\.\S\S\S\S' -delete`,
+	}
+	allowed := []string{
+		"find . -name '*.py' -not -path './node_modules/*' -delete", "find . -type f -name '*.py' ! -path './.venv/*' -exec black {} +",
+		"find . -path ./node_modules -prune -o -name '*.pyc' -delete",
+	}
+	for _, line := range refused {
+		if why := f.check(bashCall(line, repo)); !strings.HasPrefix(why, demoFenceRefusal) {
+			t.Errorf("let through %s", line)
+		}
+	}
+	for _, line := range allowed {
+		if why := f.check(bashCall(line, repo)); why != "" {
+			t.Errorf("refused %s: %s", line, why)
+		}
+	}
+}
+
+// WIN125m (RWIN11 PART 1): a brace sequence in a for list, an array, set -- or an assignment runs in the demo, as
+// it did at WIN125h; a brace form that could reach the fence is still refused.
+func TestTheDemosFenceRunsBraceSequences(t *testing.T) {
+	f := demoFence{root: "/Users/ada/smolcorp-demo", roles: []string{"tester"}, home: "/Users/ada",
+		support: "/Users/ada/Library/Application Support/AgentDeck", goos: "darwin"}
+	repo := f.paths().join(f.root, demoRepoName)
+	allowed := []string{
+		"for i in {1..5}; do echo $i; done", "for i in {01..12}; do echo $i; done", "for i in {a..e}; do echo $i; done",
+		"for i in {0..100..10}; do echo $i; done", "for i in x{1..3}y; do echo $i; done", "x=({1..5})", "a=({1..3})",
+		"set -- {1..3}", "x={1..3}", "for i in {1..100}; do echo $i; done",
+	}
+	refused := []string{
+		"x=.{a..z}laude/settings.json; rm $x", "for d in .{a..z}laude; do rm $d/settings.json; done",
+		"set -- .c{a..z}aude/settings.json; rm $1", "for i in {a..b..2}claude; do rm -r $i; done",
+		"rm .{a..z}laude/{a..z}{a..z}ttings.json",
+	}
+	for _, line := range allowed {
+		if why := f.check(bashCall(line, repo)); why != "" {
+			t.Errorf("refused %s: %s", line, why)
+		}
+	}
+	for _, line := range refused {
+		if why := f.check(bashCall(line, repo)); !strings.HasPrefix(why, demoFenceRefusal) {
+			t.Errorf("let through %s", line)
+		}
 	}
 }

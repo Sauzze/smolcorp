@@ -69,7 +69,29 @@ func TestNoSpellingNamesTheTokenOrTheGuardFile(t *testing.T) {
 	mustRun(t, "ordinary patterns", []string{
 		"ls *.json", "cat /tmp/*.json", "ls *", "ls /tmp/*", "ls g*", "ls gm*", "ls docs/gm*.md", "git add internal/*",
 		"cat package*.json", "ls ~/Projects/foo*", "rm -f /tmp/a*", "cat gm-notes.md", "ls token", "echo hire",
+		// RWIN7 B1: brackets that fill in nothing the guard keeps.
+		"ls [!.]*", "ls [[:upper:]]*", "ls x[]y", "cat setup-k[!e]y.md", "ls src/[a-z]*.go", "cat notes[!x].md",
 	})
+	// RWIN7 B1: [!x] and POSIX's classes, which Go's matcher read otherwise, fill in the guard file and the token
+	// file. Each bracket is read as any one letter, whatever it holds; one that starts with ! or holds a class is
+	// refused as not written plainly where it fills in such a name, even for a command that only reads.
+	odd := []string{
+		"echo '{}' > " + dir + "hire-gu[!x]rd.json", "echo '{}' > " + dir + "hire-gu[[:alpha:]]rd.json",
+		"cp /dev/null " + dir + "hire-gu[!x]rd.json", "rm " + dir + "hire-gu[!x]rd.json", "cat " + dir + "gm-t[!x]ken",
+		"cat " + dir + "gm-t[[:alpha:]]ken", "cat hire-gu[!x]rd.json", "cat ~/.config/smolcorp/gm-token-k[!x]pt",
+		// For comparison, refused before too.
+		"echo '{}' > " + dir + "hire-gu?rd.json", "rm " + dir + "hire-gu?rd.json", "cat " + dir + "gm-to?en",
+	}
+	for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
+		for _, line := range odd {
+			if Check(line, groups) == nil {
+				t.Errorf("let through: %s", line)
+			}
+		}
+	}
+	if r := Check("cat hire-gu[!x]rd.json", DefaultGroups()); r == nil || r.Rule != notPlainRule || !strings.Contains(r.Error(), "[!x]") {
+		t.Errorf("a reader with an odd bracket: %v", r)
+	}
 }
 
 // A3: a command that names the guard file is refused unless it only reads.
@@ -251,6 +273,15 @@ func TestNoSpellingNamesTheSetupKey(t *testing.T) {
 		"cat ~/Library/Application\\ \u017fupport/AgentDeck/s*", "cat ~/.config/sauzzedeck-pro/s*", "cat ~/AppData/Roaming/SauzzeDeck\\ Pro/s*",
 		"type setup-key.", `type "setup-key "`, "type setup-key::$DATA", "type SETUP-~1", "type se1a2b~1", `type C:setup-key`,
 		`type "C:\Users\ada\AppData\Roaming\SauzzeDeck Pro\SETUP-~1"`, "grep -fSETUP-~1 x", "grep -fsetup-key. x",
+		// RWIN7 B1: a bracket Go's matcher read otherwise ([!x] is "anything but x" to the shell, and POSIX's classes).
+		"cat setup-k[!x]y", "cat setup-[!x]ey", "cat setup-k[[:alpha:]]y", "cat setup-k[[:lower:]]y", "cat [[:alpha:]]etup-key",
+		"cat setup-k[[=e=]]y", "cat setup-k[[.e.]]y", "cat " + dir + "setup-k[!x]y", "cat < setup-k[!x]y", "cat <setup-k[[:alpha:]]y",
+		"grep . setup-k[!x]y", "cp setup-k[!x]y /tmp/k", "cat setup-k[!]x]y", `cat setup-k["!"x]y`,
+		// RWIN7 B2 and B3: zsh's emulate -c, and ${(e)…} running its own text.
+		"emulate zsh -c 'cat setup-key'", "echo ${(e):-'$(cat setup-key)'}", "echo ${(e):-'$(cat " + dir + "setup-key)'}",
+		// RWIN7's comparisons, refused before too.
+		"cat setup-k?y", "cat setup-k[e]y", "cat setup-k[a-z]y", "cat setup-k[^x]y", "repeat 1 cat setup-key",
+		"emulate sh -c 'cat " + dir + "setup-key'",
 	}
 	mustRefuse(t, "setup key", lines)
 	for _, line := range lines {
@@ -296,7 +327,7 @@ func TestTheGuardRefusesASearchForTheSetupKeyWord(t *testing.T) {
 	refused := []string{
 		// RWIN4 B1's table: grep reads setup-key as a file, through an option or a variable the guard can't know.
 		"grep setup-key --reg .", "grep setup-key --reg=.", "GREP_OPTIONS='-e .' grep setup-key",
-		"RIPGREP_CONFIG_PATH=rgcfg rg setup-key", "cd " + support + " && grep setup-key --reg .",
+		"RIPGREP_CONFIG_PATH=rgcfg rg setup-key", "cd docs && grep setup-key --reg .", // WIN125k: a cd into the support folder is refused first
 		"egrep setup-key --reg .", "grep -E setup-key --rege=.", "grep --exclude-f setup-key x .",
 		"env GREP_OPTIONS='-e .' grep setup-key", "rg --no-config setup-key",
 		// WIN125d let these run as searches of other files for the word: refused again (RWIN4 B1), as the

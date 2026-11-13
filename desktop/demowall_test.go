@@ -301,6 +301,27 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 			"\u00dfh host", "\ufb02y deploy", "\ufb01rebase deploy", "cat \u00dfetup-key", `cat $'setup-key\0x'`, "cat setup-(key|x)",
 			"=git push origin main", "=git -C " + shellQuoted(filepath.Join(homeDir, "elsewhere")) + " status",
 			"=git worktree add " + shellQuoted(filepath.Join(homeDir, "elsewhere")), "=ssh host",
+			// RWIN7 B1: a bracket Go's matcher read otherwise ([!x], POSIX's classes): the demo's own fence, the setup
+			// key, and a part of the app's folder's path.
+			"rm .claude/s[!x]ttings.json", "echo '{}' > .claude/s[!x]ttings.json", "rm -rf .c[!x]aude", "rm -rf .c[[:alpha:]]aude",
+			"cat " + shellQuoted(supportDir) + "/setup-k[!x]y", "cat " + shellQuoted(supportDir) + "/setup-k[[:alpha:]]y",
+			"cat " + shellQuoted(filepath.Dir(supportDir)) + "/[!x]" + shellQuoted(filepath.Base(supportDir)[1:]) + "/registry.json",
+			"cat " + shellQuoted(filepath.Dir(supportDir)) + "/[[:alnum:]]" + shellQuoted(filepath.Base(supportDir)[1:]) + "/registry.json",
+			// B2: zsh's precommand modifiers, repeat, emulate -c and short forms (the wall's rows too).
+			"noglob git push origin main", "nocorrect git push origin main", "repeat 1 git push origin main",
+			"if [[ -n x ]] git push origin main", "noglob ssh host", "true; - git push origin main",
+			"nocorrect git -C " + shellQuoted(filepath.Join(homeDir, "elsewhere")) + " status",
+			"noglob git worktree add " + shellQuoted(filepath.Join(homeDir, "elsewhere")), "emulate zsh -c 'git push origin main'",
+			// B3: zsh's ${(e)…}, bash's @P.
+			"echo ${(e):-'$(git push)'}", "echo ${(e):-'$(cat setup-key)'}", `x='$(git push)'; echo "${x@P}"`,
+			// WIN125j (RWIN8 B1–B4): a [ inside a bracket and zsh's [!], zsh's x^y, a pattern earlier in the path, and
+			// text the shell runs without eval; and a run that takes a / to the app's folder.
+			"cat " + shellQuoted(supportDir) + "/setup-k[!x-[:x:]y", "cat " + shellQuoted(supportDir) + "/setup-k[!]y",
+			"rm .claude/s[!x-[:x:]ttings.json", "rm -rf .c[!x-[:x:]aude", "rm -rf .c[!]aude", "rm -rf .c^1", "rm -rf .c^",
+			"setopt extendedglob; mv .c^1 x", "rm .c?aude/settings.json", "echo '{}' > .c?aude/settings.json", "rm .cl*/settings.json",
+			"PS4='$(git push origin main)'; set -x; :", "zargs -- origin -- git push", "eval -- 'git push origin main'",
+			"setopt promptsubst; print -P '$(git push)'", "functions[f]='git push origin main'; f",
+			"cat " + shellQuoted(filepath.Dir(filepath.Dir(supportDir))) + "/" + shellQuoted(filepath.Base(filepath.Dir(supportDir))[:1]) + "*/registry.json",
 		} {
 			refused = append(refused, row{who.fence, bashCall(line, who.cwd)})
 		}
@@ -315,7 +336,8 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 			row{who.fence, bashCall("cat \ufb01le.md", who.cwd)}, row{who.fence, bashCall("cat \uff26ile.md", who.cwd)},
 			row{who.fence, bashCall("cat docs/pr\u0435sentation.md", who.cwd)})
 	}
-	for _, line := range []string{"echo 'Done.' >>" + shellQuoted(filepath.Join(testerFolder, "STATUS.md")), "ls 2>/dev/null", "git diff HEAD~1 -- bill.py"} {
+	for _, line := range []string{"echo 'Done.' >>" + shellQuoted(filepath.Join(testerFolder, "STATUS.md")), "ls 2>/dev/null", "git diff HEAD~1 -- bill.py",
+		"if [[ -f bill.py ]]; then cat bill.py; fi", "ls [!.]*", "grep -n repeat bill.py"} {
 		if why := asTester.check(bashCall(line, tester.Worktree)); why != "" {
 			t.Errorf("refused %q: %s", line, why)
 		}

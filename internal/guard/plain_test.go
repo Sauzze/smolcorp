@@ -37,15 +37,23 @@ func TestTheGuardRefusesWhatIsntWrittenPlainly(t *testing.T) {
 		"cat 'docs/Straße.md'", "cp x 'ﬁle'", "npx 'ﬁrebase-tools' deploy", "env 'ßh' host", "echo x > 'ﬁ.txt'",
 		"cat < 'ﬁ.txt'", "X='ﬁ' make", "git log --author='Ｅlodie'", "grep -rn 'ß' .", "sh -c 'echo ß'",
 		"git commit -F 'ﬁ.txt'", "git ls-files -m 'ß'", "git commit -m ok 'ﬁ.go'",
+		// RWIN7 N4: in -Fm, -tm and -Cm the m is the value of -F, -t or -C: the next word is a path.
+		"git commit -Fm 'ﬁle'", "git commit -tm 'ﬁle'", "git commit -Cm 'ﬁ'", "git merge -sm 'ﬁ'", "git notes add -Fm 'ﬁ'",
 		"présentation.sh", "./présentation.sh", "'Équipe/run'", "env présentation", "sh -c 'présentation x'",
 		"timeout 9 ﬁx", "command été", "exec été",
 		// A word that starts with = (zsh's =cmd), even quoted as the command's name.
 		"'=git' push", "env =ssh host", "sudo =git push", "cat =(echo x)", "ls =ls",
 		// zsh's glob forms: ( glued or opening a word after the name, ^, ~ and # inside a word.
 		"cat x(N)", "cat (a|b)", "cat x(:a)", "cat !(x)", "cat @(x)", "f() { echo x; }",
+		"npm i lodash@^4.17.0", "git diff origin/^", "cat hire-guard.json~1",
+		"git diff origin/main~1", "git diff main~1", "git log main~3..main", "rm -rf CLAUDE~1", "cat hire-guard^1",
+		"git diff origin/main^/x",
+	}
+	// WIN125j: these are refused by the name their skeleton could fill in (skeleton.go), which the guard finds first.
+	named := []string{
 		"cat " + dir + "^nothing", "cat setup-key~x", "cat " + dir + "setup-key~x", "cat setup-key#",
 		"cat " + dir + "s*~x", "git diff --no-index /dev/null " + dir + "setup-key~1",
-		"npm i lodash@^4.17.0", "git log main^", "git diff origin/main~1",
+		"cat setup-key^1", "git log setup-key~1", "cat GM-TOK~1", "rm -rf .claude^1",
 	}
 	for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
 		for _, line := range append(append([]string{}, rwin6...), rules...) {
@@ -58,16 +66,24 @@ func TestTheGuardRefusesWhatIsntWrittenPlainly(t *testing.T) {
 				t.Errorf("%q: %v, want: %s", line, r, notPlainRule)
 			}
 		}
+		for _, line := range named {
+			if r := Check(line, groups); r == nil || r.Group != "guard" {
+				t.Errorf("%q: %v, want a guard refusal", line, r)
+			}
+		}
 	}
 	// What these rules leave alone: text in quotes as data, a lone = or == (test's), a ~ at a word's start or after =
 	// or :, $#, NAME=( ), (( )), a subshell, and git's revisions.
 	mustRun(t, "written plainly", []string{
 		"echo 'é'", `printf '%s\n' "Résumé"`, `git commit -m "Corrige l'accès"`, "git commit -am 'été'", "git commit -m'été'",
-		"git commit --message 'é'", "git commit --message='é'", "git tag -a v1 -m 'Version 1 : réglée'", "git stash push -m 'à moitié'",
+		"git commit --message 'é'", "git commit --message='é'", "git commit -sm 'Corrige ﬁ'", "git tag -sm 'ﬁ' v1", "git commit -vam 'ß'", "git tag -a v1 -m 'Version 1 : réglée'", "git stash push -m 'à moitié'",
 		"cat <<'EOF' > notes.md\nRésumé : ß, ﬁ\nEOF", "[ a = b ] && echo y", "[ a == b ] && echo y", "cat ~/x", "ls --prefix=~/x",
 		"PATH=$PATH:~/bin make", "echo $#", "arr=(a b); echo ${#arr[@]}", "x+=(c)", "(cd internal && go test .)",
 		"if (cd x); then echo y; fi", "(( x = 1 + 2 ))", "echo $(( 1 + 2 ))", "git diff HEAD~1", "git show HEAD^",
 		"git log HEAD~3..HEAD", "git show HEAD^:go.mod", "git diff abc1234^2 HEAD^{tree}", "git log origin/main..HEAD~1",
+		// RWIN7 N5: a branch's revisions with a ^, as git writes them (zsh fills in main^2 as main at most).
+		"git log main^", "git show origin/main^", "git show main^2", "git diff v1.2.0^..v1.3.0", "git rebase -i feature/x^",
+		"git log main^..feature", "git show main^{tree}", "git diff main^~1",
 		"cat 'setup-key(N)'", "echo 'x#y' \"a~b\" 'c^d'", "git log --format='%h %s' -3", "grep -n '^func ' x.go",
 	})
 }

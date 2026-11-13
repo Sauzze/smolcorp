@@ -220,6 +220,11 @@ func (f demoFence) check(c demoCall) string {
 		if !isText {
 			return demoFenceRefusal + "a command it can't read."
 		}
+		// A call made from a .claude or .git folder, or the app's own folder, reaches the fence or the app's files by a
+		// short name (rm settings.json, ../settings.json): Claude Code keeps a cd for the next call (RWIN9 B1).
+		if c.Cwd != "" && (guard.KeptCwd(c.Cwd) || f.inside(c.Cwd, "") && f.inFenceFolder(c.Cwd, "") || len(f.supportRests(c.Cwd, "")) > 0) {
+			return demoFenceRefusal + "this call runs in " + c.Cwd + ", a .claude or .git folder or the app's own folder, where a short name reaches the demo's fence or the app's files: run it from the project's folder."
+		}
 		return f.command(command, c.Cwd)
 	}
 	return ""
@@ -413,14 +418,21 @@ func demoProgram(word string) string {
 var demoShells = []string{"sh", "bash", "zsh", "dash", "ksh", "mksh", "fish", "csh", "tcsh", "busybox"}
 
 // demoUnread is what in any line builds a command line the fence doesn't read, "" for nothing: eval, env -S
-// (--split-string, where \_ is a blank), a shell's -c, and cmd, powershell and pwsh (^, %VAR%, ('smol'+'corp')).
+// (--split-string, where \_ is a blank), a shell's -c, cmd, powershell and pwsh (^, %VAR%, ('smol'+'corp')), and
+// zsh's own ways to run a command (RWIN7 B2): emulate -c anywhere, and noglob, nocorrect, - and repeat where a
+// command starts (demoZshStart). The demo's lines run their commands plainly.
 func demoUnread(line string) string {
 	for _, escapes := range []bool{true, false} {
 		for _, words := range demoSegments(line, escapes) {
+			if name := demoZshStart(words); name != "" {
+				return "zsh's " + name
+			}
 			for i, word := range words {
 				switch name := demoProgram(word); {
 				case name == "eval":
 					return "eval"
+				case name == "emulate":
+					return "zsh's emulate"
 				case name == "cmd" || name == "powershell" || name == "pwsh":
 					return name
 				case name == "env" && slices.ContainsFunc(words[i+1:], func(a string) bool {
@@ -433,6 +445,24 @@ func demoUnread(line string) string {
 					return "a nested " + name + " -c"
 				}
 			}
+		}
+	}
+	return ""
+}
+
+// demoZshStart is zsh's noglob, nocorrect, - or repeat where a simple command's words start a command: first, after
+// NAME=value words, after a reserved word (if, then, do, !, …) or after another of them; "" for none. Each runs the
+// words after it as a command the fence would read with the modifier as its program (nocorrect git -C <outside>
+// status). As an argument (git checkout -, grep repeat), the word is no command.
+func demoZshStart(words []string) string {
+	reserved := []string{"if", "then", "else", "elif", "do", "while", "until", "time", "!", "{"}
+	for _, word := range words {
+		switch name := demoProgram(word); {
+		case name == "noglob" || name == "nocorrect" || name == "-" || name == "repeat":
+			return name
+		case slices.Contains(reserved, name) || demoAssignment.MatchString(word):
+		default:
+			return ""
 		}
 	}
 	return ""
@@ -1060,9 +1090,9 @@ func (f demoFence) demosOwnFile(path, cwd string) bool {
 const demoWildcards = "*?[{"
 
 // patternInSupport is a pattern's rest below the app's support folder when what it fills in could be there
-// (cat ~/Lib*/App*/A*/s*, RWIN3 N7): each of its parts matches the folder's, case aside, a { part anything and a
-// ** part any number of them, and its plain folder before the first wildcard has its links followed and is
-// compared as belowAnyCase does. false for a path with no wildcard, or one that stays above the folder or beside it.
+// (cat ~/Lib*/App*/A*/s*, RWIN3 N7): each of its parts matches the folder's, case aside (demoPartMatches), a **
+// part or one whose run could take a / (Lib* as Library/…) any number of them, and its plain folder before the
+// first wildcard has its links followed and is compared as belowAnyCase does. false for a path with no wildcard, or one that stays above the folder or beside it.
 func (f demoFence) patternInSupport(path, cwd string) (string, bool) {
 	p := f.paths()
 	path, ok := f.whole(p.win32(p.gitBash(strings.TrimSpace(path))), cwd)
@@ -1092,6 +1122,9 @@ func (f demoFence) patternInSupport(path, cwd string) (string, bool) {
 		switch {
 		case i == len(want) || part == "**":
 			return strings.Join(pattern[i:], "/"), true
+		case guard.PatternCouldFill(part, want[i], true):
+			// A run may take a / too (WIN125j): Lib* may be Library/Application Support/AgentDeck/….
+			return strings.Join(pattern[i:], "/"), true
 		case !demoPartMatches(part, want[i]):
 			return "", false
 		}
@@ -1102,14 +1135,11 @@ func (f demoFence) patternInSupport(path, cwd string) (string, bool) {
 	return "", false
 }
 
-// demoPartMatches says whether one part of a pattern could fill in name, case aside: a { part (bash's
-// {a,b}) or one path.Match can't read, always.
+// demoPartMatches says whether one part of a pattern could fill in name, case aside, read as the guard reads a
+// pattern (guard.PatternCouldFill, WIN125j): each character bash, zsh or Glob may give a meaning ([!x-[:x:]], {a,b},
+// x^y) starts a run that may be anything, so a match is never narrower than the shell's or Glob's.
 func demoPartMatches(pattern, name string) bool {
-	if strings.Contains(pattern, "{") {
-		return true
-	}
-	matched, err := path.Match(guard.Fold(pattern), guard.Fold(name))
-	return matched || err != nil
+	return guard.PatternCouldFill(pattern, name, false)
 }
 
 // fixedFolder is a whole pattern's folder before its first wildcard: where a search for it starts.
