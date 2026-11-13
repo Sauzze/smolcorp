@@ -63,7 +63,7 @@ enum ViewerKeychain {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var found: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let data = found as? Data,
+        guard Keychain.copyMatching(query, &found) == errSecSuccess, let data = found as? Data,
               let value = String(data: data, encoding: .utf8), !value.isEmpty else { return nil }
         return value
     }
@@ -78,7 +78,7 @@ enum ViewerKeychain {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var found: CFTypeRef?
-        return SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess
+        return Keychain.copyMatching(query, &found) == errSecSuccess
     }
 
     /// Whether there's surely none: the Keychain said so. Any other answer
@@ -92,7 +92,7 @@ enum ViewerKeychain {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var found: CFTypeRef?
-        return SecItemCopyMatching(query as CFDictionary, &found) == errSecItemNotFound
+        return Keychain.copyMatching(query, &found) == errSecItemNotFound
     }
 
     /// Readable while the screen is locked, which is when it's used most,
@@ -108,7 +108,7 @@ enum ViewerKeychain {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             kSecValueData as String: Data(value.utf8),
         ]
-        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+        return Keychain.add(item) == errSecSuccess
     }
 
     static func delete(_ account: Account) {
@@ -117,7 +117,7 @@ enum ViewerKeychain {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account.rawValue,
         ]
-        SecItemDelete(query as CFDictionary)
+        Keychain.delete(query)
     }
 }
 

@@ -10,10 +10,12 @@ import Security
 ///
 /// The folder and the token aren't enough on their own: another process of
 /// yours can reach the folder, and could move the socket aside and listen at
-/// its name. So both ends check who is at the other one, by pid, as the
-/// system has it (`LOCAL_PEERPID`): this app serves only the core it started
-/// (`core`), token or not, and the core sends its token only to its parent,
-/// this app (desktop/hostbridge_darwin.go).
+/// its name. So both ends check who is at the other one, as the system has it:
+/// this app serves only the core it started (`core`), token or not, by its
+/// audit token (`LOCAL_PEERTOKEN`: its pid, that pid's version, its user), so a
+/// process given the core's pid after it ended is someone else; and the core
+/// sends its token only to its parent, this app, by pid
+/// (desktop/hostbridge_darwin.go).
 ///
 /// Each action is this app's own code, as the Swift engine runs it: the
 /// terminal drivers (Accessibility and AppleScript; the phone's text and the
@@ -45,13 +47,29 @@ final class HostBridge {
     private let counting = NSLock()
     /// The pid of the core this app started (`GoCore`), the only process served: nil while there's none.
     private var corePid: pid_t?
+    /// Its audit token, as the system had it when `core` was set: nil while there's none, or if it couldn't be had,
+    /// and then nobody is served.
+    private var coreToken: audit_token_t?
     private let coreLock = NSLock()
 
     /// The core's pid: set by `GoCore` as it starts it, before the core has the token, and
-    /// cleared as it ends. A connection from any other process is closed unanswered.
+    /// cleared as it ends. A connection from any other process is closed unanswered: one with
+    /// another pid, and one with this pid that isn't this process (`coreToken`).
     var core: pid_t? {
         get { coreLock.lock(); defer { coreLock.unlock() }; return corePid }
-        set { coreLock.lock(); corePid = newValue; coreLock.unlock() }
+        set {
+            let token = newValue.flatMap(HostBridge.auditToken(of:))
+            coreLock.lock()
+            corePid = newValue
+            coreToken = token
+            coreLock.unlock()
+        }
+    }
+
+    private var coreAudit: audit_token_t? {
+        coreLock.lock()
+        defer { coreLock.unlock() }
+        return coreToken
     }
 
     /// The longest request read: a typed text or a secret is short.
@@ -205,8 +223,9 @@ final class HostBridge {
     private func serve(_ connection: Int32, taken: DispatchTime) {
         var uid = uid_t(0), gid = gid_t(0)
         guard getpeereid(connection, &uid, &gid) == 0, uid == getuid() else { return }
-        // Another process of yours, even with the token, is never served.
-        guard let core, HostBridge.peerPid(connection) == core else { return }
+        // Another process of yours, even with the token, is never served: only the core, by its audit token.
+        guard let expected = coreAudit, let peer = HostBridge.peerToken(connection),
+              HostBridge.sameProcess(peer, expected) else { return }
         let readBy = taken + HostBridge.requestWait
         var request = Data()
         var chunk = [UInt8](repeating: 0, count: 4096)
@@ -314,6 +333,39 @@ final class HostBridge {
             left = 0
             lock.unlock()
         }
+    }
+
+    /// The audit token of the process at `connection`'s other end, as the system set it when that end connected.
+    static func peerToken(_ connection: Int32) -> audit_token_t? {
+        var token = audit_token_t()
+        var size = socklen_t(MemoryLayout<audit_token_t>.size)
+        guard getsockopt(connection, SOL_LOCAL, LOCAL_PEERTOKEN, &token, &size) == 0,
+              size == socklen_t(MemoryLayout<audit_token_t>.size) else { return nil }
+        return token
+    }
+
+    /// The audit token of the running process `pid`, from its task's name port, which tells about a process of
+    /// yours and controls nothing: nil if there's no such process or it isn't yours.
+    static func auditToken(of pid: pid_t) -> audit_token_t? {
+        var name = mach_port_name_t(MACH_PORT_NULL)
+        guard pid > 0, task_name_for_pid(mach_task_self_, pid, &name) == KERN_SUCCESS else { return nil }
+        defer { mach_port_deallocate(mach_task_self_, name) }
+        var token = audit_token_t()
+        var count = mach_msg_type_number_t(MemoryLayout<audit_token_t>.size / MemoryLayout<natural_t>.size)
+        let status = withUnsafeMutablePointer(to: &token) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(name, task_flavor_t(TASK_AUDIT_TOKEN), $0, &count)
+            }
+        }
+        guard status == KERN_SUCCESS, token.val.5 == UInt32(bitPattern: pid) else { return nil }
+        return token
+    }
+
+    /// Whether two audit tokens are the same process of `user`: the same pid, the same version of that pid (a
+    /// process that gets the pid later has another), and both run as `user`. The fields are libbsm's
+    /// (`audit_token_to_euid`, `_pid`, `_pidversion`: val[1], val[5], val[7]).
+    static func sameProcess(_ peer: audit_token_t, _ expected: audit_token_t, user: uid_t = getuid()) -> Bool {
+        peer.val.5 == expected.val.5 && peer.val.7 == expected.val.7 && peer.val.1 == user && expected.val.1 == user
     }
 
     /// The pid of the process at `connection`'s other end, as the system has it, or nil.

@@ -597,6 +597,9 @@ enum SummaryKey {
     }
 
     private static var learning = false
+    /// Bumped by `forgetKnown`: a look begun before it found what was there then (nothing, while the Keychain's gate
+    /// was shut), so its answer isn't kept. Guarded by `lock`.
+    private static var generation = 0
     /// Told on the main queue when the hint has been learned from the Keychain, so what shows it can redraw.
     static var onLearned: () -> Void = {}
 
@@ -605,30 +608,40 @@ enum SummaryKey {
         lock.lock()
         let begin = !learning && knownHintValue == nil
         if begin { learning = true }
+        let begun = generation
         lock.unlock()
         guard begin else { return }
         queue.async {
             let hint = store.hint()
             DispatchQueue.main.async {
                 lock.lock()
-                if knownHintValue == nil { knownHintValue = .some(hint) }
-                learning = false
+                let current = begun == generation
+                if current {
+                    if knownHintValue == nil { knownHintValue = .some(hint) }
+                    learning = false
+                }
                 lock.unlock()
-                onLearned()
+                if current { onLearned() }
             }
         }
     }
 
     /// Runs `then` on the main queue once the hint is known (at once if it is).
     static func whenKnown(_ then: @escaping () -> Void) {
-        if knownHint != nil { return then() }
+        lock.lock()
+        let known = knownHintValue != nil
+        let begun = generation
+        lock.unlock()
+        if known { return then() }
         queue.async {
             let hint = store.hint()
             DispatchQueue.main.async {
                 lock.lock()
-                if knownHintValue == nil { knownHintValue = .some(hint) }
+                let current = begun == generation
+                if current, knownHintValue == nil { knownHintValue = .some(hint) }
                 lock.unlock()
-                then()
+                // Looked at before `forgetKnown`: looked at again, so `then` finds the hint known.
+                current ? then() : whenKnown(then)
             }
         }
     }
@@ -638,8 +651,9 @@ enum SummaryKey {
     /// answers setup, the office, phones and hooks.
     static let queue = DispatchQueue(label: "smolcorp.summary-key")
 
-    /// Asks the store again next time, as after the store is swapped in a test.
-    static func forgetKnown() { lock.lock(); knownHintValue = nil; learning = false; lock.unlock() }
+    /// Asks the store again next time, as after the store is swapped in a test or the Keychain's gate opens
+    /// (`KeychainGate.open`); a look still under way then isn't kept (`generation`).
+    static func forgetKnown() { lock.lock(); knownHintValue = nil; learning = false; generation += 1; lock.unlock() }
 }
 
 extension SummaryKey.Store {
@@ -653,7 +667,7 @@ extension SummaryKey.Store {
                 kSecMatchLimit as String: kSecMatchLimitOne,
             ]
             var found: CFTypeRef?
-            guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let data = found as? Data,
+            guard Keychain.copyMatching(query, &found) == errSecSuccess, let data = found as? Data,
                   let key = String(data: data, encoding: .utf8), SummaryKey.isKey(key) else { return nil }
             return key
         },
@@ -667,7 +681,7 @@ extension SummaryKey.Store {
                 kSecMatchLimit as String: kSecMatchLimitOne,
             ]
             var found: CFTypeRef?
-            guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess,
+            guard Keychain.copyMatching(query, &found) == errSecSuccess,
                   let attributes = found as? [String: Any] else { return nil }
             return attributes[kSecAttrComment as String] as? String ?? "sk-ant-…"
         },
@@ -677,13 +691,13 @@ extension SummaryKey.Store {
                 kSecAttrService as String: SummaryKey.service,
                 kSecAttrAccount as String: SummaryKey.account,
             ]
-            SecItemDelete(match as CFDictionary)
+            Keychain.delete(match)
             var item = match
             item[kSecAttrLabel as String] = "Smolcorp Summary (Anthropic API key)"
             item[kSecAttrComment as String] = hint
             item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             item[kSecValueData as String] = Data(key.utf8)
-            return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+            return Keychain.add(item) == errSecSuccess
         },
         delete: {
             let match: [String: Any] = [
@@ -691,6 +705,6 @@ extension SummaryKey.Store {
                 kSecAttrService as String: SummaryKey.service,
                 kSecAttrAccount as String: SummaryKey.account,
             ]
-            SecItemDelete(match as CFDictionary)
+            Keychain.delete(match)
         })
 }

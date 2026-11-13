@@ -3,6 +3,8 @@
 package desktop
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -38,9 +40,14 @@ var thisHomeRunning = func() (bool, error) {
 // isSmolcorpProcess is whether the process runs a program called smolcorp,
 // where /proc shows it (Linux), so a pid some other program has taken since
 // is never signalled. The link says " (deleted)" for a program an update
-// replaced, which is the very copy to stop. A variable, for the tests.
+// replaced, which is the very copy to stop. A Smolcorp keeps its memory from other processes on Linux
+// (internal/procmem), and the link with it: then its name, as the system keeps it, says it. A variable, for the tests.
 var isSmolcorpProcess = func(pid int) bool {
 	program, err := os.Readlink(filepath.Join("/proc", strconv.Itoa(pid), "exe"))
+	if errors.Is(err, fs.ErrPermission) {
+		name, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "comm"))
+		return err == nil && strings.HasPrefix(strings.TrimSpace(string(name)), "smolcorp")
+	}
 	if err != nil {
 		return false
 	}

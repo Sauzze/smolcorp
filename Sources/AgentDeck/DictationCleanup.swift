@@ -37,10 +37,24 @@ enum DictationCleanup {
     /// Your key, as ✨ Summary has it (see `SummaryKey`), read each time, kept in memory only.
     static var readKey: () -> String? = { SummaryKey.read() }
     /// Sends the request and gives the body and HTTP status (0 when it never answered).
-    static var send: (URLRequest, @escaping (Data?, Int) -> Void) -> Void = { request, done in
-        URLSession.shared.dataTask(with: request) { data, response, _ in
+    static var send: (URLRequest, @escaping (Data?, Int) -> Void) -> Void = sendToAnthropic
+
+    /// Your key goes to `endpoint` and nowhere else: a request for any other address isn't sent, and a redirect
+    /// isn't followed, as it would carry the key's header wherever it points. Nothing is cached or kept.
+    static func sendToAnthropic(_ request: URLRequest, done: @escaping (Data?, Int) -> Void) {
+        guard request.url == endpoint else { return done(nil, 0) }
+        session.dataTask(with: request) { data, response, _ in
             done(data, (response as? HTTPURLResponse)?.statusCode ?? 0)
         }.resume()
+    }
+
+    private static let session = URLSession(configuration: .ephemeral, delegate: NoRedirects(), delegateQueue: nil)
+
+    final class NoRedirects: NSObject, URLSessionTaskDelegate {
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(nil)
+        }
     }
 
     /// The clock the timing note reads.

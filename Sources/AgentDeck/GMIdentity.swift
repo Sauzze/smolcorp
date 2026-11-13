@@ -33,7 +33,7 @@ struct GMKeychain: GMTokenStore {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var found: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &found)
+        let status = Keychain.copyMatching(query, &found)
         return GMKeychain.result(status: status, data: found as? Data)
     }
 
@@ -48,15 +48,15 @@ struct GMKeychain: GMTokenStore {
     }
 
     func write(_ token: String) -> Bool {
-        SecItemDelete(match as CFDictionary)
+        Keychain.delete(match)
         var item = match
         item[kSecAttrLabel as String] = "Smolcorp General Manager token"
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         item[kSecValueData as String] = Data(token.utf8)
-        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+        return Keychain.add(item) == errSecSuccess
     }
 
-    func remove() { SecItemDelete(match as CFDictionary) }
+    func remove() { Keychain.delete(match) }
 }
 
 /// Who the General Manager is: whoever sends the GM token, and nobody else.

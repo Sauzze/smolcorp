@@ -132,6 +132,59 @@ final class SummaryKeyTests: XCTestCase {
         XCTAssertEqual(SummaryKey.shown(environment: [:]), .init(source: .keychain, hint: "sk-ant-…xY9z"))
     }
 
+    /// A stand-in whose first look waits, and finds nothing (the Keychain's gate still shut), while the gate opens
+    /// (`forgetKnown`, as `KeychainGate.open` calls it); every look after finds the hint.
+    private func gateOpensDuringTheFirstLook() -> (started: DispatchSemaphore, release: DispatchSemaphore) {
+        final class First { var look = true }
+        let first = First(), started = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+        let memory = self.memory
+        memory.hint = "sk-ant-…xY9z"
+        SummaryKey.store = SummaryKey.Store(read: { nil }, hint: {
+            guard first.look else { return memory.hint }
+            first.look = false
+            started.signal()
+            release.wait()
+            return nil
+        }, write: { _, _ in true }, delete: {})
+        SummaryKey.forgetKnown()
+        return (started, release)
+    }
+
+    /// The first look's "none" isn't kept once the gate has opened: the hint is looked for again, and found.
+    func testALookBegunBeforeTheGateOpenedIsntKept() {
+        let (started, release) = gateOpensDuringTheFirstLook()
+        let learned = expectation(description: "learned")
+        SummaryKey.onLearned = { learned.fulfill() }
+        defer { SummaryKey.onLearned = {} }
+        XCTAssertNil(SummaryKey.shown(environment: [:]))
+        XCTAssertEqual(started.wait(timeout: .now() + 10), .success)
+        SummaryKey.forgetKnown()
+        release.signal()
+        // The first look's answer reaches the main queue, and is dropped there.
+        SummaryKey.queue.sync {}
+        let drained = expectation(description: "main drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 10)
+
+        XCTAssertNil(SummaryKey.shown(environment: [:]), "not known: looked for again")
+        wait(for: [learned], timeout: 10)
+        XCTAssertEqual(SummaryKey.shown(environment: [:]), .init(source: .keychain, hint: "sk-ant-…xY9z"))
+    }
+
+    /// whenKnown begun before the gate opened looks again before it answers.
+    func testWhenKnownBegunBeforeTheGateOpenedLooksAgain() {
+        let (started, release) = gateOpensDuringTheFirstLook()
+        let answered = expectation(description: "answered")
+        SummaryKey.whenKnown {
+            XCTAssertEqual(SummaryKey.shown(environment: [:]), .init(source: .keychain, hint: "sk-ant-…xY9z"))
+            answered.fulfill()
+        }
+        XCTAssertEqual(started.wait(timeout: .now() + 10), .success)
+        SummaryKey.forgetKnown()
+        release.signal()
+        wait(for: [answered], timeout: 10)
+    }
+
     func testRemovingOffMainDropsTheKeyAndTellsMain() {
         SummaryKey.save(key)
         let removed = expectation(description: "removed")
