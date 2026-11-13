@@ -166,6 +166,9 @@ var effortLevels = []string{"low", "medium", "high", "xhigh", "max"}
 func NewDeck() *Deck {
 	// Before anything is served: a start script left by a core that stopped has no watcher.
 	removeLeftStartScripts()
+	// The owner's guard, read as the core starts and held from then on (guardheld.go): a desk left running across a
+	// restart can't change it before the first desk start or Settings view reads it.
+	heldGuard(filepath.Join(supportDir, hireGuardFile))
 	d := &Deck{
 		access: NewAccess(), config: loadConfig(), sessions: NewSessions(),
 		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},

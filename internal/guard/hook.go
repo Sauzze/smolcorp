@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/Sauzze/smolcorp/internal/appdirs"
 )
@@ -25,15 +24,15 @@ const fileName = "hire-guard.json"
 
 // testSupportEnv names a test copy's own support folder (the Mac app's
 // TestCopy.support, and SMOLCORP_TEST_SUPPORT_DIR in a hire's start script).
+// The guard never reads it: a hire can set any variable for itself, so a
+// test copy's desk names its folder's file in the guard's own command line
+// (--rules), as every desk does (SANDBOX-PLAN §3.4, g4).
 const testSupportEnv = "SMOLCORP_TEST_SUPPORT_DIR"
 
-// supportFile is where hire-guard.json lives: a test copy's own folder when
-// one is named, so its hires never read the real app's rules; otherwise the
-// Mac app's folder in Application Support, or the same folder desktop/paths.go uses.
+// supportFile is where hire-guard.json lives when no --rules names it: the
+// Mac app's folder in Application Support, or the same folder desktop/paths.go
+// uses. Never a folder from the environment.
 func supportFile() (string, error) {
-	if dir := strings.TrimSpace(os.Getenv(testSupportEnv)); dir != "" {
-		return filepath.Join(dir, fileName), nil
-	}
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("can't find the app's support folder: %v", err)
@@ -113,16 +112,32 @@ func Profiled(path, profile string) (groups []Group, problem string) {
 
 // Run is `smolcorp guard`:
 //
-//	guard [--profile P] [--rules FILE]
+//	guard [--profile P] [--groups JSON] [--rules FILE]
 //	                               the hook: the tool call on stdin, the groups of FILE
-//	                               (default: hire-guard.json in the support folder)
-//	guard --print [--profile P] [--rules FILE]
+//	                               (default: hire-guard.json in the support folder); with
+//	                               --groups, those groups, which FILE only adds to (held.go)
+//	guard --print [--profile P] [--groups JSON] [--rules FILE]
 //	                               the groups it uses now, as JSON, and what's wrong with FILE
+//	guard --config                 the ConfigChange hook: a settings change on stdin, refused
+//	                               unless it is managed settings' or a skill's (held.go)
 //	guard --default                the default file, to start one from
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	rules, profile, printing := "", ProfileHire, false
+	held, holding := "", false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--groups":
+			if i+1 >= len(args) || holding {
+				return deny(stdout, "Refused by Smolcorp's hire guard: --groups needs the groups, once.")
+			}
+			i++
+			held, holding = args[i], true
+		case "--config":
+			if len(args) != 1 {
+				fmt.Fprintln(stderr, configRefusal)
+				return exitBlock
+			}
+			return ConfigHook(stdin, stderr)
 		case "--rules":
 			if i+1 >= len(args) {
 				return deny(stdout, "Refused by Smolcorp's hire guard: --rules needs a file.")
@@ -156,7 +171,14 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		rules = path
 	}
-	groups, problem := Profiled(rules, profile)
+	// The file is read once per call: held, it only adds to the groups given (Held).
+	var groups []Group
+	var problem string
+	if holding {
+		groups, problem = Held(held, rules, profile)
+	} else {
+		groups, problem = Profiled(rules, profile)
+	}
 	if printing {
 		out, _ := json.MarshalIndent(map[string]any{"groups": groups, "file": rules, "problem": problem}, "", "  ")
 		fmt.Fprintln(stdout, string(out))

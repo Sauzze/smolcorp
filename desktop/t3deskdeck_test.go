@@ -74,7 +74,7 @@ func TestT3AHireThroughTheDeckIsOnTheTeamAndLetGoByItsRoute(t *testing.T) {
 	fence, _ := os.ReadFile(filepath.Join(h.Worktree, ".claude", "settings.local.json"))
 	var object map[string]any
 	if err := json.Unmarshal(fence, &object); err != nil || string(fence) != string(swiftJSON(object)) || object["disableAllHooks"] != false ||
-		!strings.Contains(string(fence), `"Bash(git push:*)"`) || !strings.Contains(string(fence), "/opt/smolcorp/bin/smolcorp' guard --rules ") {
+		!strings.Contains(string(fence), `"Bash(git push:*)"`) || !strings.Contains(string(fence), `"command" : "/opt/smolcorp/bin/smolcorp"`) || !strings.Contains(string(fence), `"--rules",`) {
 		t.Errorf("the fence: %v\n%s", err, fence)
 	}
 	if !strings.Contains(string(fence), `"Read(`+absoluteRulePath(filepath.Join(homeDir, ".claude"))+`/projects/**)"`) {

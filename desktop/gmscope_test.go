@@ -104,7 +104,8 @@ func TestAScopedGMHiresOnTheAccountItWasHiredOn(t *testing.T) {
 		t.Fatalf("a default GM with two accounts saved, naming none: %d %q", code, text)
 	}
 	hires := registered(t)
-	if last := hires[len(hires)-1]; last.Role != "janitor" || strings.Contains(r.script(last), work) {
+	// Its settings deny every saved account's folder, so the account is looked for in the rest of the script.
+	if last := hires[len(hires)-1]; last.Role != "janitor" || strings.Contains(strings.Replace(r.script(last), scriptSettings(r.script(last)), "", 1), work) {
 		t.Errorf("a default GM's hire works elsewhere: %+v\n%s", last, r.script(last))
 	}
 	// A test copy on a Mac (never the default account there): its GM on the test account hires on it.

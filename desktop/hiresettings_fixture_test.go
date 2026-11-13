@@ -10,11 +10,12 @@ import (
 	"testing"
 )
 
-// Tests/fixtures/frontdesk/hire-settings.json is a hire's settings file, the
-// fence, as the Mac's HireSettings writes it for fixed inputs
-// (HireSettingsFixtureTests.swift writes it). This engine must write the same
-// bytes from the same inputs, so a Mac hire gets one fence whichever engine
-// starts it. (Windows writes its paths as //c/…, so the Mac's paths aren't its.)
+// Tests/fixtures/frontdesk/hire-settings.json is a hire's settings, the fence,
+// as the Mac's HireSettings wrote them for fixed inputs, with 1.26's guard
+// (SANDBOX-PLAN §3.4: exec-form hooks that block when they fail, the
+// ConfigChange hook, the pinned keys, the core's groups in --groups). This
+// engine must make the same settings from the same inputs. (Windows writes its
+// paths as //c/…, so the Mac's paths aren't its.)
 func TestTheFenceIsTheMacsByteForByte(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "Tests", "fixtures", "frontdesk", "hire-settings.json"))
 	if err != nil {
@@ -44,8 +45,8 @@ func TestTheFenceIsTheMacsByteForByte(t *testing.T) {
 	}
 	for _, c := range fixture.Cases {
 		profile := guardProfile(c.Profile)
-		rules := filepath.Join(c.Support, hireGuardFile)
-		groups := guardGroups(fixture.CLI, rules, profile, func(string, []string) (int, string, bool) { return 0, c.Printed, true })
+		rules, held := filepath.Join(c.Support, hireGuardFile), fixtureHeld(t, c.Printed)
+		groups := guardGroups(fixture.CLI, rules, held, profile, func(string, []string) (int, string, bool) { return 0, c.Printed, true })
 		if groups == nil {
 			t.Fatalf("%s: the groups weren't read", c.Name)
 		}
@@ -54,7 +55,8 @@ func TestTheFenceIsTheMacsByteForByte(t *testing.T) {
 			profiles = append(profiles, claudeProfile{Name: p["name"], Dir: p["dir"]})
 		}
 		deny := hireDenyRules(c.HireID, groups, c.Support, profiles, c.Others, c.Entries, "darwin")
-		got := string(swiftJSON(hireSettingsValue(deny, guardHookCommand(fixture.CLI, rules, profile), c.Auto, c.Reporting)))
+		value := hireSettingsValue(deny, guardHook(fixture.CLI, rules, held, profile), configHook(fixture.CLI), fixtureShell, c.Auto, c.Reporting)
+		got := string(swiftJSON(value))
 		if got != c.File {
 			gotLines, wantLines := strings.Split(got, "\n"), strings.Split(c.File, "\n")
 			for i := range min(len(gotLines), len(wantLines)) {
@@ -68,26 +70,19 @@ func TestTheFenceIsTheMacsByteForByte(t *testing.T) {
 	}
 }
 
-// What writeHireSettings writes is that encoding, whole, with no newline after it.
-func TestTheSettingsFileIsWrittenInTheMacsEncoding(t *testing.T) {
+// What a hire's command line carries is those settings, whole, on one line: the same object as the fixture's.
+func TestTheSettingsLineIsOneLineOfTheSameSettings(t *testing.T) {
 	r := newHireSettingsRig(t)
-	path, err := r.write("abc123", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	written, err := os.ReadFile(path)
+	line, err := r.write("abc123", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var object map[string]any
-	if err := json.Unmarshal(written, &object); err != nil {
+	if err := json.Unmarshal([]byte(line), &object); err != nil {
 		t.Fatal(err)
 	}
-	if string(swiftJSON(object)) != string(written) {
-		t.Error("the file isn't in the Mac's encoding")
-	}
-	if !strings.Contains(string(written), `"disableAllHooks" : false`) || strings.HasSuffix(string(written), "\n") {
-		t.Errorf("the file:\n%s", written)
+	if strings.Contains(line, "\n") || !strings.Contains(line, `"disableAllHooks":false`) {
+		t.Errorf("the line:\n%s", line)
 	}
 	deny := object["permissions"].(map[string]any)["deny"].([]any)
 	has := func(rule string) bool {

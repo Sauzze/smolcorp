@@ -49,5 +49,7 @@ func runWithTempSupport(m *testing.M) int {
 	os.Setenv("APPDATA", filepath.Join(homeDir, "AppData"))
 	// Tailscale's command line is never run by a test: no Tailscale here, unless a test puts in its own.
 	askTailnet = func() (tailnetAnswer, bool) { return tailnetAnswer{}, false }
+	// No test runs the claude installed here to learn its version: a stand-in new enough (claudeversion.go).
+	claudeVersion = func() (string, bool) { return "2.1.323 (Claude Code)", true }
 	return m.Run()
 }

@@ -238,13 +238,13 @@ func TestUnderTheMacAppARolesClaudeHireIsAlwaysFenced(t *testing.T) {
 		t.Fatalf("registry %+v", got)
 	}
 	for _, hire := range got {
-		settings, err := os.ReadFile(filepath.Join(hireFolder(supportDir, hire.ID), hireSettingsFile))
-		guard := " guard --rules "
+		settings := startedSettings(t, hire.ID)
+		guard := `"args":["guard","--groups",`
 		if hire.Role == gmRole {
-			guard = " guard --profile gm --rules " // the GM's own fence
+			guard = `"args":["guard","--profile","gm","--groups",` // the GM's own fence
 		}
-		if err != nil || !strings.Contains(string(settings), guard) {
-			t.Errorf("%s (%s) has no guard: %v %s", hire.ID, hire.Role, err, settings)
+		if !strings.Contains(settings, guard) {
+			t.Errorf("%s (%s) has no guard: %s", hire.ID, hire.Role, settings)
 		}
 	}
 	if len(h.windows)+len(h.tmux) != 0 || len(*ran) != 3 {

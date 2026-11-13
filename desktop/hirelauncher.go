@@ -101,6 +101,10 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	if err := testCopyRefusal(r.TestPort, string(Claude), r.ConfigDir); err != nil {
 		return Hire{}, "", err
 	}
+	// A Claude Code that can't make a stopped guard refuse gets no desk (SANDBOX-PLAN §3.4).
+	if refusal := claudeVersionRefusal(); refusal != nil {
+		return Hire{}, "", refusal
+	}
 	if r.APIKey {
 		return Hire{}, "", &hireRefusal{Status: http.StatusConflict, Message: "A hire on the API key isn't set up through the launcher yet, so none is started."}
 	}
@@ -128,7 +132,7 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	if r.Role.ID == gmRole {
 		profile = guardGM
 	}
-	settings, err := writeHireSettings(hireSettingsOptions{HireID: id, Profile: profile, CLI: o.CLI, Support: supportDir, ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec})
+	settings, err := hireSettingsLine(hireSettingsOptions{HireID: id, Profile: profile, CLI: o.CLI, Support: supportDir, ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec})
 	if err != nil {
 		undo()
 		return Hire{}, "", err
@@ -176,7 +180,7 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 		return fail(http.StatusInternalServerError, "A hire never holds a send key with the General Manager's token.")
 	}
 	// What the launcher sets on the agent's process, and only there.
-	env := hireStartEnv{Set: map[string]string{}, PathFirst: filepath.Dir(o.CLI)}
+	env := hireStartEnv{Set: map[string]string{}, PathFirst: filepath.Dir(o.CLI), Settings: settings}
 	if brief != "" {
 		env.Message = message
 	}
@@ -198,8 +202,8 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	}
 	token = newID()
 	o.Expect(token, id, env)
-	// Only ids, names and the settings file's path are on the command line.
-	command := []string{o.CLI, "run", "--hire", token, "--hire-id", id, "--agent", string(Claude), "--role", r.Role.ID, "--settings=" + settings}
+	// Only ids and names are on the command line: the settings come with the environment.
+	command := []string{o.CLI, "run", "--hire", token, "--hire-id", id, "--agent", string(Claude), "--role", r.Role.ID}
 	if err := o.Open(command, place.Folder); err != nil {
 		// It was written down, so its row stays, marked failed (its key with it: a failed hire's key works no more).
 		o.Forget(token)

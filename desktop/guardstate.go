@@ -3,9 +3,6 @@ package desktop
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
-	"io/fs"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,10 +15,11 @@ import (
 // GET /setup/guard, as the Mac's GuardFile.state answers it: the hire guard's
 // groups, each on or off with what it refuses and what hires can do once it's
 // off, your own patterns, and one sentence on what the guard can't do. The
-// file is hire-guard.json in the support folder, which the guard itself reads
-// at each command (internal/guard). Only the page changes it, with
-// POST /setup/guard (routes.go): a hire, or the GM, must never loosen its own
-// fence. Reading it changes nothing.
+// file is hire-guard.json in the support folder, held by the core
+// (guardheld.go): each desk starts with the core's copy, and the file only
+// adds to it at each command (internal/guard). Only the page changes the
+// core's copy, with POST /setup/guard (routes.go): a hire, or the GM, must
+// never loosen its own fence. Reading it changes nothing.
 
 // guardGroupAbout is one group the page switches, with what it refuses in plain
 // words, and what hires can do once it is off ("Hires will be able to …").
@@ -142,10 +140,16 @@ func swiftStrings(raw json.RawMessage) ([]string, bool) {
 
 // loadGuard is what the file holds, or the defaults and what is wrong with
 // it, as GuardFile.load reads it. A file that isn't there is not a problem.
+// It is the core's copy (guardheld.go): the file as the core read it at its
+// start or last wrote it, never as a hire may have changed it since.
 func loadGuard(path string) (guardStored, string) {
 	fresh := guardDefaults()
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
+	held := heldGuard(path)
+	if held.unsealed {
+		return fresh, "was changed by another program"
+	}
+	data, err := held.data, held.readErr
+	if data == nil && err == nil {
 		return fresh, ""
 	}
 	if err != nil {
@@ -348,7 +352,7 @@ func saveGuard(body []byte, path, goos string) briefRouteAnswer {
 		}
 		stored.extra = unique
 	}
-	if writeBriefPrivately(path, guardFileData(stored)) != nil {
+	if holdGuard(path, guardFileData(stored)) != nil {
 		return briefRefusal(500, guardNotWrittenAnswer)
 	}
 	return briefJSON(guardState(path, goos))

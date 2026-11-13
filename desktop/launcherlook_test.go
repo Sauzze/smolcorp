@@ -460,3 +460,30 @@ func TestALookAtALauncherThatDropsReturnsAtOnce(t *testing.T) {
 		t.Errorf("%v, %v after %v", got, err, time.Since(start))
 	}
 }
+
+// exeLine measures a Windows command line as Go writes it there (syscall.EscapeArg, which the Windows test holds it
+// to): an argument with a space is quoted, a quote takes a backslash, and backslashes before a quote or a closing
+// quote are doubled. A desk's settings, a JSON object, grow by one character per quote.
+var exeLineCases = map[string]string{
+	"":              `""`,
+	"plain":         "plain",
+	"a b":           `"a b"`,
+	`a"b`:           `a\"b`,
+	`a\b`:           `a\b`,
+	`a\"b`:          `a\\\"b`,
+	`a\ b\`:         `"a\ b\\"`,
+	`{"x":"y z"}`:   `"{\"x\":\"y z\"}"`,
+	`--settings={}`: `--settings={}`,
+}
+
+func TestAWindowsCommandLineIsMeasuredAsWindowsQuotesIt(t *testing.T) {
+	for arg, want := range exeLineCases {
+		if got := exeLine("claude", []string{arg}); got != "claude "+want {
+			t.Errorf("%q: %q, want %q", arg, got, "claude "+want)
+		}
+	}
+	settings := `--settings={"permissions":{"deny":["` + strings.Repeat("x", 100) + `"]}}`
+	if got := len(exeLine(`C:\Program Files\claude.exe`, []string{settings})); got != len(`"C:\Program Files\claude.exe" `)+len(settings)+strings.Count(settings, `"`) {
+		t.Errorf("%d characters", got)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -33,4 +34,53 @@ func isolate(t *testing.T) string {
 	sessionsFile = filepath.Join(supportDir, "sessions.json")
 	homeDir = t.TempDir()
 	return homeDir
+}
+
+// scriptSettings are the settings a start script gives its Claude Code in its command line (--settings=…, one
+// shell-quoted word), "" if it gives none.
+func scriptSettings(script string) string {
+	i := strings.Index(script, "'--settings=")
+	if i < 0 {
+		return ""
+	}
+	var word strings.Builder
+	rest := script[i+len("'--settings="):]
+	for {
+		end := strings.IndexByte(rest, '\'')
+		if end < 0 {
+			return ""
+		}
+		word.WriteString(rest[:end])
+		if !strings.HasPrefix(rest[end:], `'\''`) {
+			return word.String()
+		}
+		word.WriteByte('\'')
+		rest = rest[end+len(`'\''`):]
+	}
+}
+
+// startedSettings are the settings hire hireID's start script gives its Claude Code, "" if none.
+func startedSettings(t *testing.T, hireID string) string {
+	t.Helper()
+	files, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hireID), "hire-*.sh"))
+	for _, file := range files {
+		data, _ := os.ReadFile(file)
+		if settings := scriptSettings(string(data)); settings != "" {
+			return settings
+		}
+	}
+	return ""
+}
+
+// launcherSettings are the settings a launcher hire hireID's start environment holds for its Claude Code, as its
+// launcher would take them once, "" if none: they never are in a file or on its command line.
+func launcherSettings(d *Deck, hireID string) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, pending := range d.hires {
+		if pending.hireID == hireID && pending.env != nil {
+			return pending.env.Settings
+		}
+	}
+	return ""
 }

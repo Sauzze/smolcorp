@@ -92,10 +92,9 @@ type launcherRun struct {
 	// The office's token, for a hire, and whether it was at a pinned project's desk.
 	hire   string
 	pinned bool
-	// For an engine hire (hirelauncher.go): its id, and its own settings file. The
-	// launcher then asks the app for the hire's environment before it starts anything.
-	hireID   string
-	settings string
+	// For an engine hire (hirelauncher.go): its id. The launcher then asks the app for
+	// the hire's environment and its settings before it starts anything.
+	hireID string
 	// For a hire of a role, its agent as the office checked it could start: the
 	// role must still have it.
 	agent string
@@ -135,11 +134,7 @@ func parseRun(args []string) (*launcherRun, error) {
 	case len(args) == 0, args[0] == "--hire", args[0] == "--pinned":
 		return nil, errors.New("nothing to run")
 	case args[0] == "--role":
-		switch {
-		case len(args) == 2:
-		case run.hireID != "" && len(args) == 3 && settingsArgument(args[2]):
-			run.settings = args[2]
-		default:
+		if len(args) != 2 {
 			return nil, errors.New("a role, and nothing else")
 		}
 		run.role = args[1]
@@ -184,13 +179,18 @@ func launch(run *launcherRun) int {
 			return 2
 		}
 		args = found
-		if run.settings != "" {
-			// The engine hire's own settings, for Claude Code only, right after the agent.
+		if startEnv != nil {
+			// The engine hire's own settings, for Claude Code only, right after the agent: given with its
+			// environment, never in a file (SANDBOX-PLAN §3.4). Without them, nothing starts unguarded.
 			if agentNamed(found[0]) != Claude {
 				fmt.Fprintln(os.Stderr, "smolcorp: a hire's settings are for Claude Code, and this role's agent is another")
 				return 2
 			}
-			args = append([]string{found[0], run.settings}, found[1:]...)
+			if startEnv.Settings == "" {
+				fmt.Fprintln(os.Stderr, "smolcorp: this hire's settings didn't come with its start settings, so nothing was started")
+				return 1
+			}
+			args = append([]string{found[0], "--settings=" + startEnv.Settings}, found[1:]...)
 		}
 	}
 	program, programArgs, err := resolveProgram(args[0], args[1:])
@@ -203,6 +203,20 @@ func launch(run *launcherRun) int {
 			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 			return 2
 		}
+	}
+	// cmd.exe takes a line of at most 8191 characters, and a desk's settings, escaped twice for npm's script, can be
+	// longer: refused here rather than cut by cmd.exe.
+	if startEnv != nil && len(programArgs) > 1 && programArgs[0] == "/c" && len(cmdLine(program, programArgs[1], programArgs[2:])) > cmdLongest {
+		fmt.Fprintln(os.Stderr, "smolcorp: this Claude Code was installed with npm, and its script can't take a desk's settings on this computer. "+
+			"Install Claude Code with Anthropic's own installer, then hire again.")
+		return 2
+	}
+	// Windows starts a program with a command line of at most 32767 characters, a desk's settings among them: a
+	// longer one is refused here, in words, rather than left to fail to start.
+	if startEnv != nil && runtime.GOOS == "windows" && !(len(programArgs) > 0 && programArgs[0] == "/c") && len(exeLine(program, programArgs)) > exeLongest {
+		fmt.Fprintln(os.Stderr, "smolcorp: this desk's settings and first message make a command line longer than Windows takes, so nothing was started. "+
+			"Fewer guard rules or saved Claude accounts in Settings, or a shorter brief, make it shorter.")
+		return 2
 	}
 
 	terminal, err := pty.New()
@@ -253,6 +267,52 @@ func launch(run *launcherRun) int {
 		return 1
 	}
 	return 0
+}
+
+// cmdLongest is the longest line cmd.exe runs.
+const cmdLongest = 8191
+
+// exeLongest is the longest command line Windows starts a program with: 32767 characters, its ending one included.
+const exeLongest = 32766
+
+// exeLine is the command line Windows is given for program and args, each quoted as Go quotes it there
+// (syscall.EscapeArg), written here so its length can be told on any system.
+func exeLine(program string, args []string) string {
+	quoted := func(s string) string {
+		if s == "" {
+			return `""`
+		}
+		if !strings.ContainsAny(s, "\\\" \t") {
+			return s
+		}
+		space := strings.ContainsAny(s, " \t")
+		var b strings.Builder
+		if space {
+			b.WriteByte('"')
+		}
+		slashes := 0
+		for i := 0; i < len(s); i++ {
+			switch s[i] {
+			case '\\':
+				slashes++
+			case '"':
+				b.WriteString(strings.Repeat(`\`, slashes+1))
+				slashes = 0
+			default:
+				slashes = 0
+			}
+			b.WriteByte(s[i])
+		}
+		if space {
+			b.WriteString(strings.Repeat(`\`, slashes) + `"`)
+		}
+		return b.String()
+	}
+	line := quoted(program)
+	for _, arg := range args {
+		line += " " + quoted(arg)
+	}
+	return line
 }
 
 // resolveProgram finds the agent on PATH. On Windows, npm installs agents as
