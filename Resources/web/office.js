@@ -82,7 +82,12 @@
    * tag and the Needs you key, drawn as the office is: hard 2-pixel edges in the bubble's ink on its cream, corners
    * stepped by leaving the edge's corner pixels out, hard shadows, keys in capitals that press 2 pixels down. Reading
    * text stays in the system font at 13 px; the office's pixel font has only capitals and digits. Put on the page once,
-   * by the bubble, as a <style> of its own.
+   * by the bubble, as a <style> of its own. They sit below the deck's own panels (the ▤ slate, a peek, a confirm: z-index
+   * 8 and up), so a panel on top is never covered by a bubble still clickable under it; and the open bubble sits above the
+   * small question bubbles, which are drawn later (as other desks' questions come and go) and would lie over its keys. In
+   * a short window the open bubble gives way in this order, so its keys and its input stay in view: the conversation
+   * shrinks first (to 44 px), then the question (to two lines, scrolling), and only then the choices scroll inside
+   * their box; the input stays at the foot.
    */
   const TALK_STYLE = {
     ID: 'talk-bubble-style',
@@ -90,7 +95,7 @@
     CSS: `
   .talk-bubble, .talk-small, .talk-tag, .talk-needs { --edge: #1b1e2a; --cream: #f4f1ea; --paper: #fffdf8; --screen: #171b26;
     --chalk: #e6e9df; --dim: #8d95a6; --orange: #ff8a1f; --yellow: #ffd34d; --slate: #3e495b;
-    position: fixed; z-index: 40; box-sizing: border-box; color: var(--edge); font: 13px/1.4 -apple-system, system-ui, sans-serif; }
+    position: fixed; z-index: 7; box-sizing: border-box; color: var(--edge); font: 13px/1.4 -apple-system, system-ui, sans-serif; }
   .talk-bubble *, .talk-small * { box-sizing: border-box; }
   .talk-bubble[hidden], .talk-small[hidden], .talk-tag[hidden], .talk-needs[hidden], .talk-bubble [hidden] { display: none !important; }
   .talk-edge { background: var(--cream);
@@ -109,7 +114,8 @@
   .talk-dot { flex: none; width: 8px; height: 8px; background: var(--dim); }
   .talk-dot.thinking { background: #3b82f6; } .talk-dot.asking { background: var(--orange); }
   .talk-dot.unread { background: #22c55e; } .talk-dot.error { background: #ef4444; }
-  .talk-bubble > .talk-lines { flex: 0 1 auto; min-height: 44px; }
+  .talk-bubble > .talk-lines { flex: 0 100 auto; min-height: 44px; }
+  .talk-bubble > .talk-ask { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
   .talk-lines { display: flex; flex-direction: column; gap: 6px; max-height: 190px; overflow-y: auto; padding: 8px 9px;
     background: var(--screen); color: var(--chalk); overflow-wrap: anywhere; }
   .talk-lines:empty { display: none; }
@@ -121,7 +127,9 @@
   .talk-lines .from { display: block; font: 700 10px/1.2 ui-monospace, Menlo, monospace; text-transform: uppercase; color: var(--orange); }
   .talk-lines .more { color: var(--dim); }
   .talk-lines .talk-none { color: var(--dim); font-style: italic; }
-  .talk-ask { display: grid; gap: 6px; padding: 8px 9px; background: #252c3d; color: var(--cream); box-shadow: inset 0 0 0 2px var(--orange); }
+  .talk-ask { display: flex; flex-direction: column; gap: 6px; padding: 8px 9px; background: #252c3d; color: var(--cream); box-shadow: inset 0 0 0 2px var(--orange); }
+  .talk-ask > * { flex: none; }
+  .talk-ask > .talk-q { flex: 0 1 auto; min-height: 2.8em; }
   .talk-q { color: var(--yellow); font-weight: 600; white-space: pre-wrap; max-height: 7em; overflow: auto; }
   .talk-keys { display: flex; flex-wrap: wrap; gap: 6px 8px; padding: 2px; }
   .talk-hint { color: var(--dim); font-size: 12px; }
@@ -152,7 +160,7 @@
   .talk-small .talk-keys { flex-wrap: nowrap; gap: 4px; padding: 1px 2px; }
   .talk-small .talk-key { min-height: 0; padding: 1px 4px; margin: 1px; font-size: .85em; }
   .talk-tag { max-width: 300px; padding: 3px 7px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
-  .talk-needs { z-index: 39; }
+  .talk-needs, .talk-small { z-index: 6; }
   `,
 
     /** The bubbles' style, put on `doc` once. */
@@ -187,8 +195,12 @@
     TAG_MOST: 60,
     /** A small question bubble, in art pixels: narrower than two desks side by side (50 apart), so neighbours both fit. */
     SMALL: { w: 46, h: 16 },
-    /** The open bubble goes over the head where this many CSS pixels are free above it; else beside it. */
+    /** A small question bubble shows its keys only where it is this many CSS pixels wide: narrower, the keys would be cut, so it is the question alone (the open bubble has the keys). */
+    SMALL_KEYS_LEAST: 110,
+    /** The open bubble goes over the head where this many CSS pixels are free above it (and its own height, if more); else beside it. */
     ABOVE_LEAST: 260,
+    /** Beside the head, the bubble may be narrowed to the room that side has, down to this many CSS pixels; under that, it goes over the head. */
+    SIDE_LEAST: 220,
     /** Each state as a word: the status is never colour alone. */
     STATES: { thinking: 'working', asking: 'waiting for you', idle: 'idle', unread: 'done', error: 'stopped on an error' },
     /** The four keys, where a prompt's choices can't be offered by label: ✕ says No, as a permission's No does. */
@@ -370,7 +382,7 @@
       const cards = new Map();   // each desk's last card (GET /talk), by id
       let asked = new Map();     // the waiting desks' prompts (GET /talk/asking), by id
       const smalls = new Map();  // the small question bubbles shown, by id: { el, drawn }
-      let open = null;           // the open bubble: { id, card, items, before, size, loaded, timer, parts, at, drawn }
+      let open = null;           // the open bubble: { id, card, items, before, size, loaded, timer, parts, at, drawn, fit, place }
       let askingNow = '', smallsAt = '', order = [], tagFor = null;
       const tag = make('div', 'talk-tag talk-edge');
       const needs = make('button', 'talk-needs talk-key go');
@@ -391,10 +403,10 @@
       const clamp = (v, low, high) => Math.max(low, Math.min(high, v));
 
       /** The prompt's question and its buttons, into `box`: the open bubble's, or a small one's (no hint, keys only if they fit). */
-      function drawAsk(box, id, asking, small) {
+      function drawAsk(box, id, asking, small, width) {
         const choices = B.choicesOf(asking), session = room.session(id) || {};
         const shown = session.headless === true ? [] : choices || (small ? [] : B.KEYS);
-        const fits = !small || (shown.length <= 3 && shown.reduce((n, c) => n + c.label.length + 3, 0) <= 24);
+        const fits = !small || (shown.length <= 3 && shown.reduce((n, c) => n + c.label.length + 3, 0) <= 24 && width >= B.SMALL_KEYS_LEAST);
         const keys = make('div', 'talk-keys');
         for (const choice of fits ? shown : []) {
           const b = key(choice, small);
@@ -471,6 +483,7 @@
         if (!open) return;
         const { parts, card } = open, session = room.session(open.id) || {}, name = room.name(open.id);
         const state = card ? card.state : session.state;
+        let grew = false;   // whether anything that changes the bubble's height was drawn, for place() to measure it again
         parts.el.setAttribute('aria-label', `${name}: conversation`);
         parts.dot.className = `talk-dot ${state}`;
         parts.name.textContent = name;
@@ -479,6 +492,7 @@
         const drawn = rows ? rows.map((r) => r.id + (r.text || '').length).join() + open.loaded : 'none';
         if (drawn !== open.drawn) {
           open.drawn = drawn;
+          grew = true;
           const none = !rows ? 'No conversation for this agent' : !rows.length ? (open.loaded ? 'Nothing written yet' : 'Loading…') : '';
           parts.lines.replaceChildren(...(none ? [make('div', 'talk-none', none)] : rows.map((r) => B.row(doc, r))));
           parts.lines.scrollTop = parts.lines.scrollHeight;
@@ -487,6 +501,7 @@
         const at = asking ? `${asking.since} ${asking.pickable} ${session.headless}` : '';
         if (at !== open.at) {
           open.at = at;
+          grew = true;
           parts.ask.hidden = !asking;
           if (asking) drawAsk(parts.ask, open.id, asking, false);
           else parts.ask.replaceChildren();
@@ -497,12 +512,20 @@
         parts.input.placeholder = input.placeholder;
         parts.why.textContent = input.line;
         parts.why.hidden = !input.line;
+        const form = `${input.shown} ${input.line}`;
+        if (form !== open.form) grew = true;
+        open.form = form;
+        if (grew) {
+          open.fit += 1;
+          place();
+        }
       }
 
       function problem(text) {
         if (!open) return;
         open.parts.problem.textContent = text;
         open.parts.problem.hidden = !text;
+        open.fit += 1;
       }
 
       /** The input's words to the desk, with Return; refused, they stay in the box with the reason under it. */
@@ -528,13 +551,15 @@
       async function look(shown) {
         if (!shown || open !== shown) return;
         win.clearTimeout(shown.timer);
+        // Only the newest look goes on to set the next timer: one asked for while another is in flight takes over from it
+        const mine = shown.round = (shown.round || 0) + 1, current = () => open === shown && shown.round === mine;
         const res = await page.get('/talk', { session: shown.id });
-        if (open !== shown) return;
+        if (!current()) return;
         if (res && res.status === 404) return api.close();
         const card = res && res.ok ? await res.json().catch(() => null) : null;
-        if (card && open === shown) cards.set(shown.id, shown.card = card);
+        if (card && current()) cards.set(shown.id, shown.card = card);
         if (shown.card && shown.card.size !== shown.size && (room.session(shown.id) || {}).conversation !== false) await newest(shown);
-        if (open !== shown) return;
+        if (!current()) return;
         shown.loaded = true;
         render();
         if (!shown.focused) {
@@ -556,31 +581,52 @@
       }
 
       /**
-       * The open bubble over its head, its tail on the head's bubble, inside the room: above it where there's room,
-       * else beside it (right, or left near the room's edge), its tail pointing across at the head.
+       * The open bubble over its head, its tail on the head's bubble, inside the room: above it where it fits there, else
+       * beside it (right, or left near the room's edge), its tail pointing across at the head. Beside, it never leaves
+       * the room: where neither side has its full width it is narrowed to the larger side's, and where that is too
+       * narrow too it goes over the head, kept inside, with no tail. Its height is the bubble's own, measured (capped at
+       * the room's): it sits as high as it needs to be whole, and a bubble taller than the room scrolls inside its box
+       * (see the style) with its input kept at the foot.
        */
       function place() {
         const anchor = open && room.anchor(open.id);
         if (!open) return;
         open.parts.el.hidden = !anchor;
         if (!anchor) return;
-        const r = rect(), w = Math.min(320, r.width - 8), tip = anchor.css.tip, box = anchor.css.box;
-        const above = box.top - 10 - (r.top + 4), side = above < B.ABOVE_LEAST;
-        const right = tip.x + 20 + w <= r.right - 4;
-        const left = Math.round(side ? (right ? tip.x + 20 : tip.x - 20 - w) : clamp(tip.x - w / 2, r.left + 4, r.right - 4 - w));
-        const top = Math.round(clamp(tip.y - 48, r.top + 4, r.bottom - 4 - 220));
-        const at = [left, w, top, Math.round(box.top), side, win.innerHeight].join();
+        const r = rect(), tip = anchor.css.tip, box = anchor.css.box;
+        const at = [Math.round(tip.x), Math.round(tip.y), Math.round(box.top), r.left, r.top, r.width, r.height, win.innerHeight, open.fit].join();
         if (at === open.place) return;
         open.place = at;
-        const style = open.parts.el.style, tail = open.parts.tail.style;
-        Object.assign(style, { left: `${left}px`, width: `${w}px`, maxHeight: `${Math.round(side ? r.bottom - 4 - top : above)}px` });
-        if (side) {
-          Object.assign(style, { top: `${top}px`, bottom: '' });
-          Object.assign(tail, { left: right ? '-13px' : 'calc(100% - 1px)', top: `${Math.round(tip.y - top - 4)}px`,
-            transform: `rotate(${right ? 90 : -90}deg)` });
-        } else {
+        const el = open.parts.el, style = el.style, tail = open.parts.tail.style;
+        // The bubble's own height at a width, as it would be with nothing holding it in
+        const natural = (width) => {
+          Object.assign(style, { width: `${width}px`, maxHeight: 'none' });
+          return Math.min(el.offsetHeight, r.height - 8);
+        };
+        const above = box.top - 10 - (r.top + 4);
+        let w = Math.min(320, r.width - 8), h = natural(w), way = 'above';
+        if (above < Math.max(h, B.ABOVE_LEAST)) {
+          const free = { right: r.right - 4 - (tip.x + 20), left: tip.x - 20 - (r.left + 4) };
+          way = free.right >= w ? 'right' : free.left >= w ? 'left' : free.right >= free.left ? 'right' : 'left';
+          if (free[way] < w) {
+            if (free[way] >= B.SIDE_LEAST) w = Math.floor(free[way]);
+            else way = 'over';
+          }
+          h = natural(w);
+        }
+        const side = way === 'right' || way === 'left';
+        const centred = clamp(tip.x - w / 2, r.left + 4, r.right - 4 - w);
+        const left = Math.round(way === 'right' ? tip.x + 20 : way === 'left' ? tip.x - 20 - w : centred);
+        const top = Math.round(clamp(tip.y - 48, r.top + 4, r.bottom - 4 - h));
+        Object.assign(style, { left: `${left}px`, width: `${w}px`, maxHeight: `${Math.round(way === 'above' ? above : r.bottom - 4 - top)}px` });
+        tail.display = way === 'over' ? 'none' : '';
+        if (way === 'above') {
           Object.assign(style, { bottom: `${Math.round(win.innerHeight - box.top + 10)}px`, top: '' });
           Object.assign(tail, { left: `${Math.round(clamp(tip.x - left - 7, 6, w - 20))}px`, top: 'calc(100% + 2px)', transform: '' });
+        } else {
+          Object.assign(style, { top: `${top}px`, bottom: '' });
+          if (side) Object.assign(tail, { left: way === 'right' ? '-13px' : 'calc(100% - 1px)', top: `${Math.round(tip.y - top - 4)}px`,
+            transform: `rotate(${way === 'right' ? 90 : -90}deg)` });
         }
       }
 
@@ -595,17 +641,23 @@
 
       /** The small question bubbles that fit, the rest left to the room's "?", and the Needs you key's count. */
       function layout(waiting) {
-        const view = room.view(), shape = room.shape(), r = rect();
+        const view = room.view(), shape = room.shape(), r = rect(), cog = room.cog && room.cog();
         const list = waiting.filter((b) => asked.has(b.id) && !(open && open.id === b.id));
-        const at = JSON.stringify([list.map((b) => [b.id, b.x, b.top, asked.get(b.id).since]), view, r.left, r.top, waiting.length, open && open.id]);
+        const at = JSON.stringify([list.map((b) => [b.id, b.x, b.top, asked.get(b.id).since]), view, cog, r.left, r.top, waiting.length, open && open.id]);
         if (at === smallsAt) return;
         smallsAt = at;
         order = TALK_ANCHORS.needsYou(waiting).map((b) => b.id);
         needs.replaceChildren('Needs you ', make('i', '', String(order.length)));
         needs.hidden = !order.length;
-        // In the room's top corner, right of the settings cog
-        Object.assign(needs.style, { left: `${Math.round(r.left + 76)}px`, top: `${Math.round(r.top + 16)}px` });
-        const px = view.scale / view.k, css = (x, y) => ({ x: view.left + (view.ox + x * view.scale) / view.k, y: view.top + (view.oy + y * view.scale) / view.k });
+        const px = view.scale / view.k;
+        const css = (x, y) => ({ x: view.left + (view.ox + x * view.scale) / view.k, y: view.top + (view.oy + y * view.scale) / view.k });
+        // In the room's top corner, right of the settings cog, level with it: from where the room drew the cog (the room
+        // is letterboxed in a small window, so neither the canvas's corner nor the plan's origin is the room's corner).
+        // With no cog drawn, the canvas's corner.
+        if (cog) {
+          const end = css(cog.x + cog.w, cog.y), foot = css(cog.x, cog.y + cog.h);
+          Object.assign(needs.style, { left: `${Math.round(end.x + clamp(12 * px, 8, 24))}px`, top: `${Math.round((end.y + foot.y - (needs.offsetHeight || 28)) / 2)}px` });
+        } else Object.assign(needs.style, { left: `${Math.round(r.left + 76)}px`, top: `${Math.round(r.top + 16)}px` });
         const { small } = TALK_ANCHORS.layoutSmall(list, B.SMALL, shape);
         const kept = new Set(small.map((s) => s.id));
         for (const [id, s] of smalls) if (!kept.has(id)) { s.el.remove(); smalls.delete(id); }
@@ -620,10 +672,10 @@
           const from = css(box.left, box.top), asking = asked.get(id);
           Object.assign(s.el.style, { left: `${from.x}px`, top: `${from.y}px`, width: `${B.SMALL.w * px}px`, height: `${B.SMALL.h * px}px` });
           s.el.style.setProperty('--talk-font', `${Math.round(clamp(px * 4.5, 9, 14))}px`);
-          const drawn = `${asking.since} ${asking.pickable}`;
+          const wide = B.SMALL.w * px, drawn = `${asking.since} ${asking.pickable} ${wide >= B.SMALL_KEYS_LEAST}`;
           if (drawn !== s.drawn) {
             s.drawn = drawn;
-            drawAsk(s.el, id, asking, true);
+            drawAsk(s.el, id, asking, true, wide);
           }
         }
       }
@@ -647,7 +699,7 @@
           api.close();
           page.tick?.();
           api.hover(null);
-          open = { id, card: cards.get(id) || null, items: [], before: null, size: null, loaded: false, timer: 0 };
+          open = { id, card: cards.get(id) || null, items: [], before: null, size: null, loaded: false, timer: 0, fit: 0 };
           open.parts = build();
           problem('');
           smallsAt = '';
@@ -689,6 +741,16 @@
           win.clearTimeout(shown.timer);
           shown.parts.el.classList.add('shrink');
           win.setTimeout(() => shown.parts.el.remove(), 120);
+        },
+        /** The room closed (its stream broke): nothing of the talk layers stays over the page. The next frame draws them again. */
+        away() {
+          api.close();
+          for (const s of smalls.values()) s.el.remove();
+          smalls.clear();
+          asked = new Map();
+          askingNow = smallsAt = '';
+          tagFor = null;
+          tag.hidden = needs.hidden = true;
         },
         remove() {
           api.close();
@@ -68771,7 +68833,8 @@
         const session = sessionOf(id);
         return session ? TALK_BUBBLE.nameOf(session, memberOf(session) && memberOf(session).name) : 'Agent';
       };
-      return { canvas, anchor: talkAnchor, view: talkView, shape: () => shape, session: sessionOf, name };
+      // cog: the settings' key where the room last drew it, in art pixels ({ x, y, w, h }), or null with none drawn
+      return { canvas, anchor: talkAnchor, view: talkView, shape: () => shape, session: sessionOf, name, cog: () => styleKeyAt };
     }
 
     /** The next frame, or step, called off. */
@@ -70400,6 +70463,7 @@
       close() {
         latest = null;
         gaps = [];
+        talkPanels?.away();
         office.close();
         closeUppers();
         dropArt(canvas);
@@ -70795,9 +70859,9 @@
     // Your team's skin tones, hair colours and clothes colours, as CSS, for the setup page's swatches
     teamColours: Object.fromEntries(Object.entries({ skin: SKIN_TONES, hair: HAIR_COLOURS, colour: SHIRT_COLOURS })
       .map(([part, colours]) => [part, Object.fromEntries(Object.entries(colours).map(([id, hex]) => [id, css(hex)]))])),
-    // The badges a role can wear, in setup's order, and each one's icon on a canvas of its own for a role's card
     // The conversation's rows and pages as the talk bubble draws them, for the ▤ slate to draw them the same way
     conversation: { row: TALK_BUBBLE.row, byOrder: TALK_BUBBLE.byOrder, merge: TALK_BUBBLE.merge },
+    // The badges a role can wear, in setup's order, and each one's icon on a canvas of its own for a role's card
     badges: BADGE_IDS, badgeIcon: (id, scale = 1) => (Object.hasOwn(BADGES, id) ? paintIcon(BADGES[id].icon, Math.max(1, Math.round(scale))) : null),
   };
 })();

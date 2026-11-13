@@ -33827,7 +33827,8 @@
         const session = sessionOf(id);
         return session ? TALK_BUBBLE.nameOf(session, memberOf(session) && memberOf(session).name) : 'Agent';
       };
-      return { canvas, anchor: talkAnchor, view: talkView, shape: () => shape, session: sessionOf, name };
+      // cog: the settings' key where the room last drew it, in art pixels ({ x, y, w, h }), or null with none drawn
+      return { canvas, anchor: talkAnchor, view: talkView, shape: () => shape, session: sessionOf, name, cog: () => styleKeyAt };
     }
 
     /** The next frame, or step, called off. */
@@ -35456,6 +35457,7 @@
       close() {
         latest = null;
         gaps = [];
+        talkPanels?.away();
         office.close();
         closeUppers();
         dropArt(canvas);
@@ -35851,9 +35853,9 @@
     // Your team's skin tones, hair colours and clothes colours, as CSS, for the setup page's swatches
     teamColours: Object.fromEntries(Object.entries({ skin: SKIN_TONES, hair: HAIR_COLOURS, colour: SHIRT_COLOURS })
       .map(([part, colours]) => [part, Object.fromEntries(Object.entries(colours).map(([id, hex]) => [id, css(hex)]))])),
-    // The badges a role can wear, in setup's order, and each one's icon on a canvas of its own for a role's card
     // The conversation's rows and pages as the talk bubble draws them, for the ▤ slate to draw them the same way
     conversation: { row: TALK_BUBBLE.row, byOrder: TALK_BUBBLE.byOrder, merge: TALK_BUBBLE.merge },
+    // The badges a role can wear, in setup's order, and each one's icon on a canvas of its own for a role's card
     badges: BADGE_IDS, badgeIcon: (id, scale = 1) => (Object.hasOwn(BADGES, id) ? paintIcon(BADGES[id].icon, Math.max(1, Math.round(scale))) : null),
   };
 })();

@@ -3,7 +3,12 @@
  * tag and the Needs you key, drawn as the office is: hard 2-pixel edges in the bubble's ink on its cream, corners
  * stepped by leaving the edge's corner pixels out, hard shadows, keys in capitals that press 2 pixels down. Reading
  * text stays in the system font at 13 px; the office's pixel font has only capitals and digits. Put on the page once,
- * by the bubble, as a <style> of its own.
+ * by the bubble, as a <style> of its own. They sit below the deck's own panels (the ▤ slate, a peek, a confirm: z-index
+ * 8 and up), so a panel on top is never covered by a bubble still clickable under it; and the open bubble sits above the
+ * small question bubbles, which are drawn later (as other desks' questions come and go) and would lie over its keys. In
+ * a short window the open bubble gives way in this order, so its keys and its input stay in view: the conversation
+ * shrinks first (to 44 px), then the question (to two lines, scrolling), and only then the choices scroll inside
+ * their box; the input stays at the foot.
  */
 const TALK_STYLE = {
   ID: 'talk-bubble-style',
@@ -11,7 +16,7 @@ const TALK_STYLE = {
   CSS: `
 .talk-bubble, .talk-small, .talk-tag, .talk-needs { --edge: #1b1e2a; --cream: #f4f1ea; --paper: #fffdf8; --screen: #171b26;
   --chalk: #e6e9df; --dim: #8d95a6; --orange: #ff8a1f; --yellow: #ffd34d; --slate: #3e495b;
-  position: fixed; z-index: 40; box-sizing: border-box; color: var(--edge); font: 13px/1.4 -apple-system, system-ui, sans-serif; }
+  position: fixed; z-index: 7; box-sizing: border-box; color: var(--edge); font: 13px/1.4 -apple-system, system-ui, sans-serif; }
 .talk-bubble *, .talk-small * { box-sizing: border-box; }
 .talk-bubble[hidden], .talk-small[hidden], .talk-tag[hidden], .talk-needs[hidden], .talk-bubble [hidden] { display: none !important; }
 .talk-edge { background: var(--cream);
@@ -30,7 +35,8 @@ const TALK_STYLE = {
 .talk-dot { flex: none; width: 8px; height: 8px; background: var(--dim); }
 .talk-dot.thinking { background: #3b82f6; } .talk-dot.asking { background: var(--orange); }
 .talk-dot.unread { background: #22c55e; } .talk-dot.error { background: #ef4444; }
-.talk-bubble > .talk-lines { flex: 0 1 auto; min-height: 44px; }
+.talk-bubble > .talk-lines { flex: 0 100 auto; min-height: 44px; }
+.talk-bubble > .talk-ask { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
 .talk-lines { display: flex; flex-direction: column; gap: 6px; max-height: 190px; overflow-y: auto; padding: 8px 9px;
   background: var(--screen); color: var(--chalk); overflow-wrap: anywhere; }
 .talk-lines:empty { display: none; }
@@ -42,7 +48,9 @@ const TALK_STYLE = {
 .talk-lines .from { display: block; font: 700 10px/1.2 ui-monospace, Menlo, monospace; text-transform: uppercase; color: var(--orange); }
 .talk-lines .more { color: var(--dim); }
 .talk-lines .talk-none { color: var(--dim); font-style: italic; }
-.talk-ask { display: grid; gap: 6px; padding: 8px 9px; background: #252c3d; color: var(--cream); box-shadow: inset 0 0 0 2px var(--orange); }
+.talk-ask { display: flex; flex-direction: column; gap: 6px; padding: 8px 9px; background: #252c3d; color: var(--cream); box-shadow: inset 0 0 0 2px var(--orange); }
+.talk-ask > * { flex: none; }
+.talk-ask > .talk-q { flex: 0 1 auto; min-height: 2.8em; }
 .talk-q { color: var(--yellow); font-weight: 600; white-space: pre-wrap; max-height: 7em; overflow: auto; }
 .talk-keys { display: flex; flex-wrap: wrap; gap: 6px 8px; padding: 2px; }
 .talk-hint { color: var(--dim); font-size: 12px; }
@@ -73,7 +81,7 @@ const TALK_STYLE = {
 .talk-small .talk-keys { flex-wrap: nowrap; gap: 4px; padding: 1px 2px; }
 .talk-small .talk-key { min-height: 0; padding: 1px 4px; margin: 1px; font-size: .85em; }
 .talk-tag { max-width: 300px; padding: 3px 7px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
-.talk-needs { z-index: 39; }
+.talk-needs, .talk-small { z-index: 6; }
 `,
 
   /** The bubbles' style, put on `doc` once. */

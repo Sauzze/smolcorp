@@ -118,7 +118,9 @@ func TestTheLiveTalkBubbleAnswersOnlyByItsButtons(t *testing.T) {
 	runNode(t, talkBubbleSources(t)+talkSame+`
 class El {
   constructor(tag) { Object.assign(this, { tagName: tag.toUpperCase(), children: [], style: { setProperty() {} }, className: '', hidden: false,
-    disabled: false, value: '', placeholder: '', listeners: {}, attrs: {}, parent: null, offsetWidth: 100, offsetHeight: 20, scrollHeight: 0 }); }
+    disabled: false, value: '', placeholder: '', listeners: {}, attrs: {}, parent: null, offsetWidth: 100, scrollHeight: 0 }); }
+  // The open bubble's own height is bubbleHeight (set per case); everything else is 20 high
+  get offsetHeight() { return this.className.split(' ').includes('talk-bubble') ? bubbleHeight : 20; }
   get classList() { const el = this; return { add(c) { el.className += ' ' + c; }, remove(c) { el.className = el.className.split(' ').filter((x) => x !== c).join(' '); } }; }
   set textContent(t) { this.children = [String(t)]; }
   get textContent() { return this.children.map((c) => (typeof c === 'string' ? c : c.textContent)).join(''); }
@@ -137,7 +139,7 @@ class El {
   find(cls) { return this.all().filter((c) => c.className.split(' ').includes(cls) && !c.hidden); }
   focus() { focused = this; }
 }
-let focused = null;
+let focused = null, bubbleHeight = 230;
 const body = new El('body'), head = new El('head');
 const doc = { body, head, createElement: (t) => new El(t), getElementById: (id) => head.all().find((c) => c.id === id) || null, addEventListener() {} };
 const timers = [];
@@ -146,10 +148,12 @@ const settle = () => new Promise((r) => setTimeout(r, 5));
 
 let card = { state: 'asking', asking: permission, last: 'Running make', size: 40, typing: { ok: false, lines: false, why: 'answer first' } };
 const sent = [];
+let hold = null;   // a promise the next /talk reads wait for: a slow refresh
 const res = (status, body) => ({ status, ok: status >= 200 && status < 300, json: async () => body, text: async () => String(body || '') });
 const page = {
   get: async (path, params) => {
     sent.push(['get', path, params]);
+    if (path === '/talk' && hold) await hold;
     if (path === '/talk') return res(200, card);
     if (path === '/conversation') return res(200, { items: [item(1, 'user', 'build it'), item(2, 'tool', 'Bash: make', 'Bash')], before: null, size: 40 });
     return res(200, { asking: [] });
@@ -159,7 +163,7 @@ const page = {
 };
 const anchor = { id: 's1', state: 'asking', since: 1, art: {}, css: { box: { left: 290, right: 314, top: 300, bottom: 324 }, tip: { x: 300, y: 322 } } };
 const room = { canvas: { getBoundingClientRect: () => ({ left: 0, top: 0, right: 640, bottom: 360, width: 640, height: 360 }) },
-  anchor: () => anchor, view: () => ({ scale: 2, ox: 0, oy: 0, k: 1, left: 0, top: 0 }), shape: () => ({ width: 320, height: 180 }),
+  anchor: () => anchor, view: () => ({ scale: 2, ox: 0, oy: 0, k: 1, left: 0, top: 0 }), cog: () => null, shape: () => ({ width: 320, height: 180 }),
   session: (id) => ({ id, state: 'asking', conversation: true, project: 'shop' }), name: () => 'Rex' };
 const bubble = B.create(win, page, room);
 const panel = () => body.children.find((c) => c.className && c.className.includes('talk-bubble'));
@@ -196,6 +200,112 @@ const keys = () => panel().find('talk-key').filter((k) => !['Esc', 'Send'].inclu
   await settle();
   same(sent[n], ['post', '/talk/say', { session: 's1' }, { text: 'run the tests instead', send: true }], 'Send');
   same(input.value, '', 'emptied once it went');
+
+  // Placement: at every room size above the docked sheet (520x360 and up), the open bubble stays inside the room,
+  // its Yes and No reachable, with the head near either edge: beside the head where a side has room (narrowed to it
+  // if it's short), over the head, kept inside, where neither has.
+  const show = async () => { bubble.open('s1'); await settle(); };
+  const hide = () => { bubble.open('s1'); timers.splice(0).forEach((f) => f()); };
+  const tailOf = () => panel().children.find((c) => c.className.includes('talk-tail'));
+  hide();
+  same(panel(), undefined, 'closed before the placements');
+  for (const [width, height] of [[640, 360], [560, 400], [480, 300], [1280, 800]]) {
+    const rect = { left: 0, top: 0, right: width, bottom: height, width, height };
+    room.canvas.getBoundingClientRect = () => rect;
+    for (const x of [8, 40, Math.round(width / 2), width - 40, width - 8]) {
+      anchor.css = { box: { left: x - 10, right: x + 14, top: 120, bottom: 144 }, tip: { x, y: 142 } };
+      await show();
+      const el = panel(), left = parseInt(el.style.left, 10), w = parseInt(el.style.width, 10), top = parseInt(el.style.top, 10);
+      const tag = width + 'x' + height + ' head at ' + x + ' (left ' + left + ', width ' + w + ', top ' + top + ')';
+      same([left >= 4, left + w <= width - 4, w >= 200], [true, true, true], 'inside the room: ' + tag);
+      const high = parseInt(el.style.maxHeight, 10), most = Math.min(bubbleHeight, height - 8);
+      same([top >= 4, top + most <= height - 4, high >= most], [true, true, true], 'inside the room, up and down, and whole: ' + tag);
+      // Beside the head, it never covers the head's own bubble
+      if (tailOf().style.display !== 'none') same(x < left || x > left + w, true, 'beside, not over the head: ' + tag);
+      hide();
+    }
+  }
+  same(panel(), undefined, 'every placement closed');
+  // Neither side has its width at 480 wide, mid-room: over the head, with no tail
+  room.canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 480, bottom: 300, width: 480, height: 300 });
+  anchor.css = { box: { left: 230, right: 254, top: 120, bottom: 144 }, tip: { x: 240, y: 142 } };
+  await show();
+  same([tailOf().style.display, panel().style.left], ['none', '80px'], 'no tail over the head, kept inside');
+  hide();
+  // Narrowed to the larger side at 640 wide, head at 330: its whole width beside the head, not past the edge
+  room.canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 640, bottom: 360, width: 640, height: 360 });
+  anchor.css = { box: { left: 320, right: 344, top: 120, bottom: 144 }, tip: { x: 330, y: 142 } };
+  await show();
+  same([panel().style.left, panel().style.width, tailOf().style.display], ['4px', '306px', ''], 'narrowed to the side that has room');
+  hide();
+  anchor.css = { box: { left: 290, right: 314, top: 300, bottom: 324 }, tip: { x: 300, y: 322 } };
+
+  // A long question with four choices is about 420 px tall: placed from that measured height, never a fixed 220. The
+  // bubble ends inside the window, however low the head is, and where the room is shorter than the bubble it takes
+  // the room's height (its conversation and question shrink, then it scrolls: see the style, checked live).
+  bubbleHeight = 420;
+  for (const [width, height] of [[520, 360], [560, 400], [640, 360], [1280, 800]]) {
+    const rect = { left: 0, top: 0, right: width, bottom: height, width, height };
+    room.canvas.getBoundingClientRect = () => rect;
+    for (const y of [60, 142, height - 40, height - 8]) {
+      anchor.css = { box: { left: width / 2 - 10, right: width / 2 + 14, top: y - 22, bottom: y }, tip: { x: Math.round(width / 2), y } };
+      await show();
+      // Above the head it is held by its bottom edge; beside or over it, by its top
+      const el = panel(), high = parseInt(el.style.maxHeight, 10), most = Math.min(bubbleHeight, height - 8), shown = Math.min(most, high);
+      const bottom = el.style.top === '' ? win.innerHeight - parseInt(el.style.bottom, 10) : parseInt(el.style.top, 10) + shown;
+      const top = bottom - shown, tag = width + 'x' + height + ' head at y ' + y + ' (top ' + top + ', bottom ' + bottom + ', max height ' + high + ')';
+      same([top >= 4, bottom <= height - 4, high >= most], [true, true, true], 'a long question stays whole in the window: ' + tag);
+      hide();
+    }
+  }
+  // The style lets the long bubble give way in order: conversation, then question, then the choices scroll; the input stays
+  const css = TALK_STYLE.CSS;
+  same([/\.talk-bubble > \.talk-lines \{ flex: 0 100 auto/.test(css), /\.talk-bubble > \.talk-ask \{[^}]*min-height: 0; overflow-y: auto/.test(css),
+    /\.talk-ask > \.talk-q \{ flex: 0 1 auto; min-height: 2\.8em/.test(css), /\.talk-ask > \* \{ flex: none/.test(css),
+    /\.talk-needs, \.talk-small \{ z-index: 6/.test(css), /\.talk-bubble, \.talk-small, \.talk-tag, \.talk-needs \{[^}]*z-index: 7/.test(css)],
+    [true, true, true, true, true, true], 'the bubble\'s box gives way in order, and sits above the small bubbles');
+  bubbleHeight = 230;
+  anchor.css = { box: { left: 290, right: 314, top: 300, bottom: 324 }, tip: { x: 300, y: 322 } };
+
+  // Needs you sits beside the cog, at the room's drawn corner: from where the room drew the cog (art pixels, its own
+  // corner), through the view, and level with it. Not the plan's origin: the cog's box is not at 0, 0, and moving it
+  // moves the key; with no cog drawn, the canvas's corner.
+  const needsKey = () => body.children.find((c) => c.className && c.className.includes('talk-needs'));
+  const frame = () => bubble.frame([{ id: 's1', state: 'asking', since: 1, x: 100, top: 50 }]);
+  room.canvas.getBoundingClientRect = () => ({ left: 10, top: 20, right: 650, bottom: 380, width: 640, height: 360 });
+  room.view = () => ({ scale: 2, ox: 120, oy: 60, k: 2, left: 10, top: 20 });
+  // The cog at art (3, 3), 15 x 13, through this view (css = 70 + x across, 50 + y down): its right edge at 88, its top at 53
+  // and its foot at 66; the key (20 high) level with it at (53 + 66 - 20) / 2 = 50, 12 px (12 * px, px = 1) off its right edge.
+  room.cog = () => ({ x: 3, y: 3, w: 15, h: 13 });
+  frame();
+  same([needsKey().hidden, needsKey().style.left, needsKey().style.top], [false, '100px', '50px'], 'Needs you beside the cog');
+  const first = [parseInt(needsKey().style.left, 10), parseInt(needsKey().style.top, 10)];
+  // The same view with the cog 37 art pixels further across and 7 down: the key goes with it. A key put at the view's
+  // origin (the plan's, not the cog's) would not move at all.
+  room.cog = () => ({ x: 40, y: 10, w: 15, h: 13 });
+  frame();
+  same([parseInt(needsKey().style.left, 10) - first[0], parseInt(needsKey().style.top, 10) - first[1]], [37, 7], 'Needs you follows the cog');
+  // No cog drawn (a framed room): the canvas's corner
+  room.cog = () => null;
+  frame();
+  same([needsKey().style.left, needsKey().style.top], ['86px', '36px'], 'Needs you at the canvas\'s corner with no cog');
+  room.view = () => ({ scale: 2, ox: 0, oy: 0, k: 1, left: 0, top: 0 });
+  room.canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 640, bottom: 360, width: 640, height: 360 });
+
+  // A refresh asked for while a timed one is in flight takes over from it: one timer chain, not two.
+  await show();
+  const armed = timers.splice(0);
+  let release;
+  hold = new Promise((r) => { release = r; });
+  armed[armed.length - 1]();
+  const again = panel().find('talk-input')[0];
+  again.children[0].value = 'go on';
+  again.dispatch('submit');
+  await settle();
+  release();
+  hold = null;
+  await settle();
+  same(timers.length, 1, 'one refresh timer for the open bubble');
 
   // A tab hire on a Mac: one plain line, no input.
   card = { state: 'idle', asking: null, last: '', size: 40, typing: { ok: false, lines: false, why: 'The bubble can\'t type into a Terminal, iTerm2 or Ghostty tab: type in its own window.' } };
