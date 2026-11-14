@@ -97,6 +97,8 @@ var everyPhoneRoute = [][2]string{
 	{"GET", "/sw.js"}, {"GET", "/manifest.webmanifest"},
 	// Another Mac's feed (peers_mac_events.go, FL1), and its wrong method.
 	{"GET", "/peer/events"}, {"POST", "/peer/events"},
+	// The owner's tap that opens Setup on this computer (setupask.go, OLD-TAP1), and its wrong method.
+	{"POST", "/grants/setup"}, {"GET", "/grants/setup"},
 }
 
 // probeRoute asks one route as one caller, through the whole router, and says the status and the text.
@@ -276,6 +278,10 @@ func dumpPhoneRoutes(t *testing.T) string {
 // FL1 adds two lines at the end, and moves no cell: GET /peer/events, another Mac's feed, answered by servePeer as GET
 // /peer/hello is (403 for every caller here, none of which has a peer key: let in by nobody), and POST /peer/events,
 // which isn't a route but is under /peer/, so 404 for everyone, as GET /peer/nowhere.
+// OLD-TAP1 adds two lines at the end, and moves no cell: POST /grants/setup, the owner's tap that opens Setup on this
+// computer (setupask.go), answers as POST /grants/answer does, cell for cell (the owner's tap: a paired phone over
+// WireGuard or through `tailscale serve` on a Mac, Linux or Windows; 400 for its missing answer; no one else), and
+// its GET, which isn't a route, as PUT /grants/answer does.
 func TestEveryRouteKeepsItsAccessThroughTheMove(t *testing.T) {
 	after := dumpPhoneRoutes(t)
 	if after != phoneRouteAccess {
@@ -308,9 +314,9 @@ func TestEachRowLetsInItsClassOnly(t *testing.T) {
 	// the dictation service (FD1) POST /talk/listen, and the pull request badge's click POST /desk/pr/open (R2);
 	// floors from other Macs, GET /peer/hello (M1); FS2 adds GET /grants and POST /grants/answer; the TV's preview
 	// GET and POST /desk/preview (V1); PH1 POST /photo and POST /talk/photo; PUSH1 GET and POST /push, POST /push/off;
-	// another Mac's feed, GET /peer/events (FL1).
-	if len(phoneRouteTable) != 25 {
-		t.Errorf("%d rows; want 25", len(phoneRouteTable))
+	// another Mac's feed, GET /peer/events (FL1); OLD-TAP1 POST /grants/setup.
+	if len(phoneRouteTable) != 26 {
+		t.Errorf("%d rows; want 26", len(phoneRouteTable))
 	}
 	for key, row := range phoneRouteTable {
 		if !slices.ContainsFunc(everyPhoneRoute, func(route [2]string) bool {
@@ -558,6 +564,8 @@ GET /sw.js: 200 200 200 200 403 200 403 403 200 403 403 200 403 403 403 200 200 
 GET /manifest.webmanifest: 200 200 200 200 403 200 403 403 200 403 403 200 403 403 403 200 200 403 200 200 403; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows, spoof-proto-wifi, phone-here, window, window-key-on-wifi, window-device
 GET /peer/events: 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403; let in: nobody
 POST /peer/events: 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-mac-text-off, phone-serve-linux, phone-serve-linux-text-off, phone-serve-linux-proto, phone-serve-windows, phone-serve-windows-text-off, phone-serve-windows-proto, spoof-proto-wifi, spoof-tsnet-wifi, spoof-tsnet-wireguard, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi, window-device, window-device-proxied
+POST /grants/setup: 401 403 400 400 403 400 403 403 400 403 403 403 403 403 403 403 403 403 401 403 403; let in: phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows
+GET /grants/setup: 401 404 404 404 403 404 403 403 404 403 403 404 403 403 403 404 404 403 401 404 403; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows, spoof-proto-wifi, phone-here, window, window-device
 `
 
 // MARK: The switch's route set (FR1's review, N1)
@@ -616,6 +624,8 @@ var switchRoutes = map[string]string{
 	"ident hireStartPath": "local + hook key", "ident screenAnswerPath": "local + hook key + the launcher's secret",
 	// A terminal asks for a key with no key: it gets one only on the owner's Allow in Smolcorp's window (terminalask.go).
 	"ident terminalAskPath": "local, no key: the owner's Allow gives the key",
+	// A setup page asks to be opened with no key, off a Mac: only the owner's tap on the phone gives it a session (setupask.go).
+	"/setup/tap": "local + setup header, no key: the owner's tap on the phone gives the session",
 	// Not a route: the tray's token swapped for the window's key, a redirect to /office.
 	"/office?t=": "redirect to /office",
 	// A paired phone's key or the window's, past the router's own checks (handle's phoneID): the route says the rest by hand.

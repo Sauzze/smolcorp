@@ -141,6 +141,9 @@ var goOnlyRoutes = []routeRow{
 	{"POST", "/setup/terminal/answer", []string{"page"}},
 	// "I've seen it" for a Setup link used first (setuplink.go): the page alone, and only the Mac's own window's.
 	{"POST", "/setup/used-first/seen", []string{"page"}},
+	// A setup page's ask for the owner's tap on the phone, and its wait (setupask.go, OLD-TAP1): keyless, from this
+	// computer, served before any caller is asked for, so no caller's row: a tool, the GM and a hire hold nothing here.
+	{"*", "/setup/tap", []string{}},
 	{"GET", nightListPath, []string{"gm", "page", "tool"}},
 	{"POST", nightProposePath, []string{"gm", "page"}},
 	{"POST", nightSavePath, []string{"page"}},

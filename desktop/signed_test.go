@@ -560,6 +560,8 @@ var phoneRoutes = map[string]bool{
 	// The owner's asks and his yes or no to one (FS2, grants.go): a paired phone over Tailscale alone, never the
 	// Wi-Fi (accessOwnerTap), with an ask's id and yes or no, never a phone's text.
 	"/grants": false, "/grants/answer": false,
+	// The owner's tap that opens Setup on this computer (setupask.go, OLD-TAP1): an id, a code and yes or no, no text.
+	"/grants/setup": false,
 	// A phone's notifications (PUSH1, pushsubs.go): a paired phone over Tailscale alone (accessPhoneSecure), with a
 	// browser's subscription to a push service, never a phone's text.
 	"/push": false, "/push/off": false,

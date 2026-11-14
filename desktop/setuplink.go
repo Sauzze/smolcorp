@@ -30,6 +30,8 @@ type setupSession struct {
 	token string
 	// window: opened by Smolcorp's own window, never by a link a browser was handed.
 	window bool
+	// tapped: opened by the owner's tap on the phone (setupask.go), off a Mac: no link's token, and not the window.
+	tapped bool
 	// changes is what it changed, as "POST /setup/hooks", oldest first, at most setupChangesKept.
 	changes []string
 }
@@ -83,6 +85,16 @@ func (a *Access) setupSessionOf(id string) *setupSession {
 		}
 	}
 	return found
+}
+
+// NewTappedSetupSession opens a session for a browser the owner's tap on the phone let in (setupask.go).
+func (a *Access) NewTappedSetupSession() string {
+	id := randomKey()
+	a.setupSessions = append(a.setupSessions, setupSession{id: id, tapped: true})
+	if len(a.setupSessions) > maxSetupSessions {
+		a.setupSessions = a.setupSessions[len(a.setupSessions)-maxSetupSessions:]
+	}
+	return id
 }
 
 // IsWindowSession is whether id is an open session Smolcorp's own window opened.

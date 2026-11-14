@@ -327,7 +327,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 				http.Redirect(w, r.Request, setupBase()+r.URL.RequestURI(), http.StatusFound)
 				return
 			}
-			if _, err := r.Cookie(setupCookie()); err == nil || r.URL.Path == "/setup/session" {
+			if _, err := r.Cookie(setupCookie()); err == nil || r.URL.Path == "/setup/session" || r.URL.Path == "/setup/tap" {
 				writeStatus(w)(http.StatusForbidden, setupOnLoopbackIP())
 				return
 			}
@@ -336,11 +336,19 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
+		// The page's ask for the owner's tap on the phone, keyless, and its wait (setupask.go).
+		if r.URL.Path == "/setup/tap" {
+			d.setupTapRoute(w, r)
+			return
+		}
 		// A link carries a token that works once, after #o=. The page hands it
 		// over once for a session cookie only this page's requests carry. The
 		// setup key never opens a session, and the cookie is never the key.
 		session := r.Method == http.MethodPost && r.URL.Path == "/setup/session"
-		redeemed := session && d.redeemSetupToken(r.Header.Get(setupTokenHeader))
+		// Off a Mac, once a phone is paired, no link opens Setup: a tap on the phone does (setupask.go). A link used
+		// before is still reported as used first, below.
+		linkGone := session && r.Header.Get(setupTokenHeader) != "" && d.setupLinkGone()
+		redeemed := session && !linkGone && d.redeemSetupToken(r.Header.Get(setupTokenHeader))
 		// A link's token already used: another program used it first, and the session it opened ends (setuplink.go).
 		if session && !redeemed {
 			if changes, used := d.usedFirst(r.Header.Get(setupTokenHeader)); used {
@@ -348,6 +356,10 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 				writeJSON(w, http.StatusConflict, usedFirstAnswer(changes))
 				return
 			}
+		}
+		if linkGone {
+			writeStatus(w)(http.StatusForbidden, setupLinkGoneWords)
+			return
 		}
 		r.caller = d.routeCallerOf(r.Request, r.Method, r.URL.Path)
 		// The check-only key (selftestkey.go) opens this one route, and nothing else.

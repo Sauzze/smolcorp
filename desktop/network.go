@@ -67,8 +67,12 @@ func (d *Deck) guideAgain() {
 // openGuidePage opens setup on the guide: a variable, for the tests.
 var openGuidePage = func(d *Deck) error { return d.openSetup("guide") }
 
-// It says if the browser could not be started; the tray and the first run have no one to tell.
+// It says if the browser could not be started; the tray and the first run have no one to tell. Off a Mac, once a
+// phone is paired, it opens Setup with no link, where the page asks for a tap on the phone (setupask.go).
 func (d *Deck) openSetup(then string) error {
+	if d.setupLinkGone() {
+		return openURL(setupAddress(setupTapFragment, then))
+	}
 	d.mu.Lock()
 	token := d.access.NewSetupToken()
 	d.mu.Unlock()

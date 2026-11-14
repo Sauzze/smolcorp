@@ -637,7 +637,8 @@ func (s *grantStore) asksAnswer(now float64) []map[string]any {
 }
 
 // The owner's routes. The asks show in the approvals lists (approvals.go: the phone's GET /approvals and setup's
-// GET /setup/gm/approvals); the Mac app's office window, which those don't reach, reads them with GET /grants. The
+// GET /setup/gm/approvals); the Mac app's office window, which those don't reach, reads them with GET /grants, as the
+// phone reads a setup page's asks to be opened there alone (setupask.go), never in a list the GM or a tool reads. The
 // answer is POST /grants/answer?id=<ask>&answer=yes|no from a paired phone over Tailscale or the Mac app's office
 // window, each with its key, and POST /setup/grants/answer from the setup page, with its cookie. Never the office in
 // a browser (its key is in the browser's history) nor any window off a Mac, nor the paired device the Windows window
@@ -654,7 +655,8 @@ func init() {
 	registerPhoneRoute(phoneRoute{method: http.MethodGet, path: "/grants", access: accessOwnerTap, refusal: refusal,
 		serve: func(d *Deck, w http.ResponseWriter, _ *request, _ string) {
 			now := nowMillis()
-			writeJSON(w, http.StatusOK, map[string]any{"at": int64(now), "asks": d.grants.asksAnswer(now)})
+			// setupAsks: a setup page's asks to be opened, off a Mac, for the phone to answer (setupask.go).
+			writeJSON(w, http.StatusOK, map[string]any{"at": int64(now), "asks": d.grants.asksAnswer(now), "setupAsks": d.setupAsks.shown()})
 		}})
 	registerPhoneRoute(phoneRoute{method: http.MethodPost, path: "/grants/answer", access: accessOwnerTap, refusal: refusal,
 		serve: func(d *Deck, w http.ResponseWriter, r *request, _ string) {

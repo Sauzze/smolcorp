@@ -36,6 +36,8 @@ type Deck struct {
 	gmHand     gmByHandState
 	// What terminals ask for, waiting for the owner's answer in Smolcorp's window (terminalask.go): its own lock.
 	asks terminalAsks
+	// setupAsks are the setup pages' asks for the owner's tap on the phone, off a Mac (setupask.go).
+	setupAsks setupAsks
 	// Floors from other Macs (peers_mac.go): the Macs paired here and the code to join with, under mu; where the
 	// Macs this one joined are kept, with their keys (the secret store); joinMu, held through a join, never with mu.
 	macPeers *macPeers

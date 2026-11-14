@@ -154,6 +154,11 @@ const noTrayNewLink = "run smolcorp quit (or press Ctrl+C in its terminal), then
 // computer, or through a tunnel to its port, as ssh -L 7710:localhost:7710.
 // The link works once, for a minute off a Mac (setupTokenLifetime), and never carries the setup key.
 func printSetupLink(out io.Writer, deck *Deck) {
+	if deck.setupLinkGone() {
+		fmt.Fprintf(out, "Smolcorp's setup: %s\nYour phone is paired, so Setup opens by a tap on it: open this address, then say yes on your phone.\n",
+			setupAddress(setupTapFragment, ""))
+		return
+	}
 	fmt.Fprintf(out, "Smolcorp's setup: %s\nIt works once, for %s. For a new one, choose Open Setup… from the tray icon; with no tray, "+noTrayNewLink+".\n",
 		deck.setupLink(""), demoWaitWords(setupTokenLifetime))
 }
