@@ -2,6 +2,7 @@
 # Installs Smolcorp for you alone, with no root needed:
 #
 #   ~/.local/bin/smolcorp                         the app and its commands
+#   ~/.local/lib/smolcorp/tmux                    the tmux it drives your desks with
 #   ~/.local/share/applications/smolcorp.desktop  its entry in your app menu
 #
 #   ./install.sh
@@ -32,6 +33,22 @@ if [ -e "$BIN/sauzzedeck" ] || [ -L "$BIN/sauzzedeck" ]; then
   ln -sf smolcorp "$BIN/sauzzedeck"
 fi
 install -m 644 smolcorp.png "$DATA/smolcorp/icon.png"
+
+# Smolcorp's own tmux, with its guard: Smolcorp looks here before any other
+# tmux. Put in place by a rename, so a desk's tmux still running keeps its
+# file. Tried once first: on a computer whose system is older than it needs
+# (glibc 2.35, as in Ubuntu 22.04), it's taken out again, and Smolcorp uses
+# your own tmux, as before.
+LIB="$HOME/.local/lib/smolcorp"
+mkdir -p "$LIB"
+chmod 755 "$LIB"
+install -m 755 tmux "$LIB/tmux.new"
+mv -f "$LIB/tmux.new" "$LIB/tmux"
+install -m 644 THIRD-PARTY-NOTICES-tmux.txt "$LIB/THIRD-PARTY-NOTICES-tmux.txt"
+if ! "$LIB/tmux" -V 2>/dev/null | grep -q '^tmux '; then
+  rm -f "$LIB/tmux"
+  echo "Smolcorp's own tmux doesn't run on this computer (most likely its glibc is older than 2.35), so Smolcorp uses your own tmux instead."
+fi
 cat > "$DATA/applications/smolcorp.desktop" <<ENTRY
 [Desktop Entry]
 Type=Application

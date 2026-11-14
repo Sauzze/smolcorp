@@ -73,6 +73,94 @@ jobs:
             ${{ steps.build.outputs.file }}
             ${{ steps.build.outputs.notices }}
 
+  # SA-L5: the tmux each Linux download carries, with the guard (third_party/tmux/guard.patch), built by the same
+  # script from the same pinned sources, on each processor's own runner. Ubuntu 22.04, so it needs no glibc newer
+  # than 2.35. The build checks what it made (scripts/linuxtmux: an ELF program for that processor loading only glibc,
+  # the guard's messages, BUILDINFO with the recipe and the file's SHA-256), starts a server of it and tries the
+  # guard. This job then checks the file it keeps again, runs SANDBOX-PLAN's T1-T6 with it against the fake server
+  # and a real server, and the SO_PEERCRED spike, each by name, with SMOLCORP_SANDBOX_REQUIRED=1 so a skip fails.
+  # scripts/release-desktop.sh takes what this job keeps (gh run download) and checks it again before it ships.
+  tmux-linux:
+    name: tmux for Linux, ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch: amd64
+          - os: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # tmux's configure wants a yacc. The rows' stock client is the guarded build with the guard off, so no tmux here.
+      - name: Build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential bison
+      - name: Compiler
+        id: cc
+        run: echo "cc=$( { cc --version; ldd --version 2>&1 | sed -n 1p; } | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            build/third-party
+            build/tmux
+          key: tmux-linux-${{ matrix.arch }}-cc${{ steps.cc.outputs.cc }}-${{ hashFiles('scripts/build-tmux.sh', 'third_party/tmux/SHA256SUMS', 'third_party/tmux/guard.patch') }}
+      - name: Build tmux
+        id: build
+        shell: bash
+        run: |
+          set -o pipefail
+          scripts/build-tmux.sh linux | tee "$RUNNER_TEMP/build-tmux.log"
+          file="$(tail -n 1 "$RUNNER_TEMP/build-tmux.log")"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+          echo "dir=$(dirname "$file")" >> "$GITHUB_OUTPUT"
+      - name: Check the built tmux
+        env:
+          TMUX_FILE: ${{ steps.build.outputs.file }}
+        run: |
+          scripts/build-tmux.sh check "$TMUX_FILE"
+          cat "$(dirname "$TMUX_FILE")/BUILDINFO"
+      - name: T1-T6 and the SO_PEERCRED spike ran and passed
+        shell: bash
+        env:
+          SMOLCORP_TEST_TMUX: ${{ steps.build.outputs.file }}
+          SMOLCORP_SANDBOX_REQUIRED: "1"
+        run: |
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          go test -count=1 -v ./internal/sandbox/tmuxfake/ ./scripts/linuxtmux/ 2>&1 | tee "$RUNNER_TEMP/tmuxfake.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in \
+            TestT1AFileReadByNameIsRefused TestT2AFileWrittenByNameIsRefused TestT3NoEnvironmentIsSent \
+            TestT4AServerWithAnotherPidIsNeverSentAnything TestT5AProgramTheServerNamesIsNotRun \
+            TestT6AnAttachedClientRunsNothingAndKillsNoParent TestTheGuardTakesOnlyItsKindsMessages \
+            TestStreamsStillWorkThroughAGuardedClient TestUncheckedModeSkipsOnlyThePid TestAGuardedClientNeverStartsAServer \
+            TestRealServerT1AHookReadingAFileIsRefused TestRealServerT2AHookWritingAFileIsRefused \
+            TestRealServerT3TheClientsEnvironmentDoesntReachTheServer TestRealServerT4ALinkToAnotherServerIsNotTypedInto \
+            TestRealServerT6AnAttachedClientRunsNothing TestRealServerStreamsStillWork \
+            TestTheBuildStopsWhenTheGuardDidntApply TestSpikeSoPeercredAcrossExecAndAHandedOnSocket \
+            TestTheBuiltTmuxPassesTheCheck
+          do
+            if ! grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/tmuxfake.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          [ "$status" -eq 0 ] && [ "$missing" -eq 0 ]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tmux-linux-${{ matrix.arch }}
+          path: |
+            ${{ steps.build.outputs.dir }}/tmux
+            ${{ steps.build.outputs.dir }}/THIRD-PARTY-NOTICES.txt
+            ${{ steps.build.outputs.dir }}/BUILDINFO
+
   mac:
     name: Mac app
     runs-on: macos-latest

@@ -20,6 +20,11 @@
 #                                      and kills the server by its PID. The build runs this on what it built, and
 #                                      on a cached build too.
 #
+# On Linux (amd64 or arm64), the same commands build and check the tmux the Linux downloads carry, for that
+# computer's processor (see "Linux" below): `scripts/build-tmux.sh` (or `linux`) builds it, and `check FILE` runs
+# scripts/linuxtmux on FILE and its BUILDINFO, then the same server, key and guard checks. CI's tmux-linux job
+# builds both processors' and keeps them for the release.
+#
 # Sources are five pinned tarballs, downloaded into build/third-party/ and checked against
 # third_party/tmux/SHA256SUMS: a mismatch stops the build. The result is cached in build/tmux/<key>/, where
 # <key> hashes this script, SHA256SUMS, the guard patch, the Xcode SDK and the compiler, so it's rebuilt only
@@ -40,7 +45,9 @@ SELF="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
 cd "$(dirname "$SELF")/.."
 REPO="$(pwd -P)"
 
-# Nothing from Homebrew or the home folder: only the Xcode tools and the system.
+# Go, found before PATH is cut down: only the Linux build uses it (scripts/linuxtmux), and CI puts it elsewhere.
+GO="$(command -v go || true)"
+# Nothing from Homebrew or the home folder: only the Xcode tools (or Linux's own) and the system.
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 unset PKG_CONFIG PKG_CONFIG_PATH CPATH LIBRARY_PATH
 export MACOSX_DEPLOYMENT_TARGET=13.0
@@ -198,6 +205,265 @@ verify_binary() {
   echo "  $(lipo -archs "$f"), $(wc -c <"$f" | tr -d ' ') bytes, loads only libSystem and libresolv, minos 13.0, tmux -V = $("$f" -V)"
 }
 
+# The tarballs named (a list): fetched once, always checked against SHA256SUMS.
+fetch_tarballs() {
+  local name want file urls fetched url
+  mkdir -p build/third-party
+  for name in $1; do
+    want="$(expected_sum "$name")"
+    [ -n "$want" ] || { echo "third_party/tmux/SHA256SUMS has no line for $name." >&2; exit 1; }
+    file="build/third-party/$name"
+    if [ -f "$file" ]; then
+      [ "$(actual_sum "$file")" = "$want" ] || { echo "$file doesn't match third_party/tmux/SHA256SUMS. Delete it to download it again, or stop here if the pin was meant to change." >&2; exit 1; }
+      continue
+    fi
+    case "$name" in
+      tmux-*) urls="$URL_tmux" ;; libevent-*) urls="$URL_libevent" ;; ncurses-*) urls="$URL_ncurses" ;;
+      utf8proc-*) urls="$URL_utf8proc" ;; jemalloc-*) urls="$URL_jemalloc" ;;
+    esac
+    fetched=0
+    for url in $urls; do
+      echo "Downloading $name from $(echo "$url" | cut -d/ -f3)"
+      if curl -fsSL --proto '=https' --proto-redir '=https' --retry 3 --connect-timeout 20 -o "$file.part" "$url" && [ "$(actual_sum "$file.part")" = "$want" ]; then
+        mv "$file.part" "$file"
+        fetched=1
+        break
+      fi
+      echo "  that didn't give the file pinned in SHA256SUMS."
+      rm -f "$file.part"
+    done
+    [ "$fetched" = 1 ] || { echo "Couldn't get $name with the checksum pinned in third_party/tmux/SHA256SUMS." >&2; exit 1; }
+  done
+}
+
+# A tic for this computer, only to compile the entries built into ncurses (in $WORK, from $SRC).
+build_host_tic() {
+  echo "Building tools for this computer…"
+  mkdir -p "$WORK/build/host-ncurses" && cd "$WORK/build/host-ncurses"
+  "$SRC/ncurses-$NCURSES_V/configure" --prefix="$WORK/host" --without-shared --without-cxx \
+    --without-cxx-binding --without-ada --without-manpages --without-tests --without-debug \
+    --enable-widec --disable-db-install >config.out 2>&1
+  make -j"$JOBS" >make.out 2>&1
+  make install.progs >>make.out 2>&1
+  TIC="$WORK/host/bin/tic"
+  INFOCMP="$WORK/host/bin/infocmp"
+  cd "$REPO"
+}
+
+# THIRD-PARTY-NOTICES.txt at FILE, from the sources in $SRC; with "jemalloc" as the second word, its licence too.
+# Each library's licence whole, and the notices at the top of tmux's own files.
+# tmux's COPYING says "Various Authors". The files with a notice of their own (Tatu Ylonen's xmalloc, the BSD queue.h
+# and tree.h, the imsg, vis and bitstring files, a file with another author's ISC line...) carry it in their opening
+# comment, so every .c, .h and .y of the tarball (its main folder and compat/) is read, and each whose notice is
+# more than the standard one (Nicholas Marriott's copyright line over the ISC text COPYING shows) goes in.
+# Files with the same text are put together. Some are for other systems and weren't compiled in this build; they
+# are kept, because leaving one out is the mistake that matters.
+write_notices() {
+  local TREE STD STD_ID H N src note id hf
+  TREE="$SRC/tmux-$TMUX_V"
+  # The comments a file opens with (an $OpenBSD$ line and then the licence, say), up to its first code, without the
+  # one-line $OpenBSD$ and $NetBSD$ version stamps (they differ in every file and are no notice).
+  file_notice() {
+    awk 'inc { print } !inc && /^[[:space:]]*$/ { next } !inc && !/^\/\*/ { exit } !inc { print; inc = 1 } inc && /\*\// { inc = 0 }' "$1" |
+      awk '!/^\/\*[ \t]*\$(OpenBSD|NetBSD)[^*]*\*\/[ \t]*$/'
+  }
+  # The same without the lines of Nicholas Marriott's own copyright: what is left of a standard file is the ISC text.
+  without_marriott() { grep -v -E 'Copyright.*Nicholas Marriott' || true; }
+  STD="$(file_notice "$TREE/tmux.c" | without_marriott)"
+  case "$STD" in *"Permission to use, copy, modify, and distribute"*) ;; *) fail "tmux.c no longer opens with the ISC text: the notices step needs a look" ;; esac
+  STD_ID="$(printf '%s\n' "$STD" | shasum -a 256 | cut -c1-16)"
+  H="$WORK/headers"
+  mkdir -p "$H"
+  while IFS= read -r src; do
+    note="$(file_notice "$src")"
+    if [ -z "$note" ]; then
+      # No comment on top: there must be no copyright text in the file either.
+      ! grep -qi copyright "$src" || fail "${src#"$TREE"/} has copyright text but no notice at its top"
+      continue
+    fi
+    [ "$(printf '%s\n' "$note" | without_marriott | shasum -a 256 | cut -c1-16)" != "$STD_ID" ] || continue
+    id="$(printf '%s\n' "$note" | shasum -a 256 | cut -c1-16)"
+    [ -f "$H/h.$id" ] || printf '%s\n' "$note" >"$H/h.$id"
+    echo "${src#"$TREE"/}" >>"$H/n.$id"
+  done < <(find "$TREE" "$TREE/compat" -maxdepth 1 -type f \( -name '*.c' -o -name '*.h' -o -name '*.y' \) | LC_ALL=C sort)
+  ls "$H"/h.* >/dev/null 2>&1 || fail "no tmux notices were found: the notices step needs a look"
+  N="$1"
+  {
+    echo "Smolcorp's tmux and the libraries linked into it"
+    echo "================================================"
+    echo
+    if [ "${2:-}" = jemalloc ]; then
+      echo "The tmux that comes with Smolcorp is tmux $TMUX_V, built from its published source with libevent $LIBEVENT_V,"
+      echo "ncurses $NCURSES_V, utf8proc $UTF8PROC_V and jemalloc $JEMALLOC_V linked into it. Their licences follow,"
+    else
+      echo "The tmux that comes with Smolcorp is tmux $TMUX_V, built from its published source with libevent $LIBEVENT_V,"
+      echo "ncurses $NCURSES_V and utf8proc $UTF8PROC_V linked into it. Their licences follow,"
+    fi
+    echo "as they come in the sources built. The copyright of each belongs to its authors."
+    echo
+    section() { # title, file in the sources
+      echo
+      echo "################################################################################"
+      echo "# $1"
+      echo "################################################################################"
+      echo
+      cat "$2"
+    }
+    section "tmux $TMUX_V (ISC licence): COPYING" "$TREE/COPYING"
+    echo
+    echo "################################################################################"
+    echo "# tmux $TMUX_V: the notices at the top of the source files that carry more than the ISC licence above"
+    echo "################################################################################"
+    for hf in "$H"/h.*; do
+      id="${hf##*/h.}"
+      echo
+      echo "Files: $(LC_ALL=C sort "$H/n.$id" | tr '\n' ' ')"
+      echo
+      cat "$hf"
+    done
+    section "libevent $LIBEVENT_V (BSD 3-clause, with the notices it carries): LICENSE" "$SRC/libevent-$LIBEVENT_V/LICENSE"
+    section "ncurses $NCURSES_V (MIT/X11 style): COPYING" "$SRC/ncurses-$NCURSES_V/COPYING"
+    section "utf8proc $UTF8PROC_V (MIT, and the Unicode data licence): LICENSE.md" "$SRC/utf8proc-$UTF8PROC_V/LICENSE.md"
+    [ "${2:-}" != jemalloc ] || section "jemalloc $JEMALLOC_V (BSD 2-clause): COPYING" "$SRC/jemalloc-$JEMALLOC_V/COPYING"
+  } >"$N"
+  rm -rf "$H"
+  [ -s "$N" ] || fail "THIRD-PARTY-NOTICES.txt came out empty"
+}
+
+# ---- Linux: the tmux the Linux downloads carry (design A, SA-L5) ----
+# Built on a Linux computer for its own processor (CI: ubuntu-22.04 for amd64, ubuntu-22.04-arm for arm64), from the
+# same pinned tarballs and the same guard, with libevent, ncurses and utf8proc linked in as static libraries. It loads
+# only glibc's libc, libm and libresolv, and needs no glibc newer than its build computer's. No jemalloc (glibc's own
+# malloc is tmux's usual one on Linux) and no systemd: built with it, a client given LISTEN_FDS starts a server of
+# its own. Kept in build/tmux/<key>/ like the Mac's, with BUILDINFO beside it (the recipe it came from and the file's
+# SHA-256, written by scripts/linuxtmux), which scripts/release-desktop.sh checks before it puts the file in a
+# download. scripts/linuxtmux holds the file to all of that; this computer then runs it (runtime_check).
+LINUX_TARBALLS="tmux-$TMUX_V.tar.gz libevent-$LIBEVENT_V.tar.gz ncurses-$NCURSES_V.tar.gz utf8proc-$UTF8PROC_V.tar.gz"
+
+linux_arch() { case "$(uname -m)" in x86_64) echo amd64 ;; aarch64 | arm64) echo arm64 ;; esac; }
+
+linux_need() {
+  local tool
+  for tool in "$@"; do
+    command -v "$tool" >/dev/null 2>&1 || { echo "build-tmux.sh needs $tool here (CI's runners have it; on Ubuntu: build-essential, bison, curl)." >&2; exit 1; }
+  done
+  command -v bison >/dev/null 2>&1 || command -v byacc >/dev/null 2>&1 || command -v yacc >/dev/null 2>&1 ||
+    { echo "build-tmux.sh needs bison (or byacc) here: tmux's configure looks for one." >&2; exit 1; }
+  [ -n "$GO" ] || { echo "build-tmux.sh needs Go here, for scripts/linuxtmux." >&2; exit 1; }
+}
+
+# The checks a build and a cached build get, on DIR's tmux for ARCH: scripts/linuxtmux (with "write", it writes
+# BUILDINFO first), -V, then a server of it run on this computer.
+linux_check() { # DIR ARCH [write]
+  local dir="$1" arch="$2"
+  cd "$REPO"
+  if [ "${3:-}" = write ]; then
+    "$GO" run ./scripts/linuxtmux -arch "$arch" -write "$dir" || fail "scripts/linuxtmux refused $dir/tmux"
+  fi
+  "$GO" run ./scripts/linuxtmux -arch "$arch" "$dir" || fail "scripts/linuxtmux refused $dir/tmux"
+  [ "$("$dir/tmux" -V)" = "tmux $TMUX_V" ] || fail "tmux -V says '$("$dir/tmux" -V)', not 'tmux $TMUX_V'"
+  echo "  linux/$arch, $(wc -c <"$dir/tmux" | tr -d ' ') bytes, tmux -V = $("$dir/tmux" -V), $(sed -n 's/^glibc /needs glibc /p' "$dir/BUILDINFO")"
+  runtime_check "$dir/tmux" "" "linux/$arch"
+}
+
+linux_build() {
+  local arch P B
+  arch="$(linux_arch)"
+  [ -n "$arch" ] || { echo "build-tmux.sh builds Linux's tmux on amd64 or arm64, not $(uname -m)." >&2; exit 1; }
+  linux_need cc make strip strings curl shasum tar patch awk sort tr wc sed nproc
+  KEY="$({ cat "$SELF" "$SUMS" "$GUARD"; echo "linux/$arch"; cc --version; ldd --version 2>&1 | sed -n 1p; } | shasum -a 256 | cut -c1-16)"
+  OUT="$REPO/build/tmux/$KEY"
+  if [ -x "$OUT/tmux" ] && [ -s "$OUT/BUILDINFO" ]; then
+    echo "tmux $TMUX_V for linux/$arch is already built: $OUT/tmux"
+    CACHED="$OUT"
+    linux_check "$OUT" "$arch"
+    CACHED=""
+    echo "$OUT/tmux"
+    return
+  fi
+  fetch_tarballs "$LINUX_TARBALLS"
+  WORK="$REPO/build/tmux/$KEY.work"
+  rm -rf "$WORK" "$OUT"
+  mkdir -p "$WORK/src" "$WORK/out"
+  set -o errtrace
+  trap 'echo "The tmux build failed; its logs are in build/tmux/$KEY.work (config.out and make.out in each folder under build/)." >&2' ERR
+  for name in $LINUX_TARBALLS; do tar -xf "build/third-party/$name" -C "$WORK/src"; done
+  apply_guard "$WORK/src/tmux-$TMUX_V"
+  JOBS="$(nproc)"
+  SRC="$WORK/src"
+  build_host_tic
+  P="$WORK/prefix/$arch"
+  B="$WORK/build/$arch"
+  mkdir -p "$P/include" "$P/lib" "$B"
+  CFLAGS="-O2 -g0 -ffile-prefix-map=$SRC/="
+  echo "Building linux/${arch}…"
+  mkdir -p "$B/libevent" && cd "$B/libevent"
+  "$SRC/libevent-$LIBEVENT_V/configure" --prefix="$P" CC=cc CFLAGS="$CFLAGS" \
+    --disable-shared --enable-static --disable-openssl --disable-mbedtls --disable-samples \
+    --disable-libevent-regress --disable-debug-mode >config.out 2>&1
+  make -j"$JOBS" >make.out 2>&1 && make install >>make.out 2>&1
+  # ncurses: the library only, wide characters, terminfo from the system's folders (Debian keeps the common entries
+  # in /lib/terminfo), no mouse library loaded at run time (gpm), and the same entries built in as the Mac's.
+  mkdir -p "$B/ncurses" && cd "$B/ncurses"
+  "$SRC/ncurses-$NCURSES_V/configure" --prefix="$P" CC=cc CFLAGS="$CFLAGS" \
+    --with-build-cc=cc --without-shared --with-normal --without-debug --without-cxx \
+    --without-cxx-binding --without-ada --without-manpages --without-tests --without-progs \
+    --without-gpm --without-dlsym --enable-widec --disable-db-install \
+    --with-default-terminfo-dir=/usr/share/terminfo \
+    --with-terminfo-dirs=/etc/terminfo:/lib/terminfo:/usr/share/terminfo --with-fallbacks="$FALLBACKS" \
+    --with-tic-path="$TIC" --with-infocmp-path="$INFOCMP" >config.out 2>&1
+  make -j"$JOBS" libs >make.out 2>&1
+  make install.libs install.includes >>make.out 2>&1
+  rm -rf "$B/utf8proc" && cp -R "$SRC/utf8proc-$UTF8PROC_V" "$B/utf8proc" && cd "$B/utf8proc"
+  make CC=cc CFLAGS="$CFLAGS" libutf8proc.a >make.out 2>&1
+  cp libutf8proc.a "$P/lib/" && cp utf8proc.h "$P/include/"
+  mkdir -p "$B/tmux" && cd "$B/tmux"
+  "$SRC/tmux-$TMUX_V/configure" --prefix=/usr/local CC=cc CFLAGS="$CFLAGS" \
+    CPPFLAGS="-I$P/include -I$P/include/ncursesw" \
+    LIBEVENT_CORE_CFLAGS="-I$P/include" LIBEVENT_CORE_LIBS="$P/lib/libevent_core.a" \
+    LIBTINFOW_CFLAGS="-I$P/include/ncursesw" LIBTINFOW_LIBS="$P/lib/libncursesw.a" \
+    LIBUTF8PROC_CFLAGS="-I$P/include" LIBUTF8PROC_LIBS="$P/lib/libutf8proc.a" \
+    PKG_CONFIG=/bin/false \
+    --enable-utf8proc --disable-jemalloc --disable-systemd --disable-cgroups --disable-utempter \
+    --with-TERM=screen-256color >config.out 2>&1
+  make -j"$JOBS" >make.out 2>&1
+  cp tmux "$WORK/out/tmux"
+  cd "$REPO"
+  trap - ERR
+  set +o errtrace
+  T="$WORK/out/tmux"
+  strip --strip-all "$T"
+  strings -a "$T" >"$WORK/tmux.strings"
+  if grep -F -q -e "$WORK" -e "$REPO" "$WORK/tmux.strings"; then
+    fail "the file carries the build folder's path: $(grep -F -e "$WORK" -e "$REPO" "$WORK/tmux.strings" | head -3)"
+  fi
+  write_notices "$WORK/out/THIRD-PARTY-NOTICES.txt"
+  echo "Checking it…"
+  linux_check "$WORK/out" "$arch" write
+  mkdir -p "$OUT"
+  cp "$T" "$WORK/out/THIRD-PARTY-NOTICES.txt" "$WORK/out/BUILDINFO" "$OUT/"
+  chmod 755 "$OUT/tmux"
+  rm -rf "$WORK"
+  echo "Built tmux $TMUX_V for linux/$arch: $OUT/tmux"
+  echo "$OUT/tmux"
+}
+
+if [ "$(uname -s)" = Linux ]; then
+  case "${1:-}" in
+    "" | linux) linux_build ;;
+    check)
+      case "${2:-}" in /*) f="$2" ;; *) f="$CALLER/${2:-}" ;; esac
+      [ -n "${2:-}" ] && [ -f "$f" ] && [ -x "$f" ] && [ "$(basename "$f")" = tmux ] ||
+        { echo "Usage: scripts/build-tmux.sh check <folder>/tmux (its BUILDINFO and notices beside it)" >&2; exit 2; }
+      linux_need strings awk sort tr wc sed
+      echo "Checking $f"
+      linux_check "$(cd "$(dirname "$f")" && pwd -P)" "$(linux_arch)"
+      ;;
+    *) echo "Usage: scripts/build-tmux.sh [linux | check <tmux file> | apply-guard <folder>]" >&2; exit 2 ;;
+  esac
+  exit 0
+fi
+[ "${1:-}" != linux ] || { echo "Linux's tmux is built on Linux, for that computer's processor: CI's tmux-linux job builds both." >&2; exit 1; }
 [ "$(uname -s)" = Darwin ] || { echo "build-tmux.sh builds the Mac's tmux and runs only on a Mac." >&2; exit 1; }
 
 if [ "${1:-}" = "check" ]; then
@@ -226,53 +492,20 @@ if [ -x "$OUT/tmux" ] && [ -s "$OUT/THIRD-PARTY-NOTICES.txt" ]; then
 fi
 
 # ---- 1. the tarballs: fetched once, always checked ----
-mkdir -p build/third-party
-for name in $TARBALLS; do
-  want="$(expected_sum "$name")"
-  [ -n "$want" ] || { echo "third_party/tmux/SHA256SUMS has no line for $name." >&2; exit 1; }
-  file="build/third-party/$name"
-  if [ -f "$file" ]; then
-    [ "$(actual_sum "$file")" = "$want" ] || { echo "$file doesn't match third_party/tmux/SHA256SUMS. Delete it to download it again, or stop here if the pin was meant to change." >&2; exit 1; }
-    continue
-  fi
-  case "$name" in
-    tmux-*) urls="$URL_tmux" ;; libevent-*) urls="$URL_libevent" ;; ncurses-*) urls="$URL_ncurses" ;;
-    utf8proc-*) urls="$URL_utf8proc" ;; jemalloc-*) urls="$URL_jemalloc" ;;
-  esac
-  fetched=0
-  for url in $urls; do
-    echo "Downloading $name from $(echo "$url" | cut -d/ -f3)"
-    if curl -fsSL --proto '=https' --proto-redir '=https' --retry 3 --connect-timeout 20 -o "$file.part" "$url" && [ "$(actual_sum "$file.part")" = "$want" ]; then
-      mv "$file.part" "$file"
-      fetched=1
-      break
-    fi
-    echo "  that didn't give the file pinned in SHA256SUMS."
-    rm -f "$file.part"
-  done
-  [ "$fetched" = 1 ] || { echo "Couldn't get $name with the checksum pinned in third_party/tmux/SHA256SUMS." >&2; exit 1; }
-done
+fetch_tarballs "$TARBALLS"
 
 # ---- 2. the build, in a folder of its own that becomes $OUT only when everything has passed ----
 WORK="$REPO/build/tmux/$KEY.work"
 rm -rf "$WORK" "$OUT"
 mkdir -p "$WORK/src" "$WORK/out"
+set -o errtrace
 trap 'echo "The tmux build failed; its logs are in build/tmux/$KEY.work (config.out and make.out in each folder under build/)." >&2' ERR
 for name in $TARBALLS; do tar -xf "build/third-party/$name" -C "$WORK/src"; done
 apply_guard "$WORK/src/tmux-$TMUX_V"
 JOBS="$(sysctl -n hw.ncpu)"
 SRC="$WORK/src"
 
-# A tic for this Mac, only to compile the entries built into ncurses.
-echo "Building tools for this Mac…"
-mkdir -p "$WORK/build/host-ncurses" && cd "$WORK/build/host-ncurses"
-"$SRC/ncurses-$NCURSES_V/configure" --prefix="$WORK/host" --without-shared --without-cxx \
-  --without-cxx-binding --without-ada --without-manpages --without-tests --without-debug \
-  --enable-widec --disable-db-install >config.out 2>&1
-make -j"$JOBS" >make.out 2>&1
-make install.progs >>make.out 2>&1
-TIC="$WORK/host/bin/tic"
-INFOCMP="$WORK/host/bin/infocmp"
+build_host_tic
 
 for arch in arm64 x86_64; do
   P="$WORK/prefix/$arch"
@@ -336,6 +569,7 @@ for arch in arm64 x86_64; do
 done
 cd "$REPO"
 trap - ERR
+set +o errtrace
 
 # ---- 3. the checks: any one of them stops the build ----
 echo "Checking the slices…"
@@ -367,81 +601,13 @@ fi
 echo "Running it…"
 check_file "$T"
 
-# ---- 4. the notices: each library's licence whole, and the notices at the top of tmux's own files ----
-# tmux's COPYING says "Various Authors". The files with a notice of their own (Tatu Ylonen's xmalloc, the BSD queue.h
-# and tree.h, the imsg, vis and bitstring files, a file with another author's ISC line...) carry it in their opening
-# comment, so every .c, .h and .y of the tarball (its main folder and compat/) is read, and each whose notice is
-# more than the standard one (Nicholas Marriott's copyright line over the ISC text COPYING shows) goes in.
-# Files with the same text are put together. Some are for other systems and weren't compiled in this build; they
-# are kept, because leaving one out is the mistake that matters.
-TREE="$SRC/tmux-$TMUX_V"
-# The comments a file opens with (an $OpenBSD$ line and then the licence, say), up to its first code, without the
-# one-line $OpenBSD$ and $NetBSD$ version stamps (they differ in every file and are no notice).
-file_notice() {
-  awk 'inc { print } !inc && /^[[:space:]]*$/ { next } !inc && !/^\/\*/ { exit } !inc { print; inc = 1 } inc && /\*\// { inc = 0 }' "$1" |
-    awk '!/^\/\*[ \t]*\$(OpenBSD|NetBSD)[^*]*\*\/[ \t]*$/'
-}
-# The same without the lines of Nicholas Marriott's own copyright: what is left of a standard file is the ISC text.
-without_marriott() { grep -v -E 'Copyright.*Nicholas Marriott' || true; }
-STD="$(file_notice "$TREE/tmux.c" | without_marriott)"
-case "$STD" in *"Permission to use, copy, modify, and distribute"*) ;; *) fail "tmux.c no longer opens with the ISC text: the notices step needs a look" ;; esac
-STD_ID="$(printf '%s\n' "$STD" | shasum -a 256 | cut -c1-16)"
-H="$WORK/headers"
-mkdir -p "$H"
-while IFS= read -r src; do
-  note="$(file_notice "$src")"
-  if [ -z "$note" ]; then
-    # No comment on top: there must be no copyright text in the file either.
-    ! grep -qi copyright "$src" || fail "${src#"$TREE"/} has copyright text but no notice at its top"
-    continue
-  fi
-  [ "$(printf '%s\n' "$note" | without_marriott | shasum -a 256 | cut -c1-16)" != "$STD_ID" ] || continue
-  id="$(printf '%s\n' "$note" | shasum -a 256 | cut -c1-16)"
-  [ -f "$H/h.$id" ] || printf '%s\n' "$note" >"$H/h.$id"
-  echo "${src#"$TREE"/}" >>"$H/n.$id"
-done < <(find "$TREE" "$TREE/compat" -maxdepth 1 -type f \( -name '*.c' -o -name '*.h' -o -name '*.y' \) | LC_ALL=C sort)
-ls "$H"/h.* >/dev/null 2>&1 || fail "no tmux notices were found: the notices step needs a look"
-N="$WORK/out/THIRD-PARTY-NOTICES.txt"
-{
-  echo "Smolcorp's tmux and the libraries linked into it"
-  echo "================================================"
-  echo
-  echo "The tmux that comes with Smolcorp is tmux $TMUX_V, built from its published source with libevent $LIBEVENT_V,"
-  echo "ncurses $NCURSES_V, utf8proc $UTF8PROC_V and jemalloc $JEMALLOC_V linked into it. Their licences follow,"
-  echo "as they come in the sources built. The copyright of each belongs to its authors."
-  echo
-  section() { # title, file in the sources
-    echo
-    echo "################################################################################"
-    echo "# $1"
-    echo "################################################################################"
-    echo
-    cat "$2"
-  }
-  section "tmux $TMUX_V (ISC licence): COPYING" "$TREE/COPYING"
-  echo
-  echo "################################################################################"
-  echo "# tmux $TMUX_V: the notices at the top of the source files that carry more than the ISC licence above"
-  echo "################################################################################"
-  for hf in "$H"/h.*; do
-    id="${hf##*/h.}"
-    echo
-    echo "Files: $(LC_ALL=C sort "$H/n.$id" | tr '\n' ' ')"
-    echo
-    cat "$hf"
-  done
-  section "libevent $LIBEVENT_V (BSD 3-clause, with the notices it carries): LICENSE" "$SRC/libevent-$LIBEVENT_V/LICENSE"
-  section "ncurses $NCURSES_V (MIT/X11 style): COPYING" "$SRC/ncurses-$NCURSES_V/COPYING"
-  section "utf8proc $UTF8PROC_V (MIT, and the Unicode data licence): LICENSE.md" "$SRC/utf8proc-$UTF8PROC_V/LICENSE.md"
-  section "jemalloc $JEMALLOC_V (BSD 2-clause): COPYING" "$SRC/jemalloc-$JEMALLOC_V/COPYING"
-} >"$N"
-rm -rf "$H"
-[ -s "$N" ] || fail "THIRD-PARTY-NOTICES.txt came out empty"
+# ---- 4. the notices ----
+write_notices "$WORK/out/THIRD-PARTY-NOTICES.txt" jemalloc
 
 # ---- 5. keep the result, drop the work ----
 mkdir -p "$OUT"
 cp "$T" "$OUT/tmux"
-cp "$N" "$OUT/THIRD-PARTY-NOTICES.txt"
+cp "$WORK/out/THIRD-PARTY-NOTICES.txt" "$OUT/THIRD-PARTY-NOTICES.txt"
 chmod 755 "$OUT/tmux"
 rm -rf "$WORK"
 echo "Built tmux $TMUX_V: $OUT/tmux"

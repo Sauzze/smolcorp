@@ -55,7 +55,7 @@ func (c tmuxClient) need(t *testing.T) {
 }
 
 // guardedBuild finds the guarded tmux: SMOLCORP_TEST_TMUX, or the newest scripts/build-tmux.sh build in this
-// checkout's build/tmux. Off a Mac there is none until a Linux build exists (SA-L5).
+// checkout's build/tmux (the Mac's, or on Linux the one `scripts/build-tmux.sh linux` made).
 func guardedBuild() (string, string) {
 	if path := os.Getenv("SMOLCORP_TEST_TMUX"); path != "" {
 		if _, err := os.Stat(path); err != nil {
@@ -66,7 +66,7 @@ func guardedBuild() (string, string) {
 	found, _ := filepath.Glob("../../../build/tmux/*/tmux")
 	sort.Slice(found, func(i, j int) bool { return modTime(found[i]).After(modTime(found[j])) })
 	if len(found) == 0 {
-		return "", "set SMOLCORP_TEST_TMUX to a guarded tmux, or run scripts/build-tmux.sh (Mac)"
+		return "", "set SMOLCORP_TEST_TMUX to a guarded tmux, or run scripts/build-tmux.sh (on a Mac or on Linux)"
 	}
 	path, _ := filepath.Abs(found[0])
 	return path, ""

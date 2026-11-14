@@ -16,9 +16,9 @@ import (
 
 // T1-T4 and T6 again, against a real tmux server: the hire's server is started by the guarded build with the guard
 // off (as `sandbox enter` will start it), and set up the way a hire could set it up from inside (hooks, options).
-// Then the client outside, stock and guarded, runs the core's ordinary command. These need the guarded build: on a
-// Mac, scripts/build-tmux.sh's (found by itself in build/tmux) or SMOLCORP_TEST_TMUX; elsewhere they skip until a
-// Linux build exists (SA-L5). On the Mac runner, SMOLCORP_SANDBOX_REQUIRED=1 turns that skip into a failure.
+// Then the client outside, stock and guarded, runs the core's ordinary command. These need the guarded build:
+// scripts/build-tmux.sh's (found by itself in build/tmux, on a Mac or on Linux) or SMOLCORP_TEST_TMUX; without one
+// they skip. On the Mac runner and in CI's tmux-linux job, SMOLCORP_SANDBOX_REQUIRED=1 turns that skip into a failure.
 // T5 is the fake server's own row: a real server never sends MSG_SHELL to a plain has-session.
 
 // realServer starts a tmux server of the guarded build on its own socket in dir, with one session "main" running
