@@ -8,7 +8,12 @@
 #
 #   scripts/check-runtime.sh FILE...      an app (checked as its main program) or a program
 #
-# Says each file that fails and why, and ends with 1 if any did. It signs nothing and reads no keychain.
+# A program named tmux must also be the guarded tmux scripts/build-tmux.sh builds (third_party/tmux/guard.patch):
+# run with an empty environment and a socket that can't exist, it stops before it connects and says why. A stock
+# tmux in the app would let a hire's own tmux server read and write files, and run programs, as you.
+#
+# Says each file that fails and why, and ends with 1 if any did. It signs nothing, reads no keychain, and runs
+# nothing but a tmux it's given, that way.
 
 set -euo pipefail
 
@@ -63,5 +68,13 @@ for file in "$@"; do
       fi
     done
   done
+  if [ "$(basename "$program")" = tmux ]; then
+    status=0
+    said="$(env -i "$program" -S /dev/null/smolcorp-guard-check has-session 2>&1)" || status=$?
+    if [ "$status" != 98 ] || ! grep -q '^smolcorp guard: no server pid given' <<<"$said"; then
+      echo "$file: isn't the guarded tmux (scripts/build-tmux.sh applies third_party/tmux/guard.patch); it said: $said"
+      failed=1
+    fi
+  fi
 done
 exit "$failed"
