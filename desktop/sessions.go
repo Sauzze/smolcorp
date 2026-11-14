@@ -643,6 +643,15 @@ func (s *Sessions) revive(id string) *Session {
 	return gone.session
 }
 
+// Revivable is the session dropped by Prune or PruneGone that an event naming id would bring back (see revive), as
+// it would come back, on its old tab, without bringing it back; or nil.
+func (s *Sessions) Revivable(id string) *Session {
+	if gone, ok := s.dropped[id]; ok {
+		return gone.session
+	}
+	return nil
+}
+
 // WasDropped is whether id was dropped by Prune or PruneGone and may yet come
 // back, so its key is kept for it.
 func (s *Sessions) WasDropped(id string) bool {

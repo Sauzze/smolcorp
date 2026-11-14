@@ -83,6 +83,8 @@ type liveSession struct {
 	ID, Agent, Folder, Project, State, Model string
 	Floor, Desk                              *int
 	LastEventAt                              float64
+	// KeyedDesk is the desk with a hook key of its own whose tab the session is on (hookkeys.go), or "".
+	KeyedDesk string
 }
 
 // Contact is one pair who may write to each other: from may write to to
@@ -93,12 +95,14 @@ type Contact struct {
 }
 
 // registryFile holds the hires, the pairs who may write to each other, the
-// hash of each hire's send key (hire id to SHA-256 hex, never the key), and,
-// kept untouched, whatever else the file has.
+// hash of each hire's send key (hire id to SHA-256 hex, never the key), the
+// hash of each desk's hook key alike (hookkeys.go), and, kept untouched,
+// whatever else the file has.
 type registryFile struct {
 	hires    []Hire
 	contacts []Contact
 	keys     map[string]string
+	hookKeys map[string]string
 	rest     map[string]json.RawMessage
 }
 
@@ -156,12 +160,13 @@ func parseRegistry(data []byte) (registryFile, bool) {
 	var version int
 	var hires []Hire
 	var contacts []Contact
-	var keys map[string]string
+	var keys, hookKeys map[string]string
 	// Contacts and keys that can't be read make the file unreadable, as on the Mac (FrontDesk.swift load).
 	if json.Unmarshal(data, &raw) != nil || json.Unmarshal(raw["version"], &version) != nil || version > registryVersion ||
 		(raw["hires"] != nil && json.Unmarshal(raw["hires"], &hires) != nil) ||
 		(raw["contacts"] != nil && json.Unmarshal(raw["contacts"], &contacts) != nil) ||
-		(raw["keys"] != nil && json.Unmarshal(raw["keys"], &keys) != nil) {
+		(raw["keys"] != nil && json.Unmarshal(raw["keys"], &keys) != nil) ||
+		(raw["hookKeys"] != nil && json.Unmarshal(raw["hookKeys"], &hookKeys) != nil) {
 		return registryFile{}, false
 	}
 	for i, h := range hires {
@@ -174,8 +179,9 @@ func parseRegistry(data []byte) (registryFile, bool) {
 	delete(raw, "hires")
 	delete(raw, "contacts")
 	delete(raw, "keys")
+	delete(raw, "hookKeys")
 	delete(raw, sealedPartField)
-	return registryFile{hires: hires, contacts: contacts, keys: keys, rest: raw}, true
+	return registryFile{hires: hires, contacts: contacts, keys: keys, hookKeys: hookKeys, rest: raw}, true
 }
 
 // projectFolder is a hire's folder as the contract's registry.json has it: the project it was hired into.
@@ -253,6 +259,9 @@ func (f registryFile) fields() (map[string]json.RawMessage, error) {
 	}
 	if len(f.keys) > 0 {
 		out["keys"] = f.keys
+	}
+	if len(f.hookKeys) > 0 {
+		out["hookKeys"] = f.hookKeys
 	}
 	data, err := json.Marshal(out)
 	if err != nil {
@@ -416,6 +425,12 @@ func seatOrNull(n *int) any {
 // each session is claimed by at most one hire and a hire by at most one session,
 // the first listed. now is in milliseconds; status gives a folder's last STATUS line.
 func buildTeam(hires []Hire, live []liveSession, now float64, status func(string) string) []map[string]any {
+	return teamRows(hires, readRegistry(registryPath(), false).hookKeys, live, now, status)
+}
+
+// teamRows is buildTeam with the registry's hook keys, keyed, read with hires: a desk with a hook key of its own
+// claims only the sessions on its own tab, and only it claims them (hookkeys.go).
+func teamRows(hires []Hire, keyed map[string]string, live []liveSession, now float64, status func(string) string) []map[string]any {
 	claimed := map[string]bool{}
 	rows := []map[string]any{}
 	for _, h := range hires {
@@ -424,7 +439,7 @@ func buildTeam(hires []Hire, live []liveSession, now float64, status func(string
 			for i := range live {
 				// A hire in T3 Code claims only its own desk, never a session in the folder it was hired from; and
 				// no other hire claims a T3 desk (FXT3Da B1, RT3Da2 n1).
-				mine := works(live[i], h) && !strings.HasPrefix(live[i].ID, t3DeskPrefix)
+				mine := deskWorks(live[i], h, keyed) && !strings.HasPrefix(live[i].ID, t3DeskPrefix)
 				if h.Engine == t3Engine {
 					mine = live[i].ID == t3DeskID(h.ID)
 				}
@@ -536,8 +551,10 @@ func statusLine(folder string) string {
 // sits at: the ground floor's by its key, the others' by the building. A hire
 // in T3 Code's desk is its live session here, so the team pairs it by its id.
 func (d *Deck) frontDeskLive() []liveSession {
+	desks := currentHookDesks()
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	desks.launchers = d.launcherHires()
 	keys, overflow := d.layout()
 	type seat struct{ floor, desk int }
 	seats := map[string]seat{}
@@ -562,7 +579,7 @@ func (d *Deck) frontDeskLive() []liveSession {
 	}
 	for _, s := range all {
 		l := liveSession{ID: s.ID, Agent: string(s.Agent), Folder: s.Folder, Project: s.Project,
-			State: string(s.State), Model: s.Model, LastEventAt: s.LastEventAt}
+			State: string(s.State), Model: s.Model, LastEventAt: s.LastEventAt, KeyedDesk: desks.deskOfTab(s.Tab)}
 		if at, ok := seats[s.ID]; ok {
 			floor, desk := at.floor, at.desk
 			l.Floor = &floor
@@ -584,7 +601,7 @@ func (rt *router) team(w http.ResponseWriter) {
 	rt.deck.mu.Unlock()
 	file := readRegistry(registryPath(), false)
 	now := float64(time.Now().UnixMilli())
-	rows := buildTeam(file.hires, live, now, statusLine)
+	rows := teamRows(file.hires, file.hookKeys, live, now, statusLine)
 	if byHand != "" && !file.gmIsHired() {
 		for _, row := range rows {
 			if row["registered"] == false && row["sessionId"] == byHand {

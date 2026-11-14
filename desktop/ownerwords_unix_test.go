@@ -5,6 +5,7 @@ package desktop
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -61,9 +62,12 @@ func TestTheGMsStartMessageIsNeverTheOwners(t *testing.T) {
 		if gm.Role != gmRole || !strings.Contains(start, "You are the General Manager of this team.") {
 			t.Fatalf("the GM's start message: %q", start)
 		}
+		// The GM's desk reports with its own hook key, which its ticket holds (hookkeys.go).
+		plan, _ := issuedPlan(gm.ID)
+		key := plan.Changes[slices.IndexFunc(plan.Changes, func(c envChange) bool { return c.Name == hookKeyEnvironment })].Value
 		tab := "tmux:%1@" + gm.TmuxSocket
-		promptIn(t, d, "gm1", tab, start)
-		promptIn(t, d, "gm1", tab, "Keep every hire on Sonnet unless I say.")
+		promptInAs(t, d, key, "gm1", tab, start)
+		promptInAs(t, d, key, "gm1", tab, "Keep every hire on Sonnet unless I say.")
 		sameLines(t, "the ledger", ownerLines(d), "terminal/terminal/gm1: Keep every hire on Sonnet unless I say.")
 	})
 	t.Run("launcher", func(t *testing.T) {
@@ -93,8 +97,10 @@ func TestTheGMsStartMessageIsNeverTheOwners(t *testing.T) {
 		if w == nil || !strings.Contains(w.env.Message, "BRIEF") {
 			t.Fatalf("the GM's window has no start message: %v", w != nil)
 		}
-		promptIn(t, r.d, "gm1", "launcher:"+w.id, w.env.Message)
-		promptIn(t, r.d, "gm1", "launcher:"+w.id, "Keep every hire on Sonnet unless I say.")
+		// The GM's window reports with its own hook key, which its start environment holds.
+		key := w.env.Set[hookKeyEnvironment]
+		promptInAs(t, r.d, key, "gm1", "launcher:"+w.id, w.env.Message)
+		promptInAs(t, r.d, key, "gm1", "launcher:"+w.id, "Keep every hire on Sonnet unless I say.")
 		sameLines(t, "the ledger", ownerLines(r.d), "terminal/terminal/gm1: Keep every hire on Sonnet unless I say.")
 	})
 }

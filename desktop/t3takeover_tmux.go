@@ -98,8 +98,12 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 	if err != nil {
 		return "", errors.New("its send key couldn't be made.")
 	}
+	hookKey, err := newHookKey(registryPath(), h.ID)
+	if err != nil {
+		return "", errors.New("its hook key couldn't be made.")
+	}
 	start := hireStart{Role: role, Resume: session, DefaultAccount: true, Settings: settings, CLIDir: filepath.Dir(o.CLI),
-		Ports: h.Ports, SendKey: sendKey}
+		Ports: h.Ports, SendKey: sendKey, HookKey: hookKey}
 	if testPort != 0 {
 		start.TestPort, start.TestSupportDir = testPort, supportDir
 	}

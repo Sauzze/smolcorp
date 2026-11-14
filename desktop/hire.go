@@ -986,14 +986,14 @@ func showWindow(terminal hireOpener, folder string, command []string) (string, e
 // hireEnvironment is this app's environment, less what says where it was
 // started: a hire is in a terminal of its own, not the one Smolcorp was
 // started from, nor a headless run. It never carries the GM's token.
-// Nor another hire's send key (each hire's start script exports its own).
+// Nor another hire's send key or hook key (each desk's start gives its own).
 // The office's own hires never get the port and support folder the Mac app
 // names its engine by: a Mac-engine hire doesn't have them either, and
 // `smolcorp` finds the office without them. A test copy's keep them, as a
 // Mac test copy's do, so its hires never reach the real office.
 func hireEnvironment() []string {
 	dropped := []string{"SMOLCORP_SESSION", "SAUZZEDECK_SESSION", "SMOLCORP_HEADLESS", "SMOLCORP_PARENT_FOLDER",
-		"SMOLCORP_GM_TOKEN", hireKeyEnvironment, "TMUX", "TMUX_PANE", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON"}
+		"SMOLCORP_GM_TOKEN", hireKeyEnvironment, hookKeyEnvironment, "TMUX", "TMUX_PANE", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON"}
 	if testCopyPort() == 0 {
 		dropped = append(dropped, "SMOLCORP_PORT", testSupportVariable)
 	}

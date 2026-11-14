@@ -15,17 +15,19 @@ import (
 const registryName = "registry.json"
 
 // registryRights is what the registry grants, as its seal covers it: the hires' send keys (their hashes), who may
-// write to whom, and each hire's role, state and scope (a GM held to a project).
+// write to whom, and each hire's role, state and scope (a GM held to a project); and each desk's hook key (its hash),
+// left out while there is none, so a registry from before them is sealed as it was.
 type registryRights struct {
 	Keys     map[string]string `json:"keys"`
 	Contacts []Contact         `json:"contacts"`
 	Hires    [][5]string       `json:"hires"`
+	HookKeys map[string]string `json:"hookKeys,omitempty"`
 }
 
 // registrySecurityPart is the registry's sealed part, as bytes the same file always gives: none and empty are one,
 // as the file leaves both out.
 func registrySecurityPart(f registryFile) []byte {
-	rights := registryRights{Keys: f.keys, Contacts: f.contacts, Hires: [][5]string{}}
+	rights := registryRights{Keys: f.keys, Contacts: f.contacts, Hires: [][5]string{}, HookKeys: f.hookKeys}
 	if len(rights.Keys) == 0 {
 		rights.Keys = nil
 	}
@@ -50,7 +52,8 @@ var heldRegistries = struct {
 
 // cloneRegistry is a copy of f that shares nothing with it.
 func cloneRegistry(f registryFile) registryFile {
-	return registryFile{hires: slices.Clone(f.hires), contacts: slices.Clone(f.contacts), keys: maps.Clone(f.keys), rest: maps.Clone(f.rest)}
+	return registryFile{hires: slices.Clone(f.hires), contacts: slices.Clone(f.contacts), keys: maps.Clone(f.keys),
+		hookKeys: maps.Clone(f.hookKeys), rest: maps.Clone(f.rest)}
 }
 
 // holdRegistry keeps f as the registry at path.
@@ -130,7 +133,7 @@ func registryDropped() {
 // no longer open (failed), so none comes back unscoped from what the file says. The owner's reset then seals it.
 func withoutGrants(f registryFile) registryFile {
 	f = cloneRegistry(f)
-	f.keys, f.contacts = nil, nil
+	f.keys, f.hookKeys, f.contacts = nil, nil, nil
 	for i, h := range f.hires {
 		if isOpen(h) && (h.Role == gmRole || h.Scope != "" || h.ScopeRoles != "") {
 			f.hires[i].State = "failed"
@@ -145,6 +148,11 @@ func withoutGrants(f registryFile) registryFile {
 func registryTightens(old, now registryFile) bool {
 	for id, hash := range old.keys {
 		if now.keys[id] != hash {
+			return true
+		}
+	}
+	for id, hash := range old.hookKeys {
+		if now.hookKeys[id] != hash {
 			return true
 		}
 	}

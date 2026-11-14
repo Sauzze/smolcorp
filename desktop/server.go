@@ -448,9 +448,13 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		if !d.isHookKey(r.Header.Get(hookKeyHeader)) {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
+		// The owner's sessions' key, or a desk's own (hookkeys.go): then the event must be that desk's.
+		desks, desk := currentHookDesks(), ""
+		if key := r.Header.Get(hookKeyHeader); !d.isHookKey(key) {
+			if desk = desks.deskForKey(key); desk == "" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
 		}
 		// A hook header twice is one smuggled in after another, as a line break in a variable the hook was
 		// given would make it: not believed, as the Mac's (DeckRouter.hasSmuggledHookHeader).
@@ -472,10 +476,13 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		event := decodeJSON(r.Body)
 		// Each hook event looks at Smolcorp's own programs: a change is caught by the next start (ownseal.go).
 		ownFiles.noteEvent()
+		if !d.ingestAs(desks, desk, event, r.Header.Get("X-AgentDeck-Agent"), r.Header.Get("X-AgentDeck-Tab"),
+			r.Header.Get("X-AgentDeck-Project"), pid, r.Header.Get("X-AgentDeck-Parent"), at) {
+			writeStatus(w)(http.StatusForbidden, hookNotYourDesk)
+			return
+		}
 		// ⓘ Info: whether the agent's environment has an API key or a cloud provider, never the key.
 		infos.noteBilling(r.Header.Get("X-AgentDeck-Billing"), stringValue(event["session_id"]))
-		d.IngestFrom(event, r.Header.Get("X-AgentDeck-Agent"), r.Header.Get("X-AgentDeck-Tab"),
-			r.Header.Get("X-AgentDeck-Project"), pid, r.Header.Get("X-AgentDeck-Parent"), at)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	// A terminal asks for a key, and waits for the owner's answer in Smolcorp's window (terminalask.go).

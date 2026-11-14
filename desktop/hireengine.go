@@ -157,6 +157,11 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if err != nil {
 		return fail(http.StatusInternalServerError, "Couldn't make the hire's send key.")
 	}
+	// Every desk, the GM's too, reports with a hook key of its own (hookkeys.go).
+	hookKey, err := newHookKey(registryPath(), id)
+	if err != nil {
+		return fail(http.StatusInternalServerError, "Couldn't make the hire's hook key.")
+	}
 	gmToken := ""
 	if r.Role.ID == gmRole {
 		if r.GMToken != nil {
@@ -171,7 +176,7 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		}
 	}
 	start := hireStart{Role: r.Role, Message: message, ConfigDir: r.ConfigDir, DefaultAccount: r.DefaultAccount,
-		Settings: settings, CLIDir: filepath.Dir(o.CLI), Ports: place.Ports, SendKey: sendKey, GMToken: gmToken, APIKey: r.APIKey, KeyText: r.APIKeyText}
+		Settings: settings, CLIDir: filepath.Dir(o.CLI), Ports: place.Ports, SendKey: sendKey, HookKey: hookKey, GMToken: gmToken, APIKey: r.APIKey, KeyText: r.APIKeyText}
 	// The GM is told who it is, and starts with its rules, skills and tools where the app bundles them (GO-PARITY's
 	// GM start, as the Mac's Swift engine started it: Deck.gmIntroduction, Role.startScript's plugin).
 	if r.Role.ID == gmRole && agentOrClaude(r.Role.Agent) == Claude {

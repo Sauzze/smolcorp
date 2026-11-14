@@ -138,7 +138,7 @@ func (d *Deck) approvalItems() []approvalItem {
 		it := approvalItem{session: l.ID, name: lastPart(l.Project), agent: l.Agent, floor: l.Floor, desk: l.Desk,
 			kind: "permission", tool: f.tool, input: f.input, since: f.since}
 		for _, h := range file.hires {
-			if h.State != "fired" && h.State != "failed" && works(l, h) {
+			if h.State != "fired" && h.State != "failed" && deskWorks(l, h, file.hookKeys) {
 				it.hire, it.name, it.nickname = h.ID, h.Name, h.Nickname
 				break
 			}

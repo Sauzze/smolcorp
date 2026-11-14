@@ -166,6 +166,10 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	if err != nil {
 		return fail(http.StatusInternalServerError, "Couldn't make the hire's send key.")
 	}
+	hookKey, err := newHookKey(registryPath(), id)
+	if err != nil {
+		return fail(http.StatusInternalServerError, "Couldn't make the hire's hook key.")
+	}
 	gmToken := ""
 	if r.Role.ID == gmRole {
 		if r.GMToken != nil {
@@ -197,6 +201,7 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	if sendKey != "" {
 		env.Set[hireKeyEnvironment] = sendKey
 	}
+	env.Set[hookKeyEnvironment] = hookKey
 	if gmToken != "" {
 		env.Set["SMOLCORP_GM_TOKEN"] = gmToken
 	} else {

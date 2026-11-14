@@ -22,7 +22,8 @@ import (
 // on as it is, with headers for the agent, the time the event was raised,
 // the session's tab (see Tab), and the folder the agent was started in, where
 // the agent says: the event's cwd follows the agent into subfolders. The key
-// is read from its file, so it never appears on a command line.
+// is a desk's own, from its start (hookkeys.go), or else the owner's sessions',
+// read from its file: never on a command line.
 //
 // A headless claude run, one with no terminal at all, reports in only when
 // whoever started it sets SMOLCORP_HEADLESS=1: its tab is then
@@ -61,6 +62,16 @@ func hookKeyFileFor(testSupport string) string {
 	return hookKeyFile
 }
 
+// hookKeyFor is the key a hook sends: its desk's own when its start gave one, and then never the file's, which stays
+// the owner's own sessions'; else the file's (hookKeyFileFor).
+func hookKeyFor(getenv func(string) string, read func(string) ([]byte, error)) (string, error) {
+	if key := strings.TrimSpace(getenv(hookKeyEnvironment)); key != "" {
+		return key, nil
+	}
+	key, err := read(hookKeyFileFor(getenv(testSupportVariable)))
+	return strings.TrimSpace(string(key)), err
+}
+
 // RunHook always returns 0: a hook that fails would hold up the agent.
 func RunHook(args []string) int {
 	agent := string(Claude)
@@ -81,7 +92,7 @@ func RunHook(args []string) int {
 		return 0
 	}
 	event = trimmedEvent(event)
-	key, err := os.ReadFile(hookKeyFileFor(os.Getenv(testSupportVariable)))
+	key, err := hookKeyFor(os.Getenv, os.ReadFile)
 	if err != nil {
 		return 0
 	}
@@ -90,7 +101,7 @@ func RunHook(args []string) int {
 		return 0
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set(hookKeyHeader, strings.TrimSpace(string(key)))
+	request.Header.Set(hookKeyHeader, key)
 	request.Header.Set("X-AgentDeck-Agent", agent)
 	request.Header.Set("X-AgentDeck-At", strconv.FormatInt(time.Now().UnixMilli(), 10))
 	tab, tty, send := hookTab(Agent(agent), event)

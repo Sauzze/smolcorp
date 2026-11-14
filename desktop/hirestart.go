@@ -45,6 +45,7 @@ type hireStart struct {
 	CLIDir         string // the folder holding the app's own `smolcorp`, put on this agent's PATH
 	Ports          string // "4100-4103"; "" for an unmanaged hire
 	SendKey        string // the hire's own send key
+	HookKey        string // the desk's own hook key, made for this start (hookkeys.go)
 	GMToken        string // the GM's token, for the gm role's start only
 	APIKey         bool   // run on the API key in the secret store, never written down
 	// Under the Mac app, the API key itself, read through the bridge for this hire alone (hireapikey.go), handed
@@ -184,7 +185,7 @@ func (h hireStart) plan() (deskPlan, error) {
 }
 
 // environmentChanges are the hire's own variables: its ports, its send key, a test copy's port and folder (T704),
-// and on the API-key account under the Mac app the key the bridge gave (KeyText). Elsewhere the API key is read
+// on the API-key account under the Mac app the key the bridge gave (KeyText), and its own hook key (X10). Elsewhere the API key is read
 // from the secret store when the pane asks (deskPlan.APIKey), so the start stops rather than fall back to the
 // subscription.
 func (h hireStart) environmentChanges() ([]envChange, error) {
@@ -222,6 +223,9 @@ func (h hireStart) environmentChanges() ([]envChange, error) {
 			return nil, errors.New("only a hire on the API-key account is given a key, and only one that is a key")
 		}
 		set("ANTHROPIC_API_KEY", h.KeyText)
+	}
+	if h.HookKey != "" {
+		set(hookKeyEnvironment, h.HookKey)
 	}
 	return changes, nil
 }

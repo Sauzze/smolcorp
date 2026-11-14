@@ -156,12 +156,13 @@ func hireIsOpen(id string) bool {
 	return slices.ContainsFunc(officeHires(), func(h Hire) bool { return h.ID == id && isOpen(h) })
 }
 
-// forgetHire takes hire id's row and its send key's hash out of the registry:
+// forgetHire takes hire id's row and its keys' hashes out of the registry:
 // for a hire that was refused before it started, so nothing is left of it.
 func forgetHire(id string) {
 	_ = updateRegistry(func(f *registryFile) {
 		f.hires = slices.DeleteFunc(f.hires, func(h Hire) bool { return h.ID == id })
 		delete(f.keys, id)
+		delete(f.hookKeys, id)
 	})
 }
 

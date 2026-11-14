@@ -504,28 +504,49 @@ func (d *Deck) Ingest(event map[string]any, reported, tab, startedIn string, at 
 }
 
 // IngestFrom is Ingest with the pid of the agent's process, where the hook
-// sent it, or 0.
+// sent it, or 0: an event of the owner's own sessions, which reaches no desk
+// with a hook key of its own (hookkeys.go).
 func (d *Deck) IngestFrom(event map[string]any, reported, tab, startedIn string, pid int, parent string, at float64) {
+	d.ingestAs(currentHookDesks(), "", event, reported, tab, startedIn, pid, parent, at)
+}
+
+// ingestAs is IngestFrom for an event sent with desk's own hook key, or "" for the owner's sessions' key, as desks
+// says where each desk is. It says false, and changes nothing, when the event names a desk the key isn't for.
+func (d *Deck) ingestAs(desks hookDesks, desk string, event map[string]any, reported, tab, startedIn string, pid int, parent string, at float64) bool {
 	agent := agentOf(event, reported)
 	canonical := agent.canonical(event)
 	if canonical == nil {
-		return
+		return true
 	}
 	// An acp: id or tab is an ACP desk's (acpdesk.go), which only its desk speaks for: a hook event naming one is
 	// dropped whole, before Apply, so it neither sets that session's pid or parent nor files a line in its name.
 	if id, _ := canonical["session_id"].(string); strings.HasPrefix(id, acpDeskPrefix) || strings.HasPrefix(tab, acpDeskPrefix) {
-		return
+		return true
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	desks.launchers = d.launcherHires()
+	id, _ := canonical["session_id"].(string)
+	session := d.sessions.Get(id)
+	if session == nil {
+		// A session dropped a while ago comes back as it was, on its old tab, when an event names no tab
+		// (Sessions.apply): it is checked as the session it would be.
+		session = d.sessions.Revivable(id)
+	}
+	if !desks.allows(desk, tab, session) {
+		return false
+	}
 	// A hire in T3 Code's own Claude Code, heard through your hooks: never a desk, nor anyone else's. Its events
 	// are kept in the event log, as any session's the deck has no desk for.
 	if d.isT3HiresOwn(canonical, startedIn) {
 		d.logEvent(canonical, agent, at)
-		return
+		return true
 	}
 	if tab == "" {
-		tab = d.launcherFor(canonical, agent)
+		// A launcher found by folder is a tab like any other: a desk's is its own key's alone.
+		if tab = d.launcherFor(canonical, agent); tab != "" && !desks.allows(desk, tab, nil) {
+			return false
+		}
 	}
 	changed := d.sessions.Apply(canonical, agent, tab, startedIn, at)
 	d.logEvent(canonical, agent, at)
@@ -533,7 +554,7 @@ func (d *Deck) IngestFrom(event map[string]any, reported, tab, startedIn string,
 	d.heardInTerminal(canonical)
 	// A photo its desk has just read goes at once (photo.go).
 	d.notePhotoRead(canonical)
-	if id, _ := canonical["session_id"].(string); pid > 0 || parent != "" {
+	if pid > 0 || parent != "" {
 		if session := d.sessions.Get(id); session != nil {
 			if pid > 0 {
 				session.PID = pid
@@ -546,6 +567,7 @@ func (d *Deck) IngestFrom(event map[string]any, reported, tab, startedIn string,
 	if d.noteMessage(canonical, agent) || changed {
 		d.changed()
 	}
+	return true
 }
 
 // logEvent keeps a line of the event log for a hook event of a session, where it

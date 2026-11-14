@@ -58,7 +58,7 @@ func TestTheTeamIsTheRegistryMergedWithLiveSessionsAsTeamJSONSays(t *testing.T) 
 	}
 	var live []liveSession
 	for _, l := range team.Input.Live {
-		live = append(live, liveSession{l.ID, l.Agent, l.Folder, l.Project, l.State, l.Model, l.Floor, l.Desk, l.LastEventAt})
+		live = append(live, liveSession{l.ID, l.Agent, l.Folder, l.Project, l.State, l.Model, l.Floor, l.Desk, l.LastEventAt, ""})
 	}
 	rows := buildTeam(registry.Hires, live, team.Input.Now, func(p string) string { return team.Input.Status[p] })
 	want := team.Answer.(map[string]any)["team"]

@@ -34,9 +34,15 @@ func gmDeskAt(t *testing.T, d *Deck, launcher, session string) {
 // that key can send one.
 func promptIn(t *testing.T, d *Deck, session, tab, prompt string) {
 	t.Helper()
+	promptInAs(t, d, d.access.HookKey, session, tab, prompt)
+}
+
+// promptInAs is promptIn sent with key: a desk's own hook key, for a desk that has one (hookkeys.go).
+func promptInAs(t *testing.T, d *Deck, key, session, tab, prompt string) {
+	t.Helper()
 	got := serve(t, d, call{method: "POST", target: "/hook", host: "127.0.0.1:7710", from: thisComputer,
 		body:    jsonLine(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": session, "cwd": "/work/office", "prompt": prompt}),
-		headers: map[string]string{hookKeyHeader: d.access.HookKey, "X-AgentDeck-Agent": "claude", "X-AgentDeck-Tab": tab}})
+		headers: map[string]string{hookKeyHeader: key, "X-AgentDeck-Agent": "claude", "X-AgentDeck-Tab": tab}})
 	if got.Code != http.StatusNoContent {
 		t.Fatalf("the hook: %d %s", got.Code, got.Body)
 	}
