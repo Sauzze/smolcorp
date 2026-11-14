@@ -21,6 +21,7 @@ import (
 	"github.com/Sauzze/smolcorp/internal/gm"
 	"github.com/Sauzze/smolcorp/internal/guard"
 	"github.com/Sauzze/smolcorp/internal/procmem"
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 // version is set by scripts/release-desktop.sh.
@@ -69,6 +70,10 @@ func main() {
 	case "desk-start":
 		// Not in the usage: Smolcorp starts a desk's tmux pane on it, with that desk's ticket (deskstart.go).
 		os.Exit(desktop.RunDeskStart(args[1:]))
+	case "sandbox":
+		// Not in the usage: Smolcorp starts `sandbox enter` inside a desk's sandbox, before anything of the desk's,
+		// to check the sandbox holds and tell the core so (internal/sandbox/enter.go).
+		os.Exit(sandbox.Run(args[1:], os.Stderr))
 	case "setup":
 		os.Exit(desktop.RunSetup(args[1:]))
 	case "demo":

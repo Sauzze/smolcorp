@@ -3,9 +3,11 @@ package desktop
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -507,6 +509,8 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		memoryFolder: sealed,
 		// NS1: the night shift's jobs, whose approvals start hires overnight.
 		nightFileName: sealed,
+		// SA-X3: a start's canary, sandbox-canary-<32 hex> (canaryName), fresh for each start: it holds nothing.
+		"sandbox-canary-*": notSecret,
 	}
 	d, mac, phoneKey, _ := macDeck(t)
 	sendKey := withAHire(t)
@@ -527,6 +531,13 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		transcript.close(time.Now())
 	}
 	keptNote(t, d, memoryNote("Tests run with pnpm"))
+	// A canary only where `enter` has one to check (a Mac, Linux): off unix, NewCanary makes nothing.
+	if _, err := sandbox.NewCanary(supportDir); sandbox.HasCanary && err != nil {
+		t.Fatal(err)
+	} else if !sandbox.HasCanary && !errors.Is(err, sandbox.ErrNoCanary) {
+		t.Fatalf("with no sandbox here, NewCanary answered %v, not ErrNoCanary", err)
+	}
+	sawCanary := false
 	if kept, _ := mac.keptItem(); kept != keptAs(token) {
 		t.Errorf("the GM's Keychain item holds %q, not the token's verifier", kept)
 	}
@@ -547,6 +558,10 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 			t.Errorf("%s has no row in the sandbox's Policy (internal/sandbox/policy.go, supportFiles)", name)
 		}
 		class, ok := classes[name]
+		if canaryName.MatchString(name) {
+			class, ok = classes["sandbox-canary-*"]
+			sawCanary = true
+		}
 		if !ok {
 			t.Errorf("%s has no class in the inventory", name)
 			continue
@@ -583,7 +598,14 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 			}
 		}
 	}
+	if sawCanary != sandbox.HasCanary {
+		t.Errorf("a canary in the support folder: %v, where `enter` has one: %v", sawCanary, sandbox.HasCanary)
+	}
 }
+
+// canaryName is a canary's whole name as NewCanary makes it: nothing else, its .new left behind included, takes its
+// class.
+var canaryName = regexp.MustCompile(`^sandbox-canary-[0-9a-f]{32}$`)
 
 // A record the core wrote itself always fits at the next start, empty lists and maps included, which the files
 // leave out: a seal never breaks on its own and drops the owner's settings or team.

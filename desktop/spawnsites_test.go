@@ -44,6 +44,8 @@ var spawnExemptFunctions = map[string]string{
 	"desktop/deskstart.go RunDeskStart":      "a desk's helper becoming its agent in place, inside the desk's tmux, itself started through disclaim.Cmd",
 	"desktop/launcher.go launch": "smolcorp run starting its agent in a pseudo-terminal: it runs only in a hire's terminal window (Terminal, " +
 		"iTerm or Ghostty) or a desk's tmux, itself started through disclaim.Cmd, so the agent is charged to that terminal or tmux, never to the core",
+	"internal/sandbox/enter_unix.go enter": "smolcorp sandbox enter becoming the desk's start in place, inside the desk's sandbox, once its checks " +
+		"passed: an exec in place starts no process, and `enter` itself is started through disclaim.Cmd (SA-M3)",
 	"internal/gm/login_unix.go execGM": "smolcorp gm login putting the General Manager in its own place (SK2, B3): an exec in place starts no " +
 		"process, so the GM inherits the charge of whatever ran the command (the owner's terminal, or a hire's), and it's never the core's: " +
 		"only the command line runs it",
