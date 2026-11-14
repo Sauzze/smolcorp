@@ -29,6 +29,11 @@ func fakeAnthropicToken(kind, body string) string {
 // A token-shaped string, obviously fake: it must never reach an answer, a log or an event.
 var fakeSecret = fakeAnthropicToken("oat", "FAKEFAKEFAKEFAKEFAKEFAKEFAKE0123456789")
 
+// signInStandInDeadline is the deadline a stand-in's status command is given: all the time it could need. A
+// program just written isn't run until the Mac has checked it, and on a busy Mac (builds writing programs of their
+// own) that first run waits for seconds, past the real five (T126FLK1). The test of the deadline sets its own.
+const signInStandInDeadline = time.Minute
+
 // signInPlace makes stand-ins for the agents named (name: what its body does), in a stand-in home, and
 // makes them the only programs found: an agent not named is not installed, and no real program is ever run.
 func signInPlace(t *testing.T, bodies map[string]string) string {
@@ -40,8 +45,9 @@ func signInPlace(t *testing.T, bodies map[string]string) string {
 	}
 	// Only this folder is looked in: programNamed also asks the login shell's PATH and the usual places
 	// (a real claude may be in them), and none of that is wanted here.
-	saved := signInFind
-	t.Cleanup(func() { signInFind = saved })
+	saved, savedDeadline := signInFind, signInDeadline
+	t.Cleanup(func() { signInFind, signInDeadline = saved, savedDeadline })
+	signInDeadline = signInStandInDeadline
 	signInFind = func(name string) string {
 		if _, ok := bodies[name]; !ok {
 			return ""
@@ -306,7 +312,7 @@ func TestAStatusCommandsOutputIsCut(t *testing.T) {
 		"claude": pad + "echo '{\"loggedIn\":true,\"email\":\"ann@example.com\"}'",
 		"codex":  "echo 'Logged in using ChatGPT' >&2; head -c 100000 /dev/zero | tr '\\0' 'x' >&2",
 	})
-	ran := spawnCapped(filepath.Join(dir, "claude"), nil, nil, nil, dir, 10*time.Second, signInOutputMost, signInErrorMost)
+	ran := spawnCapped(filepath.Join(dir, "claude"), nil, nil, nil, dir, signInDeadline, signInOutputMost, signInErrorMost)
 	if len(ran.output) != signInOutputMost || ran.status != 0 {
 		t.Errorf("%d, %d", len(ran.output), ran.status)
 	}
