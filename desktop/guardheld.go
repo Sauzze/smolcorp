@@ -137,6 +137,24 @@ func holdGuard(path string, data []byte) error {
 	return nil
 }
 
+// holdGuardUnwritten holds data as the guard file at path, in memory alone, and keeps a writer of the file and its
+// seal for the rotation to come: a guard dropped at the start, sealed as the guard in force (records.go's
+// settleRecords). Nothing is written under the key the drop owes a rotation for, so a stop before that rotation's
+// add leaves the file broken, to be dropped again, never healed under the key its copy from before fits (RT126SK1R4
+// follow-up 1).
+func holdGuardUnwritten(path string, data []byte) {
+	heldGuards.Lock()
+	heldGuards.byPath[path] = &heldGuardFile{data: data}
+	heldGuards.Unlock()
+	seal := guardSealWriter(path, data)
+	keepWriter(guardRecord(path), func(key []byte, prev string) error {
+		if err := writeBriefPrivately(path, data); err != nil {
+			return err
+		}
+		return seal(key, prev)
+	})
+}
+
 // guardInForce is the guard in force while the file at path isn't honoured: the built-in groups with what the file
 // adds (guard.Over), as a guard file, and whether the file could be read as one. Sealing it loosens nothing.
 func guardInForce(path string) ([]byte, bool) {

@@ -119,6 +119,15 @@ final class ShellMenuTests: XCTestCase {
         XCTAssertTrue(types.contains("org.nspasteboard.TransientType"), "\(types)")
     }
 
+    /// Unpair All Phones… refused by the core (its records' key unreadable, RT126SK1F nit 4): the app reads the
+    /// refusal to show it; an answer that carries none, or none at all, is nothing to show.
+    func testAnUnpairAllTheCoreRefusesIsShown() {
+        XCTAssertEqual(GoShellDelegate.refusal(["id": 3, "refused": "Smolcorp can't save this now."]), "Smolcorp can't save this now.")
+        XCTAssertNil(GoShellDelegate.refusal(["id": 3]))
+        XCTAssertNil(GoShellDelegate.refusal(["id": 3, "refused": ""]))
+        XCTAssertNil(GoShellDelegate.refusal(nil))
+    }
+
     /// Open at Login is pointed at this copy of the app as it starts, as the Swift app did; never by a test copy.
     func testTheLoginItemIsRefreshedAtLaunchButNotByATestCopy() {
         var enabled = 0

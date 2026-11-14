@@ -253,7 +253,9 @@ func (k *gmTokenKeeper) readFailed() bool {
 }
 
 // keep has token written to the store, after any change before it; the token the store is known to hold is nothing
-// to do. It never waits on the store: the caller may hold d.mu.
+// to do. It never waits on the store: the caller may hold d.mu. While the records' key can't be read
+// (recordsHeldOnly) it is held in memory alone: written then, the verifier would carry no seal, and the GM's token
+// from before would stop working at the restart after the owner unlocks the keychain (RT126SK1R4 follow-up 3).
 func (k *gmTokenKeeper) keep(token string) {
 	if k == nil {
 		return
@@ -261,6 +263,9 @@ func (k *gmTokenKeeper) keep(token string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.wanted = token
+	if recordsHeldOnly() {
+		return
+	}
 	k.startLocked()
 }
 
@@ -328,10 +333,14 @@ func (k *gmTokenKeeper) wroteLocked(token string, err error) {
 
 // writeNow writes token to the store at once, after any write under way, and says whether it was kept; one that
 // failed is followed by the token wanted until now, tried again by the goroutine. It waits on the store: never call
-// it with d.mu held.
+// it with d.mu held. While the records' key can't be read (recordsHeldOnly) it writes nothing and says
+// errRecordsHeld, so a new token is refused with Setup's reason, and the one from before goes on working.
 func (k *gmTokenKeeper) writeNow(token string) error {
 	if k == nil {
 		return nil
+	}
+	if recordsHeldOnly() {
+		return errRecordsHeld
 	}
 	k.writing.Lock()
 	k.mu.Lock()

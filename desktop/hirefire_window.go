@@ -129,6 +129,14 @@ func (d *Deck) fireOwnWindowHire(h Hire, tab string, agent Agent, force, keep bo
 	if !closed && !force {
 		return refuse(http.StatusConflict, ownWindowNotFound(h))
 	}
+	what := "window"
+	if !closed {
+		what = ""
+	}
+	if refused := heldFire(h, what); refused != nil {
+		d.failHeldMail(h, refused)
+		return "", "", refused
+	}
 	if !closed {
 		// It may still be at work in a window nobody closed: its worktree stays, whatever was asked.
 		note = ownWindowNotClosed(h)
@@ -154,6 +162,11 @@ func (d *Deck) fireOwnWindowHire(h Hire, tab string, agent Agent, force, keep bo
 			d.changed()
 		}
 		d.mu.Unlock()
+	}
+	if held := heldFireNote(h); held != "" && note != "" {
+		note = held + " " + note
+	} else if held != "" {
+		note = held
 	}
 	return kept, note, nil
 }

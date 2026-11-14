@@ -105,6 +105,9 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 			return refuse("Couldn't end " + calledHire(h) + "'s tmux session, so nothing was changed.")
 		}
 	}
+	if refused := heldFire(h, "session"); refused != nil {
+		return "", refused
+	}
 	removed := h.Worktree != "" && !o.KeepWorktree && removeHireWorktree(o.Git, testPort, o.Worktrees)(h)
 	writeRecap(h, capture, removed, o.Now())
 	if h.Worktree != "" && !removed && !o.KeepWorktree {
@@ -168,6 +171,7 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 	options.Worktrees = d.worktreesFolder(options.Worktrees)
 	d.mu.Unlock()
 	if _, err := fireEngineHire(h, testCopyPort(), options, force); err != nil {
+		d.failHeldMail(h, err)
 		if refused, ok := err.(*hireRefusal); ok {
 			return refused.Status, refused.Message, true
 		}
@@ -188,6 +192,9 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 		d.changed()
 	}
 	d.mu.Unlock()
+	if note := heldFireNote(h); note != "" {
+		return http.StatusOK, note, true
+	}
 	return http.StatusNoContent, "", true
 }
 
@@ -204,7 +211,11 @@ func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (kept, note string, err er
 	d.mu.Unlock()
 	options.KeepWorktree = keep
 	kept, err = fireEngineHire(h, testCopyPort(), options, force)
-	return kept, "", err
+	d.failHeldMail(h, err)
+	if err == nil {
+		note = heldFireNote(h)
+	}
+	return kept, note, err
 }
 
 func ownTmuxTab(h Hire, socket string) bool {

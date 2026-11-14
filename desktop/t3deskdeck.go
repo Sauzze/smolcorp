@@ -224,6 +224,11 @@ func (d *Deck) letGoOfT3(id string) (int, any) {
 	if t3IsHiring(id) {
 		return http.StatusConflict, t3StillHiring(calledHire(asked))
 	}
+	// Nor while the records' key can't be read: it would be on the team again at the restart (records.go's
+	// refusedWhileHeld, RT126SK1R4 follow-up 2).
+	if recordsHeldOnly() {
+		return http.StatusConflict, recordsHeldAnswer
+	}
 	t3Desk.Lock()
 	// Read again once it's this let go's turn, so a second click finds the hire already gone.
 	hire, found := registryHire(id)

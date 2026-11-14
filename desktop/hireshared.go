@@ -1,7 +1,9 @@
 package desktop
 
 import (
+	"errors"
 	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -295,6 +297,79 @@ const firedWorktreeKept = "It holds changes nobody committed (new files count to
 // firedKeptNote is the registry's note of a fired hire whose worktree was kept (the Mac's afterColon).
 func firedKeptNote(worktree string) string {
 	return "Its worktree " + worktree + " was kept: it" + strings.TrimPrefix(firedWorktreeKept, "It")
+}
+
+// firedButHeld is what a fire answers while the records' key can't be read (records.go's recordsHeldOnly), for a hire
+// the saved registry lists (heldFire): the hire's session or window (what; "" when none was found to close) was
+// ended, as a fire ends it, and its send key taken away for this run, so a hire that misbehaves, or what it left
+// running, stops now; but the fire isn't saved, since it would last only until the restart, and its worktree isn't
+// removed (RT126SK1R4 follow-up 2, RT126SK1F B2).
+func firedButHeld(h Hire, what string) string {
+	said := "Smolcorp ended " + calledHire(h) + "'s " + what + " and took its key away for now"
+	if what == "" {
+		said = "Smolcorp found no window of " + calledHire(h) + "'s to close, so it took its key away for now"
+	}
+	said += ", but can't save the fire: it can't read the key that seals its records from your login keychain. So " +
+		calledHire(h) + " is still on your team"
+	if h.Worktree != "" {
+		said += ", its worktree kept at " + h.Worktree
+	}
+	return said + ", and its key works again after the restart: unlock the keychain, restart Smolcorp, then fire it again."
+}
+
+// firedForGoodWhileHeld is what a fire says of a hire hired while the records' key can't be read, fired in full
+// (heldFire): its row was never saved, so the fire lasts.
+func firedForGoodWhileHeld(h Hire) string {
+	return calledHire(h) + " was hired while Smolcorp couldn't read the key that seals its records, so it was never " +
+		"saved: it's fired for good, and won't be back after the restart."
+}
+
+// savedHire is whether the registry file lists the hire id, or is there but can't be read (the hire may be in it).
+// Nothing is written while the records' key can't be read, so the file is the team the restart after the owner
+// unlocks the keychain brings back: a hire it doesn't list was hired in this run (RT126SK1F B2).
+func savedHire(id string) bool {
+	data, err := os.ReadFile(registryPath())
+	if err != nil {
+		return !errors.Is(err, os.ErrNotExist)
+	}
+	f, ok := parseRegistry(data)
+	return !ok || slices.ContainsFunc(f.hires, func(h Hire) bool { return h.ID == id })
+}
+
+// heldFire is a fire while the records' key can't be read, once the hire's session or window (what) was ended: nil
+// any other time, and for a hire hired in this run, whose row lasts only until the restart anyway, so its fire goes
+// ahead in full and lasts (firedForGoodWhileHeld). For a hire the saved registry lists, its send key is taken out of
+// the registry the core holds, with nothing written, so neither it nor anything it left running can send as it in
+// this run; the refusal says so, and that the restart brings it back, its key working again (RT126SK1F B2). The
+// caller fails its waiting mail (Deck.failHeldMail).
+func heldFire(h Hire, what string) *hireRefusal {
+	if !recordsHeldOnly() || !savedHire(h.ID) {
+		return nil
+	}
+	frontDeskMu.Lock()
+	f := readRegistry(registryPath(), false)
+	delete(f.keys, h.ID)
+	holdRegistry(registryPath(), f)
+	frontDeskMu.Unlock()
+	return &hireRefusal{Status: http.StatusConflict, Message: firedButHeld(h, what), keyTaken: true}
+}
+
+// failHeldMail fails the waiting mail of h, whose fire err refused while the records' key can't be read once its key
+// was taken away (heldFire), as a fire fails it: nothing is sent it in this run.
+func (d *Deck) failHeldMail(h Hire, err error) {
+	var refused *hireRefusal
+	if errors.As(err, &refused) && refused.keyTaken && d.mail != nil {
+		d.mail.failTo(h.ID)
+	}
+}
+
+// heldFireNote is what a fire that went ahead says besides: that it lasts, for a hire hired while the records' key
+// can't be read (heldFire); "" otherwise.
+func heldFireNote(h Hire) string {
+	if recordsHeldOnly() && !savedHire(h.ID) {
+		return firedForGoodWhileHeld(h)
+	}
+	return ""
 }
 
 // uncommittedRefusal is why a hire's worktree may not be left, or "": git

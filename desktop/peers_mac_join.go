@@ -223,6 +223,9 @@ func (rt *router) peerSetupRoutes(w http.ResponseWriter, r *request) bool {
 			w.WriteHeader(http.StatusBadRequest)
 			return true
 		}
+		if d.refusedConfigWhileHeld(w, func(c *Config) { c.FloorsFromOtherMacs = on }) {
+			return true
+		}
 		d.mu.Lock()
 		d.config.FloorsFromOtherMacs = on
 		d.config.save()
@@ -249,6 +252,9 @@ func (rt *router) peerSetupRoutes(w http.ResponseWriter, r *request) bool {
 			return true
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/setup/peers/revoke":
+		if refusedWhileHeld(w) {
+			return true
+		}
 		d.mu.Lock()
 		gone := d.macPeers.remove(query.Get("peer"))
 		d.mu.Unlock()

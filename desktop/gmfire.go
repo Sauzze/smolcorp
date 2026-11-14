@@ -62,7 +62,9 @@ func (rt *router) gmFire(w http.ResponseWriter, r *request) {
 	var kept, note string
 	var err error
 	if h.ViaLauncher {
-		kept, err = d.fireLauncherHire(h, options, force)
+		if kept, err = d.fireLauncherHire(h, options, force); err == nil {
+			note = heldFireNote(h)
+		}
 	} else {
 		kept, note, err = d.fireTmuxHire(h, force, options.KeepWorktree)
 	}

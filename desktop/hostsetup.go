@@ -256,6 +256,9 @@ func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
 			return true
 		}
 		on := enabled == "1"
+		if d.refusedConfigWhileHeld(w, func(c *Config) { c.KeystrokesAllowed = on }) {
+			return true
+		}
 		d.mu.Lock()
 		changed := d.config.KeystrokesAllowed != on
 		d.config.KeystrokesAllowed = on
@@ -283,6 +286,11 @@ func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
 			return true
 		}
 		id := slices.Concat(added, removed)[0]
+		if removing && d.refusedConfigWhileHeld(w, func(c *Config) {
+			c.KeystrokeApps = slices.DeleteFunc(c.KeystrokeApps, func(app string) bool { return app == id })
+		}) {
+			return true
+		}
 		d.mac.appsChanging.Lock()
 		d.mu.Lock()
 		before := slices.Clone(d.config.KeystrokeApps)
@@ -327,6 +335,21 @@ func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
 			writeStatus(w)(http.StatusBadRequest, "Unknown language")
 			return true
 		}
+		// Claude's clean-up or Claude Code switched off while the records' key can't be read would be on again at the
+		// restart, sending what it sent (records_heldconfig.go, RT126SK1F B1).
+		if d.refusedConfigWhileHeld(w, func(c *Config) {
+			if query.Has("claude") {
+				c.DictationForClaude = query.Get("claude") == "1"
+			}
+			if query.Has("cleanup") {
+				c.DictationCleanup = query.Get("cleanup") == "1"
+			}
+			if query.Has("enabled") {
+				c.DictationEnabled = query.Get("enabled") == "1" && facts.Dictation.Available
+			}
+		}) {
+			return true
+		}
 		d.mu.Lock()
 		d.learnedLanguages(facts)
 		if choosing {
@@ -364,6 +387,16 @@ func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
 	// Phone microphone: the phone's text on or off, and whether an older page's goes with Return. Off, Tailscale
 	// addresses are refused again at once (router.ServeHTTP).
 	case path == "/setup/phonemic":
+		if d.refusedConfigWhileHeld(w, func(c *Config) {
+			if query.Has("enabled") {
+				c.PhoneMicEnabled = query.Get("enabled") == "1"
+			}
+			if query.Has("autosend") {
+				c.PhoneMicAutoSend = query.Get("autosend") == "1"
+			}
+		}) {
+			return true
+		}
 		d.mu.Lock()
 		if query.Has("enabled") {
 			d.config.PhoneMicEnabled = query.Get("enabled") == "1"
@@ -382,6 +415,10 @@ func (rt *router) macSetup(w http.ResponseWriter, r *request) bool {
 		data, _ := io.ReadAll(io.LimitReader(r.Body, glossaryBodyMost+1))
 		if len(data) > glossaryBodyMost || json.Unmarshal(data, &lines) != nil || lines == nil {
 			writeStatus(w)(http.StatusBadRequest, "That isn't a list of names.")
+			return true
+		}
+		// A name taken off while the records' key can't be read would be back at the restart, sent with what's heard.
+		if d.refusedConfigWhileHeld(w, func(c *Config) { c.DictationGlossary = &lines }) {
 			return true
 		}
 		kept, err := hostGlossary(h, lines)

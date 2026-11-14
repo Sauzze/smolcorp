@@ -13,6 +13,7 @@ import (
 	"errors"
 	"log"
 	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -130,8 +131,12 @@ func recordsFailed() bool {
 
 // recordsHeldOnly is whether the records are held in memory alone (RT126SK1R3 N3): the app couldn't read the
 // record key, so a record written now would carry no seal and be dropped at the next start, once the owner has
-// unlocked the keychain, with what it held from before. Nothing is written until then: the team and the settings
-// change in memory for this run, and the guard and pairing are refused (recordsHeldAnswer).
+// unlocked the keychain, with what it held from before. Nothing is written until then: what's added or switched on
+// changes in memory for this run; the guard, pairing, the GM's new token and whatever takes something away (a
+// phone or Mac removed, a contact removed, any setting but a plain one switched off or changed: records_heldconfig.go)
+// are refused (recordsHeldAnswer, RT126SK1R4 follow-ups 2 and 3, RT126SK1F B1), since they would seem to apply, then
+// come back at that restart. A fire ends the session and takes the hire's key away for the run (hireshared.go's
+// heldFire).
 func recordsHeldOnly() bool { return recordsState() == recordsUnreadable }
 
 // What a change the records can't take now is refused with, in Setup's words: while the key can't be read
@@ -144,6 +149,19 @@ const (
 
 // errRecordsHeld is a change refused while the records are held in memory alone (recordsHeldOnly).
 var errRecordsHeld = errors.New(recordsHeldAnswer)
+
+// refusedWhileHeld answers a change that takes something away (a phone unpaired, a Mac revoked, a contact removed, a
+// hire fired, a setting switched off) while the records are held in memory alone, and says whether it did: refused
+// with Setup's reason, as the guard is (RT126SK1R4 follow-up 2). Held in memory, it would seem to apply, then come
+// back at the restart after the owner unlocks the keychain, since the files keep what they held. While the key can
+// be read it answers nothing.
+func refusedWhileHeld(w http.ResponseWriter) bool {
+	if !recordsHeldOnly() {
+		return false
+	}
+	writeStatus(w)(http.StatusConflict, recordsHeldAnswer)
+	return true
+}
 
 // recordsRefusal is what a change the records can't take now is refused with: "" while they can take it.
 func recordsRefusal() string {
@@ -646,10 +664,14 @@ func recordsText(state string, stale bool) string {
 		// Nothing is written while the key can't be read (recordsHeldOnly, RT126SK1R3 N3), so the restart finds every
 		// record as it was saved, sealed.
 		return "Smolcorp couldn't read the key that seals its records from your login keychain without asking you, so none " +
-			"of them counts, and it saves none until it can: what you change or start meanwhile (a desk's key, your team, " +
-			"your settings) lasts only until it restarts, and you can't change your guard or pair a phone or Mac. Unlock " +
-			"the keychain and restart Smolcorp: that loses nothing you saved before. Or reset them, and pair your phones " +
-			"again. " + recordsResetLoses
+			"of them counts, and it saves none until it can. What you add or switch on meanwhile (a desk's key, a hire, a " +
+			"setting) lasts only until it restarts, as do changes to how the office looks. It refuses what would take " +
+			"something away, since that wouldn't last either: removing a phone, a Mac, a contact or a bot, or switching off " +
+			"or changing any other setting. A fire, with hiring on, ends the hire's session and stops its key until the " +
+			"restart, but the hire stays on your team, unless you hired it meanwhile: that one is fired for good. Nor can " +
+			"you change your guard, pair a phone or Mac, or give the General Manager a new token, so you can't hire one; " +
+			"its token from before works again once you unlock the keychain and restart. Unlock the keychain and restart " +
+			"Smolcorp: that loses nothing you saved before. Or reset them, and pair your phones again. " + recordsResetLoses
 	}
 	return ""
 }
@@ -780,14 +802,18 @@ func (d *Deck) settleRecords() {
 	frontDeskMu.Unlock()
 	guardPath := filepath.Join(supportDir, hireGuardFile)
 	held := heldGuard(guardPath)
+	data, inForce := []byte(nil), false
 	if held.data == nil && held.unsealed && recordWasDropped(hireGuardFile) {
-		// A guard dropped at this start is sealed as the guard in force, as Reset does (the built-in one with what the
-		// file adds: it loosens nothing), so it isn't dropped again at every start (RT126SK1R3 nit 1).
-		if data, ok := guardInForce(guardPath); ok && holdGuard(guardPath, data) == nil {
-			held = heldGuard(guardPath)
-		}
+		data, inForce = guardInForce(guardPath)
 	}
-	if held.data != nil {
+	switch {
+	case inForce:
+		// A guard dropped at this start is sealed as the guard in force, as Reset does (the built-in one with what the
+		// file adds: it loosens nothing), so it isn't dropped again at every start (RT126SK1R3 nit 1). Only by the
+		// rotation the drop owes, under its new key: a stop before that rotation's add leaves the file broken, to be
+		// dropped again, and one after it two items, an interrupted update (RT126SK1R4 follow-up 1).
+		holdGuardUnwritten(guardPath, data)
+	case held.data != nil:
 		keepWriter(guardRecord(guardPath), guardSealWriter(guardPath, held.data))
 	}
 	// The GM's verifier, in the Keychain item, sealed too (gmtokenstore.go).

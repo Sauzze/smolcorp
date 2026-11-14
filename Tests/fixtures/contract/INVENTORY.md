@@ -44,7 +44,7 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 | GET | `/office.js` | anyone | — | JS | 200 | none: a file of the app's web folder, which the test bundle doesn't have | served |
 | GET | `/guide.js` | anyone | — | JS | 200 | none: a file of the app's web folder, which the test bundle doesn't have | served |
 | GET | `/sounds/*` | anyone | keys/talk .m4a/.webm | audio | 200 | none: a file of the app's web folder, which the test bundle doesn't have | served |
-| POST | `/pair` | anyone | `{code}`, on this computer or over Tailscale only (SECWIFI); or the QR code's claim, signed with its key, `?p=` the phone's own part | `{key}`; the claim: empty | 200, 204, 403 `{error}` (a typed code over the Wi-Fi; a claim also `{why, now}`) | office.json | served |
+| POST | `/pair` | anyone | `{code}`, on this computer or over Tailscale only (SECWIFI); or the QR code's claim, signed with its key, `?p=` the phone's own part | `{key}`; the claim: empty | 200, 204, 403 `{error}` (a typed code over the Wi-Fi; a claim also `{why, now}`), 409 `{error}` (Go: a typed code while the records can't take a phone, in Setup's words: 1.26 SK1) | office.json | served |
 | POST | `/hook` | hook | hook event; headers `x-agentdeck-agent`, `-tab`, `-tty`, `-project`, `-pid`, `-parent`, `-at`, `-billing` | empty | 204, 400 (a header twice), 401, 404 (not local, not POST) | office.json, frontdesk/hook-events.json | served |
 | GET | `/events` | phone | `?t=` | event stream: `data:` the snapshot at once and at each change, `event: ping` | 200, 401 | state.json | served |
 | POST | `/focus` | phone | `?session=`; a hire in T3 Code's desk opens its own thread in T3 Code (T3D-a) | empty, or text | 204, 404, 409 | office.json | served |
@@ -73,17 +73,17 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 | GET | `/setup/preview` | page, tool | — | HTML: deck.html, framed by this deck only | 200 | none: a file of the app's web folder, which the test bundle doesn't have | served |
 | GET | `/setup/selftest` | page, tool | — | `{checks: […], …}` | 200 | none: runs the self-test, which looks at the hooks, the login item and the agents' own commands | served |
 | POST | `/setup/fix` | page, tool | `?fix=&auto=1` | the self-test | 200, 400, 403 (a tool: repair only), 409 | setup.json | served |
-| POST | `/setup/scroll` | page, tool | `?enabled=` | the setup state | 200 | setup.json | differs |
+| POST | `/setup/scroll` | page, tool | `?enabled=` | the setup state | 200, 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | differs |
 | POST | `/setup/maxconfirm` | gm, page | `?enabled=` | the setup state | 200 | setup.json | differs |
 | POST | `/setup/guide` | page, tool | `?done=` | the setup state | 200 | setup.json | differs |
 | POST | `/setup/music` | page, tool | `?enabled=` | the setup state | 200 | none: asks the music app what's playing | served |
-| POST | `/setup/phonemic` | gm, page | `?enabled=&autosend=` | the setup state | 200 | setup.json | differs |
+| POST | `/setup/phonemic` | gm, page | `?enabled=&autosend=` | the setup state | 200, 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | differs |
 | POST | `/setup/dock` | page, tool | `?enabled=` | the setup state | 200 | none: shows or hides the app in the Dock | served (under the Mac app, through the bridge; 404 on Linux and Windows) |
 | POST | `/setup/ontop` | page, tool | `?enabled=` | the setup state | 200 | none: puts the office's window on top, on Windows, and under the Mac app its own window (FXC1b) | Windows only (and under the Mac app, through the bridge; 404 on Linux: no window) |
 | POST | `/setup/office` | page, tool | — | empty | 204 | none: opens the office's window, or the browser | served (opens the browser; under the Mac app, its office window through the bridge) |
 | POST | `/setup/login` | gm, page | `?enabled=` | the setup state | 200 | none: writes the login item in your home folder | served |
 | POST | `/setup/accessibility` | page, tool | — | empty | 204 | none: asks macOS for Accessibility, a system prompt | served (under the Mac app, through the bridge; 404 on Linux and Windows) |
-| POST | `/setup/hooks` | gm, page | `?remove=1` to disconnect | the setup state (`notice`) | 200, 409 (test copy), 500 | none: writes the agents' hooks in your home folder | served |
+| POST | `/setup/hooks` | gm, page | `?remove=1` to disconnect | the setup state (`notice`) | 200, 409 (test copy), 500, 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | none: writes the agents' hooks in your home folder | served |
 | POST | `/setup/logo` | page, tool | `?logo=smolcorp or keys` | the setup state | 200, 400 | setup.json | differs |
 | GET | `/setup/logo/<logo>` | page, tool | — | PNG | 200, 404 | setup.json | served |
 | POST | `/setup/theme` | page, tool | colours | empty | 204 | setup.json | served |
@@ -92,26 +92,26 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 | POST | `/setup/unpin` | gm, page | `?key=&floor=` (floor 0 to 5, 0 when left out) | empty | 204, 400 | setup.json | served |
 | POST | `/setup/floors` | gm, page | `{floors?, rules?}` | the setup state | 200, 400 | setup.json | differs |
 | POST | `/setup/profiles` | gm, page | `?action=switch or save or rename or delete or import or check&name=&to=` | the setup state; check: the profile | 200, 400 | setup.json, frontdesk/profiles.json | differs |
-| POST | `/setup/webhook` | gm, page | `{enabled, url, secret, outside, events}` | the setup state | 200, 400 | setup.json | differs |
+| POST | `/setup/webhook` | gm, page | `{enabled, url, secret, outside, events}` | the setup state | 200, 400, 409 (Go: while the records' key can't be read, a change that doesn't leave it as saved, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | setup.json | differs |
 | POST | `/setup/webhook/test` | gm, page | — | the setup state | 200 | none: sends a webhook to its address | served |
 | POST | `/setup/pair` | page | — | the setup state with the code | 200 | setup.json | differs |
-| POST | `/setup/unpair` | gm, page | `?phone=` or `?all=1` | the setup state | 200, 400 | setup.json | differs |
+| POST | `/setup/unpair` | gm, page | `?phone=` or `?all=1` | the setup state | 200, 400, 409 (Go: while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | setup.json | differs |
 | GET | `/setup/qr.png` | page | `?via=tailnet` | PNG | 200, 404 (no code) | setup.json | served |
-| POST | `/setup/summaries` | page | `?enabled=&confirmed=1&provider=` | the setup state | 200, 400 | setup.json | differs |
-| POST | `/setup/summary/provider` | page | `?id=&confirmed=1` | the setup state | 200, 400 | setup.json | served |
+| POST | `/setup/summaries` | page | `?enabled=&confirmed=1&provider=` | the setup state | 200, 400, 409 (Go: off while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | setup.json | differs |
+| POST | `/setup/summary/provider` | page | `?id=&confirmed=1` | the setup state | 200, 400, 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | served |
 | POST | `/setup/summary/check` | page, tool | — | the setup state | 200 | none: runs each coding agent's own command | served |
 | POST | `/setup/summary/key` | page | `{key}` or `?remove=1` | the setup state | 200, 400 | setup.json | served |
-| POST | `/setup/dictation` | gm, page | `?enabled=&language=&claude=&cleanup=` | the setup state | 200, 400 | setup.json | served |
-| POST | `/setup/dictation/glossary` | page, tool | `[names]` | the setup state | 200, 400 | setup.json | served |
-| POST | `/setup/keystrokes` | page | `?enabled=` | the setup state | 200, 400 | setup.json | served |
+| POST | `/setup/dictation` | gm, page | `?enabled=&language=&claude=&cleanup=` | the setup state | 200, 400, 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | served |
+| POST | `/setup/dictation/glossary` | page, tool | `[names]` | the setup state | 200, 400, 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | served |
+| POST | `/setup/keystrokes` | page | `?enabled=` | the setup state | 200, 400, 409 (Go: off while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1; `/setup/keystrokes/apps?remove=` too) | setup.json | served |
 | POST | `/setup/keystrokes/apps` | page | `?add=` or `?remove=` | the setup state | 200, 400, 409 | setup.json | served |
 | POST | `/setup/officekey` | page | `?keys=` recorded keys (`alt+cmd+O`), `default` or `off` | the setup state | 200, 400 (no ⌘, ⌥ or ⌃; the Mac's own keys, by what they type on the layout in use), 409 (macOS has them switched on, or won't let them be held) | setup.json | differs |
 | POST | `/setup/terminal-command` | page | `?remove=1` | the setup state | 200, 409 | none: writes the smolcorp link and your shell's PATH line | served (under the Mac app, through the bridge; 404 on Linux and Windows) |
 | GET | `/setup/claude-accounts` | gm, page, tool | — | `{found, most, profiles}` | 200 | setup.json | served |
-| POST | `/setup/claude-accounts` | page | `{profiles: [{name, dir}]}` | as GET | 200, 400 | setup.json | served |
+| POST | `/setup/claude-accounts` | page | `{profiles: [{name, dir}]}` | as GET | 200, 400, 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | served |
 | GET | `/setup/guard` | gm, page, tool | — | `{extra, groups, limits}` | 200 | setup.json | served |
 | POST | `/setup/guard` | page | the guard's groups and patterns | as GET | 200, 400, 409 (Go: the records' key can't be read, so nothing is saved until the owner unlocks the keychain and restarts: 1.26 SK1), 500 | setup.json | served |
-| POST | `/setup/choices` | page | `?t3=&background=&asked=1`, each 0 or 1 | the setup state, and `windowsSaid` when it switched hires to the background | 200, 400 (background without tmux) | setup.json | differs |
+| POST | `/setup/choices` | page | `?t3=&background=&asked=1`, each 0 or 1 | the setup state, and `windowsSaid` when it switched hires to the background | 200, 400 (background without tmux), 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | differs |
 | GET | `/setup/t3code` | page | `?fresh=1` | `{installed, …, lane}` | 200, 404 (T3 Code off) | setup.json (T3 Code off; with it on, it looks for the T3 Code app and runs its command: not asked) | served |
 | POST | `/setup/t3code/open` | page | `{id}` | empty or text | 204, 404 (T3 Code off, no such hire), 409 | setup.json | served |
 | POST | `/setup/t3code/letgo` | page | `{id}` | `{ok, recap, note, worktree, branch}` | 200, 404, 409 | setup.json | served |
@@ -120,7 +120,7 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 
 | Method | Path | Callers | Request | Answer | Statuses | Fixture | Go |
 |---|---|---|---|---|---|---|---|
-| POST | `/setup/hiring` | gm, page | `?enabled=&folder=&agent=&terminal=&tmux=` | the setup state | 200, 400 | setup.json | differs |
+| POST | `/setup/hiring` | gm, page | `?enabled=&folder=&agent=&terminal=&tmux=` | the setup state | 200, 400, 409 (Go: off while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | setup.json | differs |
 | POST | `/setup/hiring/choose` | page | `?pick=1&for=floor` | the setup state; pick: `{picked}` | 200 | none: opens the system's folder picker | served (the system's picker; under the Mac app, its folder panel through the bridge) |
 | GET | `/setup/hire-folder` | page, tool | `?check=` | `{exists, fix, folder, home, problem, suggested}` | 200 | setup.json | served |
 | POST | `/setup/hire-folder` | gm, page | `?folder=&create=1` | as GET | 200, 400 | setup.json | served |
@@ -129,15 +129,15 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 | POST | `/setup/hire/gm` | gm, page | `?worktree=1&account=` | empty | 204, 409, and the hire's | setup.json | served |
 | POST | `/setup/hire/window` | page | `{id}` | empty or text: a window attached to the hire's own tmux session | 204, 409 | setup.json | served |
 | GET | `/setup/hire/gm/preflight` | page | `?account=` | `{ready, items}` | 200, 400 | setup.json | served |
-| POST | `/setup/roles` | gm, page | the roles, whole | the setup state | 200, 400 | setup.json | differs |
+| POST | `/setup/roles` | gm, page | the roles, whole | the setup state | 200, 400, 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | differs |
 | GET | `/setup/briefs` | page, tool | — | `{briefs}` | 200 | setup.json | served |
 | GET | `/setup/briefs/<name>` | page, tool | — | the brief's markdown | 200, 404 | none: reads one of the app's briefs, which the test bundle doesn't have (404 there) | 404, owner: M4a: briefs |
 | POST | `/setup/briefs/preview` | page, tool | a role and folder | the brief as a hire would get it | 200, 400 | setup.json | served |
 | POST | `/setup/briefs/restore` | page | — | the briefs | 200 | none: puts back the app's own briefs, which the test bundle doesn't have | served |
 | GET | `/setup/bots` | page, tool | — | `{bots}` | 200 | setup.json | served |
-| POST | `/setup/bots` | gm, page | `{bots: [...]}` | `{bots}` | 200, 400 | setup.json | served |
-| POST | `/setup/bots/override` | gm, page | `{id, pinned, floor, hidden, show, autoDetect, botFloor}` | the setup state | 200, 400, 404 | setup.json | differs |
-| POST | `/setup/bots/mailbox` | page | `{id, folder}` | `{bots}` | 200, 400 | setup.json | served |
+| POST | `/setup/bots` | gm, page | `{bots: [...]}` | `{bots}` | 200, 400, 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | served |
+| POST | `/setup/bots/override` | gm, page | `{id, pinned, floor, hidden, show, autoDetect, botFloor}` | the setup state | 200, 400, 404, 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | differs |
+| POST | `/setup/bots/mailbox` | page | `{id, folder}` | `{bots}` | 200, 400, 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | served |
 | POST | `/setup/bots/resolve` | gm, page | — | `{bots, filled, unresolved}` | 200 | setup.json | served |
 
 ## Setup: the portable office's viewer
@@ -145,7 +145,7 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 | Method | Path | Callers | Request | Answer | Statuses | Fixture | Go |
 |---|---|---|---|---|---|---|---|
 | GET | `/setup/viewer` | page, tool | — | the viewer's state (the link for the page only) | 200 | none: asks the Keychain for the viewer's link | served (under the Mac app, its Keychain items through the bridge) |
-| POST | `/setup/viewer` | page | `{baseURL, hideNames, stopOnReturn, stopAfterHours}` | the viewer's state | 200, 400 | setup.json | served |
+| POST | `/setup/viewer` | page | `{baseURL, hideNames, stopOnReturn, stopAfterHours}` | the viewer's state | 200, 400, 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | served |
 | POST | `/setup/viewer/secret` | page | — | the viewer's state with `secret` | 200, 500 | none: makes a secret and keeps it in the Keychain | served (under the Mac app, its Keychain items through the bridge) |
 | POST | `/setup/viewer/check` | page, tool | — | the viewer's state | 200 | none: asks the viewer's server | served |
 | POST | `/setup/viewer/switch` | page | `?on=1` | the viewer's state | 200 | none: starts or stops sending the office to the viewer's server | served (under the Mac app, its Keychain items and when you're back, through the bridge) |
@@ -169,7 +169,7 @@ hires its GM so (`desktop/demooffice.go`).
 | Method | Path | Callers | Request | Answer | Statuses | Fixture | Go |
 |---|---|---|---|---|---|---|---|
 | GET | `/setup/gm/version` | gm, page, tool | — | `{features, managerEnabled, version}` | 200 | gm.json, frontdesk/version.json | served |
-| POST | `/setup/gm/manager` | gm, page | `?enabled=1 or 0` | `{managerEnabled}` | 200, 400 | gm.json | served |
+| POST | `/setup/gm/manager` | gm, page | `?enabled=1 or 0` | `{managerEnabled}` | 200, 400, 409 (Go: off while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | gm.json | served |
 | GET | `/setup/gm/team` | gm, page, tool | — | `{at, contacts, team}` (a hire in T3 Code's row: `engine`, `t3Thread`, and `t3` for the page) | 200, 409 | gm.json, frontdesk/team.json | served |
 | GET | `/setup/gm/events` | gm, page, tool | `?since=&wait=&limit=` | `{events, next, oldest}` | 200, 409 | gm.json, frontdesk/events.json | served |
 | GET | `/setup/gm/approvals` | gm, page, tool | — | `{approvals, at}` | 200, 409 | gm.json, frontdesk/approvals.json | differs |
@@ -182,15 +182,15 @@ hires its GM so (`desktop/demooffice.go`).
 | POST | `/setup/gm/screen` | gm, page | `?id=` | as GET | 200, 400, 409 | gm.json | served (under the Mac app, through the bridge; 404 on Linux and Windows) |
 | POST | `/setup/gm/tile` | gm, page | — | the tiling's report | 200, 409 | none: tiles the team's windows on a screen, which moves them; with the manager off, both apps answer 409 first, and a test copy answers 409 too, whatever the screens | served (under the Mac app, through the bridge; 404 on Linux and Windows) |
 | POST | `/setup/gm/hire` | gm, page | as `/setup/hire`, folder optional | `{ok, desk, session}` | 200, 400, 403, 404, 409 | gm.json, frontdesk/hire.json | served |
-| POST | `/setup/gm/fire` | gm, page | `{id, force, removeWorktree}` | empty, or `{ok, kept, worktree, branch}` when removal was asked and the worktree stayed, or `{ok, note}` (and `kept`…) when a hire in a window of its own was marked fired with no window closed | 200, 204, 400, 403, 404, 409 | gm.json, frontdesk/fire.json | served |
+| POST | `/setup/gm/fire` | gm, page | `{id, force, removeWorktree}` | empty, or `{ok, kept, worktree, branch}` when removal was asked and the worktree stayed, or `{ok, note}` (and `kept`…) when a hire in a window of its own was marked fired with no window closed | 200, 204, 400, 403, 404, 409 (Go also: while the records' key can't be read, the hire's session or window is ended and its key stopped for the run, but the fire isn't saved, and the answer says so; one hired in that run is fired in full, `{ok, note}` saying so: 1.26 SK1, SK1F) | gm.json, frontdesk/fire.json | served |
 | POST | `/setup/gm/brief` | gm, page | `{id, text, file}` | `{ok, …}` | 200, 400, 404, 409 | gm.json, frontdesk/brief.json | served |
 | POST | `/setup/gm/send` | gm, page, hire | `{to, text, …}` | the message | 200, 400, 403, 404, 409 | gm.json, frontdesk/send.json | served |
-| POST | `/setup/gm/contacts` | gm, page | `{pairs, remove}` | `{contacts}` | 200, 400, 409 | gm.json, frontdesk/contacts.json | served |
-| POST | `/setup/gm/registry` | gm, page | `{id, nickname, state, notes}` | the hire | 200, 400, 404, 409 | gm.json, frontdesk/registry-edit.json | served |
+| POST | `/setup/gm/contacts` | gm, page | `{pairs, remove}` | `{contacts}` | 200, 400, 409 (Go also: a pair removed while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | gm.json, frontdesk/contacts.json | served |
+| POST | `/setup/gm/registry` | gm, page | `{id, nickname, state, notes}` | the hire | 200, 400, 404, 409 (Go also: fired or failed while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | gm.json, frontdesk/registry-edit.json | served |
 | GET | `/setup/gm/registry` | page | — | nothing: listed for the page, not answered | 404 | gm.json | served |
 | POST | `/setup/gm/nickname` | gm, page | `{project or folder, nickname}` | `{project, nickname}` | 200, 400, 404, 409 | gm.json | served |
-| POST | `/setup/gm/by-hand` | page | `?enabled=1 or 0` | `{gmByHand}` | 200, 400 | gm.json | served (under the Mac app, in the core; 404 on Linux and Windows) |
-| POST | `/setup/gm/token/rotate` | page | — | `{rotated, message}`, never the token | 200, 500 | gm.json, frontdesk/gm-token-rotate-as-page.json | served (under the Mac app, in the core; 404 on Linux and Windows) |
+| POST | `/setup/gm/by-hand` | page | `?enabled=1 or 0` | `{gmByHand}` | 200, 400, 409 (off while the records' key can't be read and on in the file, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | gm.json | served (under the Mac app, in the core; 404 on Linux and Windows) |
+| POST | `/setup/gm/token/rotate` | page | — | `{rotated, message}`, never the token | 200, 409 (the records' key can't be read, so no new token is kept, and the old one still works: 1.26 SK1), 500 | gm.json, frontdesk/gm-token-rotate-as-page.json | served (under the Mac app, in the core; 404 on Linux and Windows) |
 | * | `/setup/gm/*` | gm, page | a route not listed above | — | 403 for a tool, 404 | gm.json | served |
 
 ## Served by the Go app only
@@ -204,7 +204,7 @@ hires its GM so (`desktop/demooffice.go`).
 | GET | `/office?o=` | the tray's one-time token swapped for the window key (303) | the Mac's window has its key |
 | GET | `/sign.js` | what signs a paired phone's requests (SECWIFI), anyone, like `/office.js` | the Mac's too, as it runs the Go app |
 | GET | `/paired` | a phone's signed check that it's still paired, and of its clock (SECWIFI): 204, 401 `{error, why, now}` | the Mac's too, as it runs the Go app |
-| POST | `/setup/wifityping` | Typing over Wi-Fi (SECWIFI), the page alone: `?on=`, the setup state | the Mac's too, as it runs the Go app |
+| POST | `/setup/wifityping` | Typing over Wi-Fi (SECWIFI), the page alone: `?on=`, the setup state (409 for off while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | the Mac's too, as it runs the Go app |
 | POST | `/setup/t3code/takeover` | Take over in T3 Code (EXPERIMENTAL, M5b), the page alone: `{id}`, a hire in a tmux session of its own goes on, the same session, in T3 Code; `{ok, thread, tag}`, 200, 404, 409, 500, 502 | the Mac's too since 1.25.0, as it runs the Go app (the Swift engine had no Take over) |
 | POST | `/setup/t3code/handback` | Hand back (EXPERIMENTAL, M5b), the page alone: `{id}`, T3 Code lets go, the session is checked free, then resumed in its tmux session; `{ok, note}`, 200, 404, 409, 500, 502 | the Mac's too since 1.25.0 (the Swift engine had no Hand back) |
 | GET | `/setup/tailnet/status` | Phone over HTTPS (1.26, FR2), on every system, the page alone: where Tailscale stands, `{status (checking, notInstalled, signedOut, off or on), address, port, command, offCommand, busy, notHere, onAgain}`; `notHere` is null on a Mac and, on Linux and Windows until SN1, says HTTPS through tailscale serve is Mac only for now; `onAgain` (SN1, a Mac only) is null, or the sentence asking to turn it on again once while serve still hands the app's TCP port on, from `tailscale status --json` and `tailscale serve status --json`, read only; 200 | the Mac's too, as it runs the Go app (the Swift engine had no such status) |
@@ -223,8 +223,8 @@ hires its GM so (`desktop/demooffice.go`).
 | POST | `/setup/grants/answer` | the same from the setup page, its cookie alone (403 for a tool's setup key, the GM's token and a hire's key) | the Mac's too, as it runs the Go app |
 | POST | `/setup/records/reset` | Smolcorp's records start over once the key that seals them failed its check (1.26, SK1: overwritten, a second one planted, an update interrupted, or unreadable without a prompt), the setup page's cookie alone: the Mac app makes a new key, every phone, paired Mac, hire's send key and the GM's token start over, and the rest is sealed under the new key as the core holds it (a `registry.json` that couldn't be read set aside as `registry.broken.json` first, never written over): the team, its desks and worktrees (RT126SK1 B5), and, after a check that passed, its contacts, the settings and the guard. After a failed check that is what the check left (RT126SK1R2 N2): no contacts, the security settings at their safe defaults, the guard as the built-in one plus what its file adds, and the GM and any hire held to a project let go; the page's state; 200, 403 (anyone else), 409 (no Mac app, or the Keychain made no key); `records` in the page's `/setup/state` says why nothing counts, or that a new key couldn't be made after something was taken away, only while that is so, with `recordsReset`, what the Reset's confirm asks; `recordsDropped` names a record that didn't fit at this start though the check passed (rotated away as the start ended) | the Mac's too, as it runs the Go app |
 | POST | `/act?action=takeover`, `/act?action=handback` | the same from a desk's card, the office's own window only (403 from a phone, 404 for a desk with no hire); `GET /t3code` and `GET /setup/t3code` say `takeOver` where it's offered, a T3 desk's `t3.handBack` and a team row's `handBack` only for a hire taken over | the Mac's too since 1.25.0 |
-| GET, POST | `/setup/peers` | Floors from other Macs (1.26, M1), the page alone: the setting (`?enabled=1 or 0`, off by default), and `{on, code, expiresIn, peers, joined, storeReadable}`, never a key; 200, 400 | the Mac's too, as it runs the Go app |
-| POST | `/setup/peers/code`, `/setup/peers/revoke?peer=`, `/setup/peers/join` | the page alone: a 6-digit code for another Mac (409 while off, or while the records' key failed its check: 1.26 SK1); remove a Mac paired here, its next request refused (404 for none); join another with `{address, code, name}`, a Tailscale address or ts.net name only (400 otherwise), the key kept in the secret store (503 without one, nothing sent) | the Mac's too (its Keychain item `peer-keys` still to be added to the app's own items) |
+| GET, POST | `/setup/peers` | Floors from other Macs (1.26, M1), the page alone: the setting (`?enabled=1 or 0`, off by default), and `{on, code, expiresIn, peers, joined, storeReadable}`, never a key; 200, 400, 409 (off while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | the Mac's too, as it runs the Go app |
+| POST | `/setup/peers/code`, `/setup/peers/revoke?peer=`, `/setup/peers/join` | the page alone: a 6-digit code for another Mac (409 while off, or while the records' key failed its check: 1.26 SK1); remove a Mac paired here, its next request refused (404 for none; 409 while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1); join another with `{address, code, name}`, a Tailscale address or ts.net name only (400 otherwise), the key kept in the secret store (503 without one, nothing sent) | the Mac's too (its Keychain item `peer-keys` still to be added to the app's own items) |
 | POST | `/peer/pair` | another Mac's code, `{code, name}` → `{key, name}`: with the setting on, over Tailscale only (403 otherwise, the Wi-Fi too), the phone code's limits (403; 429 for a second try within a second) | the Mac's too |
 | GET | `/peer/hello` | the `peer` class (`X-Smolcorp-Peer` key, over Tailscale, setting on): `{name}`; a peer key opens no other route (403), and no other key opens this one | the Mac's too |
 

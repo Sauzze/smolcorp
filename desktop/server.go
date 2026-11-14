@@ -540,7 +540,12 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		if key == "" {
-			// The code was right, but the phone couldn't be kept: a key handed out now would never work.
+			// The code was right, but the phone couldn't be kept: a key handed out now would never work. While the
+			// records can't take it (records.go), the reason is theirs, in Setup's words (RT126SK1R4 §4).
+			if refused := recordsRefusal(); refused != "" {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": refused})
+				return
+			}
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "Your " + d.machine() +
 				" couldn't keep this phone: Smolcorp can't write its support folder. Fix that, then get a new code."})
 			return
@@ -1186,6 +1191,13 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		if given.StopAfterHours != nil && slices.Contains(viewerHourChoices, *given.StopAfterHours) {
 			viewer.StopAfterHours = *given.StopAfterHours
 		}
+		// While the records' key can't be read, a change would come back at the restart: names shown again, the
+		// viewer stopping later, or the old address back (records_heldconfig.go, RT126SK1F B1).
+		if refused := config.heldRefusal(func(c *Config) { c.Viewer = viewer }); refused != "" {
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusConflict, refused)
+			return
+		}
 		moved := viewer.BaseURL != config.Viewer.BaseURL
 		config.Viewer = viewer
 		config.save()
@@ -1255,6 +1267,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 
 	// Typing over Wi-Fi (SECWIFI): on or off, the page's switch.
 	case r.Method == http.MethodPost && path == "/setup/wifityping":
+		if d.refusedConfigWhileHeld(w, func(c *Config) { c.PhoneTextWiFi = query.Get("on") == "1" }) {
+			return
+		}
 		d.mu.Lock()
 		d.config.PhoneTextWiFi = query.Get("on") == "1"
 		d.config.save()
@@ -1266,6 +1281,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		id := query.Get("phone")
 		if query.Get("all") != "1" && id == "" {
 			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if refusedWhileHeld(w) {
 			return
 		}
 		d.mu.Lock()
@@ -1369,6 +1387,13 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 				return
 			}
 		}
+		// While the records' key can't be read the core holds the safe default, not the webhook you saved: unless it
+		// ends as saved, a change would come back at the restart (records_heldconfig.go).
+		if refused := config.heldRefusal(func(c *Config) { c.Webhook = webhook }); refused != "" {
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusConflict, refused)
+			return
+		}
 		config.Webhook = webhook
 		config.save()
 		d.mu.Unlock()
@@ -1399,6 +1424,16 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 				return
 			}
 		}
+		// Off, or sent elsewhere, while the records' key can't be read, it would be as saved again at the restart,
+		// sending what it sent (records_heldconfig.go).
+		if d.refusedConfigWhileHeld(w, func(c *Config) {
+			if query.Get("enabled") == "1" {
+				c.SummaryProvider = string(provider)
+			}
+			c.SummaryOptIn = query.Get("enabled") == "1"
+		}) {
+			return
+		}
 		d.mu.Lock()
 		if query.Get("enabled") == "1" {
 			config.SummaryProvider = string(provider)
@@ -1427,6 +1462,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		if refusal := d.summaryRefusal(provider); refusal != "" {
 			http.Error(w, refusal, http.StatusBadRequest)
+			return
+		}
+		if d.refusedConfigWhileHeld(w, func(c *Config) { c.SummaryProvider = string(provider) }) {
 			return
 		}
 		d.mu.Lock()
@@ -1496,6 +1534,12 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodPost && path == "/setup/choices":
 		_, tmux := hireWays()
 		d.mu.Lock()
+		// T3 Code switched off while the records' key can't be read would be on again at the restart.
+		if refused := config.heldRefusal(func(c *Config) { setChoices(c, query, tmux) }); refused != "" {
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusConflict, refused)
+			return
+		}
 		switched, status, refusal := setChoices(config, query, tmux)
 		if refusal != "" {
 			d.mu.Unlock()
@@ -1566,6 +1610,16 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		enabled, hireFolder := config.HiringEnabled, config.HireFolder
 		if query.Has("enabled") {
 			enabled = query.Get("enabled") == "1"
+		}
+		// Off while the records' key can't be read, it would be on again at the restart, unless it's off as saved.
+		if refused := config.heldRefusal(func(c *Config) {
+			if query.Has("enabled") {
+				c.HiringEnabled = enabled
+			}
+		}); refused != "" {
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusConflict, refused)
+			return
 		}
 		if query.Has("folder") {
 			hireFolder = folder
@@ -1660,6 +1714,12 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			return
 		}
 		d.mu.Lock()
+		// A role from before taken off or changed while the records' key can't be read would come back at the restart.
+		if refused := config.heldRefusal(func(c *Config) { c.Roles = checkedRoles(syncedRoles(roles, c.Roles)) }); refused != "" {
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusConflict, refused)
+			return
+		}
 		config.Roles = checkedRoles(syncedRoles(roles, config.Roles))
 		config.save()
 		d.changed()
@@ -1685,6 +1745,12 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		if d.mac.host != nil {
 			// A bot set or changed here is yours: kept whatever the Grok Bot app says.
 			bots = pinnedIfChanged(bots, config.CloudBots)
+		}
+		// A bot removed while the records' key can't be read would be back at the restart, its mailbox with it.
+		if refused := config.heldRefusal(func(c *Config) { c.CloudBots = bots }); refused != "" {
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusConflict, refused)
+			return
 		}
 		config.CloudBots = bots
 		config.save()
@@ -1724,14 +1790,16 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			roster, read, _ = hostBotsRoster(h)
 		}
 		d.mu.Lock()
+		// Each change is made to a copy, then checked as a whole, so one refused keeps none (records_heldconfig.go).
+		botFloor, autoDetect, hidden := config.BotFloor, config.BotsAutoDetect, slices.Clone(config.HiddenBots)
 		if given.BotFloor != nil && *given.BotFloor >= 0 && *given.BotFloor < floorCount {
-			config.BotFloor = *given.BotFloor
+			botFloor = *given.BotFloor
 		}
 		if mac && given.AutoDetect != nil {
-			config.BotsAutoDetect = given.AutoDetect
+			autoDetect = given.AutoDetect
 		}
 		if mac && safeGrokBotID(given.Show) {
-			config.HiddenBots = slices.DeleteFunc(config.HiddenBots, func(id string) bool { return strings.EqualFold(id, given.Show) })
+			hidden = slices.DeleteFunc(hidden, func(id string) bool { return strings.EqualFold(id, given.Show) })
 		}
 		bots := slices.Clone(config.CloudBots)
 		found := given.ID == ""
@@ -1754,8 +1822,8 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 				if !read {
 					roster = d.mac.roster
 				}
-				if app := bots[at].appID(roster); app != "" && !slices.ContainsFunc(config.HiddenBots, func(id string) bool { return strings.EqualFold(id, app) }) {
-					config.HiddenBots = append(config.HiddenBots, app)
+				if app := bots[at].appID(roster); app != "" && !slices.ContainsFunc(hidden, func(id string) bool { return strings.EqualFold(id, app) }) {
+					hidden = append(hidden, app)
 				}
 			}
 			bots = slices.DeleteFunc(bots, func(b CloudBot) bool { return b.ID == given.ID })
@@ -1765,7 +1833,15 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusNotFound, "That bot isn't there any more.")
 			return
 		}
-		config.CloudBots = bots
+		// A bot hidden, or finding them switched off, while the records' key can't be read would be back at the restart.
+		if refused := config.heldRefusal(func(c *Config) {
+			c.BotFloor, c.BotsAutoDetect, c.HiddenBots, c.CloudBots = botFloor, autoDetect, hidden, bots
+		}); refused != "" {
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusConflict, refused)
+			return
+		}
+		config.BotFloor, config.BotsAutoDetect, config.HiddenBots, config.CloudBots = botFloor, autoDetect, hidden, bots
 		config.save()
 		d.cloud.configure(config.CloudBots)
 		d.changed()
@@ -1833,6 +1909,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	case r.Method == http.MethodPost && path == "/setup/scroll":
+		if d.refusedConfigWhileHeld(w, func(c *Config) { c.ScrollEnabled = query.Get("enabled") == "1" }) {
+			return
+		}
 		d.mu.Lock()
 		config.ScrollEnabled = query.Get("enabled") == "1"
 		config.save()
@@ -1841,6 +1920,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
 	case r.Method == http.MethodPost && path == "/setup/hooks":
+		// Disconnected while the records' key can't be read, setup's repair would connect them again after the restart.
+		if d.refusedConfigWhileHeld(w, func(c *Config) { c.HooksDisconnected = query.Get("remove") != "" }) {
+			return
+		}
 		var err error
 		notice := ""
 		if query.Get("remove") == "" {
@@ -1919,6 +2002,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		enabled := query.Get("enabled")
 		if enabled != "1" && enabled != "0" {
 			writeStatus(w)(http.StatusBadRequest, "Say enabled=1 or enabled=0.")
+			return
+		}
+		if d.refusedConfigWhileHeld(w, func(c *Config) { c.ManagerEnabled = enabled == "1" }) {
 			return
 		}
 		d.mu.Lock()

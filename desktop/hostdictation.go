@@ -151,6 +151,11 @@ func (d *Deck) setCleanup(on string) (int, string) {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	// Off while the records' key can't be read, it would be on again at the restart, the heard text sent to Claude
+	// again (records_heldconfig.go, RT126SK1F B1).
+	if refused := d.config.heldRefusal(func(c *Config) { c.DictationCleanup = on == "1" }); d.mac.host != nil && refused != "" {
+		return http.StatusConflict, refused
+	}
 	if d.mac.host != nil {
 		d.config.DictationCleanup = on == "1"
 		d.config.save()

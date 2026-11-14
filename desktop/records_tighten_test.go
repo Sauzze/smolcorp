@@ -720,31 +720,93 @@ func TestOnAMacARegistryThatCantBeReadIsKeptForMending(t *testing.T) {
 }
 
 // RT126SK1R3 nit 1: a guard dropped at a start is sealed as the guard in force (the built-in one with what the file
-// adds), so the next start drops nothing and rotates nothing.
+// adds), so the next start drops nothing and rotates nothing. RT126SK1R4 follow-up 1: only by the rotation the drop
+// owes, under its new key. A stop before that rotation's add (the core killed while the Keychain makes the new key:
+// the files as they are at "add", the Keychain's items as they were before it) leaves the guard broken, so the next
+// start drops it again; a stop once the guard is written under the new key leaves two items, an interrupted update.
 func TestOnAMacADroppedGuardIsntDroppedAgain(t *testing.T) {
-	macDeck(t)
-	path := filepath.Join(supportDir, hireGuardFile)
-	if err := holdGuard(path, []byte(`{"groups":[{"name":"push","on":false},{"name":"mine","on":true,"commands":["make release"]}]}`)); err != nil {
-		t.Fatal(err)
+	path := func() string { return filepath.Join(supportDir, hireGuardFile) }
+	// broken is a support folder whose guard's seal doesn't fit, under a deck started as the app starts it.
+	broken := func(t *testing.T) *macStandIn {
+		t.Helper()
+		_, mac, _, _ := macDeck(t)
+		if err := holdGuard(path(), []byte(`{"groups":[{"name":"push","on":false},{"name":"mine","on":true,"commands":["make release"]}]}`)); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(guardSealPath(path()), []byte(strings.Repeat("0", 64)+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return mac
 	}
-	if err := os.WriteFile(guardSealPath(path), []byte(strings.Repeat("0", 64)+"\n"), 0o600); err != nil {
-		t.Fatal(err)
+	// stoppedAt is the start that drops the guard, stopped at the rotation's first step named at: the files as they are
+	// then, put back, and the Keychain's items as they were before the start (beforeAdd) or as they are then.
+	stoppedAt := func(t *testing.T, mac *macStandIn, at string, beforeAdd bool) {
+		t.Helper()
+		mac.mu.Lock()
+		items := slices.Clone(mac.recordItems)
+		mac.mu.Unlock()
+		var files map[string][]byte
+		saved := rotationStep
+		rotationStep = func(step string) {
+			if step == at && files == nil {
+				files = sealedCopies(t)
+				if !beforeAdd {
+					mac.mu.Lock()
+					items = slices.Clone(mac.recordItems)
+					mac.mu.Unlock()
+				}
+			}
+		}
+		restart(t)
+		rotationStep = saved
+		if files == nil {
+			t.Fatalf("the start didn't rotate through %q", at)
+		}
+		for _, name := range append(sealedRecordNames(), hireGuardFile, hireGuardSealFile) {
+			if data, ok := files[name]; ok {
+				_ = os.WriteFile(filepath.Join(supportDir, name), data, 0o600)
+			} else {
+				_ = os.Remove(filepath.Join(supportDir, name))
+			}
+		}
+		mac.mu.Lock()
+		mac.recordItems = items
+		mac.mu.Unlock()
 	}
-	restart(t)
-	if said := recordsDroppedText(); !strings.Contains(said, hireGuardFile) {
-		t.Fatalf("the broken guard isn't dropped: %q", said)
-	}
-	id := recordKeyID()
-	restart(t)
-	if said := recordsDroppedText(); said != "" || recordKeyID() != id {
-		t.Errorf("the next start: dropped %q, rotated %v", said, recordKeyID() != id)
-	}
-	groups := heldGuardGroups(path)
-	push := slices.IndexFunc(groups, func(g guard.Group) bool { return g.Name == "push" })
-	mine := slices.IndexFunc(groups, func(g guard.Group) bool { return g.Name == "mine" })
-	if push < 0 || !groups[push].On || mine < 0 || !groups[mine].On {
-		t.Errorf("the guard held: %+v", groups)
-	}
+	t.Run("the next start", func(t *testing.T) {
+		broken(t)
+		restart(t)
+		if said := recordsDroppedText(); !strings.Contains(said, hireGuardFile) {
+			t.Fatalf("the broken guard isn't dropped: %q", said)
+		}
+		id := recordKeyID()
+		restart(t)
+		if said := recordsDroppedText(); said != "" || recordKeyID() != id {
+			t.Errorf("the next start: dropped %q, rotated %v", said, recordKeyID() != id)
+		}
+		groups := heldGuardGroups(path())
+		push := slices.IndexFunc(groups, func(g guard.Group) bool { return g.Name == "push" })
+		mine := slices.IndexFunc(groups, func(g guard.Group) bool { return g.Name == "mine" })
+		if push < 0 || !groups[push].On || mine < 0 || !groups[mine].On {
+			t.Errorf("the guard held: %+v", groups)
+		}
+	})
+	t.Run("a stop before the rotation's add", func(t *testing.T) {
+		mac := broken(t)
+		stoppedAt(t, mac, "add", true)
+		restart(t)
+		if state, said := recordsState(), recordsDroppedText(); state != recordsOK || !strings.Contains(said, hireGuardFile) {
+			t.Errorf("the start after the stop: %q, dropped %q", state, said)
+		}
+	})
+	t.Run("a stop after the guard is written under the new key", func(t *testing.T) {
+		mac := broken(t)
+		stoppedAt(t, mac, "wrote "+guardRecord(path()), false)
+		restart(t)
+		if state := recordsState(); state != recordsInterrupted {
+			t.Errorf("the start after the stop: %q", state)
+		}
+	})
 }
 
 // recordKeyID is the record key's item now: a rotation changes it.

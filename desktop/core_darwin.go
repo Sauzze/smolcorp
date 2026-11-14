@@ -279,6 +279,8 @@ type shellAnswer struct {
 	Link string `json:"link,omitempty"`
 	// menu, and every line with no id: what the app's menu bar menu shows (menustate.go).
 	Menu *menuState `json:"menu,omitempty"`
+	// unpair-all: refused, in Setup's words, for the app to show (RT126SK1F nit 4); "" when it was done.
+	Refused string `json:"refused,omitempty"`
 }
 
 // shellOps is every op the app may ask, as Tests/fixtures/shell/ops.json lists them for both sides.
@@ -366,6 +368,12 @@ func answerShell(deck *Deck, line []byte) shellAnswer {
 	// Unpair All Phones…, once you've said yes in the app: as setup's Unpair all. The office window's own key isn't a
 	// phone's, so its window goes on.
 	case "unpair-all":
+		// Refused while the records' key can't be read, as setup's Unpair all is: the phones would be back at the
+		// restart (records.go's refusedWhileHeld).
+		if recordsHeldOnly() {
+			answer.Refused = recordsHeldAnswer
+			break
+		}
 		deck.mu.Lock()
 		deck.unpair("")
 		deck.mu.Unlock()

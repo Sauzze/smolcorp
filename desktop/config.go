@@ -208,7 +208,16 @@ func knownConfigKeys() map[string]bool {
 // keys the deck started out with.
 var logos = []string{"smolcorp", "keys"}
 
-func loadConfig() *Config {
+func loadConfig() *Config { return readConfig(true) }
+
+// savedConfig is the config as its file holds it, its security settings as written whether their seal counts now or
+// not: what the core goes by after its next start, once the seal fits. While the records are held in memory alone
+// nothing is written, so it's what the restart after the owner unlocks the keychain brings back (records_heldconfig.go).
+func savedConfig() *Config { return readConfig(false) }
+
+// readConfig is the config file as the core loads it; vouch has its security settings checked against their seal,
+// as the core's own start does, and a file that can't be read kept aside.
+func readConfig(vouch bool) *Config {
 	config := &Config{Colours: map[string]string{}, Logo: "smolcorp", Layout: standardLayout(), ActiveProfile: defaultProfile, HireAgent: string(Claude), Webhook: standardWebhook(),
 		MaxConfirm: true, Viewer: standardViewerSettings(),
 		MailMaxBytes: mailDefaultMaxBytes, MailPerHour: mailDefaultPerHour, MailWaitHours: mailDefaultWaitHours, BuiltinWatches: true, PhoneMicEnabled: true}
@@ -216,11 +225,13 @@ func loadConfig() *Config {
 		// A field it can't read loses only itself. A file it can't read at all
 		// starts from the defaults, but a copy is kept beside it first, so the
 		// next save doesn't take your pins, layouts, profiles and roles with it.
-		if err := json.Unmarshal(data, config); err != nil {
+		if err := json.Unmarshal(data, config); err != nil && vouch {
 			_ = writePrivate(configFile+".broken", data)
 		}
 		// Its security settings are a sealed record (records_registry.go): another program's change doesn't count.
-		vouchConfig(config, data)
+		if vouch {
+			vouchConfig(config, data)
+		}
 		var fields map[string]json.RawMessage
 		if json.Unmarshal(data, &fields) == nil {
 			known := knownConfigKeys()

@@ -373,7 +373,23 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.addButton(withTitle: "Cancel")
         // A menu bar app is never active by itself, and the alert would open behind other windows.
         Foreground.activate("the alert “Unpair all phones?”")
-        if alert.runModal() == .alertFirstButtonReturn { core.tell(.unpairAll) }
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        // The core may refuse it, in Setup's words (while the key that seals its records can't be read): said, not lost.
+        core.tell(.unpairAll) { answer in
+            guard let refused = GoShellDelegate.refusal(answer),
+                  TestCopy.mayComeForward("the alert “Couldn't unpair the phones”") else { return }
+            let said = NSAlert()
+            said.messageText = "Couldn't unpair the phones"
+            said.informativeText = refused
+            Foreground.activate("the alert “Couldn't unpair the phones”")
+            said.runModal()
+        }
+    }
+
+    /// What the core's answer says it refused, in Setup's words: nil when it was done, or when it didn't answer.
+    static func refusal(_ answer: [String: Any]?) -> String? {
+        guard let refused = answer?["refused"] as? String, !refused.isEmpty else { return nil }
+        return refused
     }
 
     @objc private func startPortable() { core.tell(.portableStart) }

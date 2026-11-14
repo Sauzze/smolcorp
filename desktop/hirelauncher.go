@@ -171,6 +171,10 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 		if r.GMToken != nil {
 			gmToken = r.GMToken()
 		}
+		if gmToken == "" && recordsHeldOnly() {
+			// Its token can't be kept while the records' key can't be read (gmTokenKeeper.writeNow).
+			return fail(http.StatusConflict, recordsHeldAnswer)
+		}
 		if gmToken == "" {
 			return fail(http.StatusInternalServerError, "Couldn't make the General Manager's token.")
 		}
@@ -541,6 +545,10 @@ func (d *Deck) fireLauncherHire(h Hire, o launcherEngineOptions, force bool) (ke
 	if !d.stopLauncherOf(h.ID, o.StopWait) {
 		return refuse("Couldn't end " + calledHire(h) + "'s window, so nothing was changed.")
 	}
+	if refused := heldFire(h, "window"); refused != nil {
+		d.failHeldMail(h, refused)
+		return "", refused
+	}
 	removed := h.Worktree != "" && !o.KeepWorktree && removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(h)
 	writeRecap(h, "", removed, o.Now())
 	if h.Worktree != "" && !removed && !o.KeepWorktree {
@@ -609,5 +617,8 @@ func (d *Deck) fireLauncherTab(tab string, force bool) (status int, message stri
 		d.changed()
 	}
 	d.mu.Unlock()
+	if note := heldFireNote(h); note != "" {
+		return http.StatusOK, note, true
+	}
 	return http.StatusNoContent, "", true
 }

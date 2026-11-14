@@ -304,6 +304,10 @@ func (rt *router) claudeAccounts(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusBadRequest, err.Error())
 			return
 		}
+		// An account taken off while the records' key can't be read would be back at the restart.
+		if d.refusedConfigWhileHeld(w, func(c *Config) { c.ClaudeProfiles = profiles }) {
+			return
+		}
 		d.mu.Lock()
 		d.config.ClaudeProfiles = profiles
 		d.config.save()

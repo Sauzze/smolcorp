@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"bytes"
 	"net/http"
 	"net/url"
 	"os"
@@ -152,6 +153,79 @@ func TestAFireOfAHireAlreadyGoneIsRefused(t *testing.T) {
 	windowShows(r, pane(t, "idle-empty"), true)
 	if _, err := fireEngineHire(hire, 0, r.o, false); err == nil || err.Error() != "Janitor is already gone." {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// RT126SK1R4 follow-up 2, RT126SK1F B2: while the records' key can't be read, a fire still ends the hire's session,
+// so a hire that misbehaves stops now. For a hire from before this run its key stops too, even one made in this run,
+// and its waiting mail fails, but the fire isn't saved, since it would last only until the restart: the hire stays on
+// the team as it was, its worktree kept, and the answer says so. A hire hired in this run, which the saved registry
+// doesn't list, is fired in full, and the answer says that lasts.
+func TestAFireWhileTheRecordsKeyIsUnreadableEndsTheSessionButSavesNothing(t *testing.T) {
+	for _, row := range []struct {
+		name  string
+		saved bool
+	}{{"a hire from before this run", true}, {"a hire hired in this run", false}} {
+		t.Run(row.name, func(t *testing.T) {
+			d, r, hire := hiredForFire(t, "Rex")
+			windowShows(r, pane(t, "idle-empty"), true)
+			d.engine = r.o
+			records.mu.Lock()
+			was := records.state
+			records.state = recordsUnreadable
+			records.mu.Unlock()
+			t.Cleanup(func() { records.mu.Lock(); records.state = was; records.mu.Unlock() })
+			saved, _ := os.ReadFile(registryPath())
+			if !row.saved {
+				// The file holds the team as saved before this run: one hired since isn't in it.
+				if err := os.WriteFile(registryPath(), []byte(`{"version":1,"hires":[]}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				saved, _ = os.ReadFile(registryPath())
+			}
+			// A key made in this run (a desk started): held in memory alone, and working.
+			key, err := newSendKey(registryPath(), hire.ID)
+			if err != nil || !isHireKey(registryPath(), key) {
+				t.Fatalf("the key made in this run: %v", err)
+			}
+			if _, err := d.mail.add(mailRequest{From: mailFromGM, To: "Rex", Text: "hello", ID: "m-rex", IDGiven: true,
+				Resolve: func() (mailDest, *mailError) { return mailDest{ID: hire.ID, Name: "Rex"}, nil }}); err != nil {
+				t.Fatal(err)
+			}
+			_, note, err := d.fireTmuxHire(hire, false, true)
+			if !r.tmux.ran("kill-server") || r.tmux.up {
+				t.Error("the session wasn't ended")
+			}
+			if isHireKey(registryPath(), key) {
+				t.Error("the hire's key still works after the fire")
+			}
+			if now, _ := os.ReadFile(registryPath()); !bytes.Equal(now, saved) {
+				t.Errorf("the registry file was written while the key can't be read: %s", now)
+			}
+			if _, err := os.Stat(hire.Worktree); err != nil {
+				t.Errorf("the worktree went: %v", err)
+			}
+			got := registered(t)[0]
+			if !row.saved {
+				// Its waiting mail fails as any fire's does, after it (afterGMFire).
+				if err != nil || note != firedForGoodWhileHeld(hire) || got.State != "fired" {
+					t.Errorf("fired in full: %v, note %q, state %q", err, note, got.State)
+				}
+				return
+			}
+			refused, ok := err.(*hireRefusal)
+			if !ok || refused.Status != http.StatusConflict || refused.Message != firedButHeld(hire, "session") ||
+				!strings.Contains(refused.Message, "Smolcorp ended Rex's session and took its key away for now, but can't save the fire") ||
+				!strings.Contains(refused.Message, "its worktree kept at "+hire.Worktree) {
+				t.Fatalf("err = %v", err)
+			}
+			if m, _ := d.mail.get("m-rex"); m.State != mailFailed {
+				t.Errorf("its waiting mail: %+v", m)
+			}
+			if !isOpen(got) {
+				t.Errorf("the registry says %q: the hire isn't on the team, as it will be after the restart", got.State)
+			}
+		})
 	}
 }
 
@@ -756,4 +830,51 @@ func TestATabThatIsNotTmuxIsNeverFiredAsAnEngineHireWhateverItsSocket(t *testing
 	if r.tmux.ran("kill-server") || registered(t)[0].State != "starting" {
 		t.Error("something was ended or changed")
 	}
+}
+
+// RT126SK1F B2, the reviewer's probes as a test: a fire while the key can't be read leaves the owner exactly what
+// they were told. hire02, from before this run, given a key in it: the fire is refused, its key stops now, and after
+// the unlocked restart it's on the team, its key from before working. Nell, hired in this run: fired in full, and
+// after that restart not on the team, its key working nowhere.
+func TestOnAMacAFireWhileTheKeyIsUnreadableIsWhatTheOwnerIsTold(t *testing.T) {
+	run := startHeld(t)
+	inRun, err := newSendKey(registryPath(), "hire02")
+	if err != nil || !isHireKey(registryPath(), inRun) {
+		t.Fatalf("hire02's key made in this run: %v", err)
+	}
+	bo, _ := hireByID("hire02")
+	_, _, err = run.held.fireOwnWindowHire(bo, "", "", true, true)
+	if refused, ok := err.(*hireRefusal); !ok || refused.Status != http.StatusConflict || refused.Message != firedButHeld(bo, "") ||
+		!strings.Contains(refused.Message, "is still on your team, and its key works again after the restart") {
+		t.Errorf("hire02's fire: %v", err)
+	}
+	if isHireKey(registryPath(), inRun) {
+		t.Error("hire02's key made in this run works after its fire")
+	}
+	if err := updateRegistry(func(f *registryFile) {
+		f.hires = append(f.hires, Hire{ID: "hire09", Name: "Nell", Folder: homeDir, State: "working"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	nellKey, err := newSendKey(registryPath(), "hire09")
+	if err != nil || !isHireKey(registryPath(), nellKey) {
+		t.Fatalf("Nell's key: %v", err)
+	}
+	nell, _ := hireByID("hire09")
+	if _, note, err := run.held.fireOwnWindowHire(nell, "", "", true, true); err != nil ||
+		!strings.HasPrefix(note, firedForGoodWhileHeld(nell)) {
+		t.Errorf("Nell's fire: %v, %q", err, note)
+	}
+	if isHireKey(registryPath(), nellKey) || hireIsOpenNow("hire09") {
+		t.Error("Nell isn't fired in this run")
+	}
+	run.afterTheUnlockedRestart(t)
+	if hireIsOpenNow("hire09") || isHireKey(registryPath(), nellKey) || isHireKey(registryPath(), inRun) {
+		t.Error("after the unlocked restart, Nell or a key made while the key couldn't be read is back")
+	}
+}
+
+func hireIsOpenNow(id string) bool {
+	h, found := hireByID(id)
+	return found && isOpen(h)
 }

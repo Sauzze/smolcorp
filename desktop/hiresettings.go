@@ -91,6 +91,9 @@ func (p guardProfile) arguments() []string {
 type hireRefusal struct {
 	Status  int
 	Message string
+	// keyTaken: a fire refused while the records' key can't be read, once the hire's session was ended and its send
+	// key taken away for the run (heldFire).
+	keyTaken bool
 }
 
 func (r *hireRefusal) Error() string { return r.Message }

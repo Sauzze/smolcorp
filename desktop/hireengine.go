@@ -158,6 +158,10 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		if r.GMToken != nil {
 			gmToken = r.GMToken()
 		}
+		if gmToken == "" && recordsHeldOnly() {
+			// Its token can't be kept while the records' key can't be read (gmTokenKeeper.writeNow).
+			return fail(http.StatusConflict, recordsHeldAnswer)
+		}
 		if gmToken == "" {
 			return fail(http.StatusInternalServerError, "Couldn't make the General Manager's token.")
 		}

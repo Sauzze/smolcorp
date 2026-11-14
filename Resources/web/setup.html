@@ -2994,6 +2994,25 @@
     renderWebhook();
   }
 
+  /**
+   * A refusal (409) of what a switch or button asked, said under its step as the hiring step's is, and cleared when
+   * the next one is accepted: a change the core can't make now, in Setup's words, such as one that wouldn't last while
+   * the key that seals Smolcorp's records can't be read (desktop/records_heldconfig.go).
+   */
+  async function saidUnder(el, res) {
+    const step = el.closest('.step');
+    const home = step ? step.querySelector('.text') : el.parentElement;
+    let note = home.querySelector(':scope > .refused');
+    if (!note) {
+      note = document.createElement('p');
+      note.className = 'note refused';
+      note.setAttribute('role', 'alert');
+      home.append(note);
+    }
+    note.textContent = res && res.status === 409 ? wording(await res.text()) : '';
+    note.hidden = !note.textContent;
+  }
+
   /** What the hiring step's request answered: a refusal is said under the step, and cleared when the next one is accepted. */
   async function showHiringProblem(res) {
     $('hiring-problem').textContent = res.ok ? '' : await res.text();
@@ -3333,12 +3352,13 @@
   $('hiring').onclick = async () => showHiringProblem(await post(`/setup/hiring?enabled=${state.hiring.enabled ? 0 : 1}`));
   $('music').onclick = () => post(`/setup/music?enabled=${state.music.enabled ? 0 : 1}`);
   $('manager').onclick = async () => {
-    await fetch(`/setup/gm/manager?enabled=${state.manager.enabled ? 0 : 1}`, { method: 'POST', headers: setupHeaders() }).catch(() => null);
+    const res = await fetch(`/setup/gm/manager?enabled=${state.manager.enabled ? 0 : 1}`, { method: 'POST', headers: setupHeaders() }).catch(() => null);
     load();
+    saidUnder($('manager'), res);
   };
   $('maxconfirm').onclick = () => post(`/setup/maxconfirm?enabled=${state.maxConfirm.enabled ? 0 : 1}`);
   $('keystrokes-add').onclick = () => { if ($('keystrokes-pick').value) changeKeystrokeApp('add', $('keystrokes-pick').value); };
-  $('keystrokes').onclick = () => post(`/setup/keystrokes?enabled=${state.keystrokes.enabled ? 0 : 1}`);
+  $('keystrokes').onclick = async () => saidUnder($('keystrokes'), await post(`/setup/keystrokes?enabled=${state.keystrokes.enabled ? 0 : 1}`));
   $('dock').onclick = () => post(`/setup/dock?enabled=${state.dock.enabled ? 0 : 1}`);
   $('ontop').onclick = () => post(`/setup/ontop?enabled=${state.officeWindow.onTop ? 0 : 1}`);
   // The recorder: click, then press the keys. Esc leaves them as they were.
@@ -3384,7 +3404,7 @@
   }
   $('summary').onclick = () => {
     const s = state.summary;
-    if (s.enabled) return post('/setup/summaries?enabled=0');
+    if (s.enabled) return post('/setup/summaries?enabled=0').then((res) => saidUnder($('summary'), res));
     if (!s.provider) {
       said('summary-provider-result', 'Sign in to a coding agent, or add your Anthropic API key, first.', 'wrong');
       return;
@@ -4380,7 +4400,7 @@
         el.querySelector('.what').append(before);
         if (phone.pairedAgain) el.querySelector('button').textContent = 'Remove old entry';
       }
-      el.querySelector('button').onclick = () => post(`/setup/unpair?phone=${encodeURIComponent(phone.id)}`);
+      el.querySelector('button').onclick = () => post(`/setup/unpair?phone=${encodeURIComponent(phone.id)}`).then((res) => saidUnder($('unpair-all'), res));
       return el;
     }));
   }
@@ -4388,7 +4408,7 @@
   $('wifityping').onclick = () => {
     const on = !state.wifiTyping;
     if (on && !confirm('Anyone on this Wi-Fi could read what you type. The Tailscale link is private.\n\nTurn on typing over Wi-Fi?')) return;
-    post(`/setup/wifityping?on=${on ? 1 : 0}`);
+    post(`/setup/wifityping?on=${on ? 1 : 0}`).then((res) => saidUnder($('wifityping'), res));
   };
 
   /**
@@ -4416,7 +4436,7 @@
 
   $('unpair-all').onclick = () => {
     if (confirm('Unpair all phones? They stop working straight away, and each needs a new code to pair again.')) {
-      post('/setup/unpair?all=1');
+      post('/setup/unpair?all=1').then((res) => saidUnder($('unpair-all'), res));
     }
   };
 

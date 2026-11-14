@@ -470,6 +470,13 @@ func (rt *router) botMailboxChoose(w http.ResponseWriter, r *request) {
 		writeStatus(w)(http.StatusBadRequest, ask)
 		return
 	}
+	// A mailbox cleared or moved while the records' key can't be read would be back at the restart, mail going
+	// through it again (records_heldconfig.go, RT126SK1F B1).
+	if refused := d.config.heldRefusal(func(c *Config) { c.CloudBots = bots }); refused != "" {
+		d.mu.Unlock()
+		writeStatus(w)(http.StatusConflict, refused)
+		return
+	}
 	d.config.CloudBots = bots
 	d.config.save()
 	d.cloud.configure(bots)

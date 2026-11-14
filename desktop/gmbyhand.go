@@ -89,8 +89,7 @@ func (d *Deck) loadByHandGM() {
 func (d *Deck) applyByHand() error {
 	if !d.byHandAllowed() {
 		d.forgetByHand()
-		_ = os.Remove(gmTokenPath())
-		return nil
+		return d.syncGMTokenFile()
 	}
 	// Not over the verifier of a hired GM's token from the last run: that GM goes on working, and a GM started by
 	// hand needs a new token (rotate) to be given one, as the core no longer has the old one whole.
@@ -102,8 +101,13 @@ func (d *Deck) applyByHand() error {
 }
 
 // syncGMTokenFile writes the token to its file while a GM started by hand is allowed, and takes the file away
-// otherwise. The caller holds d.mu.
+// otherwise. While the records' key can't be read it leaves the file as it is (RT126SK1F nit 5): the core holds the
+// safe default then, "GM started by hand" off, and no token, but the token the file holds from before works again
+// after the restart once the owner unlocks the keychain, and the core can't write it back then. The caller holds d.mu.
 func (d *Deck) syncGMTokenFile() error {
+	if recordsHeldOnly() {
+		return nil
+	}
 	if !d.byHandAllowed() || d.gmToken == "" {
 		if err := os.Remove(gmTokenPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -222,11 +226,23 @@ func (rt *router) byHandRoutes(w http.ResponseWriter, r *request) bool {
 			writeStatus(w)(http.StatusBadRequest, "Say enabled=1 or enabled=0.")
 			return true
 		}
+		// Switching it off takes the file's token away: refused while the records' key can't be read, as every
+		// revocation is, since it would come back at the restart (RT126SK1R4 follow-up 2).
+		if refused := d.config.heldRefusal(func(c *Config) { c.GMByHand = enabled == "1" }); refused != "" {
+			writeStatus(w)(http.StatusConflict, refused)
+			return true
+		}
 		d.config.GMByHand = enabled == "1"
 		d.config.save()
 		_ = d.applyByHand()
 		d.changed()
 		writeJSON(w, http.StatusOK, map[string]any{"gmByHand": d.config.GMByHand})
+		return true
+	}
+	// While the records' key can't be read, no new token is kept (gmTokenKeeper.writeNow): said with Setup's reason,
+	// and the old one still works, now and after the restart (RT126SK1R4 follow-up 3).
+	if recordsHeldOnly() {
+		writeStatus(w)(http.StatusConflict, recordsHeldAnswer)
 		return true
 	}
 	if !d.rotateGMToken() {

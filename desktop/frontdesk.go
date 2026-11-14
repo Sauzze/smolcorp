@@ -350,6 +350,11 @@ func editHire(path string, body []byte) (Hire, *refusal) {
 		if (text == "fired" || text == "failed") && isOpen(file.hires[i]) && file.hires[i].T3Session != "" {
 			return Hire{}, &refusal{http.StatusConflict, calledHire(file.hires[i]) + " was taken over in T3 Code: hand it back first, then mark it " + text + "."}
 		}
+		// Letting a hire go while the records' key can't be read would last only until the restart (records.go's
+		// refusedWhileHeld, RT126SK1R4 follow-up 2).
+		if (text == "fired" || text == "failed") && recordsHeldOnly() {
+			return Hire{}, &refusal{http.StatusConflict, recordsHeldAnswer}
+		}
 		hire.State = text
 	}
 	if v, ok := given["notes"]; ok {

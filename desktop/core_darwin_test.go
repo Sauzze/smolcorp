@@ -500,6 +500,27 @@ func TestTheAppsOpsAreTheFixtures(t *testing.T) {
 
 // The menu's state goes to the app unasked, with no id: once ready, then whenever it changes, and not again
 // while it doesn't. Nothing is written once the app's input has ended.
+// RT126SK1F nit 4: the menu's Unpair All Phones… is refused while the records' key can't be read, as setup's is, and
+// the answer carries Setup's words for the app to show; the phones stay.
+func TestUnpairAllFromTheMenuIsRefusedWhileTheKeyIsUnreadable(t *testing.T) {
+	d := newTestDeck(t)
+	d.mu.Lock()
+	d.access.Phones.Pair("Test phone", true)
+	d.mu.Unlock()
+	records.mu.Lock()
+	was := records.state
+	records.state = recordsUnreadable
+	records.mu.Unlock()
+	t.Cleanup(func() { records.mu.Lock(); records.state = was; records.mu.Unlock() })
+	said := answerShell(d, []byte(`{"id":1,"op":"unpair-all"}`))
+	d.mu.Lock()
+	phones := len(d.access.Phones.All)
+	d.mu.Unlock()
+	if said.Refused != recordsHeldAnswer || said.Error != "" || phones != 1 {
+		t.Errorf("unpair-all while the key can't be read: %+v, %d phones", said, phones)
+	}
+}
+
 func TestTheMenuIsSentWheneverItChanges(t *testing.T) {
 	saved := menuPushGap
 	menuPushGap = 10 * time.Millisecond

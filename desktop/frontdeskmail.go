@@ -138,6 +138,11 @@ func setContacts(path string, body []byte) ([]Contact, *refusal) {
 		}
 	}
 	oneWay, removing := flags[0], flags[1]
+	// A pair taken away while the records' key can't be read would come back at the restart: the core holds no
+	// contact from the file then, so the file's stays (records.go's refusedWhileHeld, RT126SK1R4 follow-up 2).
+	if removing && recordsHeldOnly() {
+		return nil, &refusal{http.StatusConflict, recordsHeldAnswer}
+	}
 	frontDeskMu.Lock()
 	defer frontDeskMu.Unlock()
 	file := readRegistry(path, true)
