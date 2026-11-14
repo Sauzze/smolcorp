@@ -200,7 +200,7 @@ func demoNotServed() string {
 
 // demoLink is Setup at the demo, with no token: it opens signed in only in a browser Setup is already open in.
 func (o *officeTeam) demoLink(f demoFolder) string {
-	return o.base + "/setup?demo=" + url.QueryEscape(f.root)
+	return setupBase() + "/setup?demo=" + url.QueryEscape(f.root)
 }
 
 // work has Setup open at the demo (or prints its link), waits for you to hire the General Manager there, and

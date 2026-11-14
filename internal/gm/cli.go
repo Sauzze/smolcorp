@@ -63,6 +63,12 @@ Commands:
   tile                          put each hire's window over its desk (a read-only
                                 team grid in one window where the terminal
                                 can't place windows)
+  preview (<url> | --clear) [--hire H]
+                                the address the office's TV shows for a hire's
+                                desk: http://localhost:<port> (127.0.0.1 is
+                                kept as localhost), with a path if you like;
+                                --clear takes it away. A hire sets its own
+                                desk's alone, without --hire
   screens                       the screens, and which one holds the team
   screen <id>                   choose the screen that holds the team (an id from
                                 screens; only matters with two or more)
@@ -77,8 +83,8 @@ on Linux and Windows, ask the owner to hire the GM again from Setup.
 (default 7710); the token is $SMOLCORP_GM_TOKEN. On the Mac it can also come from
 the app's gm-token file (which exists only if "Allow a GM started by hand" is on
 in Smolcorp's setup); on Linux and Windows the GM hired from Setup has the variable.
-With $SMOLCORP_HIRE_KEY set you are a hire: only send works, signed with that
-key; the GM token is never read or sent.
+With $SMOLCORP_HIRE_KEY set you are a hire: only send and preview work, signed
+with that key; the GM token is never read or sent.
 
 Exit codes: 0 ok, 1 refused or an error from the app, 2 usage, 3 app not running.
 `
@@ -105,6 +111,8 @@ func run(args []string, env Env, stdout, stderr io.Writer) int {
 		return runPlace(cmd, rest, env, stdout, stderr)
 	case "send", "outbox", "watch", "unwatch", "watches", "contacts":
 		return runMail(cmd, rest, env, stdout, stderr)
+	case "preview":
+		return runPreview(rest, env, stdout, stderr)
 	default:
 		return usageError(stderr, fmt.Sprintf("unknown command %q", cmd))
 	}

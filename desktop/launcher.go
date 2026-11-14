@@ -587,6 +587,11 @@ type launcherTab struct {
 	// stream only; and a channel closed when the launcher is gone.
 	screenSecret string
 	gone         chan struct{}
+	// The ends of its connection to this app as the app saw them, and the launcher's own process, found from them
+	// once it's asked for (process, in preview.go). Under conn.
+	conn             sync.Mutex
+	connFrom, connTo string
+	pid              int
 }
 
 func (t *launcherTab) send(command launcherCommand) error {

@@ -18,7 +18,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     static let firstSize = NSSize(width: 1100, height: 780)
     static let frameName = "SmolcorpSettings"
     /// The page session's cookie, as the Go core names it for this port (it says so as it starts: `GoCore.setupCookie`).
-    /// A browser sends localhost's cookies to every port, so a test copy's has a name of its own: each app's setup
+    /// A browser sends a host's cookies to every port of it, so a test copy's has a name of its own: each app's setup
     /// page would otherwise sign the other out.
     static let setupCookie = Deck.port == 7710 ? "smolcorp-setup" : "smolcorp-setup-\(Deck.port)"
 
@@ -50,23 +50,27 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
 
     // MARK: Addresses and what opens where
 
+    /// Setup's host: 127.0.0.1, never localhost. Its cookie is sent to every port of the host it's set on, and a
+    /// desk's own server, whose preview is on localhost, must never be sent it (the core sends localhost on here).
+    static let host = "127.0.0.1"
+
     /// The setup page, and what to do there (`pair`, `viewer`), as the page
     /// reads it after #. Never the key.
     static func address(port: UInt16, then: String? = nil) -> URL {
-        URL(string: "http://localhost:\(port)/setup" + (then.map { "#\($0)" } ?? ""))!
+        URL(string: "http://\(host):\(port)/setup" + (then.map { "#\($0)" } ?? ""))!
     }
 
     /// The cookie the page is given in the browser, for the window's store.
     static func sessionCookie(session: String, name: String = SettingsWindow.setupCookie) -> HTTPCookie? {
         HTTPCookie(properties: [
-            .name: name, .value: session, .domain: "localhost", .path: "/setup",
+            .name: name, .value: session, .domain: host, .path: "/setup",
             .sameSitePolicy: HTTPCookieStringPolicy.sameSiteStrict, HTTPCookiePropertyKey("HttpOnly"): "TRUE",
         ])
     }
 
     /// The setup page, or what it reads, from this Mac's Smolcorp.
     static func isSetupPage(_ url: URL?, port: UInt16) -> Bool {
-        guard let url, url.scheme == "http", url.host == "localhost", url.port == Int(port) else { return false }
+        guard let url, url.scheme == "http", url.host == host, url.port == Int(port) else { return false }
         return isSetupPath(url.path)
     }
 
@@ -82,7 +86,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     /// browser, and nothing else happens.
     static func decide(_ url: URL?, port: UInt16, mainFrame: Bool, clicked: Bool, download: Bool) -> Decision {
         if download {
-            // A file the page made, as a profile's export: blob:http://localhost:7710/…
+            // A file the page made, as a profile's export: blob:http://127.0.0.1:7710/…
             let made = url?.scheme == "blob" ? url.flatMap { URL(string: String($0.absoluteString.dropFirst("blob:".count))) } : url
             return isOwnOrigin(made, port: port) ? .download : .cancel
         }
@@ -94,7 +98,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WK
     }
 
     private static func isOwnOrigin(_ url: URL?, port: UInt16) -> Bool {
-        url?.scheme == "http" && url?.host == "localhost" && url?.port == Int(port)
+        url?.scheme == "http" && url?.host == host && url?.port == Int(port)
     }
 
     // MARK: Showing it

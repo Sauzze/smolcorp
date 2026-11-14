@@ -69,7 +69,7 @@ var everyPhoneRoute = [][2]string{
 	{"GET", "/t3code"}, {"POST", "/t3code/open"}, {"POST", "/act?action=takeover"}, {"POST", "/act?action=handback"},
 	{"POST", "/act?action=letgo"}, {"POST", "/act?action=stop"},
 	{"POST", "/dictate"}, {"POST", "/peek"}, {"POST", "/choose?option=other"}, {"GET", "/choice"}, {"GET", "/approvals"},
-	{"GET", "/conversation"}, {"GET", "/session/info"}, {"GET", "/desk/git"}, {"POST", "/summary"},
+	{"GET", "/conversation"}, {"GET", "/session/info"}, {"GET", "/desk/git"}, {"GET", "/desk/preview"}, {"POST", "/desk/preview"}, {"POST", "/summary"},
 	{"POST", "/desk/pr/open"}, {"GET", "/talk"}, {"GET", "/talk/asking"}, {"POST", "/talk/say"}, {"POST", "/talk/pick"}, {"POST", "/talk/listen"},
 	{"GET", "/dictate"}, {"GET", "/peek"}, {"POST", "/choice"}, {"POST", "/approvals"}, {"POST", "/conversation"},
 	{"GET", "/desk/pr/open"}, {"POST", "/talk"}, {"PUT", "/talk"}, {"POST", "/talk/asking"}, {"GET", "/talk/say"}, {"GET", "/talk/pick"}, {"GET", "/talk/listen"},
@@ -226,9 +226,10 @@ func TestEachRowLetsInItsClassOnly(t *testing.T) {
 	d, phoneKey := probeDeck(t)
 	// FR1 moved 7; the talk bubble adds GET /talk, GET /talk/asking, POST /talk/say and POST /talk/pick (1.26), and
 	// the dictation service (FD1) POST /talk/listen, and the pull request badge's click POST /desk/pr/open (R2);
-	// floors from other Macs, GET /peer/hello (M1); FS2 adds GET /grants and POST /grants/answer.
-	if len(phoneRouteTable) != 17 {
-		t.Errorf("%d rows; want 17", len(phoneRouteTable))
+	// floors from other Macs, GET /peer/hello (M1); FS2 adds GET /grants and POST /grants/answer; the TV's preview
+	// GET and POST /desk/preview (V1).
+	if len(phoneRouteTable) != 19 {
+		t.Errorf("%d rows; want 19", len(phoneRouteTable))
 	}
 	for key, row := range phoneRouteTable {
 		if !slices.ContainsFunc(everyPhoneRoute, func(route [2]string) bool {
@@ -372,6 +373,8 @@ GET /approvals: 401 403 200 200 403 403 403 403 403 403 403 200 403 403 401 401 
 GET /conversation: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
 GET /session/info: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
 GET /desk/git: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
+GET /desk/preview: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
+POST /desk/preview: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
 POST /summary: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 401 401 403 403; let in: nobody
 POST /desk/pr/open: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
 GET /talk: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window

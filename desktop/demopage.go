@@ -217,7 +217,7 @@ func demoGMOf(f demoFolder, hires []Hire) *Hire {
 
 // demoPageLink is Setup at demo root, with the one-time token after #o= when given (the app opens that one).
 func demoPageLink(root, token string) string {
-	link := fmt.Sprintf("http://localhost:%d/setup?demo=%s", Port, url.QueryEscape(root))
+	link := setupBase() + "/setup?demo=" + url.QueryEscape(root)
 	if token != "" {
 		link += "#o=" + token
 	}

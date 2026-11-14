@@ -564,6 +564,10 @@ func (cd *contractDeck) request(method, path string, a contractAsk) *http.Reques
 	if method != http.MethodGet {
 		headers[setupHeader] = "1"
 	}
+	// Setup lives on 127.0.0.1 alone (server.go): a browser, a tool and the GM ask it there.
+	if host == "localhost:7710" && isSetupRoute(path) {
+		host = "127.0.0.1:7710"
+	}
 	for k, v := range a.Headers {
 		headers[k] = v
 	}

@@ -57,7 +57,7 @@ func RunSetup(args []string) int {
 		checkOnly = true
 		fmt.Println("On a Mac, setup is in Smolcorp's Settings. This only checks, and changes nothing.")
 	}
-	client := setupClient{base: localBase(), http: &http.Client{Timeout: 2 * time.Minute}}
+	client := setupClient{base: setupBase(), http: &http.Client{Timeout: 2 * time.Minute}}
 	if !client.answers() {
 		mac := setupSystem == "darwin"
 		if checkOnly && !mac {

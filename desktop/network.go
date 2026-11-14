@@ -72,7 +72,7 @@ func (d *Deck) openSetup(then string) error {
 }
 
 func setupAddress(fragment, then string) string {
-	link := fmt.Sprintf("http://localhost:%d/setup#%s", Port, fragment)
+	link := setupBase() + "/setup#" + fragment
 	if then != "" {
 		link += "&" + then
 	}

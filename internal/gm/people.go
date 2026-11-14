@@ -133,7 +133,7 @@ func readKeyFile(e Env, name string) (string, error) {
 // rules (not this check) are what stand in the way of that.
 func refuseHire(e Env) error {
 	if strings.TrimSpace(e.Getenv(hireKeyEnv)) != "" {
-		return &Error{Code: exitApp, Msg: "these commands are for you, not for a hire. A hire can only `smolcorp gm send`."}
+		return &Error{Code: exitApp, Msg: "these commands are for you, not for a hire. A hire can only `smolcorp gm send` and `smolcorp gm preview`."}
 	}
 	return nil
 }

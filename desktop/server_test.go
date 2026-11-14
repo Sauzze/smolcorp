@@ -33,6 +33,9 @@ type call struct {
 	// A phone on the Wi-Fi signs its requests, as deck.html does (signed.go): a call from the network with
 	// ?t= goes signed with that key instead, unless bare says to send the key itself, as an old page did.
 	bare bool
+	// Setup lives on 127.0.0.1 alone (server.go): a call to it at localhost is made at 127.0.0.1, as a browser is
+	// sent there, unless this says to keep the host.
+	keepHost bool
 }
 
 func serve(t *testing.T, d *Deck, c call) *httptest.ResponseRecorder {
@@ -43,6 +46,9 @@ func serve(t *testing.T, d *Deck, c call) *httptest.ResponseRecorder {
 	}
 	r := httptest.NewRequest(c.method, target, strings.NewReader(c.body))
 	r.Host, r.RemoteAddr = c.host, c.from
+	if port, atLocalhost := strings.CutPrefix(c.host, "localhost"); atLocalhost && !c.keepHost && (r.URL.Path == "/setup" || strings.HasPrefix(r.URL.Path, "/setup/")) {
+		r.Host = "127.0.0.1" + port
+	}
 	if strings.HasPrefix(c.target, "/setup/") && !c.withoutSetupKey {
 		if c.asTool {
 			r.Header.Set(setupKeyHeader, d.access.SetupKey)

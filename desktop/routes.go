@@ -94,9 +94,11 @@ var routeTable = []routeRow{
 
 // goOnlyRoutes are setup routes only this app serves (INVENTORY.md's "Served by the Go app only"), so they aren't
 // in the Mac's fixture: Take over in T3 Code and Hand back (t3takeover.go), the page alone; a hire's git state (gitstate.go), a read;
-// Phone over HTTPS (phonehttps.go), all of it the page's alone, the tap that runs `tailscale serve` included; and the
+// Phone over HTTPS (phonehttps.go), all of it the page's alone, the tap that runs `tailscale serve` included; the
 // night shift's jobs (nightshift.go): listed by the page, the GM and a tool, proposed by the GM (or the page), made,
-// changed, approved, paused and deleted by the page alone. An MCP key and a night job are refused them all (gates.go).
+// changed, approved, paused and deleted by the page alone. An MCP key and a night job are refused them all (gates.go);
+// and a desk's preview address declared (preview.go): the owner from Setup, the GM for a hire, a hire for its own desk.
+// Not under /setup/gm/, so the owner's works with the manager off.
 // The sign-in status (signinstatus.go) is the page's alone too.
 // Signing in to an agent (signinrun.go) is the page's alone too.
 // Floors from other Macs (peers_mac_join.go) are the page's alone too.
@@ -141,6 +143,7 @@ var goOnlyRoutes = []routeRow{
 	{"POST", nightApprovePath, []string{"page"}},
 	{"POST", nightPausePath, []string{"page"}},
 	{"POST", nightDeletePath, []string{"page"}},
+	{"POST", "/setup/preview", []string{"gm", "page", "hire"}},
 }
 
 // name is how the table spells a caller.
