@@ -25,6 +25,9 @@ func isolate(t *testing.T) string {
 		sessionsFile = saved[7]
 	})
 	supportDir = t.TempDir()
+	// The photos folder can't be listed (photo.go): listed again so the test's folder can be removed.
+	support := supportDir
+	t.Cleanup(func() { _ = unlistPhotos(filepath.Join(support, photosFolder), false) })
 	phonesFile = filepath.Join(supportDir, "phones.json")
 	configFile = filepath.Join(supportDir, "config.json")
 	hookKeyFile = filepath.Join(supportDir, "hook-key")

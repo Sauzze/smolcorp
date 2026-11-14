@@ -71,8 +71,10 @@ var everyPhoneRoute = [][2]string{
 	{"POST", "/dictate"}, {"POST", "/peek"}, {"POST", "/choose?option=other"}, {"GET", "/choice"}, {"GET", "/approvals"},
 	{"GET", "/conversation"}, {"GET", "/session/info"}, {"GET", "/desk/git"}, {"GET", "/desk/preview"}, {"POST", "/desk/preview"}, {"POST", "/summary"},
 	{"POST", "/desk/pr/open"}, {"GET", "/talk"}, {"GET", "/talk/asking"}, {"POST", "/talk/say"}, {"POST", "/talk/pick"}, {"POST", "/talk/listen"},
+	{"POST", "/photo"}, {"POST", "/talk/photo"},
 	{"GET", "/dictate"}, {"GET", "/peek"}, {"POST", "/choice"}, {"POST", "/approvals"}, {"POST", "/conversation"},
 	{"GET", "/desk/pr/open"}, {"POST", "/talk"}, {"PUT", "/talk"}, {"POST", "/talk/asking"}, {"GET", "/talk/say"}, {"GET", "/talk/pick"}, {"GET", "/talk/listen"},
+	{"GET", "/photo"}, {"GET", "/talk/photo"},
 	{"GET", "/peer/hello"}, {"POST", "/peer/pair"}, {"GET", "/peer/nowhere"},
 	{"GET", "/nowhere"},
 	// The owner's asks and their answer (grants.go, FS2).
@@ -197,6 +199,8 @@ func dumpPhoneRoutes(t *testing.T) string {
 // key) and POST /peer/pair (floors off), 404 on a /peer/ path that isn't a route. FS2 adds its three /grants lines (the
 // owner's tap: a paired phone over WireGuard or through `tailscale serve` on a Mac, and no one else) and two callers,
 // the paired device the Windows window holds, as itself and with a made-up proxy header; every other cell is as it was.
+// PH1 adds its photo: POST /photo over Tailscale only (the owner's phone, as /peek; the Wi-Fi and the window 403),
+// POST /talk/photo the window only, and their GETs, which aren't routes.
 func TestEveryRouteKeepsItsAccessThroughTheMove(t *testing.T) {
 	after := dumpPhoneRoutes(t)
 	if after != phoneRouteAccess {
@@ -227,9 +231,9 @@ func TestEachRowLetsInItsClassOnly(t *testing.T) {
 	// FR1 moved 7; the talk bubble adds GET /talk, GET /talk/asking, POST /talk/say and POST /talk/pick (1.26), and
 	// the dictation service (FD1) POST /talk/listen, and the pull request badge's click POST /desk/pr/open (R2);
 	// floors from other Macs, GET /peer/hello (M1); FS2 adds GET /grants and POST /grants/answer; the TV's preview
-	// GET and POST /desk/preview (V1).
-	if len(phoneRouteTable) != 19 {
-		t.Errorf("%d rows; want 19", len(phoneRouteTable))
+	// GET and POST /desk/preview (V1); PH1 POST /photo and POST /talk/photo.
+	if len(phoneRouteTable) != 21 {
+		t.Errorf("%d rows; want 21", len(phoneRouteTable))
 	}
 	for key, row := range phoneRouteTable {
 		if !slices.ContainsFunc(everyPhoneRoute, func(route [2]string) bool {
@@ -249,6 +253,10 @@ func TestEachRowLetsInItsClassOnly(t *testing.T) {
 		}
 		if !slices.Equal(in, classLetsIn[row.access]) {
 			t.Errorf("%s lets in %v, its class %v", key, in, classLetsIn[row.access])
+		}
+		// A photo's rows are 8 MB and 30 s (photo_test.go); every other row is as before the move.
+		if row.path == "/photo" || row.path == "/talk/photo" {
+			continue
 		}
 		if most, wait := requestLimits(row.method, row.path); most != maxRequestSize || wait != requestTimeout {
 			t.Errorf("%s: %d bytes in %s, as before the move %d in %s", key, most, wait, maxRequestSize, requestTimeout)
@@ -382,6 +390,8 @@ GET /talk/asking: 401 403 403 403 403 403 403 403 403 403 403 403 403 200 401 40
 POST /talk/say: 401 403 403 403 403 403 403 403 403 403 403 403 403 400 401 401 403 403; let in: window
 POST /talk/pick: 401 403 403 403 403 403 403 403 403 403 403 403 403 400 401 401 403 403; let in: window
 POST /talk/listen: 401 403 403 403 403 403 403 403 403 403 403 403 403 400 401 401 403 403; let in: window
+POST /photo: 401 403 404 404 403 403 403 403 403 403 403 404 403 403 401 401 403 404; let in: phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, window-device-proxied
+POST /talk/photo: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
 GET /dictate: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
 GET /peek: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
 POST /choice: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
@@ -394,6 +404,8 @@ POST /talk/asking: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 4
 GET /talk/say: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
 GET /talk/pick: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
 GET /talk/listen: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
+GET /photo: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
+GET /talk/photo: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
 GET /peer/hello: 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403; let in: nobody
 POST /peer/pair: 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403; let in: nobody
 GET /peer/nowhere: 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-mac-text-off, phone-serve-linux, phone-serve-linux-text-off, phone-serve-linux-proto, spoof-proto-wifi, spoof-tsnet-wifi, spoof-tsnet-wireguard, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi, window-device, window-device-proxied

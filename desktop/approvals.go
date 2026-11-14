@@ -41,7 +41,7 @@ func approvalLabel(tool, input string) string {
 	} else {
 		for _, field := range []string{"file_path", "notebook_path"} {
 			if s := str(object[field]); s != "" {
-				what = filepath.Base(s)
+				what = hidePhotos(filepath.Base(s))
 				break
 			}
 		}

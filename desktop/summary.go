@@ -657,7 +657,8 @@ func redactText(text string) string {
 			}
 		}
 	}
-	return strings.Join(lines, "\n")
+	// A photo sent to the desk (photo.go) is never named in a summary.
+	return hidePhotos(strings.Join(lines, "\n"))
 }
 
 var (

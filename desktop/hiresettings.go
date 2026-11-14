@@ -418,6 +418,7 @@ func hireSettingsObject(o hireSettingsOptions) (map[string]any, error) {
 		}
 	}
 	deny := hireDenyRules(o.HireID, groups, o.Support, o.Profiles, others, names(o.Support), runtime.GOOS)
+	deny = append(deny, photoFenceRules(o.Support, o.Profiles, deny)...)
 	var reporting map[string]any
 	if o.ReportPort != 0 {
 		reporting = reportingHooks(o.CLI, o.ReportPort)

@@ -542,6 +542,10 @@ var phoneRoutes = map[string]bool{
 	"/desk/git": false, "/desk/pr/open": false, "/talk": false, "/talk/asking": false, "/talk/say": false, "/talk/pick": false, "/talk/listen": false,
 	// The TV's preview (V1, preview.go): the office's own window alone, with a loopback address, never a phone's text.
 	"/desk/preview": false,
+	// A photo (PH1, photo.go): a picture, never a phone's words, and the path typed is the app's own. POST /photo is
+	// Tailscale only (accessPhoneSecure), so the Wi-Fi never reaches it, and sendPhoto asks the phone-text switch;
+	// POST /talk/photo is the window's alone.
+	"/photo": false, "/talk/photo": false,
 	// Another Mac's alone (M1, peers_mac.go): no phone or window reaches it, and it answers a name, reading no body.
 	// POST /peer/pair isn't a row: servePeer answers it before the table, with a code and a name, never a phone's text.
 	"/peer/hello": false,
