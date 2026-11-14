@@ -110,8 +110,7 @@ final class ShellMenuTests: XCTestCase {
 
     /// Copy viewer link: on a pasteboard of the test's own, never yours.
     func testTheViewerLinkIsCopiedForThisMacOnly() {
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("smolcorp-test-\(UUID().uuidString)"))
-        defer { pasteboard.releaseGlobally() }
+        let pasteboard = standInPasteboard()
         GoShellDelegate.copyForThisMacOnly("https://viewer.example/v/abc#k=fake", to: pasteboard)
         XCTAssertEqual(pasteboard.string(forType: .string), "https://viewer.example/v/abc#k=fake")
         let types = pasteboard.types?.map(\.rawValue) ?? []

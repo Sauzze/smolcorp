@@ -16,6 +16,19 @@ enum SavedClipboard: Equatable {
     case concealed
 }
 
+/// The one place the Mac's own clipboard, the general pasteboard, is named (SIERRA, CLIP1). The app uses it;
+/// the test suite never does, not even through a default no test swapped: it gets a pasteboard of the run's
+/// own name instead, so no test can read or overwrite what you copied.
+enum MacClipboard {
+    static let pasteboard: NSPasteboard = Paths.underTest
+        ? NSPasteboard(name: .init("smolcorp-tests-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)"))
+        : .general
+
+    /// How many times anything was copied on this Mac, read without touching what's there: the test suite
+    /// watches it stay the same from its first test to its last.
+    static var changeCount: Int { NSPasteboard.general.changeCount }
+}
+
 /// The clipboard, as a paste through it uses it: everything on it saved, the phone's text put in its
 /// place, and what was saved put back. Settable for tests, which give a stand-in: no test touches the
 /// real clipboard.
@@ -36,12 +49,12 @@ protocol Clipboard: AnyObject {
 
 /// The Mac's own clipboard.
 final class SystemClipboard: Clipboard {
-    private let pasteboard: NSPasteboard
+    let pasteboard: NSPasteboard
     /// The phone's text, handed over when it's read (see `put`).
     private var served: Served?
 
-    /// `.general` is the Mac's clipboard; a test gives a pasteboard of its own name, never that one.
-    init(_ pasteboard: NSPasteboard = .general) { self.pasteboard = pasteboard }
+    /// The Mac's clipboard in the app (`MacClipboard`); a test gives a pasteboard of its own name.
+    init(_ pasteboard: NSPasteboard = MacClipboard.pasteboard) { self.pasteboard = pasteboard }
 
     var changeCount: Int { pasteboard.changeCount }
     var plainText: String? { pasteboard.string(forType: .string) }
@@ -124,6 +137,16 @@ final class SystemClipboard: Clipboard {
     }
 }
 
+/// The paste's clipboard under tests until a test gives its own stand-in: it refuses everything, so a paste
+/// that reaches it reads nothing and puts nothing on any clipboard (it can't be saved: `.unsaved`).
+final class NoClipboard: Clipboard {
+    var changeCount: Int { 0 }
+    var plainText: String? { nil }
+    func save() -> SavedClipboard? { nil }
+    func put(_ text: String, read: @escaping () -> Void) -> Int? { nil }
+    func restore(_ saved: SavedClipboard) {}
+}
+
 /// How ⌘V went, for a paste through the clipboard.
 enum PastePress: Equatable {
     /// It went, to the tab checked again right before.
@@ -142,8 +165,10 @@ enum PastePress: Equatable {
 /// them, so a line break is a new line in the text, never Return; Return, if sent, goes on its own
 /// afterwards. A Return is never pressed mid-text: when in doubt, nothing is pasted.
 enum ClipboardPaste {
-    /// Settable for tests, which give a stand-in.
-    static var clipboard: Clipboard = SystemClipboard()
+    /// The Mac's clipboard in the app; under tests one that refuses everything (`NoClipboard`), and a test of
+    /// the paste gives a stand-in of its own. A paste keeps the one it started with to the end, its put-back
+    /// included, whatever this is set to meanwhile.
+    static var clipboard: Clipboard = Paths.underTest ? NoClipboard() : SystemClipboard()
     /// How long the terminal is given to read the clipboard once ⌘V has gone. It's put back as soon as
     /// it's read (and `hold` has passed); not read by then, the paste is said to have failed.
     static var readWait: TimeInterval = 2
@@ -159,6 +184,15 @@ enum ClipboardPaste {
     private static let turn = DispatchSemaphore(value: 1)
     private static let later = DispatchQueue(label: "smolcorp.clipboard-paste.restore")
 
+    /// Waits, no longer than `seconds`, for the put-back of a paste that answered before its text was read
+    /// (see `grace`): true once no paste holds the clipboard. A test's teardown waits for it, so no put-back
+    /// outlives its test.
+    static func settled(within seconds: TimeInterval) -> Bool {
+        guard turn.wait(timeout: .now() + seconds) == .success else { return false }
+        turn.signal()
+        return true
+    }
+
     static let busy = "Another paste is still on the Mac's clipboard, so nothing was typed: try again in a few seconds."
 
     /// In this order (RI34b B2): `first` (the Mac in use) and `ready` (the desk free for it) asked once
@@ -173,6 +207,8 @@ enum ClipboardPaste {
                       press: (_ posting: () -> Void) -> PastePress) -> LinesPasted {
         // Escape could end the terminal's bracket early, and a return would press Enter: refused, as tmux's paste does.
         guard HireTmux.canPaste(text) else { return .failed }
+        // The clipboard as the paste starts, kept to its put-back: a test setting another meanwhile can't redirect it.
+        let clipboard = Self.clipboard
         guard turn.wait(timeout: .now() + grace + readWait) == .success else { return .refused(busy) }
         var handedOn = false
         defer { if !handedOn { turn.signal() } }

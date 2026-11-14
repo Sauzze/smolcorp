@@ -403,7 +403,7 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// The link holds the key: copied for this Mac only, not to your other devices
     /// over Universal Clipboard, and marked so clipboard managers leave it out.
-    static func copyForThisMacOnly(_ link: String, to pasteboard: NSPasteboard = .general) {
+    static func copyForThisMacOnly(_ link: String, to pasteboard: NSPasteboard = MacClipboard.pasteboard) {
         pasteboard.prepareForNewContents(with: .currentHostOnly)
         let item = NSPasteboardItem()
         item.setString(link, forType: .string)

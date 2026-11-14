@@ -94,8 +94,8 @@ final class ClipboardPasteTests: XCTestCase {
     }
 
     override func tearDown() {
-        // A paste still holding the phone's text for its grace is let finish first, so the next test starts clean.
-        _ = ClipboardPaste.paste("x", forward: { .failed }, ready: { nil }, press: { .sent })
+        // A paste still holding the phone's text for its grace puts it back first: no put-back outlives its test.
+        XCTAssertTrue(ClipboardPaste.settled(within: ClipboardPaste.grace + ClipboardPaste.readWait + 2), "a put-back outlived its test")
         ClipboardPaste.clipboard = savedClipboard
         (ClipboardPaste.readWait, ClipboardPaste.hold, ClipboardPaste.grace) = savedTimes
     }
@@ -286,6 +286,19 @@ final class ClipboardPasteTests: XCTestCase {
         XCTAssertEqual(clipboard.plainText, text)
     }
 
+    /// A put-back still to come keeps the clipboard its paste started with: another set meanwhile (a test's
+    /// teardown putting the default back) isn't read or written, and teardown can wait for it (CLIP1).
+    func testAPutBackStillToComeKeepsItsOwnClipboard() {
+        XCTAssertEqual(ClipboardPaste.paste(text, forward: { nil }, ready: { nil }, press: { .sent }), .notRead)
+        XCTAssertFalse(ClipboardPaste.settled(within: 0.05), "the phone's text is held for its grace")
+        let other = StandInClipboard([])
+        ClipboardPaste.clipboard = other
+        XCTAssertTrue(ClipboardPaste.settled(within: ClipboardPaste.grace + 1))
+        XCTAssertEqual(clipboard.items, yours, "put back where it was taken from")
+        XCTAssertEqual(clipboard.steps, ["save", "put", "restore"])
+        XCTAssertEqual(other.steps, [], "the clipboard set meanwhile is never touched")
+    }
+
     /// You copied something while the paste was on its way: that copy is newer than the one saved, and stays.
     /// A clipboard tool that only rewrote the phone's text (as one stripping formatting) doesn't count: yours
     /// comes back (RI34b N2).
@@ -412,16 +425,10 @@ final class ClipboardPasteTests: XCTestCase {
 
     // MARK: The Mac's own clipboard code, on a pasteboard of the test's own name (never the general one)
 
-    private func ownPasteboard() -> NSPasteboard {
-        let pasteboard = NSPasteboard(name: .init("smolcorp-test-\(UUID().uuidString)"))
-        addTeardownBlock { pasteboard.releaseGlobally() }
-        return pasteboard
-    }
-
     /// The phone's text is handed over only when read, which is what says the terminal took it; marked so
     /// clipboard managers leave it out. What was saved comes back, every item and type.
     func testTheTextIsHandedOverWhenReadAndYoursComesBack() throws {
-        let pasteboard = ownPasteboard()
+        let pasteboard = standInPasteboard()
         let system = SystemClipboard(pasteboard)
         system.restore(.items(yours))
         let saved = try XCTUnwrap(system.save())
@@ -447,7 +454,7 @@ final class ClipboardPasteTests: XCTestCase {
                 item.setString("hunter2", forType: type)
             }
         }
-        let pasteboard = ownPasteboard()
+        let pasteboard = standInPasteboard()
         let provider = Counting()
         pasteboard.prepareForNewContents(with: .currentHostOnly)
         let item = NSPasteboardItem()
@@ -469,7 +476,7 @@ final class ClipboardPasteTests: XCTestCase {
         final class Empty: NSObject, NSPasteboardItemDataProvider {
             func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {}
         }
-        let pasteboard = ownPasteboard()
+        let pasteboard = standInPasteboard()
         let system = SystemClipboard(pasteboard)
         pasteboard.prepareForNewContents(with: .currentHostOnly)
         let promise = NSPasteboardItem()
