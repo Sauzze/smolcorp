@@ -89,8 +89,9 @@ func requestLimits(method, path string) (int64, time.Duration) {
 func (r *request) secure() bool { return fromTailnet(r.Request) }
 
 // ownerTapOverTailnet is secure, less what a program on this computer can say for itself: `tailscale serve` hands a
-// phone on only where serveHandOnHere (a Mac and Linux, through serve.sock), so elsewhere (Windows) a request from
-// the loopback, or with no address, is a local program's, and only WireGuard's path is a phone's tap. A request from
+// phone on only where serveHandOnHere (a Mac and Linux through serve.sock, Windows through the serve port), so
+// elsewhere a request from the loopback, or with no address, is a local program's, and only WireGuard's path is a
+// phone's tap. A request from
 // one of this computer's own Tailscale addresses is a program here too, on any system (RT126FS2b N2).
 func (r *request) ownerTapOverTailnet() bool {
 	ip := net.ParseIP(r.remoteAddress)
@@ -124,6 +125,11 @@ func (a access) lets(r *request, phoneID string) bool {
 
 // servePhoneRoute serves a request by its row, if the table has one, and says whether it did.
 func (d *Deck) servePhoneRoute(w http.ResponseWriter, r *request, phoneID string) bool {
+	// Before its row: the push routes, on any method, refuse a request through `tailscale serve` on Windows.
+	if refusal := pushRefusal(r); refusal != "" {
+		writeStatus(w)(http.StatusForbidden, refusal)
+		return true
+	}
 	row := phoneRouteFor(r.Method, r.URL.Path)
 	if row == nil {
 		return false

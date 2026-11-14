@@ -132,7 +132,7 @@ var tailnet6 = &net.IPNet{IP: net.ParseIP("fd7a:115c:a1e0::"), Mask: net.CIDRMas
 
 // macTailscale: on a Mac, Tailscale's adapter is a utunN like any VPN's, so it's
 // told by its addresses, and `tailscale serve`'s ts.net names are let in as the
-// Mac app lets them in (serveHandOnHere: on a Mac and on Linux, and since SN1
+// Mac app lets them in (serveHandOnHere: on a Mac, Linux and Windows, and since SN1
 // only from Tailscale's own process, see router.ServeHTTP and peerowner.go). A
 // variable so a test can say either.
 var macTailscale = runtime.GOOS == "darwin"
@@ -141,6 +141,26 @@ var macTailscale = runtime.GOOS == "darwin"
 // let in too, the other end told by the kernel (OLD-SERVE1,
 // peerowner_linux.go). A variable so a test can say either.
 var linuxTailscale = runtime.GOOS == "linux"
+
+// windowsTailscale: on Windows, `tailscale serve`'s hand-on is let in too,
+// through the serve port, the other end told by Windows' own tables
+// (OLD-SERVE2, peerowner_windows.go). A variable so a test can say either.
+var windowsTailscale = runtime.GOOS == "windows"
+
+// servePort is where `tailscale serve` hands the deck on on Windows, which
+// has no unix: target: the port after the deck's own, on this computer only
+// (127.0.0.1 and ::1), where every connection is identified as it's accepted
+// and anything not the Tailscale service's is closed unanswered. The deck's
+// own port never counts as `tailscale serve`.
+func servePort() int { return Port + 1 }
+
+// acceptedConn is a connection with when it was accepted (Unix nanoseconds):
+// what a stamping listenerSet gives, so the process at its other end can be
+// checked to have started before it (peerowner_windows.go).
+type acceptedConn struct {
+	net.Conn
+	at int64
+}
 
 // tailscaleFrom picks the Tailscale addresses out of one adapter: it must be
 // up, Tailscale's, and the address IPv4 in the tailnet range. Tailscale's is one
@@ -227,6 +247,10 @@ func listenerFor(scope string, port int) (net.Listener, error) {
 // away while it runs.
 type listenerSet struct {
 	port int
+	// listen opens one address (net.Listen's by default), and stamp has each
+	// connection given as an acceptedConn: the serve port's (peerowner_windows.go).
+	listen func(address string) (net.Listener, error)
+	stamp  bool
 
 	mu      sync.Mutex
 	open    map[string]net.Listener
@@ -265,7 +289,12 @@ func (s *listenerSet) addListener(host string, managed bool) error {
 	if _, ok := s.open[host]; ok {
 		return nil
 	}
-	listener, err := net.Listen("tcp", net.JoinHostPort(host, fmt.Sprint(s.port)))
+	address := net.JoinHostPort(host, fmt.Sprint(s.port))
+	listen := s.listen
+	if listen == nil {
+		listen = func(address string) (net.Listener, error) { return net.Listen("tcp", address) }
+	}
+	listener, err := listen(address)
 	if err != nil {
 		return err
 	}
@@ -293,6 +322,9 @@ func (s *listenerSet) pump(host string, listener net.Listener) {
 			}
 			time.Sleep(50 * time.Millisecond)
 			continue
+		}
+		if s.stamp {
+			conn = acceptedConn{Conn: conn, at: time.Now().UnixNano()}
 		}
 		select {
 		case s.conns <- conn:

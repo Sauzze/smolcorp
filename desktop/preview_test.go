@@ -194,6 +194,34 @@ func TestTheProcessHoldingAConnectionIsRead(t *testing.T) {
 	}
 }
 
+// GetExtendedTcpTable's rows with processes are read with their state too (OLD-SERVE2's serve port asks it), at its
+// own place in each layout: first in an IPv4 row, after the remote port in an IPv6 one.
+func TestWindowsTCPRowsSayTheirState(t *testing.T) {
+	row4 := make([]byte, 24)
+	binary.LittleEndian.PutUint32(row4, 5) // established
+	copy(row4[4:], []byte{127, 0, 0, 1})
+	binary.BigEndian.PutUint16(row4[8:], 50000)
+	copy(row4[12:], []byte{127, 0, 0, 1})
+	binary.BigEndian.PutUint16(row4[16:], 7711)
+	binary.LittleEndian.PutUint32(row4[20:], 4120)
+	rows := windowsTCPRows(append(binary.LittleEndian.AppendUint32(nil, 1), row4...), false)
+	if len(rows) != 1 || rows[0].state != 5 || rows[0].pid != 4120 || rows[0].localPort != 50000 || rows[0].remotePort != 7711 ||
+		!rows[0].localIP.Equal(net.IPv4(127, 0, 0, 1)) || !rows[0].remoteIP.Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Errorf("IPv4: %+v", rows)
+	}
+	row6 := make([]byte, 56)
+	row6[15], row6[39] = 1, 1 // ::1 to ::1
+	binary.BigEndian.PutUint16(row6[20:], 50001)
+	binary.BigEndian.PutUint16(row6[44:], 7711)
+	binary.LittleEndian.PutUint32(row6[48:], 7) // FIN_WAIT_2: half-closed
+	binary.LittleEndian.PutUint32(row6[52:], 4120)
+	rows = windowsTCPRows(append(binary.LittleEndian.AppendUint32(nil, 1), row6...), true)
+	if len(rows) != 1 || rows[0].state != 7 || rows[0].pid != 4120 || rows[0].localPort != 50001 || rows[0].remotePort != 7711 ||
+		!rows[0].localIP.Equal(net.IPv6loopback) || !rows[0].remoteIP.Equal(net.IPv6loopback) {
+		t.Errorf("IPv6: %+v", rows)
+	}
+}
+
 // previewDeck is the mail deck's hires, GM and keys, with a desk for Rev (in its worktree) and one for the Janitor.
 func previewDeck(t *testing.T) *mailDeck {
 	t.Helper()

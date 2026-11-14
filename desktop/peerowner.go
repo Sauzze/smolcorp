@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/netip"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,9 +15,10 @@ import (
 // Only the real `tailscale serve` counts (1.26, design B, SN1). `tailscale serve` hands a phone's request on with a
 // proxy's headers and the ts.net name the phone asked for. Any program here can send the same headers and the same
 // Host, so neither is ever enough on its own. Since SN1 serve hands the deck on to serve.sock, a unix socket in the
-// support folder, and only there: a request counts as Tailscale's only when it came through serve.sock and the
-// process at the other end was identified positively, as it was accepted, as Tailscale's own. Anything not identified
-// is closed unanswered. Over this computer's TCP loopback nothing counts as `tailscale serve` any more.
+// support folder (on Windows, the serve port), and only there: a request counts as Tailscale's only when it came
+// through serve.sock and the process at the other end was identified positively, as it was accepted, as Tailscale's
+// own. Anything not identified is closed unanswered. Over this computer's TCP loopback to the deck's own port nothing
+// counts as `tailscale serve` any more, on any system.
 //
 //   - On a Mac, the kernel says who connected (peerowner_darwin.go): connected as root, running as root, and
 //     Tailscale's network extension by its signature. So only Tailscale's standalone build counts: the Mac App Store's
@@ -24,8 +26,12 @@ import (
 //   - On Linux (OLD-SERVE1), the kernel says who connected too (peerowner_linux.go): connected as root (SO_PEERCRED),
 //     and that process still there and running as root now (/proc). Linux has no signature to check, so any process
 //     running as root passes this rule, not only tailscaled: one that can already do anything on this computer.
-//   - On Windows there is no serve.sock yet, and every hand-on is refused (serveHandOnHere is off). Turning it on
-//     there is its own piece (OLD-SERVE2).
+//   - On Windows (OLD-SERVE2) `tailscale serve` takes no unix: target, so it hands the deck on to a port of its own on
+//     this computer only (servePort, peerowner_windows.go). Windows' own tables say who holds the other end: its row
+//     in the TCP table must be established and held by the Tailscale service's process, as the service manager names
+//     it (by its name, its program tailscaled.exe), and that process must have started before the accept
+//     (judgeWindowsPeer). A program the owner runs can't pass for it. One running as administrator could, as it can
+//     do anything on this computer: say so wherever this is explained.
 //
 // Then the device `tailscale serve` names in X-Forwarded-For (it sets that header itself, from the real source) must
 // be in the tailnet and not this computer, so a program here that asks for its own ts.net name through serve is
@@ -188,4 +194,82 @@ func procUsersOf(status string) (procUsers, bool) {
 		return procUsers{}, false
 	}
 	return users, true
+}
+
+// serviceProcess is the Tailscale service as Windows says it is at one moment (peerowner_windows.go): its process,
+// by the service manager, and that process in Windows' list of processes. Here, not in that file, so its judge is
+// tested on every system.
+type serviceProcess struct {
+	// pid is the service's process, as the service manager says by the service's name: 0 if there is no such
+	// service, or it isn't running.
+	pid uint32
+	// binary is the program the service manager runs for it, as the service's configuration says (quoted, maybe
+	// with its arguments).
+	binary string
+	// image is that pid's program by name, and created when it started (Unix nanoseconds), as the process list says:
+	// both zero if the list has no such process.
+	image   string
+	created int64
+}
+
+// tcpRow is a connection's row in Windows' TCP table (GetExtendedTcpTable): its state and the process that holds
+// it. found is false when the table has no such row.
+type tcpRow struct {
+	found bool
+	state uint32
+	pid   uint32
+}
+
+// tcpEstablished is an established connection's state in Windows' TCP table (MIB_TCP_STATE_ESTAB). A client that
+// has half-closed (FIN_WAIT_2 on its side) or ended (gone, or TIME_WAIT with no process) isn't.
+const tcpEstablished = 5
+
+// windowsPeer is what is read of the other end of a connection to the serve port, as it's judged: the Tailscale
+// service before and after its row in the TCP table is read, so the pid the row names is the service's process at
+// that moment, not one that took its pid after it ended.
+type windowsPeer struct {
+	accepted      int64 // when the connection was accepted (Unix nanoseconds)
+	before, after serviceProcess
+	row           tcpRow
+}
+
+// tailscaleService and tailscaledImage are Tailscale's service, by the name its installer gives it, and its program.
+// Variables so a test can stand a process of its own in.
+var (
+	tailscaleService = "Tailscale"
+	tailscaledImage  = "tailscaled.exe"
+)
+
+// judgeWindowsPeer says whether the other end of a connection to the serve port is the Tailscale service's own
+// process, as far as Windows can tell. The service manager names the service's process, and its program is
+// tailscaled.exe (an absolute path) in the service's configuration and in the process list. The client's row in the
+// TCP table is established and held by that process. That process started before the accept, and is the same one
+// after the row was read: a pid Windows gave again, to a process started later, is refused. Only an administrator
+// can register or change a service, so a program the owner runs can't pass for it; one running as administrator could.
+func judgeWindowsPeer(peer windowsPeer) bool {
+	service := peer.before
+	return service.pid > 0 && peer.after == service &&
+		strings.EqualFold(service.image, tailscaledImage) && strings.EqualFold(windowsProgramName(service.binary), tailscaledImage) &&
+		service.created > 0 && service.created < peer.accepted &&
+		peer.row.found && peer.row.state == tcpEstablished && peer.row.pid == service.pid
+}
+
+// windowsAbsolute is a path on a drive, as Windows writes one: C:\...
+var windowsAbsolute = regexp.MustCompile(`^[A-Za-z]:\\`)
+
+// windowsProgramName is the name of the program a service's configured command line runs: the quoted path (its quote
+// closed), or the line up to its first space, if it is an absolute path; "" otherwise.
+func windowsProgramName(line string) string {
+	program := ""
+	if rest, quoted := strings.CutPrefix(line, `"`); quoted {
+		if quotedProgram, _, closed := strings.Cut(rest, `"`); closed {
+			program = quotedProgram
+		}
+	} else if fields := strings.Fields(line); len(fields) > 0 {
+		program = fields[0]
+	}
+	if !windowsAbsolute.MatchString(program) || strings.HasSuffix(program, `\`) {
+		return ""
+	}
+	return program[strings.LastIndex(program, `\`)+1:]
 }

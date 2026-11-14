@@ -1,13 +1,12 @@
-//go:build !darwin && !linux
+//go:build !darwin && !linux && !windows
 
 package desktop
 
 import "net"
 
-// listenServeSocket makes no serve.sock on Windows: the hand-on stays off there (serveHandOnHere), so nothing is
-// handed on (peerowner.go). The piece that turns it on there (OLD-SERVE2) identifies the other end by the owning pid
-// (the Tailscale service's), over TCP: Windows' `tailscale serve` has no unix: target.
+// listenServeSocket makes no serve.sock on a system Smolcorp can't tell Tailscale's process on (not a Mac, Linux or
+// Windows): nothing is handed on there (peerowner.go).
 func listenServeSocket() (net.Listener, error) { return nil, nil }
 
-// identifyServePeerHere identifies nothing on Windows yet.
+// identifyServePeerHere identifies nothing there.
 func identifyServePeerHere(net.Conn) bool { return false }

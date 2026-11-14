@@ -1463,6 +1463,7 @@
         </ol>
         <p class="hint serve-here serve-mac" hidden>Use Tailscale from tailscale.com. Smolcorp refuses what the Mac App Store version hands on: that version runs as you, so Smolcorp can't tell it apart from any other program on this computer.</p>
         <p class="hint serve-here serve-linux" hidden>On Linux, Smolcorp takes what connects as root, as tailscaled runs: any program running as root could do the same, as it can do anything on this computer. Changing what Tailscale serves takes root too, so if Turn it on says Tailscale didn't do it, run the line above in Terminal. It starts with <code>sudo</code>: it asks for your password, then runs that one line and nothing else.</p>
+        <p class="hint serve-here serve-windows" hidden>On Windows, Smolcorp takes only what the Tailscale service itself hands on, as Windows names it: no program you run can pass for it, but one running as administrator could, as it can do anything on this computer.</p>
         <p class="hint serve-here serve-linux" hidden>Optional: for Turn it on to work without sudo, you can make yourself Tailscale's operator with <code>sudo tailscale set --operator=$USER</code>. This lets every program you run change Tailscale's settings (serve, funnel and the rest), not only Smolcorp.</p>
         <div class="hint serve-here" id="serve-502">If your phone shows <strong>502 Bad Gateway</strong>, Tailscale reached this computer but Smolcorp didn't take what it handed on, even if it says On above. It's one of three things:
           <ol>
@@ -2943,10 +2944,11 @@
   /**
    * Use from anywhere (Tailscale), on every system (1.26): shown on a Mac with the phone mic on, as before, and on
    * Linux and Windows always. Its status and the exact line to copy come from the app (/setup/tailnet/status), and
-   * Turn it on / Turn it off show the exact command and what it exposes before anything runs. On Windows, until its
-   * own piece, the app refuses what `tailscale serve` hands on (h.notHere says so): no Turn it on, and no steps to set
-   * it up. The App Store line is the Mac's alone, the root line Linux's alone (OLD-SERVE1). On Linux the lines to run
-   * start with sudo, and the operator setting is only an opt-in, said second with what it lets in (OLD-SERVE1F).
+   * Turn it on / Turn it off show the exact command and what it exposes before anything runs. Where the hand-on isn't
+   * let in (no system Smolcorp ships for since OLD-SERVE2), the app refuses what `tailscale serve` hands on (h.notHere
+   * says so): no Turn it on, and no steps to set it up. The App Store line is the Mac's alone, the root line Linux's
+   * alone (OLD-SERVE1), the service line Windows' alone (OLD-SERVE2). On Linux the lines to run start with sudo, and
+   * the operator setting is only an opt-in, said second with what it lets in (OLD-SERVE1F).
    */
   let https = null, httpsAskedAt = 0, httpsAction = null;
   function renderTailnet() {
@@ -2979,7 +2981,8 @@
     $('https-state').textContent = here ? (h.onAgain || wording(words[h.status] || '')) : h.notHere;
     $('https-status').classList.toggle('on', here && h.status === 'on');
     for (const el of document.querySelectorAll('#tailnet .serve-here')) {
-      el.hidden = !here || el.classList.contains('serve-mac') && !onMac() || el.classList.contains('serve-linux') && state.platform !== 'linux';
+      el.hidden = !here || el.classList.contains('serve-mac') && !onMac() || el.classList.contains('serve-linux') && state.platform !== 'linux' ||
+        el.classList.contains('serve-windows') && state.platform !== 'windows';
     }
     // Off the Mac only the line that stops it is shown, and only while Tailscale still hands this app on.
     $('https-line').hidden = h.status === 'checking' || !here && h.status !== 'on';

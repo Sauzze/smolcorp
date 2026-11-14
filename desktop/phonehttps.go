@@ -20,8 +20,9 @@ import (
 
 // Setup's Phone over HTTPS, on every system (1.26, FR2): where Tailscale stands (not installed, not signed in, serve
 // off, serve on and at what address), the one `tailscale serve` line to copy, and the tap that runs it, or stops it,
-// after a confirmation that shows the exact command and what it exposes (answer 4). On Windows the hand-on isn't let
-// in until its own piece (serveHandOnHere): the status says so, and Turn it on is refused there.
+// after a confirmation that shows the exact command and what it exposes (answer 4). On a Mac, Linux and Windows
+// (OLD-SERVE2) the hand-on is let in; on a system where it isn't (serveHandOnHere), the status says so, and Turn it on
+// is refused there.
 //
 // The tap is the setup page's own owner action and nothing else: not the GM, a hire, a tool with the setup key,
 // MCP, or a phone (a phone's request never reaches setup at all). It runs exactly one of two commands, built here from
@@ -29,15 +30,17 @@ import (
 // back is the command it was shown, which has to be the one Smolcorp would run now.
 
 // serveHandOnHere is the one switch for `tailscale serve`'s hand-on (the ts.net Host, or a proxy's headers, through
-// serve.sock): let in on a Mac (SN1) and on Linux (OLD-SERVE1), where the peer is identified positively
-// (peerowner_darwin.go, peerowner_linux.go), so only the real `tailscale serve` counts. On Windows there is no
-// serve.sock and nothing identifies it yet (identifyServePeerHere says no), and the switch stays off: turning it on
-// there is its own piece (OLD-SERVE2), reviewed with the route dump's diff (TestTheServeHandOnStaysTheMacsUntilSN1).
-// macTailscale and linuxTailscale are runtime.GOOS's, variables so a test can say either.
-func serveHandOnHere() bool { return macTailscale || linuxTailscale }
+// serve.sock, or on Windows the serve port): let in on a Mac (SN1), on Linux (OLD-SERVE1) and on Windows
+// (OLD-SERVE2), where the peer is identified positively (peerowner_darwin.go, peerowner_linux.go,
+// peerowner_windows.go), so only the real `tailscale serve` counts. Each is reviewed with the route dump's diff
+// (TestTheServeHandOnStaysTheMacsUntilSN1). macTailscale, linuxTailscale and windowsTailscale are runtime.GOOS's,
+// variables so a test can say any; with none, the hand-on is off, as on a system Smolcorp can't tell Tailscale's
+// process on (peerowner_other.go).
+func serveHandOnHere() bool { return macTailscale || linuxTailscale || windowsTailscale }
 
-// serveNotHere is what setup says where the hand-on isn't let in (Windows), and why its Turn it on is refused there.
-const serveNotHere = "HTTPS through tailscale serve isn't on Windows yet; on this computer, use Tailscale's own address."
+// serveNotHere is what setup says where the hand-on isn't let in (a system that isn't a Mac, Linux or Windows), and
+// why its Turn it on is refused there.
+const serveNotHere = "HTTPS through tailscale serve isn't on this system; on this computer, use Tailscale's own address."
 
 // The statuses setup shows.
 const (
@@ -67,10 +70,14 @@ func (a tailnetAnswer) httpsStatus() string {
 // tailnet, as HTTPS; off stops what is handed on at that HTTPS port.
 func serveOnArgs() []string { return []string{"serve", "--bg", "--https=443", serveTarget()} }
 
-// serveTarget is what `tailscale serve` hands on to: on a Mac and on Linux, serve.sock, the only way in that counts as
-// Tailscale's (SN1, OLD-SERVE1); on Windows, where the hand-on is refused, this app's own port, as before.
+// serveTarget is what `tailscale serve` hands on to, the only way in that counts as Tailscale's: on a Mac and on
+// Linux, serve.sock (SN1, OLD-SERVE1); on Windows, which has no unix: target, the serve port (OLD-SERVE2). Where the
+// hand-on is refused, this app's own port, as before.
 func serveTarget() string {
-	if serveHandOnHere() {
+	switch {
+	case windowsTailscale:
+		return fmt.Sprintf("http://127.0.0.1:%d", servePort())
+	case serveHandOnHere():
 		return "unix:" + serveSocketPath()
 	}
 	return fmt.Sprintf("http://127.0.0.1:%d", Port)
@@ -119,12 +126,16 @@ func terminalLine(args []string) string {
 var shellPlain = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
 
 // serveOnAgain is what setup says when `tailscale serve` still hands this app on the way it did before this update
-// (oldWay): HTTPS through it has to be turned on again, once.
-const serveOnAgain = "HTTPS through tailscale serve was on before this update. Smolcorp now takes it only through a private socket, so turn it on again, once: tap Turn it on."
+// (oldWay): HTTPS through it has to be turned on again, once. serveOnAgainWindows is Windows' (OLD-SERVE2), where the
+// new way is the serve port.
+const (
+	serveOnAgain        = "HTTPS through tailscale serve was on before this update. Smolcorp now takes it only through a private socket, so turn it on again, once: tap Turn it on."
+	serveOnAgainWindows = "HTTPS through tailscale serve was on before this update. Smolcorp now takes it only through a port of its own, and only from Tailscale itself, so turn it on again, once: tap Turn it on."
+)
 
 // phoneHTTPSState is setup's Phone over HTTPS: where Tailscale stands, the address with serve on, the lines to run in
-// Terminal (with sudo on Linux: terminalLine), and, where the hand-on isn't let in (Windows, until its own piece), the
-// sentence that says so (null on a Mac and on Linux).
+// Terminal (with sudo on Linux: terminalLine), and, where the hand-on isn't let in (no system Smolcorp ships for since
+// OLD-SERVE2), the sentence that says so (null on a Mac, Linux and Windows).
 // onAgain is the sentence that asks for it to be turned on again, once, while serve hands the app on the old way.
 func (d *Deck) phoneHTTPSState(found tailnetAnswer) map[string]any {
 	var address, notHere, onAgain any
@@ -136,6 +147,9 @@ func (d *Deck) phoneHTTPSState(found tailnetAnswer) map[string]any {
 	}
 	if found.oldWay {
 		onAgain = serveOnAgain
+		if windowsTailscale {
+			onAgain = serveOnAgainWindows
+		}
 	}
 	return map[string]any{
 		"notHere":    notHere,
@@ -162,8 +176,12 @@ func (d *Deck) phoneHTTPSPlan(action string, found tailnetAnswer) map[string]any
 	}
 	var exposes []string
 	if action == "on" {
+		through := "through a private socket in Smolcorp's own folder"
+		if windowsTailscale {
+			through = fmt.Sprintf("through port %d on this computer, which Smolcorp takes only from the Tailscale service", servePort())
+		}
 		exposes = []string{
-			fmt.Sprintf("It hands this app on to your tailnet over HTTPS, at %s, through a private socket in Smolcorp's own folder.", address),
+			fmt.Sprintf("It hands this app on to your tailnet over HTTPS, at %s, %s.", address, through),
 			"Only your own devices signed in to your Tailscale can reach it, and a phone still needs a pairing code.",
 			"It is not Funnel: nothing is put on the public internet.",
 			"Smolcorp changes nothing else in Tailscale.",
@@ -261,8 +279,8 @@ func (d *Deck) tailnetServe(w http.ResponseWriter, r *request) {
 		writeStatus(w)(http.StatusBadRequest, "That isn't something to turn on or off.")
 		return
 	}
-	// On Windows, the hand-on is refused until its own piece, so turning it on would hand on nothing that's
-	// let in. Turning it off stays: it only stops what is handed on.
+	// Where the hand-on is refused, turning it on would hand on nothing that's let in. Turning it off stays: it only
+	// stops what is handed on.
 	if given.Action == "on" && !serveHandOnHere() {
 		writeStatus(w)(http.StatusForbidden, serveNotHere)
 		return

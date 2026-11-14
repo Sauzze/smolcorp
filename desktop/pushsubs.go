@@ -21,6 +21,12 @@ import (
 // office's window. Through `tailscale serve` that is HTTPS, which a page needs to subscribe at all, and it passes the
 // door only with the phone's typing switch on, as every phone route there does (F3: notifications keep needing
 // both, with no door of their own).
+//
+// Except on Windows (SIERRA's ruling (b), 1.26): there the signed-in user, and so a hire, can change `tailscale
+// serve`, and nothing in 1.26 keeps a hire from the tailscale CLI, so a request through serve on Windows is refused on
+// every /push route, on any method (pushRefusal). Over WireGuard, on a Mac and on Linux it's let in as above. To be
+// reopened, with its own review, once design A's Windows pieces (SA-W2/W3) keep hires from the tailscale CLI and
+// serve's settings there.
 
 // pushSubscriptionAuth is the size of a browser's auth secret (RFC 8291), in bytes.
 const pushSubscriptionAuth = 16
@@ -115,7 +121,18 @@ const (
 	pushKeyMissing      = "Notifications can't be turned on now: the key they're signed with couldn't be read or kept here."
 	pushNotSubscription = "That isn't a browser's subscription to a push service Smolcorp sends to."
 	pushOtherPhones     = "Notifications from this browser are already on for another paired phone. Turn them off on that phone, or remove it in Setup, then try again."
+	pushNotWindowsServe = "On Windows, notifications can't be turned on through tailscale serve yet."
 )
+
+// pushRefusal is what a request to a push route (/push and under it, any method) is told when it came through
+// `tailscale serve` on Windows (request.windowsServe), else "". Asked at the table's gate, before the route's row, so
+// the wrong methods are refused too.
+func pushRefusal(r *request) string {
+	if r.windowsServe && (r.URL.Path == "/push" || strings.HasPrefix(r.URL.Path, "/push/")) {
+		return pushNotWindowsServe
+	}
+	return ""
+}
 
 // GET /push: the app's public VAPID key, for the page to subscribe with (applicationServerKey), and whether this
 // phone has a subscription kept: `{key, on}`. Asking makes the key, the first time, in the store (pushkey.go); 503

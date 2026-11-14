@@ -353,6 +353,35 @@ func TestThePushRoutesAreTheTailnetsAndNeedTheTypingSwitch(t *testing.T) {
 	}
 }
 
+// Through `tailscale serve` on Windows, every push route is refused, its wrong methods too, with its own words: a hire
+// can change serve there (SIERRA's ruling (b)). The same hand-on on a Mac and on Linux still gets through, and so does
+// WireGuard on Windows; and Windows serve still reaches a phone's other routes over Tailscale (/approvals, /peek).
+func TestWindowsServeIsRefusedOnThePushRoutes(t *testing.T) {
+	d, phoneKey := probeDeck(t)
+	byName := func(name string) routeCaller {
+		return routeCallers[slices.IndexFunc(routeCallers, func(c routeCaller) bool { return c.name == name })]
+	}
+	windows := byName("phone-serve-windows")
+	if windows.mac || windows.linux || windows.off || !windows.tailscale {
+		t.Fatal("phone-serve-windows isn't Windows' hand-on through `tailscale serve`")
+	}
+	for _, route := range [][2]string{{"GET", "/push"}, {"POST", "/push"}, {"POST", "/push/off"}, {"PUT", "/push"}, {"GET", "/push/off"}} {
+		if status, text := probeRoute(t, d, route[0], route[1], phoneKey, windows); status != http.StatusForbidden || text != pushNotWindowsServe {
+			t.Errorf("%s %s through Windows serve: %d %q, want 403 %q", route[0], route[1], status, text, pushNotWindowsServe)
+		}
+		for _, name := range []string{"phone-serve-mac", "phone-serve-linux", "phone-wireguard"} {
+			if status, text := probeRoute(t, d, route[0], route[1], phoneKey, byName(name)); !letIn(status) {
+				t.Errorf("%s %s as %s: %d %q, want it let in", route[0], route[1], name, status, text)
+			}
+		}
+	}
+	for _, route := range [][2]string{{"GET", "/approvals"}, {"POST", "/peek"}} {
+		if status, text := probeRoute(t, d, route[0], route[1], phoneKey, windows); !letIn(status) {
+			t.Errorf("%s %s through Windows serve: %d %q, want it let in", route[0], route[1], status, text)
+		}
+	}
+}
+
 // pushSecrets is a stand-in secret store whose get answers getErr, and counts what's set.
 type pushSecrets struct {
 	getErr error

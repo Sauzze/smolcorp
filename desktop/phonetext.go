@@ -651,7 +651,8 @@ func (d *Deck) typesFrom(r *request) bool {
 // fromTailnet says whether a request came through Tailscale, where reading a terminal is given: to this
 // computer's Tailscale address from another device's (WireGuard carries it encrypted), or passed on by the real
 // `tailscale serve` on this computer (SN1, peerowner.go: through serve.sock, the other end Tailscale's own process,
-// X-Forwarded-For another device of the tailnet; on a Mac and on Linux, not yet on Windows: serveHandOnHere). Never the
+// X-Forwarded-For another device of the tailnet; on a Mac and on Linux, and on Windows through the serve port:
+// serveHandOnHere). Never the
 // Wi-Fi's plain http, never this computer's loopback, never a proxy's headers or a ts.net Host alone, and never from
 // one of this computer's own addresses: that is a program here.
 func fromTailnet(r *http.Request) bool {

@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -93,17 +92,6 @@ func TestStandInPeerForSN1(t *testing.T) {
 	printAnswer(conn)
 }
 
-// printAnswer reads the deck's answer and prints its status, or "no answer" when the deck closed the connection.
-func printAnswer(conn net.Conn) {
-	answer, err := http.ReadResponse(bufio.NewReader(conn), nil)
-	if err != nil {
-		fmt.Println("no answer")
-		os.Exit(0)
-	}
-	fmt.Println(answer.StatusCode)
-	os.Exit(0)
-}
-
 // execKeeping runs another program in this process, conn kept open across it: this same test for hold and exec,
 // /bin/sleep for sleep.
 func execKeeping(conn net.Conn, mode string) {
@@ -131,46 +119,11 @@ func execKeeping(conn net.Conn, mode string) {
 	os.Exit(8)
 }
 
-// standInProcess is a stand-in peer, running.
-type standInProcess struct {
-	cmd   *exec.Cmd
-	stdin io.WriteCloser
-	lines chan string
-}
-
 // startStandIn runs a stand-in peer of a mode, to address over network, with a request to send.
 func startStandIn(t *testing.T, network, address, mode, request string) *standInProcess {
 	t.Helper()
-	peer := exec.Command(os.Args[0], "-test.run=^TestStandInPeerForSN1$")
-	peer.Env = append(os.Environ(), "SMOLCORP_TEST_SN1_PEER="+address, "SMOLCORP_TEST_SN1_NET="+network,
+	return startStandInRun(t, "TestStandInPeerForSN1", "SMOLCORP_TEST_SN1_PEER="+address, "SMOLCORP_TEST_SN1_NET="+network,
 		"SMOLCORP_TEST_SN1_MODE="+mode, "SMOLCORP_TEST_SN1_REQUEST="+request)
-	stdin, _ := peer.StdinPipe()
-	stdout, _ := peer.StdoutPipe()
-	if err := peer.Start(); err != nil {
-		t.Fatal(err)
-	}
-	p := &standInProcess{cmd: peer, stdin: stdin, lines: make(chan string, 8)}
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			p.lines <- scanner.Text()
-		}
-		close(p.lines)
-	}()
-	t.Cleanup(func() { _ = stdin.Close(); _ = peer.Process.Kill(); _ = peer.Wait() })
-	return p
-}
-
-// said is the stand-in's next line, or "" if it said nothing more in time.
-func (p *standInProcess) said(t *testing.T) string {
-	t.Helper()
-	select {
-	case line := <-p.lines:
-		return line
-	case <-time.After(20 * time.Second):
-		t.Error("the stand-in peer said nothing")
-		return ""
-	}
 }
 
 // acceptOne listens on a unix socket of the test's own and gives the one connection it accepts.
@@ -191,39 +144,6 @@ func acceptOne(t *testing.T) (string, <-chan net.Conn) {
 	}()
 	return path, accepted
 }
-
-// heldListener accepts nothing until it is let go: a client can connect, send and end before the server accepts.
-type heldListener struct {
-	net.Listener
-	letGo chan struct{}
-}
-
-func (l heldListener) Accept() (net.Conn, error) {
-	<-l.letGo
-	return l.Listener.Accept()
-}
-
-// statusKept keeps the status a request was answered with, by its "who".
-type statusKept struct {
-	http.ResponseWriter
-	status int
-}
-
-func (s *statusKept) WriteHeader(code int) {
-	if s.status == 0 {
-		s.status = code
-	}
-	s.ResponseWriter.WriteHeader(code)
-}
-
-func (s *statusKept) Write(b []byte) (int, error) {
-	if s.status == 0 {
-		s.status = http.StatusOK
-	}
-	return s.ResponseWriter.Write(b)
-}
-
-func (s *statusKept) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
 // serveSockRig is SN1's end to end: the deck's own server on a real serve.sock (or over TCP), each connection to
 // serve.sock judged by this system's real identifyServePeerHere as it's accepted, and every answer kept by its "who".

@@ -307,10 +307,12 @@ func parseWindowsTCPConnection(table []byte, v6 bool, from, to *net.TCPAddr) int
 	return 0
 }
 
-// windowsTCPRow is one row of GetExtendedTcpTable's answer with processes: its two ends and its process.
+// windowsTCPRow is one row of GetExtendedTcpTable's answer with processes: its two ends, its state (MIB_TCP_STATE)
+// and its process.
 type windowsTCPRow struct {
 	localIP, remoteIP     net.IP
 	localPort, remotePort int
+	state                 uint32
 	pid                   int
 }
 
@@ -321,9 +323,9 @@ func windowsTCPRows(table []byte, v6 bool) []windowsTCPRow {
 	if len(table) < 4 {
 		return nil
 	}
-	size, addrLen, localAt, localPortAt, remoteAt, remotePortAt, pidAt := 24, 4, 4, 8, 12, 16, 20
+	size, addrLen, localAt, localPortAt, remoteAt, remotePortAt, stateAt, pidAt := 24, 4, 4, 8, 12, 16, 0, 20
 	if v6 {
-		size, addrLen, localAt, localPortAt, remoteAt, remotePortAt, pidAt = 56, 16, 0, 20, 24, 44, 52
+		size, addrLen, localAt, localPortAt, remoteAt, remotePortAt, stateAt, pidAt = 56, 16, 0, 20, 24, 44, 48, 52
 	}
 	count := int(binary.LittleEndian.Uint32(table))
 	var rows []windowsTCPRow
@@ -335,7 +337,7 @@ func windowsTCPRows(table []byte, v6 bool) []windowsTCPRow {
 		rows = append(rows, windowsTCPRow{
 			localIP: slices.Clone(net.IP(row[localAt : localAt+addrLen])), remoteIP: slices.Clone(net.IP(row[remoteAt : remoteAt+addrLen])),
 			localPort: int(binary.BigEndian.Uint16(row[localPortAt:])), remotePort: int(binary.BigEndian.Uint16(row[remotePortAt:])),
-			pid: int(binary.LittleEndian.Uint32(row[pidAt:])),
+			state: binary.LittleEndian.Uint32(row[stateAt:]), pid: int(binary.LittleEndian.Uint32(row[pidAt:])),
 		})
 	}
 	return rows

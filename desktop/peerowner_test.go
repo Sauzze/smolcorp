@@ -226,3 +226,88 @@ func TestProcStatusIsReadAsLinuxWritesIt(t *testing.T) {
 		}
 	}
 }
+
+// On Windows (OLD-SERVE2) only the Tailscale service's own process is Tailscale's: named by the service manager,
+// running tailscaled.exe by its configuration and by the process list, started before the accept, the same process
+// after the TCP table was read, and holding the client's end of this connection, established. Anything else, a
+// program the owner runs among them, is refused, as is a client that has half-closed or ended.
+func TestOnlyTheTailscaleServiceIsTailscalesOnWindows(t *testing.T) {
+	const accepted = int64(2_000_000_000_000_000_000)
+	service := serviceProcess{pid: 4120, binary: `"C:\Program Files\Tailscale\tailscaled.exe"`, image: "tailscaled.exe", created: accepted - 3_600_000_000_000}
+	peer := windowsPeer{accepted: accepted, before: service, after: service, row: tcpRow{found: true, state: tcpEstablished, pid: 4120}}
+	if !judgeWindowsPeer(peer) {
+		t.Fatal("the Tailscale service's own connection, established, wasn't judged Tailscale's: every row below proves nothing")
+	}
+	changed := func(change func(*windowsPeer)) windowsPeer {
+		p := peer
+		change(&p)
+		return p
+	}
+	for _, c := range []struct {
+		name string
+		peer windowsPeer
+		want bool
+	}{
+		{"its program unquoted, as an older installer wrote it", changed(func(p *windowsPeer) {
+			p.before.binary, p.after.binary = `C:\Tailscale\tailscaled.exe`, `C:\Tailscale\tailscaled.exe`
+		}), true},
+		{"its program quoted, with arguments", changed(func(p *windowsPeer) {
+			p.before.binary = `"C:\Program Files\Tailscale\tailscaled.exe" -port 41641`
+			p.after.binary = p.before.binary
+		}), true},
+		{"names in another case", changed(func(p *windowsPeer) {
+			p.before.image, p.after.image = "TailscaleD.EXE", "TailscaleD.EXE"
+		}), true},
+		{"a program here holds the row", changed(func(p *windowsPeer) { p.row.pid = 7000 }), false},
+		{"no Tailscale service", changed(func(p *windowsPeer) { p.before, p.after = serviceProcess{}, serviceProcess{} }), false},
+		{"the service gone after the table was read", changed(func(p *windowsPeer) { p.after = serviceProcess{} }), false},
+		{"its pid given again, to a process started later", changed(func(p *windowsPeer) { p.after.created = accepted + 1 }), false},
+		{"another service process after the table was read", changed(func(p *windowsPeer) { p.after.pid = 7000 }), false},
+		{"started after the accept", changed(func(p *windowsPeer) { p.before.created, p.after.created = accepted+1, accepted+1 }), false},
+		{"started at the accept", changed(func(p *windowsPeer) { p.before.created, p.after.created = accepted, accepted }), false},
+		{"no start time", changed(func(p *windowsPeer) { p.before.created, p.after.created = 0, 0 }), false},
+		{"another program by the process list", changed(func(p *windowsPeer) { p.before.image, p.after.image = "svchost.exe", "svchost.exe" }), false},
+		{"not in the process list", changed(func(p *windowsPeer) { p.before.image, p.after.image = "", "" }), false},
+		{"another program by its configuration", changed(func(p *windowsPeer) {
+			p.before.binary, p.after.binary = `C:\Windows\System32\svchost.exe -k netsvcs`, `C:\Windows\System32\svchost.exe -k netsvcs`
+		}), false},
+		{"a relative program", changed(func(p *windowsPeer) { p.before.binary, p.after.binary = "tailscaled.exe", "tailscaled.exe" }), false},
+		{"a program in a folder named tailscaled.exe", changed(func(p *windowsPeer) {
+			p.before.binary, p.after.binary = `"C:\tailscaled.exe\other.exe"`, `"C:\tailscaled.exe\other.exe"`
+		}), false},
+		{"no row for the connection (its client ended)", changed(func(p *windowsPeer) { p.row = tcpRow{} }), false},
+		{"half-closed (FIN_WAIT_2)", changed(func(p *windowsPeer) { p.row.state = 7 }), false},
+		{"closing (FIN_WAIT_1)", changed(func(p *windowsPeer) { p.row.state = 6 }), false},
+		{"ended (TIME_WAIT, no process)", changed(func(p *windowsPeer) { p.row = tcpRow{found: true, state: 11} }), false},
+		{"no pid at all", changed(func(p *windowsPeer) {
+			p.before.pid, p.after.pid, p.row.pid = 0, 0, 0
+		}), false},
+	} {
+		if got := judgeWindowsPeer(c.peer); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// A service's configured command line names its program as Windows writes one: quoted, or up to its first space, on
+// a drive.
+func TestAServicesProgramIsReadAsWindowsWritesIt(t *testing.T) {
+	for line, want := range map[string]string{
+		`"C:\Program Files\Tailscale\tailscaled.exe"`:          "tailscaled.exe",
+		`"C:\Program Files\Tailscale\tailscaled.exe" -port 41`: "tailscaled.exe",
+		`C:\Tailscale\tailscaled.exe`:                          "tailscaled.exe",
+		`C:\Program Files\Tailscale\tailscaled.exe`:            "Program",
+		`c:\x\y.exe -k`: "y.exe",
+		`"C:\Program Files\Tailscale\tailscaled.exe`: "",
+		`tailscaled.exe`:                "",
+		`\\server\share\tailscaled.exe`: "",
+		`"C:\folder\"`:                  "",
+		`""`:                            "",
+		``:                              "",
+		`/usr/sbin/tailscaled`:          "",
+	} {
+		if got := windowsProgramName(line); got != want {
+			t.Errorf("%s: %q, want %q", line, got, want)
+		}
+	}
+}

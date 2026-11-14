@@ -107,8 +107,8 @@ func Serve(deck *Deck) error {
 		return err
 	}
 	server := newServer(deck)
-	// serve.sock, where `tailscale serve` hands the deck on (SN1, peerowner.go): on a Mac and on Linux. Without it the deck
-	// still serves; only HTTPS through `tailscale serve` is off.
+	// serve.sock, where `tailscale serve` hands the deck on (SN1, peerowner.go): on a Mac and on Linux, and on Windows the
+	// serve port (OLD-SERVE2). Without it the deck still serves; only HTTPS through `tailscale serve` is off.
 	if served, err := listenServeSocket(); err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: HTTPS through tailscale serve is off (%s: %v)\n", serveSocketName, err)
 	} else if served != nil {
@@ -206,8 +206,8 @@ type request struct {
 	isLocal             bool // sent from this computer to a local name, not passed on by a proxy
 	isAddressedDirectly bool // to an IP address or a local name, as a phone would
 	// Handed on by the real `tailscale serve` on this computer (SN1, peerowner.go): through serve.sock, the other end
-	// Tailscale's own process, with a proxy's headers naming another device of the tailnet. On a Mac and on Linux; on
-	// Windows not until the hand-on is turned on there (serveHandOnHere).
+	// Tailscale's own process (on Windows the serve port, OLD-SERVE2), with a proxy's headers naming another device of
+	// the tailnet. Not where the hand-on is off (serveHandOnHere).
 	isTailnet bool
 	// tailnetForward is a ts.net Host with no proxy's headers, the other end Tailscale's (a TCP forward): nobody says
 	// whom it is for, so it is let in as a phone on the Wi-Fi is, never over Tailscale only, typing or the owner's tap.
@@ -215,6 +215,10 @@ type request struct {
 	remoteAddress  string
 	caller         caller // who is asking setup: set only for /setup and /bots
 	phoneID        string // the paired phone's id, or officeWindowID: set only for a route in the phone table
+	// windowsServe is whether the request came through `tailscale serve` on Windows (the serve port, its other end
+	// the Tailscale service: OLD-SERVE2), whatever it says it is. There the signed-in user, and so a hire, can change
+	// serve, so the routes that wake the owner's phone refuse it (pushsubs.go, SIERRA's ruling (b)).
+	windowsServe bool
 	// windowDevice is whether the key is the paired device the office's window holds on Windows (window.go), whose
 	// key sits in a file on this computer: a phone's for the office, never the owner's tap (accessOwnerTap).
 	windowDevice bool
@@ -263,7 +267,8 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// let in only with the phone's text on. Only through serve.sock, the other end Tailscale's own process (SN1,
 	// peerowner.go): the same headers or a ts.net Host sent by any other program here, over the loopback, from the
 	// Wi-Fi or from the tailnet's own address, are nothing. A proxy's headers on the loopback are still never
-	// addressed directly. On Windows, not yet (serveHandOnHere): there it is refused as in 1.25.
+	// addressed directly. On Windows too since OLD-SERVE2, through the serve port; where the hand-on is off
+	// (serveHandOnHere), it is refused as in 1.25.
 	serveHere := serveHandOnHere()
 	handedOn := serveHere && (proxied || isTailnetName(host)) && servedByTailscale(r)
 	fromProxy := serveHere && (fromLoopback && proxied || handedOn)
@@ -274,6 +279,7 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		isAddressedDirectly: !fromProxy && (host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasPrefix(host, "[") || ipv4Address.MatchString(host)),
 		isTailnet:           handedOn && proxied && forwardedForTailnet(r.Header),
 		tailnetForward:      handedOn && !proxied,
+		windowsServe:        windowsTailscale && servedByTailscale(r),
 		remoteAddress:       remote,
 	}
 	w.Header().Set("Cache-Control", "no-store")

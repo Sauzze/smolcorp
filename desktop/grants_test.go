@@ -1087,22 +1087,27 @@ func TestAPhoneOverTailscaleAndTheWindowAnswer(t *testing.T) {
 		{"phone-serve-mac", http.StatusNoContent, grantGranted},
 		// OLD-SERVE1: through the real `tailscale serve` on Linux too (a stand-in peer), the owner's tap as on a Mac.
 		{"phone-serve-linux", http.StatusNoContent, grantGranted},
+		// OLD-SERVE2: and on Windows, through the serve port.
+		{"phone-serve-windows", http.StatusNoContent, grantGranted},
 		{"window-mac-app", http.StatusNoContent, grantGranted},
 		// RT126FS2b N1: off a Mac no window is the owner's tap, and the office in a browser never is, its key being
 		// in the browser's history; RT126FS2b N2: nor a phone's key from this computer's own Tailscale address.
 		{"window", http.StatusForbidden, grantOpen},
-		{"window-proxied", http.StatusUnauthorized, grantOpen},
+		// OLD-SERVE2: on Windows, as on a Mac, a proxy's header made up on the loopback is refused at the door (403):
+		// it was 401 there before, the key not taken. Still never the owner's tap.
+		{"window-proxied", http.StatusForbidden, grantOpen},
 		{"browser", http.StatusForbidden, grantOpen},
 		{"browser-mac-app", http.StatusForbidden, grantOpen},
-		// SN1: from this computer's own Tailscale address, or the loopback with a proxy's header made up, the key
-		// isn't even taken (401): neither is Tailscale's (the own-address door; no Tailscale peer).
+		// SN1: from this computer's own Tailscale address the key isn't even taken (401): it isn't Tailscale's (the
+		// own-address door).
 		{"phone-own-tailnet", http.StatusUnauthorized, grantOpen},
 		{"phone-own-tailnet-mac", http.StatusUnauthorized, grantOpen},
 		// RT126FS2 B2: the paired device the Windows window holds, its key in a file here, is never the owner's tap,
-		// with a proxy's header made up or without; nor, off a Mac, a phone's key from the loopback with one.
+		// with a proxy's header made up or without; nor a phone's key from the loopback with one (no Tailscale peer:
+		// refused at the door since OLD-SERVE2 on Windows, as on a Mac).
 		{"window-device", http.StatusForbidden, grantOpen},
-		{"window-device-proxied", http.StatusUnauthorized, grantOpen},
-		{"phone-proxied-localhost-other", http.StatusUnauthorized, grantOpen},
+		{"window-device-proxied", http.StatusForbidden, grantOpen},
+		{"phone-proxied-localhost-other", http.StatusForbidden, grantOpen},
 	} {
 		t.Run(c.caller, func(t *testing.T) {
 			d, phoneKey, id := deckWithAnAsk(t)
@@ -1123,7 +1128,9 @@ func TestAPhoneOverTailscaleAndTheWindowAnswer(t *testing.T) {
 	// The Windows window's device, a window off a Mac and a browser can't read the asks either; the Mac app's window
 	// and a phone over Tailscale can.
 	d, phoneKey, _ := deckWithAnAsk(t)
-	for caller, want := range map[string]int{"window-device": http.StatusForbidden, "window-device-proxied": http.StatusUnauthorized,
+	// OLD-SERVE2: window-device-proxied, a proxy's header made up on the loopback, is refused at the door on Windows
+	// now, as on a Mac (403; 401 before).
+	for caller, want := range map[string]int{"window-device": http.StatusForbidden, "window-device-proxied": http.StatusForbidden,
 		"window": http.StatusForbidden, "browser": http.StatusForbidden, "browser-mac-app": http.StatusForbidden,
 		"window-mac-app": http.StatusOK, "phone-wireguard": http.StatusOK} {
 		if status, _ := probeRoute(t, d, "GET", "/grants", phoneKey, ownerCall(caller)); status != want {
