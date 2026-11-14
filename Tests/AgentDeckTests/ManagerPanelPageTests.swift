@@ -22,7 +22,7 @@ final class ManagerPanelPageTests: XCTestCase {
         let linux = try XCTUnwrap(page.range(of: "Open Setup… in a browser"))
         XCTAssertLessThan(mac.lowerBound, linux.lowerBound, "the Mac's words come in their own branch")
         // Which words: the app's own header decides, never the browser.
-        XCTAssertTrue(page.contains("locked(res.headers.get('X-Smolcorp-App'))"))
+        XCTAssertTrue(page.contains("locked(res.headers.get('X-Smolcorp-App'), res.headers.get('X-Smolcorp-Session-Ended'))"))
         XCTAssertTrue(page.contains("app === 'mac'"))
         XCTAssertFalse(page.contains("navigator.userAgent"))
     }
@@ -52,7 +52,7 @@ final class ManagerPanelPageTests: XCTestCase {
         XCTAssertTrue(page.contains("Fire the General Manager and hire it again to give it the new one."))
         XCTAssertTrue(page.contains(#"id="gm-byhand""#))
         XCTAssertTrue(page.contains("/setup/gm/by-hand?enabled="))
-        XCTAssertTrue(page.contains("Smolcorp then writes the token to this file, where your General Manager can read it"))
+        XCTAssertTrue(page.contains("The token goes to that General Manager alone, and no file holds it."))
         // Refusals are said in place.
         XCTAssertTrue(page.contains(#"id="gm-problem""#))
     }

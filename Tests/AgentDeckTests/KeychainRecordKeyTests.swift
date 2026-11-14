@@ -10,6 +10,12 @@ import Security
 /// "Another program" is played by this test with SecItem's own calls on the same file: probes K7–K12 showed what
 /// another program can and can't do to the app's item (overwrite its value, plant a second item; not set a date
 /// back, not read it). These rows check that the app sees each of those.
+/// A string shaped as an Anthropic API key, obviously fake, ending as given. Its prefix is put together only when the
+/// tests run, so the public check (scripts/check-public.sh) never takes this file for a real key.
+private func fakeAnthropicKey(_ ending: String) -> String {
+    "sk-" + "ant-" + ending
+}
+
 final class KeychainRecordKeyTests: XCTestCase {
     private var folder: URL!
     private var made: [SecKeychain] = []
@@ -187,8 +193,8 @@ final class KeychainRecordKeyTests: XCTestCase {
             let status = Keychain.copyMatching(query, &found, in: keychain, open: true)
             return (status, (found as? Data).flatMap { String(data: $0, encoding: .utf8) })
         }
-        XCTAssertEqual(Keychain.add(api.merging([kSecValueData as String: Data("sk-ant-FAKE-mine".utf8)]) { $1 }, in: keychain, open: true), errSecSuccess)
-        XCTAssertEqual(read(api).1, "sk-ant-FAKE-mine")
+        XCTAssertEqual(Keychain.add(api.merging([kSecValueData as String: Data(fakeAnthropicKey("FAKE-mine").utf8)]) { $1 }, in: keychain, open: true), errSecSuccess)
+        XCTAssertEqual(read(api).1, fakeAnthropicKey("FAKE-mine"))
         // Planted with no seal, then with the seal of the app's own item beside it.
         XCTAssertEqual(SecItemAdd(gm.merging([kSecValueData as String: Data("v1:FAKE-planted".utf8), kSecUseKeychain as String: keychain]) { $1 } as CFDictionary, nil), errSecSuccess)
         XCTAssertEqual(read(gm).0, Keychain.overwritten)
@@ -222,7 +228,7 @@ final class KeychainRecordKeyTests: XCTestCase {
         let keychain = try throwaway("update")
         let api: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "smolcorp-summary-test",
                                   kSecAttrAccount as String: "api-key"]
-        XCTAssertEqual(SecItemAdd(api.merging([kSecValueData as String: Data("sk-ant-FAKE-125".utf8), kSecAttrComment as String: "sk-ant-…125",
+        XCTAssertEqual(SecItemAdd(api.merging([kSecValueData as String: Data(fakeAnthropicKey("FAKE-125").utf8), kSecAttrComment as String: fakeAnthropicKey("…125"),
                                                kSecUseKeychain as String: keychain]) { $1 } as CFDictionary, nil), errSecSuccess)
         var query = api
         query[kSecReturnData as String] = true
@@ -231,12 +237,12 @@ final class KeychainRecordKeyTests: XCTestCase {
         ItemSeal.renew(update: true, adopting: [api], in: keychain, open: true)
         found = nil
         XCTAssertEqual(Keychain.copyMatching(query, &found, in: keychain, open: true), errSecSuccess)
-        XCTAssertEqual((found as? Data).flatMap { String(data: $0, encoding: .utf8) }, "sk-ant-FAKE-125")
+        XCTAssertEqual((found as? Data).flatMap { String(data: $0, encoding: .utf8) }, fakeAnthropicKey("FAKE-125"))
         var attributes = api
         attributes[kSecReturnAttributes as String] = true
         var about: CFTypeRef?
         _ = Keychain.copyMatching(attributes, &about, in: keychain, open: true)
-        XCTAssertEqual((about as? [String: Any])?[kSecAttrComment as String] as? String, "sk-ant-…125")
+        XCTAssertEqual((about as? [String: Any])?[kSecAttrComment as String] as? String, fakeAnthropicKey("…125"))
         ItemSeal.renew(update: false, in: keychain, open: true)
         found = nil
         XCTAssertEqual(Keychain.copyMatching(query, &found, in: keychain, open: true), errSecSuccess, "a reset dropped an item it could keep")

@@ -28,9 +28,9 @@ const thisTestsCode = `identifier "a.out"`
 
 // TestStandInPeerForSN1 is a stand-in for the other end of a connection to the deck, run as its own process by the
 // tests below; it does nothing in a normal run. By its mode it:
-//   - stay: waits for the word, connects (to serve.sock, or over TCP), sends its request, reads the answer and
-//     prints its status, or "no answer";
-//   - half: the same, half-closing after it sends;
+//   - stay: waits for the word, connects (to serve.sock, or over TCP), sends its request, prints "sent", reads the
+//     answer and prints its status, or "no answer";
+//   - half: the same, half-closing after it sends, before it prints "sent";
 //   - exit: sends, and ends at once (RSBXPLANf F2);
 //   - exec: sends, then runs this same program again, its socket kept (RT126SN1 B1, into an image the stand-in check
 //     takes for Tailscale's); that run prints "execed", then reads the answer as stay does;
@@ -84,10 +84,13 @@ func TestStandInPeerForSN1(t *testing.T) {
 	case "exit":
 		os.Exit(0)
 	case "half":
-		_ = conn.(interface{ CloseWrite() error }).CloseWrite()
+		if err := conn.(interface{ CloseWrite() error }).CloseWrite(); err != nil {
+			os.Exit(10)
+		}
 	case "exec":
 		execKeeping(conn, mode)
 	}
+	fmt.Println("sent")
 	printAnswer(conn)
 }
 
@@ -409,7 +412,9 @@ func TestOnlyTheRealServeIsLetInThroughServeSock(t *testing.T) {
 	const tsnet = "my-mac.tail1234.ts.net"
 	forwardedFor := "X-Forwarded-For: 100.101.102.103"
 	// standInPeer runs a stand-in peer, the one the stand-in check takes for Tailscale's, and says what it printed
-	// last. The server is held until the peer has sent and ended (exit), or run itself again (exec).
+	// last. The server is held until the peer has sent (stay; half, its sending side closed too), sent and ended
+	// (exit), or run itself again (exec). So every row judges a client whose request is in: a server let go first
+	// could refuse and close before the client sent, and its write would fail, which proves nothing.
 	standInPeer := func(t *testing.T, network, mode, who, text string) string {
 		address, letGo := serveHeld(t, network)
 		peer := startStandIn(t, network, address, mode, text)
@@ -439,6 +444,10 @@ func TestOnlyTheRealServeIsLetInThroughServeSock(t *testing.T) {
 		case "exec":
 			// RT126SN1 B1: the request is in, and its sender runs a program again, before the server accepts.
 			if got := peer.said(t); got != "execed" {
+				t.Fatalf("%s: the stand-in said %q", who, got)
+			}
+		default:
+			if got := peer.said(t); got != "sent" {
 				t.Fatalf("%s: the stand-in said %q", who, got)
 			}
 		}

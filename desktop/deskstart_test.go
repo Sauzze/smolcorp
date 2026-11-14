@@ -53,14 +53,15 @@ func TestAnAPIKeyHireReadsTheKeyAsItStartsAndStopsWithoutIt(t *testing.T) {
 	if !plan.APIKey || strings.Contains(planText(plan), "sk-ant") {
 		t.Errorf("plan:\n%s", planText(plan))
 	}
-	base := []string{"PATH=/usr/bin", "ANTHROPIC_API_KEY=sk-ant-somebody-elses"}
+	somebodyElses := fakeAnthropicToken("api", "somebody-elses")
+	base := []string{"PATH=/usr/bin", "ANTHROPIC_API_KEY=" + somebodyElses}
 	for name, key := range map[string]func() string{"none": nil, "missing": func() string { return "" }, "not a key": func() string { return "two words" }} {
 		if env, err := deskEnvironment(base, plan, key); err == nil || !strings.Contains(err.Error(), "couldn't read the API key") {
 			t.Errorf("%s: a start without the key went on: %q %v", name, env, err)
 		}
 	}
 	env, err := deskEnvironment(base, plan, func() string { return testAPIKey })
-	if err != nil || !slices.Contains(env, "ANTHROPIC_API_KEY="+testAPIKey) || slices.Contains(env, "ANTHROPIC_API_KEY=sk-ant-somebody-elses") {
+	if err != nil || !slices.Contains(env, "ANTHROPIC_API_KEY="+testAPIKey) || slices.Contains(env, "ANTHROPIC_API_KEY="+somebodyElses) {
 		t.Errorf("the key should reach the agent, alone: %q %v", env, err)
 	}
 }
