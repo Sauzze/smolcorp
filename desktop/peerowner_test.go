@@ -159,3 +159,70 @@ func TestTheServerRecordsEachConnection(t *testing.T) {
 		t.Fatal("the server records no connection: a request through serve.sock couldn't say so")
 	}
 }
+
+// Linux's judge (OLD-SERVE1), with stand-in peers: only one that connected as root and is still there, running as root
+// (its real and its effective user), is tailscaled. Who connected is what exec can't change (RT126SN1 B1): a program
+// of the owner's that execs a setuid-root program keeps the user it connected as. A client that sent and ended before
+// the accept is no process now (RSBXPLANf F2). Any process running as root passes: Linux has no signature to check.
+func TestOnlyWhatConnectedAndRunsAsRootIsTailscaledOnLinux(t *testing.T) {
+	saved := tailscaleUID
+	t.Cleanup(func() { tailscaleUID = saved })
+	tailscaleUID = 0
+	const owner, other = 1000, 998
+	asRoot := procUsers{realUID: 0, effectiveUID: 0, running: true}
+	for _, c := range []struct {
+		name string
+		peer credPeer
+		want bool
+	}{
+		{"tailscaled, as root", credPeer{0, 812, asRoot}, true},
+		{"any other process running as root (the rule can't tell)", credPeer{0, 4242, asRoot}, true},
+		{"connected as the owner, now root (exec into a setuid-root program)", credPeer{owner, 4242, asRoot}, false},
+		{"connected as the owner, and runs as the owner (a program here)", credPeer{owner, 4242, procUsers{owner, owner, true}}, false},
+		{"a tailscaled run as its own user", credPeer{other, 812, procUsers{other, other, true}}, false},
+		{"root at connect, its real user the owner now", credPeer{0, 4242, procUsers{owner, 0, true}}, false},
+		{"root at connect, its effective user the owner now (dropped)", credPeer{0, 4242, procUsers{0, owner, true}}, false},
+		{"root at connect, sent and ended before the accept (gone, or /proc unreadable)", credPeer{0, 4242, procUsers{}}, false},
+		{"root at connect, a zombie now", credPeer{0, 4242, procUsers{0, 0, false}}, false},
+		{"no pid (another pid namespace)", credPeer{0, 0, asRoot}, false},
+		{"a pid that can't be one", credPeer{0, -1, asRoot}, false},
+	} {
+		if got := judgeCredPeer(c.peer); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// /proc/<pid>/status is read for its State and Uid lines alone, as Linux writes them: anything missing, said twice or
+// otherwise is no process.
+func TestProcStatusIsReadAsLinuxWritesIt(t *testing.T) {
+	status := func(name, state, uid string) string {
+		return "Name:\t" + name + "\nUmask:\t0022\nState:\t" + state + "\nTgid:\t812\nPid:\t812\nPPid:\t1\nUid:\t" + uid + "\nGid:\t0\t0\t0\t0\n"
+	}
+	for _, c := range []struct {
+		name, text string
+		want       procUsers
+		ok         bool
+	}{
+		{"tailscaled, sleeping", status("tailscaled", "S (sleeping)", "0\t0\t0\t0"), procUsers{0, 0, true}, true},
+		{"running", status("tailscaled", "R (running)", "0\t0\t0\t0"), procUsers{0, 0, true}, true},
+		{"the owner's", status("bash", "S (sleeping)", "1000\t1000\t1000\t1000"), procUsers{1000, 1000, true}, true},
+		{"setuid root (real the owner)", status("su", "S (sleeping)", "1000\t0\t0\t0"), procUsers{1000, 0, true}, true},
+		{"a zombie", status("x", "Z (zombie)", "0\t0\t0\t0"), procUsers{0, 0, false}, true},
+		{"dead", status("x", "X (dead)", "0\t0\t0\t0"), procUsers{0, 0, false}, true},
+		{"no State", "Name:\tx\nUid:\t0\t0\t0\t0\n", procUsers{}, false},
+		{"no Uid", "Name:\tx\nState:\tS (sleeping)\n", procUsers{}, false},
+		{"Uid of three", status("x", "S (sleeping)", "0\t0\t0"), procUsers{}, false},
+		{"Uid not a number", status("x", "S (sleeping)", "root\t0\t0\t0"), procUsers{}, false},
+		{"Uid too big", status("x", "S (sleeping)", "4294967296\t0\t0\t0"), procUsers{}, false},
+		{"State empty", status("x", "", "0\t0\t0\t0"), procUsers{}, false},
+		{"a name that says Uid again", status("x\nUid:\t0\t0\t0\t0", "S (sleeping)", "1000\t1000\t1000\t1000"), procUsers{}, false},
+		{"a name that says State again", status("x\nState:\tR (running)", "Z (zombie)", "0\t0\t0\t0"), procUsers{}, false},
+		{"empty", "", procUsers{}, false},
+	} {
+		got, ok := procUsersOf(c.text)
+		if got != c.want || ok != c.ok {
+			t.Errorf("%s: %+v %v, want %+v %v", c.name, got, ok, c.want, c.ok)
+		}
+	}
+}

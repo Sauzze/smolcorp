@@ -54,12 +54,12 @@ func servingSocket(path ...string) string {
 	return fmt.Sprintf(`{"TCP":{"443":{"HTTPS":true}},"Web":{"my-pc.tail1234.ts.net:443":{"Handlers":{"/":{"Proxy":%s}}}}}`, target)
 }
 
-// serveOnLine is the Mac's on command since SN1, as setup shows it: to serve.sock.
+// serveOnLine is the on command on a Mac since SN1 and on Linux since OLD-SERVE1, as setup shows it: to serve.sock.
 func serveOnLine() string { return "tailscale serve --bg --https=443 unix:" + serveSocketPath() }
 
 // withStandInTailscale puts a stand-in `tailscale` where the app looks for it, and the app's own look in place of
-// the tests' not-installed one, and forgets the last answer. It is a Mac's, where Turn it on is let in (until SN1,
-// serveHandOnHere); a test off the Mac says so after it.
+// the tests' not-installed one, and forgets the last answer. It is a Mac's, where Turn it on is let in
+// (serveHandOnHere); a test on Linux or Windows says so after it.
 func withStandInTailscale(t *testing.T, status, serve string) *tailscaleStandIn {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -72,11 +72,11 @@ func withStandInTailscale(t *testing.T, status, serve string) *tailscaleStandIn 
 	}
 	s.say("status.json", status)
 	s.say("serve.json", serve)
-	savedAsk, savedCandidates, savedMac := askTailnet, tailnetCandidates, macTailscale
-	askTailnet, tailnetCandidates, macTailscale = realAskTailnet, []string{s.tool}, true
+	savedAsk, savedCandidates, savedMac, savedLinux := askTailnet, tailnetCandidates, macTailscale, linuxTailscale
+	askTailnet, tailnetCandidates, macTailscale, linuxTailscale = realAskTailnet, []string{s.tool}, true, false
 	forgetTailnet()
 	t.Cleanup(func() {
-		askTailnet, tailnetCandidates, macTailscale = savedAsk, savedCandidates, savedMac
+		askTailnet, tailnetCandidates, macTailscale, linuxTailscale = savedAsk, savedCandidates, savedMac, savedLinux
 		forgetTailnet()
 	})
 	return s
@@ -369,25 +369,25 @@ func TestATapRunsNothingWhereTailscaleStandsInTheWay(t *testing.T) {
 	})
 }
 
-// Off the Mac, until SN1: setup still says where Tailscale stands, and says plainly that HTTPS through tailscale serve
-// is the Mac's only for now; Turn it on is refused, its confirmation and its tap, and runs nothing. Turning off what
-// Tailscale already hands on stays: it only stops it.
-func TestOffTheMacTurnItOnIsRefusedUntilSN1(t *testing.T) {
+// On Windows, until its own piece (OLD-SERVE2): setup still says where Tailscale stands, and says plainly that HTTPS
+// through tailscale serve isn't on Windows yet; Turn it on is refused, its confirmation and its tap, and runs nothing.
+// Turning off what Tailscale already hands on stays: it only stops it.
+func TestOnWindowsTurnItOnIsRefused(t *testing.T) {
 	s := withStandInTailscale(t, tsSignedIn, tsNothingOn)
 	s.say("after-off.json", tsNothingOn)
-	macTailscale = false
+	macTailscale, linuxTailscale = false, false
 	d := newTestDeck(t)
 	said := httpsSaid(t, d)
-	if said["status"] != httpsOff || said["notHere"] != serveMacOnly ||
-		serveMacOnly != "HTTPS through tailscale serve is Mac only for now; on this computer, use Tailscale's own address." {
+	if said["status"] != httpsOff || said["notHere"] != serveNotHere ||
+		serveNotHere != "HTTPS through tailscale serve isn't on Windows yet; on this computer, use Tailscale's own address." {
 		t.Fatalf("the status: %v", said)
 	}
 	wantOn := fmt.Sprintf("tailscale serve --bg --https=443 http://127.0.0.1:%d", Port)
-	if code, body := pageCall(t, d, "GET", "/setup/tailnet/serve?action=on"); code != http.StatusForbidden || body != serveMacOnly {
+	if code, body := pageCall(t, d, "GET", "/setup/tailnet/serve?action=on"); code != http.StatusForbidden || body != serveNotHere {
 		t.Errorf("the confirmation: %d %s", code, body)
 	}
 	for _, body := range []string{tapBody("on", wantOn), `{"action":"on"}`} {
-		if code, text := tap(t, d, callerPage, "", "", body); code != http.StatusForbidden || text != serveMacOnly {
+		if code, text := tap(t, d, callerPage, "", "", body); code != http.StatusForbidden || text != serveNotHere {
 			t.Errorf("the tap %s: %d %s", body, code, text)
 		}
 	}
@@ -397,7 +397,7 @@ func TestOffTheMacTurnItOnIsRefusedUntilSN1(t *testing.T) {
 	// Handed on already, from Terminal: it can still be turned off here.
 	s.say("serve.json", servingPort(Port))
 	forgetTailnet()
-	if said := httpsSaid(t, d); said["status"] != httpsOn || said["notHere"] != serveMacOnly {
+	if said := httpsSaid(t, d); said["status"] != httpsOn || said["notHere"] != serveNotHere {
 		t.Fatalf("handed on: %v", said)
 	}
 	if code, body := pageCall(t, d, "GET", "/setup/tailnet/serve?action=off"); code != http.StatusOK {
@@ -569,9 +569,17 @@ func TestThePageAsksBeforeItRunsAnything(t *testing.T) {
 
 // After the update (SN1), a Mac where `tailscale serve` still hands this app's port on, the old way, is told plainly
 // that HTTPS through it has to be turned on again, once, with Turn it on: off, the sentence that says so, and a
-// confirmation that says it replaces the old way. One tap hands it on to serve.sock, and the sentence goes.
+// confirmation that says it replaces the old way. One tap hands it on to serve.sock, and the sentence goes. Linux
+// alike, since OLD-SERVE1 (the owner's rule: setup says clearly to turn it on again, once).
 func TestSetupAsksToTurnItOnAgainAfterTheUpdate(t *testing.T) {
+	for _, system := range []string{"darwin", "linux"} {
+		t.Run(system, func(t *testing.T) { turnItOnAgainOn(t, system) })
+	}
+}
+
+func turnItOnAgainOn(t *testing.T, system string) {
 	s := withStandInTailscale(t, tsSignedIn, servingPort(Port))
+	macTailscale, linuxTailscale = system == "darwin", system == "linux"
 	s.say("after-on.json", servingSocket())
 	d := newTestDeck(t)
 	s.atSocket()
@@ -601,12 +609,12 @@ func TestSetupAsksToTurnItOnAgainAfterTheUpdate(t *testing.T) {
 	if got := s.lines(); !slices.Equal(got, []string{strings.TrimPrefix(serveOnLine(), "tailscale ")}) {
 		t.Errorf("it ran %q", got)
 	}
-	// Off the Mac, where the hand-on is refused, the port is still what serve is told by: no sentence.
-	macTailscale = false
+	// On Windows, where the hand-on is refused, the port is still what serve is told by: no sentence.
+	macTailscale, linuxTailscale = false, false
 	s.say("serve.json", servingPort(Port))
 	forgetTailnet()
 	if said := httpsSaid(t, d); said["status"] != httpsOn || said["onAgain"] != nil {
-		t.Errorf("off the Mac: %v", said)
+		t.Errorf("on Windows: %v", said)
 	}
 }
 
@@ -622,6 +630,24 @@ func TestTheServeLineCopiesIntoAShellWhole(t *testing.T) {
 		split := strings.SplitN(args, " ", 4)
 		if got := commandLine(split); got != want {
 			t.Errorf("%q: %s, want %s", split, got, want)
+		}
+	}
+}
+
+// Setup's lines about who Smolcorp takes through serve.sock are each system's own: the Mac App Store's on the Mac
+// alone, and on Linux alone that what connects as root is taken, so any program running as root could be, with the
+// one line that lets the owner run `tailscale serve` without sudo (OLD-SERVE1).
+func TestTheServeLinesAreEachSystemsOwn(t *testing.T) {
+	d := newTestDeck(t)
+	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
+	for _, want := range []string{
+		`<p class="hint serve-here serve-mac" hidden>Use Tailscale from tailscale.com. Smolcorp refuses what the Mac App Store version hands on`,
+		`<p class="hint serve-here serve-linux" hidden>On Linux, Smolcorp takes what connects as root, as tailscaled runs: any program running as root could do the same`,
+		"<code>sudo tailscale set --operator=$USER</code>",
+		"el.hidden = !here || el.classList.contains('serve-mac') && !onMac() || el.classList.contains('serve-linux') && state.platform !== 'linux';",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the setup page lacks %q", want)
 		}
 	}
 }

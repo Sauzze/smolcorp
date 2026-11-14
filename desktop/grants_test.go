@@ -1085,6 +1085,8 @@ func TestAPhoneOverTailscaleAndTheWindowAnswer(t *testing.T) {
 		{"window-key-on-wifi", http.StatusUnauthorized, grantOpen},
 		{"phone-wireguard", http.StatusNoContent, grantGranted},
 		{"phone-serve-mac", http.StatusNoContent, grantGranted},
+		// OLD-SERVE1: through the real `tailscale serve` on Linux too (a stand-in peer), the owner's tap as on a Mac.
+		{"phone-serve-linux", http.StatusNoContent, grantGranted},
 		{"window-mac-app", http.StatusNoContent, grantGranted},
 		// RT126FS2b N1: off a Mac no window is the owner's tap, and the office in a browser never is, its key being
 		// in the browser's history; RT126FS2b N2: nor a phone's key from this computer's own Tailscale address.

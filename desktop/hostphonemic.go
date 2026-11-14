@@ -30,8 +30,8 @@ import (
 // phone mic switch: the route is 404 and the state has no phoneMic. What it
 // shares with the Mac, on every system, is Tailscale's side: the look below,
 // and setup's Phone over HTTPS status and its tap (phonehttps.go), whose Turn
-// it on is the Mac's only until its own piece after SN1 (serveHandOnHere). On the Mac it hands the deck on to
-// serve.sock (SN1, peerowner.go).
+// it on is refused on Windows until its own piece (serveHandOnHere). On a Mac and on Linux it hands the deck on
+// to serve.sock (SN1, OLD-SERVE1, peerowner.go).
 
 // tailnetCandidates are where Tailscale's command line can be on this system, before a look along PATH.
 var tailnetCandidates = tailnetCandidatesOn(runtime.GOOS)
@@ -92,8 +92,8 @@ type tailnetAnswer struct {
 	signedIn bool
 	// `tailscale serve` hands something else on, not this deck: turning it on would replace that.
 	busy bool
-	// oldWay: on a Mac, `tailscale serve` hands this deck on as before 1.26's SN1, to its TCP port, where nothing
-	// counts as Tailscale's any more: it has to be turned on again once, to serve.sock (busy is true with it).
+	// oldWay: on a Mac or on Linux, `tailscale serve` hands this deck on as before 1.26's SN1, to its TCP port, where
+	// nothing counts as Tailscale's any more: it has to be turned on again once, to serve.sock (busy is true with it).
 	oldWay bool
 	// Set by the look, never by askTailnet: whether Tailscale's command line is here, and whether it was asked at all.
 	installed, asked bool
@@ -177,8 +177,9 @@ func servesAnything(status []byte) bool {
 var tailnetScheme = regexp.MustCompile(`^[a-z+]+://`)
 
 // servingOf says whether `tailscale serve status --json` hands this deck on the way it's let in here, and whether it
-// does so the old way. On a Mac the way is serve.sock (SN1), and the deck's TCP port is the old way, which nothing
-// counts through any more. Elsewhere, where the hand-on is refused, the port is still what it's told by.
+// does so the old way. On a Mac and on Linux the way is serve.sock (SN1, OLD-SERVE1), and the deck's TCP port is the
+// old way, which nothing counts through any more. On Windows, where the hand-on is refused, the port is still what
+// it's told by.
 func servingOf(status []byte) (serving *bool, oldWay bool) {
 	byPort := servesDeck(status, Port)
 	if !serveHandOnHere() {

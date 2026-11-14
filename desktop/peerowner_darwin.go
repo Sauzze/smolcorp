@@ -3,11 +3,8 @@
 package desktop
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"net"
-	"os"
 
 	"golang.org/x/sys/unix"
 )
@@ -42,26 +39,6 @@ func listenServeSocket() (net.Listener, error) {
 		}
 	}
 	return openServeSocket(serveSocketPath())
-}
-
-// openServeSocket removes whatever is at path and listens there, for the owner alone (0600), with each connection
-// identified as it's accepted (serveListener). A path too long for a socket is refused rather than cut short.
-func openServeSocket(path string) (net.Listener, error) {
-	if len(path) > sunPathMost {
-		return nil, fmt.Errorf("%s is too long for a socket (%d bytes, at most %d)", path, len(path), sunPathMost)
-	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
-	}
-	listener, err := net.Listen("unix", path)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		listener.Close()
-		return nil, err
-	}
-	return &serveListener{Listener: listener}, nil
 }
 
 // auditToken is a process's audit token as the kernel gives it (bsm's audit_token_t): eight words.
@@ -107,10 +84,6 @@ var readServePeer = func(conn net.Conn) (servePeer, bool) {
 	})
 	return peer, err == nil && read
 }
-
-// tailscaleUID is the user Tailscale's extension runs as: root. A variable so a test's stand-in peer, which runs as
-// this test's user, can be taken for it.
-var tailscaleUID uint32 = 0
 
 // tailscaleSigned says whether the process an audit token names is Tailscale's network extension
 // (tailscaleSignedHere). A variable so a test can stand a peer in.

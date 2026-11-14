@@ -1,11 +1,12 @@
 # Smolcorp 1.26.0 (beta)
 
-## HTTPS through tailscale serve: Mac only for now
-- **On the Mac,** setup's **Use from anywhere** now says where Tailscale stands, and **Turn it on…** runs the `tailscale serve` line for you, after showing you exactly what it runs and what it opens to your tailnet.
-- **Through a private socket now.** `tailscale serve` now hands the deck on through a private socket in Smolcorp's folder, not its port. Smolcorp checks that what connects there really is Tailscale, and anything that comes over the port with Tailscale's headers is just another program on your Mac.
+## HTTPS through tailscale serve: on the Mac and Linux
+- **On the Mac and on Linux,** setup's **Use from anywhere** now says where Tailscale stands, and **Turn it on…** runs the `tailscale serve` line for you, after showing you exactly what it runs and what it opens to your tailnet.
+- **Through a private socket now.** `tailscale serve` now hands the deck on through a private socket in Smolcorp's folder, not its port. Smolcorp checks that what connects there really is Tailscale, and anything that comes over the port with Tailscale's headers is just another program on your computer.
 - **Turn it on again, once.** If HTTPS through `tailscale serve` was on before this update, phones can't reach the deck that way until you turn it on again. Setup says so, and **Turn it on…** does it in one tap.
 - **Not with Tailscale from the Mac App Store.** Use Tailscale's own download from tailscale.com instead. The App Store version runs as you, so Smolcorp can't tell it apart from any other program on your Mac, and refuses what it hands on.
-- **On Windows and Linux,** setup shows where Tailscale stands too, but Smolcorp still refuses a phone handed on by `tailscale serve`, as in 1.25, so there's no **Turn it on**. Open the deck at this computer's own Tailscale address instead. It opens there in a later version, once Smolcorp can tell for certain which program hands a request on.
+- **On Linux, what connects as root counts.** tailscaled runs as root, and Linux has no signature to check, so Smolcorp takes what connects to its socket as root. Any program running as root on your computer could do the same, as it can do anything else there. A tailscaled run as you, not as root, is refused. If **Turn it on…** says Tailscale didn't do it, run `sudo tailscale set --operator=$USER` once, then try again.
+- **On Windows,** setup shows where Tailscale stands too, but Smolcorp still refuses a phone handed on by `tailscale serve`, as in 1.25, so there's no **Turn it on**. Open the deck at this computer's own Tailscale address instead. It opens there in a later version, once Smolcorp can tell for certain which program hands a request on.
 
 ## tmux comes with Smolcorp
 - **Open-source notices.** The Mac app now includes tmux 3.8 (ISC licence), with libevent, ncurses, utf8proc and jemalloc built into it. Their licence notices are in the app, and setup links to them (**Open-source notices**).

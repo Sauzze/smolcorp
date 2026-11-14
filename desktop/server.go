@@ -107,7 +107,7 @@ func Serve(deck *Deck) error {
 		return err
 	}
 	server := newServer(deck)
-	// serve.sock, where `tailscale serve` hands the deck on (SN1, peerowner.go): on a Mac only. Without it the deck
+	// serve.sock, where `tailscale serve` hands the deck on (SN1, peerowner.go): on a Mac and on Linux. Without it the deck
 	// still serves; only HTTPS through `tailscale serve` is off.
 	if served, err := listenServeSocket(); err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: HTTPS through tailscale serve is off (%s: %v)\n", serveSocketName, err)
@@ -206,8 +206,8 @@ type request struct {
 	isLocal             bool // sent from this computer to a local name, not passed on by a proxy
 	isAddressedDirectly bool // to an IP address or a local name, as a phone would
 	// Handed on by the real `tailscale serve` on this computer (SN1, peerowner.go): through serve.sock, the other end
-	// Tailscale's own process, with a proxy's headers naming another device of the tailnet. On a Mac only, until the
-	// hand-on is turned on elsewhere (serveHandOnHere).
+	// Tailscale's own process, with a proxy's headers naming another device of the tailnet. On a Mac and on Linux; on
+	// Windows not until the hand-on is turned on there (serveHandOnHere).
 	isTailnet bool
 	// tailnetForward is a ts.net Host with no proxy's headers, the other end Tailscale's (a TCP forward): nobody says
 	// whom it is for, so it is let in as a phone on the Wi-Fi is, never over Tailscale only, typing or the owner's tap.
@@ -263,7 +263,7 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// let in only with the phone's text on. Only through serve.sock, the other end Tailscale's own process (SN1,
 	// peerowner.go): the same headers or a ts.net Host sent by any other program here, over the loopback, from the
 	// Wi-Fi or from the tailnet's own address, are nothing. A proxy's headers on the loopback are still never
-	// addressed directly. On Linux and Windows, not yet (serveHandOnHere): there it is refused as in 1.25.
+	// addressed directly. On Windows, not yet (serveHandOnHere): there it is refused as in 1.25.
 	serveHere := serveHandOnHere()
 	handedOn := serveHere && (proxied || isTailnetName(host)) && servedByTailscale(r)
 	fromProxy := serveHere && (fromLoopback && proxied || handedOn)

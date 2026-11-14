@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -20,8 +21,11 @@ import (
 //   - On a Mac, the kernel says who connected (peerowner_darwin.go): connected as root, running as root, and
 //     Tailscale's network extension by its signature. So only Tailscale's standalone build counts: the Mac App Store's
 //     runs as the owner.
-//   - On Linux and Windows there is no serve.sock yet, and every hand-on is refused (serveHandOnHere is off). Turning
-//     it on is its own piece, after SN1.
+//   - On Linux (OLD-SERVE1), the kernel says who connected too (peerowner_linux.go): connected as root (SO_PEERCRED),
+//     and that process still there and running as root now (/proc). Linux has no signature to check, so any process
+//     running as root passes this rule, not only tailscaled: one that can already do anything on this computer.
+//   - On Windows there is no serve.sock yet, and every hand-on is refused (serveHandOnHere is off). Turning it on
+//     there is its own piece (OLD-SERVE2).
 //
 // Then the device `tailscale serve` names in X-Forwarded-For (it sets that header itself, from the real source) must
 // be in the tailnet and not this computer, so a program here that asks for its own ts.net name through serve is
@@ -33,6 +37,11 @@ const serveSocketName = "serve.sock"
 
 // serveSocketPath is where `tailscale serve` hands the deck on: serve.sock in the support folder.
 func serveSocketPath() string { return filepath.Join(supportDir, serveSocketName) }
+
+// tailscaleUID is the user Tailscale's own process runs as: root, for the Mac's standalone extension and for
+// tailscaled as Linux's packages run it. A variable so a test's stand-in peer, which runs as this test's user, can be
+// taken for it.
+var tailscaleUID uint32 = 0
 
 // identifyServePeer says whether the other end of a connection to serve.sock is Tailscale's own process, as this
 // system can tell. Anything it can't tell is a no. A variable so a test can stand a peer in.
@@ -114,4 +123,69 @@ func thisComputersAddress(ip net.IP) bool {
 		network, ok := address.(*net.IPNet)
 		return ok && network.IP.Equal(ip)
 	})
+}
+
+// credPeer is what Linux says of the other end of a connection to serve.sock (peerowner_linux.go). Here, not in that
+// file, so its judge is tested on every system.
+type credPeer struct {
+	// connectUID is the user the other end connected as (SO_PEERCRED): set by the kernel at connect, kept across exec,
+	// and kept after the process ends.
+	connectUID uint32
+	// pid is the process that connected, as SO_PEERCRED gives it: 0 if it is in a pid namespace this one can't see.
+	pid int32
+	// now is that process as /proc says it is now: zero if it has gone, or /proc can't be read.
+	now procUsers
+}
+
+// procUsers is a process as /proc/<pid>/status says it is now: its real and effective user, and whether it still
+// runs (not a zombie, not dead).
+type procUsers struct {
+	realUID, effectiveUID uint32
+	running               bool
+}
+
+// judgeCredPeer says whether the other end is tailscaled, as far as Linux can tell: it connected as root, and the
+// process that connected is still there and runs as root now (its real and its effective user). Who connected is what
+// exec can't change (RT126SN1 B1): a program of the owner's that execs a setuid-root program keeps the user it
+// connected as, and is refused. A client that sent its request and ended before the accept is no process now, so it
+// is refused too (RSBXPLANf F2). Root alone is the rule: tailscaled isn't signed, so any process running as root
+// passes it, as it could do anything on this computer anyway. A tailscaled run as another user can't reach serve.sock
+// (0600, the owner's), and one run as the owner can't be told from any program of theirs: both are refused.
+func judgeCredPeer(peer credPeer) bool {
+	return peer.connectUID == tailscaleUID && peer.pid > 0 && peer.now.running &&
+		peer.now.realUID == tailscaleUID && peer.now.effectiveUID == tailscaleUID
+}
+
+// procUsersOf reads the text of /proc/<pid>/status: its State and Uid lines (real, effective, saved and filesystem
+// users). Either missing, said twice or not as Linux writes it: not read.
+func procUsersOf(status string) (procUsers, bool) {
+	var users procUsers
+	var state, uids bool
+	for _, line := range strings.Split(status, "\n") {
+		name, value, _ := strings.Cut(line, ":")
+		fields := strings.Fields(value)
+		switch name {
+		case "State":
+			if state || len(fields) == 0 {
+				return procUsers{}, false
+			}
+			state = true
+			users.running = !slices.Contains([]string{"Z", "X", "x"}, fields[0])
+		case "Uid":
+			if uids || len(fields) != 4 {
+				return procUsers{}, false
+			}
+			real, realErr := strconv.ParseUint(fields[0], 10, 32)
+			effective, effectiveErr := strconv.ParseUint(fields[1], 10, 32)
+			if realErr != nil || effectiveErr != nil {
+				return procUsers{}, false
+			}
+			uids = true
+			users.realUID, users.effectiveUID = uint32(real), uint32(effective)
+		}
+	}
+	if !state || !uids {
+		return procUsers{}, false
+	}
+	return users, true
 }

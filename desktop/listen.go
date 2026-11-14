@@ -132,10 +132,15 @@ var tailnet6 = &net.IPNet{IP: net.ParseIP("fd7a:115c:a1e0::"), Mask: net.CIDRMas
 
 // macTailscale: on a Mac, Tailscale's adapter is a utunN like any VPN's, so it's
 // told by its addresses, and `tailscale serve`'s ts.net names are let in as the
-// Mac app lets them in (serveHandOnHere: the Mac's only, and since SN1 only
-// from Tailscale's own process, see router.ServeHTTP and peerowner.go). A
+// Mac app lets them in (serveHandOnHere: on a Mac and on Linux, and since SN1
+// only from Tailscale's own process, see router.ServeHTTP and peerowner.go). A
 // variable so a test can say either.
 var macTailscale = runtime.GOOS == "darwin"
+
+// linuxTailscale: on Linux, `tailscale serve`'s hand-on through serve.sock is
+// let in too, the other end told by the kernel (OLD-SERVE1,
+// peerowner_linux.go). A variable so a test can say either.
+var linuxTailscale = runtime.GOOS == "linux"
 
 // tailscaleFrom picks the Tailscale addresses out of one adapter: it must be
 // up, Tailscale's, and the address IPv4 in the tailnet range. Tailscale's is one

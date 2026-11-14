@@ -89,12 +89,12 @@ func requestLimits(method, path string) (int64, time.Duration) {
 func (r *request) secure() bool { return fromTailnet(r.Request) }
 
 // ownerTapOverTailnet is secure, less what a program on this computer can say for itself: `tailscale serve` hands a
-// phone on only on a Mac (hostphonemic.go), so elsewhere a request from the loopback with a proxy's headers is a
-// local program's, and only WireGuard's path is a phone's tap. A request from one of this computer's own Tailscale
-// addresses is a program here too, on any system (RT126FS2b N2).
+// phone on only where serveHandOnHere (a Mac and Linux, through serve.sock), so elsewhere (Windows) a request from
+// the loopback, or with no address, is a local program's, and only WireGuard's path is a phone's tap. A request from
+// one of this computer's own Tailscale addresses is a program here too, on any system (RT126FS2b N2).
 func (r *request) ownerTapOverTailnet() bool {
 	ip := net.ParseIP(r.remoteAddress)
-	if !macTailscale && (ip == nil || ip.IsLoopback()) {
+	if !serveHandOnHere() && (ip == nil || ip.IsLoopback()) {
 		return false
 	}
 	if ip != nil && slices.Contains(tailscaleAddresses(), ip.String()) {
