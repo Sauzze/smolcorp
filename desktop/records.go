@@ -853,6 +853,7 @@ func (d *Deck) resetRecords() error {
 	}
 	d.macPeers.All = nil
 	d.macPeers.save()
+	d.hangUpPeers("")
 	d.gmToken = ""
 	d.gmTokenChanged()
 	d.config.save()

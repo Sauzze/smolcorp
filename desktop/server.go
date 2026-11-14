@@ -215,6 +215,7 @@ type request struct {
 	remoteAddress  string
 	caller         caller // who is asking setup: set only for /setup and /bots
 	phoneID        string // the paired phone's id, or officeWindowID: set only for a route in the phone table
+	peerID         string // the paired Mac's id (peers_mac.go): set only by servePeer, for a row of the peer class
 	// windowsServe is whether the request came through `tailscale serve` on Windows (the serve port, its other end
 	// the Tailscale service: OLD-SERVE2), whatever it says it is. There the signed-in user, and so a hire, can change
 	// serve, so the routes that wake the owner's phone refuse it (pushsubs.go, SIERRA's ruling (b)).
@@ -1012,6 +1013,19 @@ func (rt *router) events(w http.ResponseWriter, r *request, phone string) {
 	keepOpen(w)
 	stream := rt.deck.attach(phone)
 	defer rt.deck.detach(stream)
+	writeEvents(w, r, flusher, stream, nil)
+}
+
+// writeEvents sends a stream's messages as server-sent events until it's closed or the other end hangs up. With
+// stillLetIn (another Mac's feed, peers_mac_events.go), it also asks every peerStreamCheck whether the caller may
+// still listen: it hangs up the first time it may not, and pings it when it may.
+func writeEvents(w http.ResponseWriter, r *request, flusher http.Flusher, stream *eventStream, stillLetIn func() bool) {
+	var check <-chan time.Time
+	if stillLetIn != nil {
+		ticker := time.NewTicker(peerStreamCheck)
+		defer ticker.Stop()
+		check = ticker.C
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	// Hanging up ends the connection, not just this response, as on the Mac.
 	w.Header().Set("Connection", "close")
@@ -1031,6 +1045,11 @@ func (rt *router) events(w http.ResponseWriter, r *request, phone string) {
 		case note := <-stream.notes:
 			_, _ = fmt.Fprintf(w, "event: dictation\ndata: %s\n\n", note)
 			flusher.Flush()
+		case <-check:
+			if !stillLetIn() {
+				return
+			}
+			stream.send(nil)
 		case <-stream.closed:
 			return
 		case <-r.Context().Done():

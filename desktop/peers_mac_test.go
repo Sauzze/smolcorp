@@ -408,6 +408,10 @@ func TestAPeerKeyOpensNothingButThePeerRoutes(t *testing.T) {
 				continue
 			}
 			for _, to := range []string{"", "localhost:7710"} {
+				if method+" "+target == "GET /peer/events" && to == "" {
+					// The other route the key opens: a feed held open (peers_mac_events_test.go).
+					continue
+				}
 				from := otherMac
 				if to != "" {
 					from = thisComputer
@@ -451,7 +455,7 @@ func TestPlainWiFiIsRefusedForEveryPeerRoute(t *testing.T) {
 	m := newTwoMacs(t, wifiMac, "192.168.1.10:0")
 	key := pairedPeer(t, m)
 	code := m.code(t)
-	for _, target := range []string{"/peer/hello", peerPairPath, "/peer/nowhere"} {
+	for _, target := range []string{"/peer/hello", "/peer/events", peerPairPath, "/peer/nowhere"} {
 		for _, method := range []string{"GET", "POST"} {
 			for _, to := range []string{homeOnWiFi, "my-mac.local:7710", "localhost:7710"} {
 				from := wifiMac
@@ -515,8 +519,10 @@ func TestLoopbackOrAProxyIsRefusedEvenWithAKeyOrTheCode(t *testing.T) {
 	}
 	ask := func(what string, from, host, local string, headers map[string]string) {
 		t.Helper()
-		if got := peerAskVia(m.home, "GET", "/peer/hello", key, from, host, local, "", headers); got.Code != http.StatusForbidden {
-			t.Errorf("%s: hello with a valid key: %d %s", what, got.Code, got.Body)
+		for _, target := range []string{"/peer/hello", "/peer/events"} {
+			if got := peerAskVia(m.home, "GET", target, key, from, host, local, "", headers); got.Code != http.StatusForbidden {
+				t.Errorf("%s: %s with a valid key: %d %s", what, target, got.Code, got.Body)
+			}
 		}
 		if got := peerAskVia(m.home, "POST", peerPairPath, "", from, host, local, `{"code":"`+code+`"}`, headers); got.Code != http.StatusForbidden {
 			t.Errorf("%s: pair with the live code: %d %s", what, got.Code, got.Body)
@@ -593,7 +599,7 @@ func TestFloorsOffRefusesEverything(t *testing.T) {
 	if got := peerPage(t, m.home, "POST", "/setup/peers?enabled=0", ""); got.Code != http.StatusOK || strings.Contains(got.Body.String(), code) {
 		t.Fatalf("turning it off: %d %s", got.Code, got.Body)
 	}
-	for _, target := range []string{"/peer/hello", peerPairPath, "/peer/nowhere"} {
+	for _, target := range []string{"/peer/hello", "/peer/events", peerPairPath, "/peer/nowhere"} {
 		for _, method := range []string{"GET", "POST"} {
 			if got := peerAsk(m.home, method, target, key, otherMac, "", `{"code":"`+code+`"}`); got.Code != http.StatusForbidden {
 				t.Errorf("%s %s with it off: %d %s", method, target, got.Code, got.Body)
@@ -755,7 +761,8 @@ func TestPeerRowsAreUnderPeerOnly(t *testing.T) {
 			peerRows = append(peerRows, key)
 		}
 	}
-	if !slices.Equal(peerRows, []string{"GET /peer/hello"}) {
+	slices.Sort(peerRows)
+	if !slices.Equal(peerRows, []string{"GET /peer/events", "GET /peer/hello"}) {
 		t.Errorf("peer rows: %v", peerRows)
 	}
 }

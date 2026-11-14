@@ -54,6 +54,9 @@ type Deck struct {
 	launchers map[string]*launcherTab
 	// ACP desks (acpdesk.go), by their own acp: tab name: their Tabs are found here (acptab.go).
 	acpDesks map[string]*acpDesk
+	// Each other Mac's open feed, with that Mac's id (peers_mac_events.go): apart from streams, as it's sent the feed,
+	// never the phone's state.
+	peerStreams map[*eventStream]string
 	// The looks at a launcher's window waiting for an answer, by launcher and
 	// look number: see launcherlook.go.
 	looks map[string]chan PaneState
@@ -616,6 +619,7 @@ func (d *Deck) changed() {
 	for stream := range d.streams {
 		stream.send(state)
 	}
+	d.sendPeers(state)
 	go d.OnChange()
 	d.scheduleSave()
 	d.tellWebhook()

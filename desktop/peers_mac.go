@@ -25,8 +25,9 @@ import (
 // /setup/peers/join, peers_mac_join.go), which sends it here (POST /peer/pair) and gets a key of its own, a peer key:
 // kept here only as its hash, as a phone's is, in mac-peers.json, and there in its secret store. With it, the other
 // one may use the routes of the `peer` class (phoneroutes.go), under /peer/, and nothing else: no phone's or the
-// window's route, no setup, no hook. This piece serves only what pairing needs (GET /peer/hello); what a floor
-// reads is the next one's. Setup lists the Macs paired, and removing one refuses its very next request.
+// window's route, no setup, no hook. Here, what pairing needs (GET /peer/hello); what a floor reads, GET
+// /peer/events, is peers_mac_events.go's (FL1). Setup lists the Macs paired, and removing one refuses its very next
+// request and cuts its feed.
 //
 // What crosses: the code and a name one way, the new key and this one's name the other. Never the setup key, the
 // GM's token, the window's key, the hook's or a phone's.
@@ -260,6 +261,7 @@ func (d *Deck) servePeer(w http.ResponseWriter, r *request) bool {
 	peer := d.macPeers.withKey(key)
 	if peer != nil {
 		d.macPeers.markSeen(peer)
+		r.peerID = peer.ID
 	}
 	d.mu.Unlock()
 	if peer == nil {

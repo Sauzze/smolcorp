@@ -555,6 +555,8 @@ var phoneRoutes = map[string]bool{
 	// Another Mac's alone (M1, peers_mac.go): no phone or window reaches it, and it answers a name, reading no body.
 	// POST /peer/pair isn't a row: servePeer answers it before the table, with a code and a name, never a phone's text.
 	"/peer/hello": false,
+	// Another Mac's feed (FL1, peers_mac_events.go): the same class, reading no body, typing nothing.
+	"/peer/events": false,
 	// The owner's asks and his yes or no to one (FS2, grants.go): a paired phone over Tailscale alone, never the
 	// Wi-Fi (accessOwnerTap), with an ask's id and yes or no, never a phone's text.
 	"/grants": false, "/grants/answer": false,

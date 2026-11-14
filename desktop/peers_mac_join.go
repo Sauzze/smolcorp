@@ -231,6 +231,7 @@ func (rt *router) peerSetupRoutes(w http.ResponseWriter, r *request) bool {
 		d.config.save()
 		if !on {
 			d.macPeers.code.withdraw()
+			d.hangUpPeers("")
 		}
 		d.mu.Unlock()
 	case r.Method == http.MethodPost && r.URL.Path == "/setup/peers/code":
@@ -257,6 +258,9 @@ func (rt *router) peerSetupRoutes(w http.ResponseWriter, r *request) bool {
 		}
 		d.mu.Lock()
 		gone := d.macPeers.remove(query.Get("peer"))
+		if gone {
+			d.hangUpPeers(query.Get("peer"))
+		}
 		d.mu.Unlock()
 		if !gone {
 			w.WriteHeader(http.StatusNotFound)

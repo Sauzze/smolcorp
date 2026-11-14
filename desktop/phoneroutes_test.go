@@ -95,6 +95,8 @@ var everyPhoneRoute = [][2]string{
 	{"GET", "/push"}, {"POST", "/push"}, {"POST", "/push/off"}, {"PUT", "/push"}, {"GET", "/push/off"},
 	// The phone page's notifications worker and its manifest (server.go, PUSH2): files with no key, as /office.js.
 	{"GET", "/sw.js"}, {"GET", "/manifest.webmanifest"},
+	// Another Mac's feed (peers_mac_events.go, FL1), and its wrong method.
+	{"GET", "/peer/events"}, {"POST", "/peer/events"},
 }
 
 // probeRoute asks one route as one caller, through the whole router, and says the status and the text.
@@ -271,6 +273,9 @@ func dumpPhoneRoutes(t *testing.T) string {
 // PUSH2 adds two lines at the end, and moves no cell: GET /sw.js and GET /manifest.webmanifest, the phone page's
 // notifications worker and manifest, files with no key served where /office.js is (past the door, before the key
 // check), so each answers every caller exactly as GET /office.js does.
+// FL1 adds two lines at the end, and moves no cell: GET /peer/events, another Mac's feed, answered by servePeer as GET
+// /peer/hello is (403 for every caller here, none of which has a peer key: let in by nobody), and POST /peer/events,
+// which isn't a route but is under /peer/, so 404 for everyone, as GET /peer/nowhere.
 func TestEveryRouteKeepsItsAccessThroughTheMove(t *testing.T) {
 	after := dumpPhoneRoutes(t)
 	if after != phoneRouteAccess {
@@ -302,9 +307,10 @@ func TestEachRowLetsInItsClassOnly(t *testing.T) {
 	// FR1 moved 7; the talk bubble adds GET /talk, GET /talk/asking, POST /talk/say and POST /talk/pick (1.26), and
 	// the dictation service (FD1) POST /talk/listen, and the pull request badge's click POST /desk/pr/open (R2);
 	// floors from other Macs, GET /peer/hello (M1); FS2 adds GET /grants and POST /grants/answer; the TV's preview
-	// GET and POST /desk/preview (V1); PH1 POST /photo and POST /talk/photo; PUSH1 GET and POST /push, POST /push/off.
-	if len(phoneRouteTable) != 24 {
-		t.Errorf("%d rows; want 24", len(phoneRouteTable))
+	// GET and POST /desk/preview (V1); PH1 POST /photo and POST /talk/photo; PUSH1 GET and POST /push, POST /push/off;
+	// another Mac's feed, GET /peer/events (FL1).
+	if len(phoneRouteTable) != 25 {
+		t.Errorf("%d rows; want 25", len(phoneRouteTable))
 	}
 	for key, row := range phoneRouteTable {
 		if !slices.ContainsFunc(everyPhoneRoute, func(route [2]string) bool {
@@ -380,9 +386,9 @@ func TestTheServeHandOnStaysTheMacsUntilSN1(t *testing.T) {
 			switch {
 			case slices.Contains(open, route[1]):
 				want = http.StatusOK
-			case route[1] == "/peer/nowhere":
+			case route[1] == "/peer/nowhere", route[0]+" "+route[1] == "POST /peer/events":
 				// Under /peer/, servePeer answers first, alike for every caller with no peer key, a stranger
-				// included: 403 on its routes, 404 on any other path (M1). Nothing opens.
+				// included: 403 on its routes, 404 on any other path or method (M1, FL1). Nothing opens.
 				want = http.StatusNotFound
 			}
 			if status, _ := probeRoute(t, d, route[0], route[1], phoneKey, off); status != want {
@@ -550,6 +556,8 @@ PUT /push: 401 404 404 404 403 404 403 403 403 403 403 404 403 403 403 404 404 4
 GET /push/off: 401 404 404 404 403 404 403 403 403 403 403 404 403 403 403 404 404 403 401 404 403; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, spoof-proto-wifi, phone-here, window, window-device
 GET /sw.js: 200 200 200 200 403 200 403 403 200 403 403 200 403 403 403 200 200 403 200 200 403; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows, spoof-proto-wifi, phone-here, window, window-key-on-wifi, window-device
 GET /manifest.webmanifest: 200 200 200 200 403 200 403 403 200 403 403 200 403 403 403 200 200 403 200 200 403; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows, spoof-proto-wifi, phone-here, window, window-key-on-wifi, window-device
+GET /peer/events: 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403; let in: nobody
+POST /peer/events: 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-mac-text-off, phone-serve-linux, phone-serve-linux-text-off, phone-serve-linux-proto, phone-serve-windows, phone-serve-windows-text-off, phone-serve-windows-proto, spoof-proto-wifi, spoof-tsnet-wifi, spoof-tsnet-wireguard, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi, window-device, window-device-proxied
 `
 
 // MARK: The switch's route set (FR1's review, N1)
