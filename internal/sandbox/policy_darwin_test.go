@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -574,22 +575,6 @@ func TestOnAMacNothingInGitModulesIsWrittenNorBroughtIn(t *testing.T) {
 	}
 }
 
-// gitForStandins is a git to run on the stand-ins with, or "". /usr/bin/git is Apple's shim: with no developer tools it
-// asks to install them, a system dialog, so it is used only when xcode-select names a developer folder.
-func gitForStandins(t *testing.T) string {
-	found, err := exec.LookPath("git")
-	if err != nil {
-		return ""
-	}
-	if found == "/usr/bin/git" {
-		if err := disclaim.Cmd(exec.Command("/usr/bin/xcode-select", "-p")).Run(); err != nil {
-			t.Logf("no developer tools (%v): /usr/bin/git would ask to install them", err)
-			return ""
-		}
-	}
-	return found
-}
-
 // SIERRA's sweep (14 Nov), on this Mac with stand-ins only: a hire can't change where git finds the repo's config,
 // hooks and objects. A real git makes a stand-in repo, its submodule from a local folder, and the hire's worktree,
 // all in the test's temp folder, with a fake home, no system or global config, no hooks, and `standin.who = owner` in
@@ -1028,5 +1013,214 @@ print(json.dumps(said))`
 	}
 	if _, err := os.Lstat(night + ".tmp"); err == nil {
 		t.Error("a temp file was made beside the night shift's jobs")
+	}
+}
+
+// GITCFG1 (SIERRA, 14 Nov), on this Mac with stand-ins only: a hire can't plant what the owner's git config names for
+// git to run or read as config. The stand-in owner's config (a fake home's .gitconfig and the repo's) names husky's
+// hooks folder `.husky/_` (relative: in the hire's worktree and in the checkout), an include holding `standin.who =
+// owner`, an includeIf's file that isn't there, an fsmonitor script, and an ssh command's `-F` config. ReadGitConfig
+// reads them, the Policy is made from what it gives, and under that profile python writes each, makes the hooks folder
+// (and brings one in whole by a rename), and moves `.husky` aside: each is refused, nothing is changed, and git still
+// reads `owner`. The same write outside the sandbox makes git read `planted`, so the check can tell.
+//
+// RT126GITCFG1's probes, each a stand-in: husky's hooks beside its `_` (`.husky/pre-commit`, which the owner has, and
+// `post-checkout`, which they don't), for the hire in its worktree and for a desk at the project in the checkout, and
+// `.husky` moved aside (B1), with a husky-shaped `_` in the checkout whose commit runs `.husky/pre-commit`, so the
+// place is the one that runs; the file a link in the global hooks folder leads to (B2); the files of `ssh -F/x` and
+// `-o "ProxyCommand /x"` (B3). Then a reftable
+// repo (`git init --ref-format=reftable`, skipped for a git too old for it): a desk at the project can't write its
+// reftable/, so it can't commit there, and its main doesn't move; it still writes its own files.
+func TestOnAMacAHireCantPlantWhatTheOwnersGitConfigNames(t *testing.T) {
+	sandboxExec, python := "/usr/bin/sandbox-exec", python3(t)
+	if _, err := os.Stat(sandboxExec); err != nil || python == "" {
+		if os.Getenv("SMOLCORP_SANDBOX_REQUIRED") == "1" {
+			t.Fatalf("sandbox-exec (%v) or python3 (%q) missing", err, python)
+		}
+		t.Skip("no sandbox-exec or python3 here")
+	}
+	s := newGitStandin(t)
+	include := filepath.Join(s.home, ".gitconfig-work")
+	s.write(filepath.Join(s.home, ".gitconfig"), "[include]\n\tpath = ~/.gitconfig-work\n"+
+		"[includeIf \"gitdir:/nowhere/\"]\n\tpath = ~/.gitconfig-elsewhere\n"+
+		"[core]\n\tsshCommand = ssh -F~/.ssh-standin/config -o \\\"ProxyCommand ~/standin-bin/nc %h %p\\\"\n"+
+		"\thooksPath = ~/.githooks\n")
+	// A stow-style link in the global hooks folder (B2), the owner's `.husky/pre-commit` in the hire's worktree (its `_`
+	// isn't made there yet), and a husky-shaped checkout: `_/pre-commit` sources `_/h`, which runs the hook of its name
+	// in the folder above, whose stand-in only writes a marker (B1).
+	linked := filepath.Join(s.home, "dotfiles", "githooks", "post-checkout")
+	s.write(linked, "#!/bin/sh\n")
+	if err := os.MkdirAll(filepath.Join(s.home, ".githooks"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(linked, filepath.Join(s.home, ".githooks", "post-checkout")); err != nil {
+		t.Fatal(err)
+	}
+	husky, checkoutHusky := filepath.Join(s.root, ".husky"), filepath.Join(s.repo, ".husky")
+	marker := filepath.Join(s.folder, "husky-ran")
+	s.write(filepath.Join(husky, "pre-commit"), "echo owner > '"+marker+"'\n")
+	s.write(filepath.Join(checkoutHusky, "pre-commit"), "echo owner > '"+marker+"'\n")
+	s.write(filepath.Join(checkoutHusky, "_", "pre-commit"), "#!/bin/sh\n. \"$(dirname \"$0\")/h\"\n")
+	s.write(filepath.Join(checkoutHusky, "_", "h"), "#!/bin/sh\nn=$(basename \"$0\")\ns=$(dirname \"$(dirname \"$0\")\")/$n\n"+
+		"[ ! -f \"$s\" ] && exit 0\nsh -e \"$s\"\n")
+	if err := os.Chmod(filepath.Join(checkoutHusky, "_", "pre-commit"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s.write(include, "[standin]\n\twho = owner\n")
+	s.ok(s.repo, "config", "core.hooksPath", ".husky/_")
+	s.ok(s.repo, "config", "core.fsmonitor", "tools/fsmon.sh")
+	who := func() string { return s.ok(s.repo, "config", "standin.who") }
+	if got := who(); got != "owner" {
+		t.Fatalf("the stand-in reads %q before anything", got)
+	}
+	s.write(include, "[standin]\n\twho = planted\n")
+	if got := who(); got != "planted" {
+		t.Fatalf("an include written outside the sandbox: git reads %q, want planted (the check can't tell)", got)
+	}
+	s.write(include, "[standin]\n\twho = owner\n")
+
+	pl := s.places()
+	pl.GOOS = "darwin"
+	hooks, named, err := ReadGitConfig(context.Background(), s.git, s.env, pl)
+	if err != nil {
+		t.Fatalf("ReadGitConfig: %v", err)
+	}
+	pl.GitHooks, pl.GitNamed = hooks, named
+	p := mustNew(t, pl)
+	if err := MakeHold(p.Hold()); err != nil {
+		t.Fatal(err)
+	}
+	profile := writeProfile(t, p, s.folder)
+	sandboxed := func(profile string, args ...string) (string, error) {
+		cmd := disclaim.Cmd(exec.Command(sandboxExec, append([]string{"-p", profile}, args...)...))
+		cmd.Dir, cmd.Env = s.folder, s.env
+		out, err := cmd.CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	writeEach := `import sys, os, json
+said = {}
+for p in sys.argv[1:]:
+    try:
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            f.write("[standin]\n\twho = planted\n")
+        said[p] = "wrote"
+    except OSError as e:
+        said[p] = type(e).__name__
+print(json.dumps(said))`
+	// refused is python under profile writing each of targets, each refused and unchanged, and allowed, written.
+	refused := func(profile string, targets []string, allowed string) {
+		t.Helper()
+		before := map[string]string{}
+		for _, at := range targets {
+			data, _ := os.ReadFile(at)
+			before[at] = string(data)
+		}
+		out, err := sandboxed(profile, append([]string{python, "-I", "-c", writeEach}, append(slices.Clone(targets), allowed)...)...)
+		if err != nil {
+			t.Fatalf("the stand-in didn't run: %v %s", err, out)
+		}
+		var said map[string]string
+		if err := json.Unmarshal([]byte(out), &said); err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+		for _, at := range targets {
+			if said[at] != "PermissionError" {
+				t.Errorf("python: %s: %q, want PermissionError", at, said[at])
+			}
+			if data, _ := os.ReadFile(at); string(data) != before[at] {
+				t.Errorf("%s changed: %q, was %q", at, data, before[at])
+			}
+		}
+		if said[allowed] != "wrote" {
+			t.Errorf("python: %s: %q, want wrote (the stand-in must still work)", allowed, said[allowed])
+		}
+	}
+	refused(profile, []string{include, filepath.Join(s.home, ".gitconfig-elsewhere"), filepath.Join(s.home, ".ssh-standin", "config"),
+		filepath.Join(s.root, "tools", "fsmon.sh"), filepath.Join(husky, "_", "pre-commit"), filepath.Join(husky, "_", "h"),
+		filepath.Join(s.repo, ".husky", "_", "pre-commit"), filepath.Join(husky, "pre-commit"), filepath.Join(husky, "post-checkout"),
+		linked, filepath.Join(s.home, "standin-bin", "nc"), filepath.Join(s.folder, "xdg", "husky", "init.sh"), filepath.Join(s.home, ".huskyrc")},
+		filepath.Join(s.root, "tools", "build.sh"))
+	// A hooks folder brought in whole (`.husky/_` isn't there), and .husky moved aside.
+	staged := filepath.Join(s.root, "staging", "_")
+	s.write(filepath.Join(staged, "pre-commit"), "#!/bin/sh\n")
+	rename := "import os, sys; os.rename(sys.argv[1], sys.argv[2])"
+	renamed := func(profile, from, to string) {
+		t.Helper()
+		out, err := sandboxed(profile, python, "-I", "-c", rename, from, to)
+		if _, statErr := os.Lstat(to); err == nil || statErr == nil {
+			t.Errorf("python os.rename %s to %s: %v %s", from, to, err, out)
+		}
+	}
+	renamed(profile, staged, filepath.Join(husky, "_"))
+	renamed(profile, husky, filepath.Join(s.root, "husky-aside"))
+
+	// A desk at the project, in the owner's checkout: husky's hooks there, the owner's and a new one, and .husky moved
+	// aside, are refused; its own files aren't (B1).
+	project := Places{GOOS: "darwin", Home: s.home, Support: pl.Support, OwnID: "h1", Root: s.repo, GitDir: s.gd,
+		DefaultBranch: DefaultBranch(s.gd), HiresFolder: pl.HiresFolder}
+	if project.GitHooks, project.GitNamed, err = ReadGitConfig(context.Background(), s.git, s.env, project); err != nil {
+		t.Fatalf("ReadGitConfig at the project: %v", err)
+	}
+	atProject := mustNew(t, project)
+	if err := MakeHold(atProject.Hold()); err != nil {
+		t.Fatal(err)
+	}
+	projectProfile := writeProfile(t, atProject, s.folder)
+	refused(projectProfile, []string{filepath.Join(checkoutHusky, "pre-commit"), filepath.Join(checkoutHusky, "post-checkout"),
+		filepath.Join(checkoutHusky, "_", "h"), linked}, filepath.Join(s.repo, "tools", "build.sh"))
+	renamed(projectProfile, checkoutHusky, filepath.Join(s.repo, "husky-aside"))
+	// The owner's commit in the checkout runs husky's chain: `.husky/pre-commit` is the hook that runs, and it's still
+	// the owner's.
+	commit := []string{s.git, "-C", s.repo, "-c", "core.fsmonitor=false", "-c", "commit.gpgsign=false", "-c", "user.name=standin",
+		"-c", "user.email=standin@example.invalid", "commit", "-q", "--allow-empty", "-m", "standin"}
+	if out, err := s.run(commit); err != nil {
+		t.Fatalf("the owner's commit in the checkout: %v %s", err, out)
+	}
+	if ran, _ := os.ReadFile(marker); string(ran) != "owner\n" {
+		t.Errorf("husky's chain in the checkout ran %q, want the owner's .husky/pre-commit", ran)
+	}
+	if got := who(); got != "owner" {
+		t.Errorf("git in the checkout reads standin.who %q, want owner", got)
+	}
+
+	// A reftable repo: no desk moves any of its refs.
+	reftable := filepath.Join(s.home, "Projects", "tables")
+	if err := os.MkdirAll(reftable, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := s.run(s.args(reftable, "init", "-q", "--ref-format=reftable")); err != nil {
+		t.Logf("SKIPPED the reftable part: this git can't make one: %v %s", err, out)
+		return
+	}
+	s.ok(reftable, "commit", "-q", "--allow-empty", "-m", "standin")
+	tablesGit := filepath.Join(reftable, ".git")
+	desk := mustNew(t, Places{GOOS: "darwin", Home: s.home, Support: pl.Support, OwnID: "h1", Root: reftable, GitDir: tablesGit,
+		DefaultBranch: DefaultBranch(tablesGit), HiresFolder: pl.HiresFolder})
+	if err := MakeHold(desk.Hold()); err != nil {
+		t.Fatal(err)
+	}
+	deskProfile := writeProfile(t, desk, s.folder)
+	head := s.ok(reftable, "rev-parse", "main")
+	tables := filepath.Join(tablesGit, "reftable", "tables.list")
+	listBefore, err := os.ReadFile(tables)
+	if err != nil {
+		t.Fatalf("a reftable repo with no tables.list: %v", err)
+	}
+	if out, err := sandboxed(deskProfile, python, "-I", "-c", "import sys; open(sys.argv[1], 'a').write('x')", tables); err == nil {
+		t.Errorf("python appended to %s: %s", tables, out)
+	}
+	if out, err := sandboxed(deskProfile, s.args(reftable, "commit", "-q", "--allow-empty", "-m", "standin")...); err == nil {
+		t.Errorf("a desk at the project committed in a reftable repo: %s", out)
+	}
+	if got := s.ok(reftable, "rev-parse", "main"); got != head {
+		t.Errorf("main moved: %s, was %s", got, head)
+	}
+	if after, _ := os.ReadFile(tables); string(after) != string(listBefore) {
+		t.Errorf("%s changed: %q, was %q", tables, after, listBefore)
+	}
+	own := filepath.Join(reftable, "main.go")
+	if out, err := sandboxed(deskProfile, python, "-I", "-c", "import sys; open(sys.argv[1], 'w').write('standin\\n')", own); err != nil {
+		t.Errorf("a desk at the project can't write its own file: %v %s (the stand-in must still work)", err, out)
 	}
 }

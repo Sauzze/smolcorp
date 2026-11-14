@@ -26,7 +26,8 @@ import (
 // made, empty, before the desk starts (Hold, RT126SAX1R2 B1′), so a desk can't bring it in whole either, by a rename
 // or as a link, with a denied file already inside. The shared .git's modules folder is denied whole to every desk
 // (RT126SAX1R4 B1‴), and so is every file git reads to find the repo's config, hooks and objects (SIERRA, 14 Nov), and
-// the entries that make the shared .git a git folder at all (RT126SAX1R5 B3).
+// the entries that make the shared .git a git folder at all (RT126SAX1R5 B3), and what the owner's git config names
+// for git to run or read as config (GITCFG1, ReadGitConfig).
 //
 // An MCP server a desk's agent starts (`smolcorp mcp`) runs inside that desk's sandbox: its column is its desk's, a
 // hire's or the GM's, and it is given nothing more. In particular no subject is given the GM's memory (PL126M E1).
@@ -242,6 +243,10 @@ type Places struct {
 	// /opt/homebrew/etc/gitconfig, which the owner can write), and $XDG_CONFIG_HOME/git/config when that isn't
 	// ~/.config (SIERRA, 14 Nov).
 	GitConfigs []string
+	// GitHooks are the folders the owner's git config names for hooks (core.hooksPath), and GitNamed the files it names
+	// for git to read as config or run (include and includeIf targets, core.fsmonitor's and core.sshCommand's files),
+	// as ReadGitConfig gives them at the desk's start (GITCFG1). M1 must fill both.
+	GitHooks, GitNamed []string
 	// RemoteLogin is whether port 22 answers on this computer (C5): the ssh keys are then denied.
 	RemoteLogin bool
 	// XAuthority is $XAUTHORITY on Linux.
@@ -422,6 +427,15 @@ func build(pl Places) (*Policy, error) {
 	for _, file := range pl.GitConfigs {
 		b.add(Rule{Row: "plants the owner's programs run later: git's other config", Path: file, Write: Deny})
 	}
+	// What the owner's git config names for git to run or read as config (GITCFG1). A hooks folder is denied whole: a
+	// hook may run what is beside it (husky's hooks source its `h`). ReadGitConfig gives the folders beside which a hook
+	// runs more (husky's `.husky` above its `_`) and those a link in one leads to as hooks folders too (RT126GITCFG1).
+	for _, folder := range pl.GitHooks {
+		b.add(Rule{Row: "plants the owner's programs run later: git's hooks folder", Path: folder, Below: true, Write: Deny})
+	}
+	for _, file := range pl.GitNamed {
+		b.add(Rule{Row: "plants the owner's programs run later: what git's config names", Path: file, Write: Deny})
+	}
 	if goos == "darwin" {
 		for _, folder := range []string{"/usr/lib/cron/tabs", "/private/var/at"} {
 			b.add(Rule{Row: "plants the owner's programs run later", Path: folder, Below: true, Write: Deny})
@@ -526,6 +540,10 @@ func build(pl Places) (*Policy, error) {
 			}
 		}
 		b.add(Rule{Row: "the base branches", Path: join(git, "refs/heads/release"), Below: true, Write: Deny})
+		// In a reftable repo (`git init --ref-format=reftable`) every ref of the shared .git is in reftable/: no branch
+		// can be told from another there, so no desk moves any, its own branch included (GITCFG1). A repo of files has
+		// no such folder, and git reads one only when the repo's config, which no desk writes, says so.
+		b.add(Rule{Row: "the base branches: a reftable repo's refs", Path: join(git, "reftable"), Below: true, Write: Deny})
 	}
 
 	// Anywhere: the fences, and the folders a desk's place hangs from.

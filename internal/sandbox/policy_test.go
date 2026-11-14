@@ -41,7 +41,10 @@ func hirePlaces(support string) Places {
 		Root: hires + "/h1", Checkout: repo, GitDir: gitDir, OwnWorktree: "h1", OtherWorktrees: []string{"h1", "h2", "gm"},
 		DefaultBranch: "develop", HiresFolder: hires, GMFolder: gmDir, SocketParent: sockets, OwnSockets: sockets + "/h1",
 		Accounts: []string{home + "/.claude-work"}, InstallRoots: []string{"/Applications/Smolcorp.app", "/opt/homebrew/Cellar/tmux"},
-		GitConfigs: []string{"/opt/homebrew/etc/gitconfig", home + "/.xdg/git/config"}, RemoteLogin: true}
+		GitConfigs: []string{"/opt/homebrew/etc/gitconfig", home + "/.xdg/git/config"}, RemoteLogin: true,
+		GitHooks: []string{hires + "/h1/.husky/_", hires + "/h1/.husky", home + "/.githooks", home + "/dotfiles/hooklib"},
+		GitNamed: []string{home + "/.gitconfig-work", home + "/.config/standin/ssh_config", "/opt/standin/nc",
+			home + "/dotfiles/githooks/post-checkout", home + "/.config/husky/init.sh"}}
 }
 
 func setups() []setup {
@@ -194,6 +197,23 @@ var rows = []row{
 	all("$G/refs/heads/main", Write, D), all("$G/refs/heads/master", Write, D), all("$G/refs/heads/release/1.26", Write, D),
 	all("$G/refs/heads/release", Write, D), all("$G/refs/heads/develop", Write, D), all("$G/packed-refs", Write, D),
 	all("$G/refs/heads/main", Read, A), all("$G/packed-refs", Read, A), all("$G/refs/heads/mainline", Write, A),
+	// …and in a reftable repo, every ref of the shared .git (GITCFG1); the desk's own registration's stay its.
+	all("$G/reftable", Write, D), all("$G/reftable/tables.list", Write, D), all("$G/reftable/0x01-0x02-abcd.ref", Write, D),
+	all("$G/reftable", Move, D), all("$G/reftable/tables.list", Read, A), all("$G/worktrees/$WT/reftable/tables.list", Write, A),
+	// What the owner's git config names (GITCFG1): its hooks folders, whole, and the files it includes or runs, and the
+	// folders above them hold. What is beside them stays normal work, or the desk's own.
+	all(hires+"/h1/.husky/_", Write, D), all(hires+"/h1/.husky/_/pre-commit", Write, D), all(hires+"/h1/.husky/_/h", Write, D),
+	all(hires+"/h1/.husky/_/pre-commit", Read, A), all(hires+"/h1/.husky", Move, D), all(hires+"/h1/.husky", Link, D),
+	// Husky's hooks beside its `_`, the owner's and new ones, and its init.sh (RT126GITCFG1 B1); what a link in a hooks
+	// folder leads to, a file or a folder (B2).
+	all(hires+"/h1/.husky/pre-commit", Write, D), all(hires+"/h1/.husky/post-checkout", Write, D), all(hires+"/h1/.husky", Move, D),
+	{hires + "/h1/husky.md", Write, A, D, A}, all("$H/.config/husky/init.sh", Write, D), all("$H/.config/husky/notes", Write, A),
+	all("$H/dotfiles/githooks/post-checkout", Write, D), all("$H/dotfiles/githooks/README", Write, A),
+	all("$H/dotfiles/hooklib/run.sh", Write, D), all("$H/dotfiles/hooklib", Move, D), all("$H/dotfiles/notes", Write, A),
+	all("$H/.githooks/post-checkout", Write, D), all("$H/.githooks", Link, D),
+	all("$H/.gitconfig-work", Write, D), all("$H/.gitconfig-work", Read, A), all("$H/.gitconfig-work", Move, D),
+	all("$H/.gitconfig-work.bak", Write, A), all("$H/.config/standin/ssh_config", Write, D), all("$H/.config/standin", Move, D),
+	all("$H/.config/standin/notes", Write, A), all("/opt/standin/nc", Write, D), all("/opt/standin/notes", Write, A),
 	// Other desks' places.
 	all(hires+"/h2/main.go", Write, D), all(hires+"/h2/main.go", Read, A), {gmDir + "/notes.md", Write, D, A, D},
 	all(repo+"/main.go", Write, D), all(repo+"/main.go", Read, A),
@@ -598,14 +618,15 @@ func TestTheMissingFoldersAboveADeniedPlaceAreMadeFirst(t *testing.T) {
 		p := mustNew(t, s.pl)
 		held := p.Hold()
 		for _, want := range []string{home + "/.ssh", home + "/.config", home + "/.config/systemd", home + "/.codex",
-			home + "/.gemini", gitDir + "/refs/heads", s.pl.Support + "/hires/" + s.pl.OwnID + "/claude"} {
+			home + "/.gemini", gitDir + "/refs/heads", s.pl.Support + "/hires/" + s.pl.OwnID + "/claude", home + "/.config/standin"} {
 			if !slices.Contains(held, want) {
 				t.Errorf("%s: %s isn't in Hold", s.name, want)
 			}
 		}
 		for _, not := range []string{home + "/.zshrc", home + "/.config/git", home + "/.ssh/rc", home + "/.codex/auth.json", home,
 			s.pl.Support, realSupport, hires, repo, gitDir, gitDir + "/refs", gitDir + "/objects", gitDir + "/hooks", gitDir + "/modules", gitDir + "/modules/sub",
-			gitDir + "/modules/third_party", gitDir + "/modules/third_party/bar", "/"} {
+			gitDir + "/modules/third_party", gitDir + "/modules/third_party/bar", "/", gitDir + "/reftable", home + "/.githooks",
+			hires + "/h1/.husky/_", hires + "/h1/.husky", home + "/dotfiles/hooklib"} {
 			if slices.Contains(held, not) {
 				t.Errorf("%s: %s is in Hold", s.name, not)
 			}
