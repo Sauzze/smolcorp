@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // phoneAddress is what a phone opens to pair: this computer on the local network,
@@ -140,11 +142,11 @@ func sameFile(a, b string) bool {
 var openURL = func(url string) error {
 	switch runtime.GOOS {
 	case "windows":
-		return startAndWait(exec.Command("rundll32", "url.dll,FileProtocolHandler", url))
+		return startAndWait(disclaim.Cmd(exec.Command("rundll32", "url.dll,FileProtocolHandler", url)))
 	case "darwin":
-		return startAndWait(exec.Command("open", url))
+		return startAndWait(exec.Command("/usr/bin/open", url))
 	default:
-		return startAndCheck(exec.Command("xdg-open", url), xdgOpenWait)
+		return startAndCheck(disclaim.Cmd(exec.Command("xdg-open", url)), xdgOpenWait)
 	}
 }
 

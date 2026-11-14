@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // The Mac's checks, with Apple's own codesign (/usr/bin, under SIP: no program of the owner's can replace it).
@@ -34,7 +36,7 @@ func codesign(args ...string) (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	var printed bytes.Buffer
-	cmd := exec.CommandContext(ctx, codesignProgram, args...)
+	cmd := disclaim.Cmd(exec.CommandContext(ctx, codesignProgram, args...))
 	cmd.Stdout, cmd.Stderr = &printed, &printed
 	cmd.Env = []string{"PATH=/usr/bin:/bin"}
 	err := cmd.Run()

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // Open in T3 Code (T792), as the Mac app's T3Code.swift: a hire's folder (its
@@ -98,7 +100,7 @@ func defaultT3Machine() t3Machine {
 			}
 			return
 		}
-		cmd := exec.Command(launcher)
+		cmd := disclaim.Cmd(exec.Command(launcher))
 		detach(cmd)
 		if cmd.Start() == nil {
 			go func() { _ = cmd.Wait() }()

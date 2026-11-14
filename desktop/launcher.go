@@ -234,6 +234,9 @@ func launch(run *launcherRun) int {
 	defer terminal.Close()
 
 	id := newID()
+	// Not through disclaim.Words: smolcorp run runs only in a hire's terminal window or a desk's tmux (itself
+	// started through disclaim.Cmd), so the agent is charged to that terminal or tmux, never to Smolcorp.app. This
+	// function is exempt as a whole for it (spawnsites_test.go): a new start added in here would pass unseen.
 	cmd := terminal.Command(program, programArgs...)
 	useCmdLine(cmd, program, programArgs)
 	cmd.Env = append(os.Environ(), "SMOLCORP_SESSION="+id)

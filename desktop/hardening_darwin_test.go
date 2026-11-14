@@ -217,8 +217,8 @@ func TestAnInjectedLibraryIsNotLoadedIntoAHardenedProgram(t *testing.T) {
 	}
 }
 
-// build-app.sh signs the app, the command and tmux with the runtime, the app with its entitlements, and checks all
-// three; the test copies' scripts keep it when they sign again.
+// build-app.sh signs the app, the command, tmux and smolcorp-spawn with the runtime, the app with its entitlements,
+// and checks all four; the test copies' scripts keep it when they sign again.
 func TestEveryMacBuildIsSignedWithTheRuntimeAndChecked(t *testing.T) {
 	read := func(name string) string {
 		data, err := os.ReadFile(filepath.Join(repoRoot(t), "scripts", name))
@@ -237,13 +237,15 @@ func TestEveryMacBuildIsSignedWithTheRuntimeAndChecked(t *testing.T) {
 			t.Errorf("build-app.sh signs without SIGN: %s", strings.TrimSpace(line))
 		}
 	}
-	if strings.Count(build, `"${SIGN[@]}" --sign`) != 6 || strings.Count(build, `--entitlements "$ENTITLEMENTS" "$APP"`) != 2 {
-		t.Error("build-app.sh should sign the command, tmux and the app (with its entitlements), with an identity and ad hoc")
+	if strings.Count(build, `"${SIGN[@]}" --sign`) != 8 || strings.Count(build, `--entitlements "$ENTITLEMENTS" "$APP"`) != 2 ||
+		strings.Count(build, `--identifier io.github.sauzze.smolcorp-spawn "$APP/Contents/Resources/bin/smolcorp-spawn"`) != 2 {
+		t.Error("build-app.sh should sign the command, tmux, smolcorp-spawn and the app (with its entitlements), with an identity and ad hoc")
 	}
 	if !strings.Contains(build, `scripts/check-runtime.sh "${SIGNED[@]}" || {`) ||
 		!regexp.MustCompile(`SIGNED\+=\("\$APP/Contents/Resources/bin/smolcorp"\)`).MatchString(build) ||
-		!regexp.MustCompile(`SIGNED\+=\("\$APP/Contents/Resources/bin/tmux"\)`).MatchString(build) {
-		t.Error("build-app.sh should check the app, the command and tmux with check-runtime.sh, and stop when it fails")
+		!regexp.MustCompile(`SIGNED\+=\("\$APP/Contents/Resources/bin/tmux"\)`).MatchString(build) ||
+		!strings.Contains(build, `SIGNED=("$APP" "$APP/Contents/Resources/bin/smolcorp-spawn")`) {
+		t.Error("build-app.sh should check the app, the command, tmux and smolcorp-spawn with check-runtime.sh, and stop when it fails")
 	}
 	for _, name := range []string{"test-copy.sh", "demo-page-run.sh"} {
 		for _, line := range strings.Split(read(name), "\n") {

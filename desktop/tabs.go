@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // A Tab is where a session runs, and how its keys are pressed: the Mac app
@@ -77,7 +79,7 @@ var terminalTimeout = 5 * time.Second
 // terminalCommand is a terminal's command line tool, stopped if it hangs.
 func terminalCommand(name string, args ...string) (*exec.Cmd, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), terminalTimeout)
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := disclaim.Cmd(exec.CommandContext(ctx, name, args...))
 	cmd.WaitDelay = time.Second // and not held open by anything it started
 	return cmd, cancel
 }

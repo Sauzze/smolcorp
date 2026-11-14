@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // Setup's Phone microphone under the Mac app (engine=go), as the Swift engine
@@ -122,7 +124,7 @@ var askTailnet = func() (tailnetAnswer, bool) {
 func runTailscale(tool string, arguments ...string) ([]byte, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), tailnetTimeout)
 	defer cancel()
-	command := exec.CommandContext(ctx, tool, arguments...)
+	command := disclaim.Cmd(exec.CommandContext(ctx, tool, arguments...))
 	hideGitWindow(command) // no console window flashing up on Windows
 	command.Env = os.Environ()
 	if os.Getenv("TERM") == "" {

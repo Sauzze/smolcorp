@@ -10,11 +10,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // ✨ Sign in from Smolcorp (1.26 S2): the login runner, on stand-in CLIs of the
@@ -230,6 +233,56 @@ func TestALoginThatSaysSuccessButExitsBadlyFailed(t *testing.T) {
 	id := startLogin(t, d, "codex", "browser")
 	if view := waitForLogin(t, d, id, "ended", ended); view.State != loginFailed {
 		t.Errorf("%+v", view)
+	}
+}
+
+// On a Mac a login starts through smolcorp-spawn (SANDBOX-PLAN §3.5, ST1; RT126ST1 B1), so a CLI a hire replaced
+// holds none of Smolcorp's permissions. In Smolcorp.app's layout, a stand-in smolcorp-spawn notes what it was given
+// and becomes the stand-in codex in the login's terminal; with no smolcorp-spawn there, nothing starts and the page
+// is told why.
+func TestOnAMacALoginStartsThroughSmolcorpSpawnAndNeverWithoutIt(t *testing.T) {
+	dir := t.TempDir()
+	loginPlace(t, map[string]string{"codex": `echo "argv0=$0 args=$*" > ` + dir + `/ran
+[ -t 0 ] && echo 'Successfully logged in'`})
+	program := loginFind("codex")
+	bin := filepath.Join(t.TempDir(), "Smolcorp.app", "Contents", "Resources", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	where := disclaim.PlaceBeside(filepath.Join(bin, "smolcorp"))
+	if !where.InApp {
+		t.Fatalf("not an app's layout: %+v", where)
+	}
+	t.Cleanup(disclaim.StandIn(true, where))
+	// One line per start, written at once: another test's leftover git may come through here too.
+	fakeCLI(t, bin, disclaim.SpawnName, `line="$(printf '%s|' "$@")"; printf '%s\n' "$line" >> `+dir+`/spawned
+exec -a "$2" "$1" "${@:3}"`)
+	d := loginDeck(t)
+
+	id := startLogin(t, d, "codex", "browser")
+	if view := waitForLogin(t, d, id, "ended", ended); view.State != loginSucceeded {
+		t.Errorf("through smolcorp-spawn, in its terminal: %+v", view)
+	}
+	spawned, _ := os.ReadFile(filepath.Join(dir, "spawned"))
+	if want := program + "|" + program + "|login|"; !slices.Contains(strings.Split(string(spawned), "\n"), want) {
+		t.Errorf("smolcorp-spawn wasn't given %q: %q", want, spawned)
+	}
+	if ran, _ := os.ReadFile(filepath.Join(dir, "ran")); string(ran) != "argv0="+program+" args=login\n" {
+		t.Errorf("the stand-in ran as %q", ran)
+	}
+
+	// No smolcorp-spawn in the app: nothing starts.
+	os.Remove(filepath.Join(dir, "ran"))
+	if err := os.Remove(where.Spawn); err != nil {
+		t.Fatal(err)
+	}
+	status, body := page(t, d, "POST", "/setup/accounts/login", `{"agent":"codex","way":"browser"}`)
+	if status != http.StatusInternalServerError || !strings.Contains(body, "Smolcorp didn't start codex: its smolcorp-spawn is missing") {
+		t.Errorf("with no smolcorp-spawn: %d %s", status, body)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(dir, "ran")); !os.IsNotExist(err) {
+		t.Errorf("the stand-in ran with no smolcorp-spawn: %v", err)
 	}
 }
 

@@ -3,7 +3,7 @@
 # the entitlements that would open it again: a debugger let in (get-task-allow), DYLD_* variables read, other
 # signers' libraries loaded, or memory made writable and executable. Without the runtime, any program of yours can
 # attach a debugger to Smolcorp or slip a library into it (DYLD_INSERT_LIBRARIES), and read the keys it holds in
-# memory. scripts/build-app.sh runs it on the app, the smolcorp command and tmux before it says the build is done,
+# memory. scripts/build-app.sh runs it on the app, the smolcorp command, tmux and smolcorp-spawn before it says the build is done,
 # so a build without the runtime fails there; scripts/test-copy.sh and CI run it on what they build.
 #
 #   scripts/check-runtime.sh FILE...      an app (checked as its main program) or a program

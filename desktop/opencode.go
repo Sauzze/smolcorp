@@ -14,6 +14,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // The OpenCode installed, for the plugin it can load, as the Mac app's
@@ -121,10 +123,10 @@ func loginShellPath() []string {
 // shell's start files run in it, and a hire can write those. So it gets nothing of Smolcorp's: no key, no token,
 // no variable from Smolcorp's own environment, only who you are, your home and the system's own PATH, no input,
 // and your home as its folder. What it says only finds programs; an agent found is checked before it runs
-// (agentcheck.go). On a Mac, ST1's smolcorp-spawn will start it with responsibility disclaimed, so it holds none of
-// Smolcorp's grants; that helper isn't in this build yet.
+// (agentcheck.go). On a Mac it starts through smolcorp-spawn with responsibility disclaimed (internal/disclaim,
+// ST1), so it holds none of Smolcorp's grants.
 func lookupCommand(ctx context.Context, shell string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, shell, args...)
+	cmd := disclaim.Cmd(exec.CommandContext(ctx, shell, args...))
 	cmd.Env = lookupEnvironment()
 	cmd.Dir = homeDir
 	return cmd

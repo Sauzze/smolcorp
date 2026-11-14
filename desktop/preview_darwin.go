@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 const (
@@ -78,7 +80,7 @@ func connectionOwner(from, to *net.TCPAddr) int {
 func runLsof(args ...string) ([]byte, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), lsofTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, lsofProgram, args...)
+	cmd := disclaim.Cmd(exec.CommandContext(ctx, lsofProgram, args...))
 	cmd.Dir = os.TempDir()
 	cmd.Env = []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL=C"}
 	out := &capped{cap: lsofCap}

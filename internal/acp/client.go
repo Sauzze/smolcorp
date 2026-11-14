@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 var (
@@ -167,7 +169,7 @@ func Start(command Command, h Handler, opt Options) (*Client, error) {
 		inW.Close()
 		return nil, err
 	}
-	cmd := exec.Command(command.Path, command.Args...)
+	cmd := disclaim.Cmd(exec.Command(command.Path, command.Args...))
 	cmd.Dir, cmd.Env = command.Dir, command.Env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = inR, outW, opt.Stderr
 	cmd.WaitDelay = opt.ShutdownGrace // a child it left behind can't hold Wait open

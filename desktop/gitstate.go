@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // Git state of a folder (1.26 FG1): the repo's top, its branch and upstream, how far ahead and behind, the
@@ -160,7 +162,7 @@ func readGitOut(ctx context.Context, dir string, call gitCall, args ...string) (
 
 // execGit runs git with args in env, keeping its standard output up to the cap.
 func execGit(ctx context.Context, env []string, args ...string) ([]byte, int, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := disclaim.Cmd(exec.CommandContext(ctx, "git", args...))
 	cmd.Env = env
 	cmd.WaitDelay = 2 * time.Second // after the stop below, git has this long to clean up before it is killed
 	stopGitGently(cmd)

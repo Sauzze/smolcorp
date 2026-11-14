@@ -9,7 +9,7 @@
 # and Go 1.26 or later: the app's engine is the `smolcorp` command inside it.
 #
 # Every build has the hardened runtime, ad hoc or not: the app, the smolcorp
-# command and tmux. Without it, any program of yours could attach a debugger to
+# command, tmux and smolcorp-spawn. Without it, any program of yours could attach a debugger to
 # them, or slip a library in (DYLD_INSERT_LIBRARIES), and read the keys they
 # hold in memory or change the guard's answer. scripts/check-runtime.sh checks
 # each one after signing, and a build without it stops there.
@@ -60,7 +60,7 @@ if [ "$MODE" = "--check-signing" ]; then
   else
     echo "Signing: ad hoc ($IDENTITY isn't in your keychains)."
   fi
-  echo "Hardened runtime: on, for the app, bin/smolcorp and bin/tmux, checked by scripts/check-runtime.sh after signing."
+  echo "Hardened runtime: on, for the app, bin/smolcorp, bin/tmux and bin/smolcorp-spawn, checked by scripts/check-runtime.sh after signing."
   echo "Entitlements: $ENTITLEMENTS, for the app only."
   exit 0
 fi
@@ -115,9 +115,13 @@ cp -R "build/Smolcorp Office.saver" "$APP/Contents/Resources/"
 mkdir -p "$APP/Contents/Resources/bin"
 CLI_VERSION="$(sed -n '/CFBundleShortVersionString/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist)"
 CLI_TMP="$(mktemp -d)"
+# Linked for the app: the engine then counts as in Smolcorp.app wherever it runs from, so it never runs a program
+# charged to Smolcorp, even with no smolcorp-spawn beside it (internal/disclaim's builtForApp). scripts/release.sh
+# stops on an engine without this mark.
+FOR_APP="-X github.com/Sauzze/smolcorp/internal/disclaim.builtForApp=smolcorp-spawn-required"
 for goarch in arm64 amd64; do
   CGO_ENABLED=1 MACOSX_DEPLOYMENT_TARGET=13.0 GOOS=darwin GOARCH="$goarch" go build -trimpath -buildvcs=false \
-    -ldflags "-s -w -X main.version=$CLI_VERSION" -o "$CLI_TMP/smolcorp-$goarch" ./cmd/smolcorp
+    -ldflags "-s -w -X main.version=$CLI_VERSION $FOR_APP" -o "$CLI_TMP/smolcorp-$goarch" ./cmd/smolcorp
 done
 lipo -create "$CLI_TMP/smolcorp-arm64" "$CLI_TMP/smolcorp-amd64" -output "$APP/Contents/Resources/bin/smolcorp"
 chmod 755 "$APP/Contents/Resources/bin/smolcorp"
@@ -142,9 +146,17 @@ if [ "$HAS_TMUX" = 0 ]; then
   tail -n 15 build/tmux-build.log
   echo "Warning: tmux couldn't be built (build/tmux-build.log has the whole log). Smolcorp is built without it and will use the tmux this Mac has, if any."
 fi
+# smolcorp-spawn, beside the command, for the same two processors (packaging/macos/smolcorp-spawn.c). Every program the
+# engine starts goes through it, so that program holds none of Smolcorp's permissions (Accessibility, the microphone,
+# the screen): macOS charges it to itself (internal/disclaim). The engine starts nothing from an app without it, so a
+# build without it stops here.
+echo "smolcorp-spawn…"
+cc -Wall -Wextra -Werror -O2 -arch arm64 -arch x86_64 -mmacosx-version-min=13.0 \
+  -o "$APP/Contents/Resources/bin/smolcorp-spawn" packaging/macos/smolcorp-spawn.c
+chmod 755 "$APP/Contents/Resources/bin/smolcorp-spawn"
 # Signed with the identity chosen above, with the hardened runtime on each, as a
 # release is; the app with its entitlements (Apple Events and the mic), which
-# the runtime would otherwise refuse it. The command and tmux are code of their
+# the runtime would otherwise refuse it. The command, tmux and smolcorp-spawn are code of their
 # own that macOS runs from the app's Resources, so they're signed first, and the
 # app's signature then seals them.
 SIGN=(codesign --force --options runtime)
@@ -162,16 +174,18 @@ fi
 if [ "$IDENTITY" != "-" ] && grep -qF "\"$IDENTITY\"" <<<"$IDENTITIES"; then
   [ -f "$APP/Contents/Resources/bin/smolcorp" ] && "${SIGN[@]}" --sign "$IDENTITY" --identifier io.github.sauzze.smolcorp-cli "$APP/Contents/Resources/bin/smolcorp"
   [ "$HAS_TMUX" = 1 ] && "${SIGN[@]}" --sign "$IDENTITY" --identifier io.github.sauzze.smolcorp-tmux "$APP/Contents/Resources/bin/tmux"
+  "${SIGN[@]}" --sign "$IDENTITY" --identifier io.github.sauzze.smolcorp-spawn "$APP/Contents/Resources/bin/smolcorp-spawn"
   "${SIGN[@]}" --sign "$IDENTITY" --identifier io.github.sauzze.agentdeck --entitlements "$ENTITLEMENTS" "$APP"
 else
   # Named with its keychain and not found there: said, rather than an ad hoc build that looks like the one asked for.
   [ "$IDENTITY" != "-" ] && [ -n "$SIGN_KEYCHAIN" ] && echo "Warning: $IDENTITY isn't in $SIGN_KEYCHAIN, so this build is signed ad hoc."
   [ -f "$APP/Contents/Resources/bin/smolcorp" ] && "${SIGN[@]}" --sign - "$APP/Contents/Resources/bin/smolcorp"
   [ "$HAS_TMUX" = 1 ] && "${SIGN[@]}" --sign - --identifier io.github.sauzze.smolcorp-tmux "$APP/Contents/Resources/bin/tmux"
+  "${SIGN[@]}" --sign - --identifier io.github.sauzze.smolcorp-spawn "$APP/Contents/Resources/bin/smolcorp-spawn"
   "${SIGN[@]}" --sign - --entitlements "$ENTITLEMENTS" "$APP"
 fi
 # The runtime on each, for every processor, and nothing that opens them again: a build without it isn't one.
-SIGNED=("$APP")
+SIGNED=("$APP" "$APP/Contents/Resources/bin/smolcorp-spawn")
 [ -f "$APP/Contents/Resources/bin/smolcorp" ] && SIGNED+=("$APP/Contents/Resources/bin/smolcorp")
 [ "$HAS_TMUX" = 1 ] && SIGNED+=("$APP/Contents/Resources/bin/tmux")
 scripts/check-runtime.sh "${SIGNED[@]}" || { echo "Stopped: $APP isn't hardened as every build must be (above)."; exit 1; }

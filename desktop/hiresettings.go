@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 	"github.com/Sauzze/smolcorp/internal/guard"
 )
 
@@ -107,7 +108,7 @@ func runGuardTool(tool string, arguments []string) (int, string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var out bytes.Buffer
-	command := exec.CommandContext(ctx, tool, arguments...)
+	command := disclaim.Cmd(exec.CommandContext(ctx, tool, arguments...))
 	command.Stdout = &out
 	if err := command.Run(); err != nil {
 		var exit *exec.ExitError

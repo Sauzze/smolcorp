@@ -1195,6 +1195,8 @@
               <label class="hire-tmux" id="hire-tmux-label" hidden><input type="checkbox" id="hire-tmux"> Start inside tmux</label>
             </div>
             <p class="choice-line" id="hire-unchecked"></p>
+            <!-- On a Mac only (SANDBOX-PLAN §3.5, ST1; release notes Q2): what Smolcorp starts is charged to itself. -->
+            <p class="choice-line" id="hire-prompts" hidden>Programs Smolcorp starts (your agents, tmux, git) don't get Smolcorp's own permissions, like Accessibility and the microphone, so one changed behind your back can't use them. Because of that, macOS may ask you once to let “tmux” or “git” use Documents, Desktop, Downloads or iCloud Drive, or reach a device on your Wi-Fi, such as a phone for an Expo build. Allow it for desks that work there. A project anywhere else in your home folder, like ~/Projects, asks nothing.</p>
             <div id="claude-unsigned" hidden>
               <p class="note" id="claude-unsigned-line" role="alert"></p>
               <button class="btn" id="claude-unsigned-confirm">Use this copy</button>
@@ -3117,6 +3119,7 @@
     $('hire-unchecked').textContent = h.agentsChecked
       ? "Smolcorp checks Claude Code from Anthropic's installer before each start. Claude Code installed with npm, Codex, Gemini CLI and OpenCode aren't signed, so Smolcorp can't tell if another program changed them."
       : "Agents' programs aren't signed in a way this computer can check, so Smolcorp can't tell if another program changed them.";
+    $('hire-prompts').hidden = !onMac();
     $('claude-unsigned').hidden = !h.claudeUnsigned;
     $('claude-unsigned-line').textContent = h.claudeUnsigned
       ? `Claude Code changed to an unsigned copy (${h.claudeUnsigned}), so no desk starts on it. Use it only if you installed it yourself, with npm; if not, reinstall Claude Code with Anthropic's installer.`

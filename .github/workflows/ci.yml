@@ -147,7 +147,7 @@ jobs:
           for arch in arm64 x86_64; do
             lipo -archs "$APP/Contents/MacOS/AgentDeck" | grep -qw "$arch" || { echo "::error::the release build has no $arch"; exit 1; }
           done
-          pieces=("$APP" "$APP/Contents/Resources/bin/smolcorp")
+          pieces=("$APP" "$APP/Contents/Resources/bin/smolcorp" "$APP/Contents/Resources/bin/smolcorp-spawn")
           [ -f "$APP/Contents/Resources/bin/tmux" ] && pieces+=("$APP/Contents/Resources/bin/tmux")
           scripts/check-runtime.sh "${pieces[@]}"
           echo "Hardened, each processor: ${pieces[*]}"
@@ -165,7 +165,7 @@ jobs:
         run: |
           APP="build/Smolcorp Test.app"
           SUPPORT=build/test-support
-          pieces=("$APP" "$APP/Contents/Resources/bin/smolcorp")
+          pieces=("$APP" "$APP/Contents/Resources/bin/smolcorp" "$APP/Contents/Resources/bin/smolcorp-spawn")
           [ -f "$APP/Contents/Resources/bin/tmux" ] && pieces+=("$APP/Contents/Resources/bin/tmux")
           scripts/check-runtime.sh "${pieces[@]}"
           pid="$(sed -n 's/.*Quit it with: kill \([0-9][0-9]*\).*/\1/p' "$RUNNER_TEMP/copy.txt")"

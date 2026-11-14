@@ -136,6 +136,14 @@ TMUX_FILE="$APP/Contents/Resources/bin/tmux"
 [ -f "$TMUX_FILE" ] || { echo "Stopped: $APP has no tmux (Contents/Resources/bin/tmux): scripts/build-tmux.sh couldn't build it, and a release without it isn't made."; exit 1; }
 [ "$(lipo -archs "$TMUX_FILE" | tr ' ' '\n' | sort | tr '\n' ' ')" = "arm64 x86_64 " ] || { echo "Stopped: tmux isn't a file for Apple silicon and Intel in one (lipo -archs says: $(lipo -archs "$TMUX_FILE"))."; exit 1; }
 [ -s "$APP/Contents/Resources/licenses/THIRD-PARTY-NOTICES.txt" ] || { echo "Stopped: $APP has no Contents/Resources/licenses/THIRD-PARTY-NOTICES.txt, which tmux's licences require."; exit 1; }
+# smolcorp-spawn starts every program the engine runs on its own account (internal/disclaim): without it, the engine
+# starts nothing.
+SPAWN_FILE="$APP/Contents/Resources/bin/smolcorp-spawn"
+[ -f "$SPAWN_FILE" ] || { echo "Stopped: $APP has no smolcorp-spawn (Contents/Resources/bin/smolcorp-spawn)."; exit 1; }
+[ "$(lipo -archs "$SPAWN_FILE" | tr ' ' '\n' | sort | tr '\n' ' ')" = "arm64 x86_64 " ] || { echo "Stopped: smolcorp-spawn isn't a file for Apple silicon and Intel in one (lipo -archs says: $(lipo -archs "$SPAWN_FILE"))."; exit 1; }
+# The engine is linked for the app (build-app.sh's FOR_APP), so it never runs a program charged to Smolcorp, whatever
+# its path says.
+grep -qaF 'smolcorp-spawn-required' "$APP/Contents/Resources/bin/smolcorp" || { echo "Stopped: $APP's engine (Contents/Resources/bin/smolcorp) isn't linked for the app: build it with scripts/build-app.sh."; exit 1; }
 
 # Developer ID: the screen saver inside first, then the app around it, both
 # with the hardened runtime and a secure timestamp, as notarisation needs.
@@ -150,10 +158,19 @@ if [ -n "$DEVELOPER_ID" ] && [ "$DMG_ONLY" = 0 ]; then
   check "tmux couldn't be signed." \
     codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" --identifier io.github.sauzze.smolcorp-tmux \
     "$TMUX_FILE"
+  check "smolcorp-spawn couldn't be signed." \
+    codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" --identifier io.github.sauzze.smolcorp-spawn \
+    "$SPAWN_FILE"
   check "the app couldn't be signed." codesign --force --options runtime --timestamp --sign "$DEVELOPER_ID" \
     --entitlements packaging/macos/Smolcorp.entitlements "$APP"
   check "tmux's signature doesn't verify." codesign --verify --deep --strict --verbose=2 "$TMUX_FILE"
   check "the app's signature doesn't verify." codesign --verify --deep --strict --verbose=2 "$APP"
+  SPAWN_SIGNATURE="$(codesign --display --verbose=2 "$SPAWN_FILE" 2>&1 || true)"
+  grep -qF 'flags=0x10000(runtime)' <<<"$SPAWN_SIGNATURE" || { echo "Stopped: smolcorp-spawn is signed without the hardened runtime."; exit 1; }
+  grep -qF "Authority=$DEVELOPER_ID" <<<"$SPAWN_SIGNATURE" || { echo "Stopped: smolcorp-spawn isn't signed with ${DEVELOPER_ID}."; exit 1; }
+  grep -qF 'Identifier=io.github.sauzze.smolcorp-spawn' <<<"$SPAWN_SIGNATURE" || { echo "Stopped: smolcorp-spawn is signed under another identifier."; exit 1; }
+  SPAWN_ENTITLEMENTS="$(codesign --display --entitlements - "$SPAWN_FILE" 2>&1 || true)"
+  ! grep -qF '<key>' <<<"$SPAWN_ENTITLEMENTS" || { echo "Stopped: smolcorp-spawn carries entitlements, and needs none."; exit 1; }
   TMUX_SIGNATURE="$(codesign --display --verbose=2 "$TMUX_FILE" 2>&1 || true)"
   grep -qF 'flags=0x10000(runtime)' <<<"$TMUX_SIGNATURE" || { echo "Stopped: tmux is signed without the hardened runtime."; exit 1; }
   grep -qF "Authority=$DEVELOPER_ID" <<<"$TMUX_SIGNATURE" || { echo "Stopped: tmux isn't signed with ${DEVELOPER_ID}."; exit 1; }

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // The pull request badge (1.26 R1): for a desk whose folder is on a branch with a pull request on github.com, its
@@ -249,7 +251,7 @@ func runGH(ctx context.Context, repo, branch string) (out, errText []byte, statu
 	if program == "" {
 		return nil, nil, 0, errGHMissing
 	}
-	cmd := exec.CommandContext(ctx, program, "pr", "view", branch, "--repo", repo, "--json", "number,state,reviewDecision,url")
+	cmd := disclaim.Cmd(exec.CommandContext(ctx, program, "pr", "view", branch, "--repo", repo, "--json", "number,state,reviewDecision,url"))
 	cmd.Dir = os.TempDir()
 	cmd.Env = ghRunEnv(os.Environ())
 	cmd.WaitDelay = 2 * time.Second

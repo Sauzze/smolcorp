@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // Setup's Phone over HTTPS, on every system (1.26, FR2): where Tailscale stands (not installed, not signed in, serve
@@ -181,7 +183,7 @@ var runTailscaleServe = func(tool string, args []string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), tailnetServeTimeout)
 	defer cancel()
-	command := exec.CommandContext(ctx, tool, args...)
+	command := disclaim.Cmd(exec.CommandContext(ctx, tool, args...))
 	command.Env = os.Environ()
 	if os.Getenv("TERM") == "" {
 		command.Env = append(command.Env, "TERM=dumb")

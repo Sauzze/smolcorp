@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // Hiring from the office, as the Mac app's Deck.hire: a new terminal window
@@ -974,7 +976,7 @@ func showWindow(terminal hireOpener, folder string, command []string) (string, e
 		return terminal.open(folder, command)
 	}
 	args := terminal.args(folder, command)
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := disclaim.Cmd(exec.Command(args[0], args[1:]...))
 	cmd.Dir = folder
 	cmd.Env = hireEnvironment()
 	prepareHireWindow(cmd, terminal.id)

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // A hire's tmux session on a server of its own, as the Mac app's HireTmux:
@@ -157,7 +159,7 @@ func realTmux(path string) tmuxRunner {
 	return func(args []string) (string, int, bool) {
 		ctx, cancel := context.WithTimeout(context.Background(), tmuxCallWait)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, path, args...)
+		cmd := disclaim.Cmd(exec.CommandContext(ctx, path, args...))
 		cmd.Env = hireEnvironment()
 		out, err := cmd.Output()
 		if err == nil {

@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/aymanbagabas/go-pty"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // ✨ Sign in from Smolcorp (1.26 S2): the login runner. The page starts an
@@ -199,12 +201,18 @@ func (lr *loginRunner) start(agent, way string) (string, int, string) {
 		return "", http.StatusConflict, err.Error()
 	}
 	program, args := loginCommand(program, w.args)
+	// On a Mac the login runs through smolcorp-spawn, so it holds none of Smolcorp's permissions (SANDBOX-PLAN
+	// §3.5, ST1): a hire can replace an agent's CLI. useCmdLine still gets the program itself (Windows only).
+	started, words, err := disclaim.Words(program, args)
+	if err != nil {
+		return "", http.StatusInternalServerError, "The sign-in couldn't start. " + err.Error() + "."
+	}
 	terminal, err := pty.New()
 	if err != nil {
 		return "", http.StatusInternalServerError, "The sign-in couldn't start: no pseudo-terminal."
 	}
 	_ = terminal.Resize(loginColumns, loginRows)
-	cmd := terminal.Command(program, args...)
+	cmd := terminal.Command(started, words...)
 	useCmdLine(cmd, program, args)
 	cmd.Env = loginEnvironment(os.Environ())
 	cmd.Dir = os.TempDir()

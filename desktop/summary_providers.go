@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // ✨ Summary made by a coding agent you already have, on your own plan,
@@ -725,12 +727,12 @@ func summaryCommand(ctx context.Context, program string, args []string) *exec.Cm
 			if shell == "" {
 				shell = `C:\Windows\System32\cmd.exe`
 			}
-			cmd := exec.CommandContext(ctx, shell)
+			cmd := disclaim.Cmd(exec.CommandContext(ctx, shell))
 			useCommandLine(cmd, cmdLine(shell, program, args))
 			return cmd
 		}
 	}
-	return exec.CommandContext(ctx, program, args...)
+	return disclaim.Cmd(exec.CommandContext(ctx, program, args...))
 }
 
 // MARK: Which are here

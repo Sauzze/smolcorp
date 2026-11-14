@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // Claude Code's version, checked before each desk starts (SANDBOX-PLAN §3.4, SG1). A desk's guard holds only
@@ -31,7 +33,7 @@ func installedClaudeVersion() (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var out bytes.Buffer
-	command := exec.CommandContext(ctx, program, "--version")
+	command := disclaim.Cmd(exec.CommandContext(ctx, program, "--version"))
 	command.Stdout = &out
 	if command.Run() != nil {
 		return "", false
