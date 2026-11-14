@@ -77,8 +77,10 @@ func TestQuotingBracesAndPatterns(t *testing.T) {
 		"/usr/bin/g?t push", "/usr/bin/g[i]t push", "/usr/bin/gi* push", "/usr/*/git push",
 		"sh -c '/usr/bin/g?t push'", "{a..z}{a..z}{a..z} x", `FOO=1 /usr/bin/g?t push`,
 	})
+	// WIN125g: $'…' is refused wherever it is, harmless or not (plain.go).
+	mustRefuse(t, "$'…'", []string{`echo $'a\tb'`})
 	mustRun(t, "quoting", []string{
-		`echo $'a\tb'`, `echo $"hello"`, "echo {a,b}", "echo {1..5}", "ls *.go", "ls src/*.ts", "cat <<EOF\n* one\n** two\nEOF",
+		`echo $"hello"`, "echo {a,b}", "echo {1..5}", "ls *.go", "ls src/*.ts", "cat <<EOF\n* one\n** two\nEOF",
 		"[ -f x ] && echo y", "[[ -f x ]] && echo y", "git commit -m '{git,push}'", `git commit -m "g?t push"`, "echo '/usr/bin/g?t'",
 		"for f in *.go; do echo $f; done", "git add -- '*.go'",
 		"g*t push", "env g?t push", // a name with no / is looked up on the PATH, never globbed

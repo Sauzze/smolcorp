@@ -79,13 +79,6 @@ extension Music {
         }
     }
 
-    /// A level from the office, read as an integer from 0 to 100, or nil for
-    /// anything else.
-    static func volumeLevel(_ text: String?) -> Int? {
-        guard let text, let level = Int(text), (0...100).contains(level) else { return nil }
-        return level
-    }
-
     static func clampedVolume(_ level: Int) -> Int { min(max(level, 0), 100) }
 
     /// Calls `onChange` on the main queue when the volume or mute changes,

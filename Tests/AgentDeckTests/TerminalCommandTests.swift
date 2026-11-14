@@ -116,13 +116,6 @@ final class TerminalCommandTests: XCTestCase {
         XCTAssertEqual(TerminalCommand.json(link: link, command: folder.appendingPathComponent("no"), path: "")["available"] as? Bool, false)
     }
 
-    func testAHireStartsWithTheAppsCommandOnItsPathOnlyWhenItExists() {
-        var role = Role.shipped[0]; role.agent = Agent.claude.rawValue
-        let with = role.startScript(firstMessage: "hello", command: command)
-        XCTAssertTrue(with.contains("export PATH='\(command.deletingLastPathComponent().path)':\"$PATH\"\n"))
-        XCTAssertFalse(role.startScript(firstMessage: "hello", command: folder.appendingPathComponent("no")).contains("export PATH"))
-    }
-
     func testATestCopyNeverTakesALivePort() {
         XCTAssertEqual(TestCopy.livePorts, [7710, 7720, 7730])
         let script = try? String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
@@ -144,11 +137,5 @@ final class TerminalCommandTests: XCTestCase {
             run.waitUntilExit()
             XCTAssertEqual(run.terminationStatus, 1, port)
         }
-    }
-
-    func testTheSetupRouteIsThePagesAlone() {
-        XCTAssertTrue(SetupRoutes.allows(.page, "POST", "/setup/terminal-command"))
-        XCTAssertFalse(SetupRoutes.allows(.gm, "POST", "/setup/terminal-command"))
-        XCTAssertFalse(SetupRoutes.allows(.tool, "POST", "/setup/terminal-command"))
     }
 }

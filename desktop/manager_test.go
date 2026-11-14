@@ -126,7 +126,8 @@ func TestWithTheManagerOffEveryGMRouteIsA409ButTheOpenOnes(t *testing.T) {
 			}
 			w := serve(t, d, call{method: method, target: path, host: "localhost:7710", from: thisComputer, asTool: asTool,
 				headers: map[string]string{setupHeader: "1"}})
-			open := method == "GET" && path == "/setup/gm/version" || method == "POST" && path == "/setup/gm/manager"
+			// By hand stays open too, as on the Mac: served under the Mac app (gmbyhand.go), 404 here.
+			open := method == "GET" && path == "/setup/gm/version" || method == "POST" && (path == "/setup/gm/manager" || path == "/setup/gm/by-hand")
 			if open && w.Code == http.StatusConflict {
 				t.Errorf("%s %s (tool %v): 409, it stays open", method, path, asTool)
 			}
@@ -214,6 +215,13 @@ func TestTheVersionListsExactlyWhatIsServed(t *testing.T) {
 	list, _ := got["features"].([]any)
 	if !reflect.DeepEqual(list, []any{"events", "team"}) {
 		t.Errorf("features %v, want [events team]", list)
+	}
+	// Under the Mac app, a new token and the screens and tiling too, in the Mac's words.
+	withMac(t)
+	d = newTestDeck(t)
+	_, got = managerCall(t, d, "GET", "/setup/gm/version", false)
+	if list, _ := got["features"].([]any); !reflect.DeepEqual(list, []any{"events", "team", "token", "screens", "tile"}) {
+		t.Errorf("features under the Mac app %v", list)
 	}
 }
 

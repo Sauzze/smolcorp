@@ -7,10 +7,13 @@ import AppKit
 /// window and tab indexes shift as tabs move, a tty does not.
 ///
 /// AppleScript runs through osascript, one call at a time on `queue`, so a slow
-/// script never holds up the menu bar or the server. Every script checks that
-/// Terminal is running first, because asking a closed Terminal anything
-/// launches it.
+/// script never holds up the menu bar or the server; the looks at Terminal's
+/// tabs run on pollers of their own (`Poller`), and each script has a time
+/// limit. Every script checks that Terminal is running first, because asking
+/// a closed Terminal anything launches it.
 enum Terminal {
+    /// Terminal.app's tabs' queue: their keys, text, windows opened. Other
+    /// terminals each have their own (`Terminals.queue(for:)`).
     static let queue = DispatchQueue(label: "io.github.sauzze.agentdeck.terminal")
     private static let bundleID = "com.apple.Terminal"
 
@@ -25,7 +28,7 @@ enum Terminal {
         case end = 119
         case c = 8
         case tab = 48
-        /// iPhone app (personal build): a menu's options, picked by their number.
+        /// A menu's options, picked by their number (the talk bubble's pick, HostBridge's keys).
         case one = 18, two = 19, three = 20, four = 21, five = 23, six = 22, seven = 26, eight = 28, nine = 25
 
         private static let digits: [Key] = [.one, .two, .three, .four, .five, .six, .seven, .eight, .nine]
@@ -63,7 +66,7 @@ enum Terminal {
     /// could not be asked. Asked for all at once: windows walked one by one
     /// shift under the walk as one opens, closes or comes to the front, and a
     /// window skipped would look closed.
-    static func openTTYs() -> Set<String>? {
+    static func openTTYs(timeout: TimeInterval = pollTimeout) -> Set<String>? {
         guard let output = run("""
             if application "Terminal" is not running then return ""
             tell application "Terminal" to set byWindow to tty of every tab of every window
@@ -75,7 +78,7 @@ enum Terminal {
             end repeat
             set AppleScript's text item delimiters to linefeed
             return ttys as text
-            """) else { return nil }
+            """, timeout: timeout) else { return nil }
         return Set(output.split(separator: "\n").map(String.init))
     }
 
@@ -153,16 +156,18 @@ enum Terminal {
                 if not frontmost or (count of windows) is 0 then return ""
                 return tty of selected tab of front window
             end tell
-            """)
+            """, timeout: pollTimeout)
         return tty?.isEmpty == false ? tty : nil
     }
 
     static func focus(tty: String) -> Bool {
-        withTab(tty, do: """
-            set selected of t to true
-            set index of w to 1
-            activate
-            """)
+        onlyLooking {
+            withTab(tty, do: """
+                set selected of t to true
+                set index of w to 1
+                activate
+                """)
+        }
     }
 
     /// Types `text` and Return into the tab without bringing it forward.
@@ -175,7 +180,7 @@ enum Terminal {
     /// What the tab shows, as text (its `contents`: the window's lines, not
     /// the scrollback), without bringing it forward. Nil if it isn't there.
     static func contents(tty: String) -> String? {
-        let output = run("""
+        let output = onlyLooking { run("""
             set target to item 1 of argv
             if application "Terminal" is not running then return "no"
             tell application "Terminal"
@@ -186,7 +191,7 @@ enum Terminal {
                 end repeat
             end tell
             return "no"
-            """, arguments: [tty])
+            """, arguments: [tty]) }
         guard let output, output.hasPrefix("yes") else { return nil }
         return String(output.dropFirst(3))
     }
@@ -198,10 +203,13 @@ enum Terminal {
     /// behind other apps, under the screen saver and with the Mac locked, and
     /// never the app in front or the lock screen. Needs Accessibility.
     static func press(_ key: Key, modifiers: CGEventFlags = [], times: Int = 1, tty: String) -> Bool {
-        guard withTab(tty, do: "set selected of t to true\nset index of w to 1"),
-              let terminal = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier else { return false }
+        // Selecting the tab types nothing: a Terminal that didn't answer there has had no key.
+        guard onlyLooking({ withTab(tty, do: "set selected of t to true\nset index of w to 1") }),
+              let terminal = runningPID() else { return false }
         Thread.sleep(forTimeInterval: settle)
         post(key, modifiers: modifiers, times: times, to: terminal)
+        // The keys have gone: a later step that stops answering is "part way", not "nothing typed".
+        noteStep()
         return true
     }
 
@@ -209,8 +217,9 @@ enum Terminal {
     /// always ends with Return, so the characters go as key events carrying
     /// them, to Terminal itself, as `press` sends keys. Needs Accessibility.
     static func insert(_ text: String, tty: String) -> Bool {
-        guard withTab(tty, do: "set selected of t to true\nset index of w to 1"),
-              let terminal = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier else { return false }
+        // Selecting the tab types nothing: a Terminal that didn't answer there has had no key.
+        guard onlyLooking({ withTab(tty, do: "set selected of t to true\nset index of w to 1") }),
+              let terminal = runningPID() else { return false }
         Thread.sleep(forTimeInterval: settle)
         let units = Array(text.utf16)
         // A key event carries a few characters at most: the text goes in pieces.
@@ -219,9 +228,11 @@ enum Terminal {
             for down in [true, false] {
                 let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down)
                 event?.keyboardSetUnicodeString(stringLength: piece.count, unicodeString: piece)
-                event?.postToPid(terminal)
+                if let event { postEvent(event, terminal) }
             }
         }
+        // The text has gone: a later step that stops answering is "part way", not "nothing typed".
+        noteStep()
         return true
     }
 
@@ -231,6 +242,7 @@ enum Terminal {
     private static func pressInFront(_ key: Key, modifiers: CGEventFlags = [], times: Int = 1, tty: String) -> Bool {
         guard !isLocked, focus(tty: tty), waitUntilFrontmost() else { return false }
         post(key, modifiers: modifiers, times: times)
+        noteStep()
         return true
     }
 
@@ -266,17 +278,29 @@ enum Terminal {
     }
 
     /// Opens a new window in `folder`, running `command`, and gives its
-    /// tab's tty, or nil if it didn't open. Both go through `quoted form of`,
-    /// so each is taken as it is: the command is one of the agents' own
-    /// names, or the path of a hire's start-up script.
-    static func open(_ command: String, in folder: String) -> String? {
-        run("""
+    /// tab's tty and the window's id, or nil if it didn't open. Both go
+    /// through `quoted form of`, so each is taken as it is: the command is
+    /// one of the agents' own names, or the path of a hire's start-up script.
+    /// The id is only asked for: without it, the window still opened.
+    static func open(_ command: String, in folder: String) -> (tty: String, window: String?)? {
+        let opened = run("""
             tell application "Terminal"
                 activate
                 set opened to do script "cd " & quoted form of (item 1 of argv) & " && " & quoted form of (item 2 of argv)
-                return "tty:" & (tty of opened)
+                set found to tty of opened
+                try
+                    repeat with w in windows
+                        repeat with t in tabs of w
+                            if tty of t is found then return "tty:" & found & linefeed & (id of w)
+                        end repeat
+                    end repeat
+                end try
+                return "tty:" & found
             end tell
-            """, arguments: [folder, command]).flatMap { $0.hasPrefix("tty:") ? String($0.dropFirst(4)) : nil }
+            """, arguments: [folder, command], timeout: openTimeout)?.split(separator: "\n").map(String.init) ?? []
+        guard let first = opened.first, first.hasPrefix("tty:") else { return nil }
+        let window = opened.count == 2 && !opened[1].isEmpty && opened[1].allSatisfy(\.isNumber) ? opened[1] : nil
+        return (String(first.dropFirst(4)), window)
     }
 
     /// What firing came to: see `fire(tty:agent:)`.
@@ -381,6 +405,70 @@ enum Terminal {
         return .job(tpgid, names: Set(job.map(\.name)), commandLines: job.map(\.args))
     }
 
+    /// The processes in the foreground job of `tty`, each with its command
+    /// line: empty when nothing is in front, nil if `ps` couldn't be asked.
+    static func foregroundJob(tty: String) -> [(pid: pid_t, args: String)]? {
+        guard let rows = processes(on: tty) else { return nil }
+        guard let tpgid = rows.first?.tpgid, tpgid > 0 else { return [] }
+        return rows.filter { $0.pgid == tpgid }.map { ($0.pid, $0.args) }
+    }
+
+    /// What's in front in a tab, for a paste of several lines (RI34b B1):
+    /// where `agent` is, and what else in its foreground job reads the tab's
+    /// keys (RI34c S1).
+    struct TabFront: Equatable {
+        let place: Place
+        /// The names of the processes in the foreground job, other than the
+        /// agent itself, that have the tab's tty as their standard input: a
+        /// terminal editor or a pager the agent opened, a shell. Whichever it
+        /// is, the paste would go to it, not to the agent. Only for saying
+        /// which: having the tty is what counts, whatever the name.
+        let readers: Set<String>
+    }
+
+    /// `agent`'s tab on `tty` as `TabFront` says it; nil if any of it couldn't be looked at.
+    static func front(of agent: Agent, on tty: String) -> TabFront? {
+        guard let place = place(of: agent, on: tty), let job = foregroundJob(tty: tty),
+              let readers = readers(of: agent, in: job, tty: tty) else { return nil }
+        return TabFront(place: place, readers: readers)
+    }
+
+    /// Which processes of `job`, other than `agent` itself, have `tty` as
+    /// their standard input (RI34c S1), by name: the program's own (`name`,
+    /// the path whole, spaces and all) and its command line's first word, as
+    /// `code`, a script, runs as bash. Nil if one couldn't be looked at: not
+    /// known is refused. A hook's or the status line's `sh -c`, an MCP server
+    /// or `caffeinate` has a pipe or /dev/null there, and reads none of the
+    /// tab's keys. The one exception is the system's `caffeinate` (FXI34d), which owners run in front of
+    /// the agent (`caffeinate -di claude`): it has the tab as its input but never reads it. It's known by
+    /// its program's whole path, `/usr/bin/caffeinate`, so a name alone exempts nothing. Settable lookups
+    /// for tests, which give stand-ins.
+    static func readers(of agent: Agent, in job: [(pid: pid_t, args: String)], tty: String,
+                        input: (pid_t) -> Processes.StandardInput = Processes.standardInput(of:),
+                        name: (pid_t) -> String? = Processes.programName(of:),
+                        path: (pid_t) -> String? = Processes.programPath(of:)) -> Set<String>? {
+        let device = tty.hasPrefix("/dev/") ? tty : "/dev/" + tty
+        let named = { (word: String) in (word as NSString).lastPathComponent.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "-")) }
+        var readers: Set<String> = []
+        for process in job where !agent.isItself(commandLine: process.args) {
+            switch input(process.pid) {
+            case .unknown: return nil
+            case .other: continue
+            case .file(let inputPath):
+                guard inputPath == device else { continue }
+                if path(process.pid) == neverReads { continue }
+                let first = process.args.split(separator: " ").first.map(String.init)
+                let names = Set([name(process.pid), first].compactMap { $0.map(named) }.filter { !$0.isEmpty })
+                // Unnamed, it still reads the keys.
+                readers.formUnion(names.isEmpty ? ["?"] : names)
+            }
+        }
+        return readers
+    }
+
+    /// The one program that has the tab's tty as its input and never reads it (see `readers`).
+    static let neverReads = "/usr/bin/caffeinate"
+
     /// Whether a job other than the shell runs on `tty`, as one sent to the
     /// background with `&` or stopped with Ctrl-Z: closing the tab would hang
     /// it up. `shell` as for `foreground`. Nil if that couldn't be looked at.
@@ -426,11 +514,11 @@ enum Terminal {
     }
 
     /// Keys go to whichever app is in front, so they wait until that is
-    /// Terminal. Posted any sooner, they land in the app you were using:
-    /// Space in Finder opens Quick Look.
-    private static func waitUntilFrontmost() -> Bool {
+    /// Terminal (or `bundle`'s app). Posted any sooner, they land in the app
+    /// you were using: Space in Finder opens Quick Look.
+    static func waitUntilFrontmost(_ bundle: String = bundleID) -> Bool {
         let deadline = Date().addingTimeInterval(activationTimeout)
-        while !isFrontmost {
+        while !isFrontmost(bundle) {
             guard Date() < deadline else { return false }
             Thread.sleep(forTimeInterval: 0.01)
         }
@@ -438,9 +526,85 @@ enum Terminal {
         return true
     }
 
-    private static var isFrontmost: Bool {
-        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID
+    private static var isFrontmost: Bool { isFrontmost(bundleID) }
+
+    private static func isFrontmost(_ bundle: String) -> Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundle
     }
+
+    // MARK: Several lines through the clipboard (I34, owner's Q1 b)
+
+    /// The tab brought forward for ⌘V (see `ClipboardPaste`): never while the
+    /// Mac is locked, when the app in front is the lock screen. True once
+    /// Terminal is in front with this very tab selected in its front window,
+    /// asked again after it came forward. Types nothing.
+    static func forwardForPaste(tty: String) -> Bool {
+        guard !isLocked, focus(tty: tty), waitUntilFrontmost() else { return false }
+        return onlyLooking { frontTTY() } == tty
+    }
+
+    /// ⌘V in this very tab (RI34b B2): asked again right before, whether it's
+    /// still the selected tab of Terminal's front window, as a click on
+    /// another tab or window could have changed since it was brought forward.
+    /// Not, and nothing is pressed. `posting` as for `pressPaste(in:)`.
+    static func pressPaste(tty: String, posting: () -> Void = {}) -> PastePress {
+        guard onlyLooking({ frontTTY() }) == tty else { return .notInFront }
+        return pressPaste(in: bundleID, posting: posting) ? .sent : .notInFront
+    }
+
+    /// ⌘V through the keyboard's own path, as Terminal's menu shortcuts go
+    /// (see `pressInFront`): to the app in front, only while that is still
+    /// `bundle`'s, so it never lands in the app you switched to. `posting` is
+    /// called right before the key goes, once every check has passed: the
+    /// clipboard's reads count from then on (RI34c N2).
+    static func pressPaste(in bundle: String, posting: () -> Void = {}) -> Bool {
+        guard !isLocked, isFrontmost(bundle) else { return false }
+        posting()
+        for down in [true, false] {
+            let event = CGEvent(keyboardEventSource: nil, virtualKey: pasteKey, keyDown: down)
+            event?.flags = .maskCommand
+            // "v", whatever the keyboard's layout says that key types.
+            event?.keyboardSetUnicodeString(stringLength: 1, unicodeString: [0x76])
+            if let event { postEvent(event, nil) }
+        }
+        noteStep()
+        return true
+    }
+
+    /// Whether you're using the Mac: keyboard or mouse input in the last
+    /// `inUseWindow` seconds (VICTOR's ruling on RI34b S3). Terminal.app and
+    /// iTerm2 come to the front for ⌘V, which would take your focus, and your
+    /// keys could land in the agent's tab: refused then. Ghostty pastes where
+    /// it is, so it never asks.
+    static var macInUse: Bool { inUse(sinceInput: secondsSinceInput(), sinceOwnKeys: lastOwnKeys.map { -$0.timeIntervalSinceNow }) }
+
+    static let inUseWindow: TimeInterval = 10
+
+    /// In use, given how long ago the Mac last had input and how long ago
+    /// Smolcorp last posted keys of its own (nil: not since it started): the
+    /// Mac may count those as input too, and they aren't you.
+    static func inUse(sinceInput: TimeInterval, sinceOwnKeys: TimeInterval?) -> Bool {
+        guard sinceInput < inUseWindow else { return false }
+        guard let sinceOwnKeys else { return true }
+        return sinceInput < sinceOwnKeys - 0.25
+    }
+
+    /// Seconds since the Mac's keyboard or mouse was last used. Settable for
+    /// tests: the stand-in clock.
+    static var secondsSinceInput: () -> TimeInterval = {
+        CGEventType(rawValue: ~0).map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) } ?? 0
+    }
+
+    /// When Smolcorp last posted keys through the keyboard's path.
+    static var lastOwnKeys: Date? {
+        get { ownKeysLock.withLock { ownKeys } }
+        set { ownKeysLock.withLock { ownKeys = newValue } }
+    }
+    private static var ownKeys: Date?
+    private static let ownKeysLock = NSLock()
+
+    /// V's key, which pastes with ⌘.
+    private static let pasteKey: CGKeyCode = 9
 
     /// Posts `key` to the app in front, or, given `pid`, to that app alone.
     private static func post(_ key: Key, modifiers: CGEventFlags, times: Int, to pid: pid_t? = nil) {
@@ -452,9 +616,24 @@ enum Terminal {
                     let units = Array(character.utf16)
                     event?.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
                 }
-                if let pid { event?.postToPid(pid) } else { event?.post(tap: .cghidEventTap) }
+                if let event { postEvent(event, pid) }
             }
         }
+    }
+
+    /// Sends a key event to `pid`, or with none to the app in front. Settable
+    /// for tests, which give one that posts nothing: no key of theirs ever
+    /// reaches a real app.
+    static var postEvent: (CGEvent, pid_t?) -> Void = { event, pid in
+        if let pid { event.postToPid(pid) } else {
+            lastOwnKeys = Date()
+            event.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// Terminal's pid while it runs. Settable for tests, with `postEvent`.
+    static var runningPID: () -> pid_t? = {
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier
     }
 
     /// Runs `body` with `w` and `t` bound to the window and tab on `tty`.
@@ -477,19 +656,118 @@ enum Terminal {
         return output == "yes"
     }
 
+    /// How long a look at Terminal's tabs may take. It usually answers in a
+    /// fraction of a second; one that doesn't answer, as while macOS asks
+    /// whether Smolcorp may control it, is ended and asked again next round.
+    static let pollTimeout: TimeInterval = 3
+    /// How long any other script may take: a tab found, a key's tab selected, a line typed.
+    static let scriptTimeout: TimeInterval = 4
+    /// How long opening a window may take: Terminal may have to start first,
+    /// or macOS ask you whether Smolcorp may control it.
+    static let openTimeout: TimeInterval = 30
+
+    /// osascript's path. Settable for tests, which give a stand-in: they never ask a real terminal anything.
+    static var osascript = "/usr/bin/osascript"
+
     /// Runs an AppleScript, passing `arguments` as argv rather than splicing
-    /// them into the source. Nil if it failed.
-    static func run(_ source: String, arguments: [String] = []) -> String? {
+    /// them into the source. Nil if it failed, or took longer than `timeout`:
+    /// then osascript is ended by its pid, so a terminal that doesn't answer
+    /// never holds up what waits behind it for long (see `noticingTimeouts`).
+    /// `input`, if given, is the script's `givenText`, read from osascript's standard input:
+    /// as an argument, its accents would come apart (see `Tool.run`).
+    static func run(_ source: String, arguments: [String] = [], input: String? = nil, timeout: TimeInterval = scriptTimeout) -> String? {
+        if leavesAlone(source) { return nil }
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", "on run argv\n\(source)\nend run"] + arguments
+        process.executableURL = URL(fileURLWithPath: osascript)
+        process.arguments = ["-e", script(source, reading: input != nil)] + arguments
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
+        let given = input.map { _ in Pipe() }
+        if let given { process.standardInput = given }
         do { try process.run() } catch { return nil }
+        if let given, let input { Tool.feed(Data(input.utf8), to: given) }
+        noteStep()
+        let pid = process.processIdentifier
+        // Ended when it overruns, which also ends the reading below.
+        let overran = DispatchWorkItem { if process.isRunning { kill(pid, SIGKILL) } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: overran)
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        overran.cancel()
+        guard process.terminationReason == .exit else {
+            noteTimeout()
+            return nil
+        }
         guard process.terminationStatus == 0 else { return nil }
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
+    }
+
+    /// `source` as osascript runs it. Reading `input`, its first line reads the
+    /// standard input whole, as UTF-8, before any app is told anything.
+    static func script(_ source: String, reading input: Bool) -> String {
+        guard input else { return "on run argv\n\(source)\nend run" }
+        return """
+            use framework "Foundation"
+            use scripting additions
+            on run argv
+            set givenText to (current application's NSString's alloc()'s initWithData:(current application's NSFileHandle's \
+            fileHandleWithStandardInput()'s readDataToEndOfFile()) encoding:(current application's NSUTF8StringEncoding)) as text
+            \(source)
+            end run
+            """
+    }
+
+    /// Whether `source` is left unrun because it asks Terminal.app something and this is a test
+    /// copy started with SMOLCORP_TEST_NO_TERMINAL_APP=1: unknown, as when Terminal can't be asked.
+    static func leavesAlone(_ source: String, alone: Bool = TestCopy.leavesTerminalAppAlone) -> Bool {
+        alone && source.contains(#"application "Terminal""#)
+    }
+
+    private static let timedOutKey = "io.github.sauzze.agentdeck.timedOut"
+    private static let mayHaveTypedKey = "io.github.sauzze.agentdeck.mayHaveTyped"
+    private static let lookingKey = "io.github.sauzze.agentdeck.looking"
+
+    /// `body`'s value, whether a script or a tool it ran on this thread was
+    /// ended for taking too long, and if so whether anything may have reached
+    /// the tab by then (`partWay`): a key that didn't go because its terminal
+    /// didn't answer is told apart from a tab that's gone, and "nothing was
+    /// typed" from "part of it may have been". Only a step that just looks, or
+    /// selects (`onlyLooking`), is known to type nothing.
+    static func noticingTimeouts<T>(_ body: () -> T) -> (value: T, timedOut: Bool, partWay: Bool) {
+        let thread = Thread.current.threadDictionary
+        let outer = (thread[timedOutKey], thread[mayHaveTypedKey])
+        thread[timedOutKey] = false
+        thread[mayHaveTypedKey] = false
+        let value = body()
+        let timedOut = thread[timedOutKey] as? Bool == true
+        let typed = thread[mayHaveTypedKey] as? Bool == true
+        thread[timedOutKey] = outer.0.map { ($0 as? Bool == true) || timedOut }
+        thread[mayHaveTypedKey] = outer.1.map { ($0 as? Bool == true) || typed }
+        return (value, timedOut, timedOut && typed)
+    }
+
+    /// A script or a tool was ended for taking too long, on this thread.
+    static func noteTimeout() {
+        let thread = Thread.current.threadDictionary
+        if thread[timedOutKey] != nil { thread[timedOutKey] = true }
+    }
+
+    /// A script or a tool has started on this thread, or Terminal's keys have
+    /// been posted: unless it only looks, what it does may reach the tab even
+    /// if it's ended later.
+    static func noteStep() {
+        let thread = Thread.current.threadDictionary
+        if thread[mayHaveTypedKey] != nil, thread[lookingKey] as? Bool != true { thread[mayHaveTypedKey] = true }
+    }
+
+    /// Runs `body`, whose scripts and tools only look at a tab or select it:
+    /// one of them ended for taking too long has typed nothing.
+    static func onlyLooking<T>(_ body: () -> T) -> T {
+        let thread = Thread.current.threadDictionary
+        let outer = thread[lookingKey]
+        thread[lookingKey] = true
+        defer { thread[lookingKey] = outer }
+        return body()
     }
 }

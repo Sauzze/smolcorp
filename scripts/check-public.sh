@@ -1,7 +1,9 @@
 #!/bin/bash
 # Fails if what's committed holds something that must never be public: an
-# Anthropic API key, a name or path from the maintainer's own machine, or the
-# folders of notes and briefs a personal build keeps beside the code.
+# Anthropic API key, an AWS access key ID or secret key, a name or path from the
+# maintainer's own machine, or the folders of notes and briefs a personal build
+# keeps beside the code. A test that needs a key-shaped string puts it together
+# when it runs ("AKIA" + "FAKE…"), so no file holds one whole.
 #
 #   scripts/check-public.sh
 #
@@ -46,6 +48,21 @@ be749ba2d8f48610a3c3367bff24e9b260d3b8393e73a2c5b6804562e598f1bb
 6828a5f9092bab4d80dfb88766d987e614eca27181e8d2e7bbd943fcadeab7c0
 """.split())
 API_KEY = re.compile(rb"sk-ant-[A-Za-z0-9_-]{8,}")
+# An AWS access key ID (AKIA… for a long-lived key, ASIA… for a temporary one), and a
+# secret key: a run of 40 of its characters with capitals, small letters and digits, on
+# a line that also says aws, secret, AKIA or ASIA. (A git hash is all lowercase.)
+AWS_KEY_ID = re.compile(rb"(?<![A-Za-z0-9])(AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9])")
+AWS_SECRET = re.compile(rb"(?<![A-Za-z0-9/+])[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+=])")  # KEY=… is one
+AWS_NEAR = re.compile(rb"[Aa][Ww][Ss]|[Ss][Ee][Cc][Rr][Ee][Tt]|AKIA|ASIA")
+
+def aws_secret(data):
+    for line in data.split(b"\n"):
+        if AWS_NEAR.search(line):
+            for run in AWS_SECRET.findall(line):
+                if re.search(rb"[A-Z]", run) and re.search(rb"[a-z]", run) and re.search(rb"[0-9]", run):
+                    return True
+    return False
+
 KEPT_OUT = ("notes-out/", ".team/", "security/")
 
 problems = []
@@ -62,6 +79,10 @@ for name in all_names:
         continue  # an image or a sound
     if API_KEY.search(data):
         problems.append(f"{name}: what looks like an Anthropic API key")
+    if AWS_KEY_ID.search(data):
+        problems.append(f"{name}: what looks like an AWS access key ID")
+    if aws_secret(data):
+        problems.append(f"{name}: what looks like an AWS secret key")
     words = re.findall(r"[a-z0-9]+", data.decode("utf-8", "replace").lower())
     found = False
     for size in (1, 2, 3):

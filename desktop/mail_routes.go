@@ -119,6 +119,7 @@ func (rt *router) mailSend(w http.ResponseWriter, r *request) {
 		writeStatus(w)(refusal.Status, refusal.Message)
 		return
 	}
+	d.owner.notOwners(req.Text) // mail is never the owner's words, even typed into the GM's terminal (ownerwords.go)
 	if added.ToGM && !added.Duplicate && signer != nil {
 		// Kept first, then told: the GM's inbox learns of it as it does of a bot's reply.
 		d.events.append(mailInboxEntry(*signer, added.Message))

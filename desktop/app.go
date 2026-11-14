@@ -21,6 +21,11 @@ var trayIcons embed.FS
 // RunApp is the app: the deck's server, with an icon in the tray, the
 // counterpart of the Mac app's menu bar item. It returns when you quit.
 func RunApp() int {
+	// First, before any key exists in this process: its memory kept from your
+	// other programs (memory.go). If that fails, nothing starts.
+	if err := protectMemory(); err != nil {
+		return refuseUnprotected(err)
+	}
 	// Opened from Downloads or an unzipped folder, it installs itself and
 	// starts from there (Windows), before anything names this copy.
 	restarted := takeStartNotes()
@@ -43,7 +48,10 @@ func RunApp() int {
 	deck := NewDeck()
 	refreshHooks()
 	deck.mu.Lock()
-	lookAtFirewall(scopeOf(deck.config))
+	// Nothing to read for a test copy on this computer only: the firewall doesn't filter loopback (RTCH N2).
+	if scope := effectiveScope(deck.config); scope != listenThisComputer {
+		lookAtFirewall(scope)
+	}
 	deck.mu.Unlock()
 	watchOpenCode()
 	moveOpenAtLogin()
@@ -90,6 +98,10 @@ func runWithTray(deck *Deck, failed chan error, firstRun bool) int {
 // RunServer is the server alone, for a computer without a desktop to show a
 // tray on, such as a Linux machine you reach over SSH.
 func RunServer() int {
+	// First, as the app's: its memory kept from your other programs, or nothing starts.
+	if err := protectMemory(); err != nil {
+		return refuseUnprotected(err)
+	}
 	// Started to take another's place, as for the home Wi-Fi: it waits for that one.
 	acquire := acquireInstance
 	if takeStartNotes() {
@@ -125,6 +137,9 @@ func stopPortableOnSignalNow(deck *Deck) {
 	go func() {
 		<-stopped
 		deck.portable.Stop(viewerQuitWait)
+		deck.waitForHires(hireStopWait)
+		// The GM's token's last change, kept for the next run (gmtokenstore.go).
+		deck.gmKept.flush(gmTokenFlushWait)
 		forgetPid()
 		os.Exit(1)
 	}()
@@ -137,9 +152,10 @@ const noTrayNewLink = "run smolcorp quit (or press Ctrl+C in its terminal), then
 
 // printSetupLink says where setup is, with no tray to open it from: on this
 // computer, or through a tunnel to its port, as ssh -L 7710:localhost:7710.
-// The link works once, for five minutes, and never carries the setup key.
+// The link works once, for a minute off a Mac (setupTokenLifetime), and never carries the setup key.
 func printSetupLink(out io.Writer, deck *Deck) {
-	fmt.Fprintf(out, "Smolcorp's setup: %s\nIt works once, for five minutes. For a new one, choose Open Setup… from the tray icon; with no tray, "+noTrayNewLink+".\n", deck.setupLink(""))
+	fmt.Fprintf(out, "Smolcorp's setup: %s\nIt works once, for %s. For a new one, choose Open Setup… from the tray icon; with no tray, "+noTrayNewLink+".\n",
+		deck.setupLink(""), demoWaitWords(setupTokenLifetime))
 }
 
 // trayHostWait is how long a desktop has to start the panel the tray's icon
@@ -159,6 +175,12 @@ func lookForTrayHost(deck *Deck, out io.Writer, setupOpen bool) {
 		}
 	}
 }
+
+// The tray's "used first" warning and its clear, off a Mac (setuplink.go).
+const (
+	usedFirstMenuTitle = "⚠ Another program used your last Setup link first…"
+	usedFirstSeenTitle = "    I've seen it: clear this warning"
+)
 
 // noTrayMessage is what Smolcorp prints on a desktop with no tray.
 const noTrayMessage = `This desktop has no tray for Smolcorp's icon (on GNOME, the AppIndicator extension adds one).
@@ -193,6 +215,11 @@ type tray struct {
 	quit                                  *systray.MenuItem
 	logo                                  string
 	code                                  *int // what RunApp returns
+	// "Show Me Around Again": the first-run guide's arrows, from the start.
+	guide *systray.MenuItem
+	// A Setup link used first by another program (setuplink.go): the warning, which opens Setup to see what it
+	// changed, and the owner's "I've seen it", the one place it clears off a Mac.
+	usedFirst, usedFirstSeen *systray.MenuItem
 }
 
 func newTray(deck *Deck, failed <-chan error, code *int) {
@@ -203,6 +230,10 @@ func newTray(deck *Deck, failed <-chan error, code *int) {
 	systray.SetTooltip("Smolcorp")
 	t.count = systray.AddMenuItem("", "")
 	t.count.Disable()
+	t.usedFirst = systray.AddMenuItem(usedFirstMenuTitle, "Setup lists what that program changed")
+	t.usedFirstSeen = systray.AddMenuItem(usedFirstSeenTitle, "Takes the warning away, here and in Setup")
+	t.usedFirst.Hide()
+	t.usedFirstSeen.Hide()
 	systray.AddSeparator()
 	t.office = systray.AddMenuItem("Show Office", "")
 	if hasNativeWindow {
@@ -217,6 +248,7 @@ func newTray(deck *Deck, failed <-chan error, code *int) {
 	t.setup = systray.AddMenuItem("Open Setup…", "")
 	t.pair = systray.AddMenuItem("Pair a Phone…", "")
 	t.unpair = systray.AddMenuItem("Unpair All Phones…", "")
+	t.guide = systray.AddMenuItem("Show Me Around Again", "Setup's arrows to the folder for hires and your first General Manager")
 	systray.AddSeparator()
 	t.portableStatus = systray.AddMenuItem("", "")
 	t.portableStatus.Disable()
@@ -240,67 +272,58 @@ func newTray(deck *Deck, failed <-chan error, code *int) {
 // update shows the sessions, and how many are waiting on you, the way the
 // Mac's menu bar title does.
 func (t *tray) update() {
-	d := t.deck
-	d.mu.Lock()
-	all := d.sessions.All()
-	waiting := 0
-	for _, s := range all {
-		if s.State == Asking {
-			waiting++
-		}
-	}
-	// The office window's own device is not a phone to unpair.
-	phones := phonesOnly(d.access.Phones)
-	logo := d.config.Logo
-	onTop := d.config.AlwaysOnTop
-	d.mu.Unlock()
-
-	if len(all) == 1 {
+	state := t.deck.menuState()
+	if state.Sessions == 1 {
 		t.count.SetTitle("1 agent session")
 	} else {
-		t.count.SetTitle(fmt.Sprintf("%d agent sessions", len(all)))
+		t.count.SetTitle(fmt.Sprintf("%d agent sessions", state.Sessions))
 	}
 	title := ""
-	if waiting > 0 {
-		title = fmt.Sprint(waiting)
+	if state.Waiting > 0 {
+		title = fmt.Sprint(state.Waiting)
 	}
 	systray.SetTitle(title)
-	systray.SetTooltip(strings.TrimSpace("Smolcorp " + map[bool]string{true: "· " + title + " waiting on you"}[waiting > 0]))
-	if phones > 0 {
+	systray.SetTooltip(strings.TrimSpace("Smolcorp " + map[bool]string{true: "· " + title + " waiting on you"}[state.Waiting > 0]))
+	if state.UsedFirst {
+		t.usedFirst.Show()
+		t.usedFirstSeen.Show()
+	} else {
+		t.usedFirst.Hide()
+		t.usedFirstSeen.Hide()
+	}
+	if state.Phones > 0 {
 		t.unpair.Show()
 	} else {
 		t.unpair.Hide()
 	}
-	t.updatePortable()
+	t.updatePortable(state.Portable)
 	// Set from setup too: the check box follows.
-	if hasNativeWindow && onTop != t.onTop.Checked() {
-		if onTop {
+	if hasNativeWindow && state.OnTop != t.onTop.Checked() {
+		if state.OnTop {
 			t.onTop.Check()
 		} else {
 			t.onTop.Uncheck()
 		}
 	}
-	if logo != t.logo {
-		if icon, err := trayIcons.ReadFile("tray-" + logo + ".png"); err == nil {
+	if state.Logo != t.logo {
+		if icon, err := trayIcons.ReadFile("tray-" + state.Logo + ".png"); err == nil {
 			systray.SetIcon(trayIcon(icon))
-			t.logo = logo
+			t.logo = state.Logo
 		}
 	}
 }
 
 // updatePortable shows the portable office as the Mac's menu does: on, with
 // how it's going, and its switch; or off, with what it needs.
-func (t *tray) updatePortable() {
-	portable := t.deck.portable
-	on, setUp := portable.IsOn(), portable.IsSetUp()
-	status, problem := portable.Status()
+func (t *tray) updatePortable(portable portableMenu) {
+	on, setUp := portable.On, portable.SetUp
 	switch {
 	case on:
-		t.portableStatus.SetTitle("Portable office: ON · " + status)
+		t.portableStatus.SetTitle("Portable office: ON · " + portable.Status)
 		t.portableStatus.Show()
 		t.portable.SetTitle("Stop portable office")
-	case setUp && problem != "":
-		t.portableStatus.SetTitle(problem)
+	case setUp && portable.Problem != "":
+		t.portableStatus.SetTitle(portable.Problem)
 		t.portableStatus.Show()
 	default:
 		t.portableStatus.Hide()
@@ -332,6 +355,10 @@ func (t *tray) listen(failed <-chan error) {
 			}
 		case <-t.setup.ClickedCh:
 			t.deck.openSetup("")
+		case <-t.usedFirst.ClickedCh:
+			t.deck.openSetup("")
+		case <-t.usedFirstSeen.ClickedCh:
+			t.deck.clearUsedFirst()
 		case <-t.pair.ClickedCh:
 			// The setup page has a code ready when it opens on #pair.
 			t.deck.openSetup("pair")
@@ -344,6 +371,8 @@ func (t *tray) listen(failed <-chan error) {
 			} else {
 				t.deck.portable.Start()
 			}
+		case <-t.guide.ClickedCh:
+			_ = t.deck.showGuideAgain()
 		case <-t.viewerSetup.ClickedCh:
 			t.deck.openSetup("viewer")
 		case <-t.login.ClickedCh:
@@ -356,6 +385,8 @@ func (t *tray) listen(failed <-chan error) {
 		case <-t.quit.ClickedCh:
 			// The portable office stops on quit, and the viewer is asked to forget it, for up to 5 s.
 			t.deck.portable.Stop(viewerQuitWait)
+			t.deck.waitForHires(hireStopWait)
+			t.deck.gmKept.flush(gmTokenFlushWait)
 			systray.Quit()
 			return
 		case err := <-failed:

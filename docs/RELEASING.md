@@ -14,7 +14,9 @@ release notes:
 | `build/Smolcorp.zip` | The same app, zipped, for the Homebrew cask and older links. Keep uploading it. |
 
 The script won't run with uncommitted changes or untracked files: commit them
-or set them aside first.
+or set them aside first. It needs [Go](https://go.dev) 1.26 or later, as any
+build of the app does: the app's core, `Contents/Resources/bin/smolcorp`, is
+built from `cmd/smolcorp` for both architectures.
 
 ## The DMG
 
@@ -50,8 +52,8 @@ build/dmg-venv/bin/python packaging/macos/dmg/preview.py build/dmg-preview.png
 ## Signing and notarisation
 
 By default the app is **signed ad hoc**: it works, but the first time people
-open it, macOS asks them to approve it in System Settings → Privacy & Security
-(the README explains how). A Developer ID and Apple's notarisation remove that
+open it, macOS asks them to approve it in System Settings → Privacy & Security.
+A Developer ID and Apple's notarisation remove that
 step. `release.sh` does both when two environment variables are set. Without
 them it signs ad hoc, as it always has.
 
@@ -117,8 +119,8 @@ SMOLCORP_NOTARY_PROFILE=smolcorp-notary \
 scripts/release.sh
 ```
 
-Notarisation usually takes a few minutes. If Apple rejects it, the script
-stops. See why with:
+Notarisation usually takes a few minutes each time. If Apple rejects it, the
+script stops. See why with:
 
 ```bash
 xcrun notarytool log <submission-id> --keychain-profile smolcorp-notary
@@ -127,3 +129,58 @@ xcrun notarytool log <submission-id> --keychain-profile smolcorp-notary
 Releases are notarised since 1.24.2, so the README's and FIRST-SETUP.md's
 install steps have no **Open Anyway** step. A release made without
 `SMOLCORP_NOTARY_PROFILE` would need it back.
+
+## Every build is hardened, and who may sign it
+
+Every Mac build has the hardened runtime: a release, a copy of your own built by
+`scripts/build-app.sh` or `install.sh`, and a test copy. That covers the app, the
+`smolcorp` command and tmux inside it. Without it, any program of yours (a hire
+among them) could attach a debugger to them, or slip a library in with
+`DYLD_INSERT_LIBRARIES`, and read the keys they hold in memory, or change the
+guard's answer. `scripts/check-runtime.sh` checks each file after signing, and a
+build without the runtime stops there. `scripts/build-app.sh --check-signing`
+says how it would sign, and signs and builds nothing.
+
+Smolcorp's Keychain items open for any app signed with the same certificate as
+Smolcorp. So a program of yours that can sign with your "Smolcorp Local" or
+Developer ID identity could build a changed Smolcorp that reads them. Three
+identities keep that apart:
+
+| Identity | Signs | Where it lives |
+|---|---|---|
+| Developer ID | releases | a keychain of its own, locked when not signing |
+| "Smolcorp Local" | the copy you install yourself | the same keychain, or one like it |
+| "Smolcorp Test" | the team's test copies, named in `SMOLCORP_TEST_SIGN_IDENTITY` (ad hoc without it) | the testers' own keychains: its requirement isn't the app's, so a test copy never reads the installed app's items |
+
+To move your identities into a keychain of their own, once (your step; nothing
+in this repository does it for you):
+
+```bash
+security create-keychain ~/Library/Keychains/smolcorp-signing.keychain-db   # asks for a new password
+security set-keychain-settings -l -u -t 300 ~/Library/Keychains/smolcorp-signing.keychain-db  # locks on sleep and after 5 minutes
+```
+
+Then, in Keychain Access, move the identities (certificate and private key)
+from the login keychain into it. A private key moved like that usually lets
+`codesign` in only after a "wants to access key" dialog, at every build. To let
+it in once and for all, give the key's partition list `codesign` (it asks for
+the keychain's password):
+
+```bash
+security set-key-partition-list -S apple-tool:,apple: -s ~/Library/Keychains/smolcorp-signing.keychain-db
+```
+
+Point the build at it:
+
+```bash
+SMOLCORP_SIGN_KEYCHAIN=~/Library/Keychains/smolcorp-signing.keychain-db scripts/build-app.sh
+```
+
+It asks for that keychain's password in the terminal, signs, and locks the
+keychain again when it ends, however it ends. It refuses to name the login
+keychain, which it would otherwise lock. If the identity isn't in that keychain,
+it signs ad hoc and says so. A test copy is never signed with these
+identities, so building one asks for nothing. `scripts/release.sh` doesn't take
+`SMOLCORP_SIGN_KEYCHAIN` yet: with the Developer ID in that keychain, macOS asks
+for its password when the release signs, and you lock it again yourself
+(`security lock-keychain <file>`).

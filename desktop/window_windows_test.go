@@ -66,7 +66,7 @@ func TestLiveWindow(t *testing.T) {
 	defer server.CloseClientConnections() // the office's event stream would keep Close waiting
 
 	deck.mu.Lock()
-	key := ensureWindowKey(deck.access.Phones, windowKeyFile)
+	key := ensureWindowKey(deck.access.Phones, &deck.access.windowDeviceKey)
 	deck.mu.Unlock()
 	if os.Getenv("SMOLCORP_LIVE_HELLO") != "" {
 		key = ""
@@ -74,6 +74,7 @@ func TestLiveWindow(t *testing.T) {
 	placeFile := os.Getenv("SMOLCORP_LIVE_STATE")
 	run := windowRun{
 		url:      officeAddress(server.URL, key),
+		script:   windowKeyScript(server.URL, key),
 		fallback: officeAddress(server.URL, ""),
 		onTop:    os.Getenv("SMOLCORP_LIVE_TOP") == "1",
 		icon:     mustIcon(t),

@@ -32,6 +32,8 @@ type Member struct {
 	Agent       string  `json:"agent"`
 	Folder      string  `json:"folder"`
 	Branch      string  `json:"branch"`
+	Worktree    string  `json:"worktree"`
+	Registered  bool    `json:"registered"` // a hire, not a session alone
 	Desk        *int    `json:"desk"`
 	Floor       *int    `json:"floor"`
 	Live        bool    `json:"live"`
@@ -115,6 +117,17 @@ func Team(c *Client) (TeamReply, []byte, error) {
 		return TeamReply{}, nil, decodeError(err)
 	}
 	return t, raw, nil
+}
+
+// TeamHere is the team, asked as `smolcorp gm team` asks it, from this process's environment:
+// the GM's token and the app's port. In a hire's environment it refuses, as the CLI does.
+func TeamHere() ([]Member, error) {
+	c, err := NewClient(osEnv())
+	if err != nil {
+		return nil, err
+	}
+	t, _, err := Team(c)
+	return t.Team, err
 }
 
 // Events asks for the events after since, waiting up to wait seconds for one,

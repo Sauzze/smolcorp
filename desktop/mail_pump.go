@@ -27,6 +27,8 @@ type mailPump struct {
 	bot func(mailMessage)
 	// typeIn types a hire's message into its window: commit is called just before the first thing that types.
 	typeIn func(h Hire, text string, commit func() bool) mailResult
+	// t3 sends a hire in T3 Code its message, on t3's standard input (t3desk.go); nil is t3Mail on this computer.
+	t3 func(h Hire, text string, commit func() bool) mailResult
 	// look looks in the bots' mailboxes for replies, at the given time.
 	look func(time.Time)
 	now  func() time.Time
@@ -76,6 +78,17 @@ func (p *mailPump) deliverToHire(m mailMessage, h Hire) {
 		// Never typed into; mailType says so too, this keeps the window out of reach altogether.
 		_, why := mailGate(mailTarget{GM: true}, "", false)
 		result = mailResult{Outcome: mailCannot, Note: why}
+		return
+	}
+	// A hire in T3 Code has no window: its thread takes the text on t3's standard input, and queues it while busy.
+	if h.Engine == t3Engine {
+		send := p.t3
+		if send == nil {
+			send = func(h Hire, text string, commit func() bool) mailResult {
+				return t3Mail(h, text, commit, newT3Machine())
+			}
+		}
+		result = send(h, attempt.Text, attempt.Commit)
 		return
 	}
 	result = p.typeIn(h, attempt.Text, attempt.Commit)

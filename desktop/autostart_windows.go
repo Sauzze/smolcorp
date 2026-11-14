@@ -29,6 +29,10 @@ func isOpenAtLogin() bool {
 // moveOpenAtLogin turns an entry under the old name into one under the new,
 // so the app isn't started twice at sign-in.
 func moveOpenAtLogin() {
+	// Opening at login is the Smolcorp in use's: a test copy's entry would start the copy in its place (RWTC N3).
+	if testCopyPort() != 0 {
+		return
+	}
 	key, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.QUERY_VALUE)
 	if err != nil {
 		return
@@ -41,6 +45,10 @@ func moveOpenAtLogin() {
 }
 
 func setOpenAtLogin(enabled bool) {
+	// Opening at login is the Smolcorp in use's: a test copy's entry would start the copy in its place (RWTC N3).
+	if testCopyPort() != 0 {
+		return
+	}
 	key, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.SET_VALUE)
 	if err != nil {
 		return

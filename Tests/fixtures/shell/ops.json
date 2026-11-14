@@ -1,0 +1,85 @@
+{
+  "about": "The Mac app and its Go core on the core's standard input and output, a line of JSON each way (M7MENU): each op the app may ask (Sources/AgentDeck/Engine.swift, GoCore.Op) and what the core's answer carries besides its id (desktop/core_darwin.go, answerShell), on a test deck with a stand-in app that says yes; then the menu's state the core sends unasked, with no id, whenever it changes, and the menu bar menu the app shows for it (GoShellDelegate.fill, the Swift app's StatusMenu before 1.25.0), each item's title, '-' for a separator, '(off)' after a line that can't be chosen, ' ✓' after one ticked, and a submenu's items indented. desktop/core_darwin_test.go checks the core answers each op so; ShellMenuTests.swift checks the app asks only these and shows each menu so.",
+  "ops": [
+    {"request": {"op": "office"}, "carries": ["key"]},
+    {"request": {"op": "setup-session"}, "carries": ["session", "cookie"]},
+    {"request": {"op": "setup-link", "then": "pair"}, "carries": ["link"]},
+    {"request": {"op": "menu"}, "carries": ["menu"]},
+    {"request": {"op": "guide-again"}, "carries": []},
+    {"request": {"op": "unpair-all"}, "carries": []},
+    {"request": {"op": "portable-start"}, "carries": []},
+    {"request": {"op": "portable-stop"}, "carries": []},
+    {"request": {"op": "viewer-link"}, "carries": ["error"]},
+    {"request": {"op": "office-ontop", "on": true}, "carries": []}
+  ],
+  "menus": [
+    {
+      "name": "a Mac set up, a phone paired, one desk waiting, the portable office set up and off",
+      "pushed": {"menu": {"sessions": 2, "waiting": 1, "phones": 1, "logo": "smolcorp", "onTop": true,
+                          "portable": {"on": false, "setUp": true, "status": "starting", "problem": ""}}},
+      "office": {"shown": true, "onTop": true, "allSpaces": false, "clickThrough": false, "upright": false},
+      "openAtLogin": true,
+      "beside": " 1",
+      "lines": [
+        "2 agent sessions (off)", "-",
+        "Settings…", "Open Settings in Browser", "Pair a Phone…", "Show Me Around Again", "Unpair All Phones…", "-",
+        "Going away: launch portable office", "-",
+        "Show Office ✓", "Office Window",
+        "  Always on Top ✓", "  Show on All Spaces", "  Click-Through", "  -", "  Sideways ✓", "  Upright",
+        "Install Screen Saver…", "Open at Login ✓", "-",
+        "Quit Smolcorp"
+      ]
+    },
+    {
+      "name": "the portable office on, no phone, nobody waiting",
+      "pushed": {"menu": {"sessions": 1, "waiting": 0, "phones": 0, "logo": "keys", "onTop": false,
+                          "portable": {"on": true, "setUp": true, "status": "last sent 4 s ago", "problem": ""}}},
+      "office": {"shown": false, "onTop": false, "allSpaces": true, "clickThrough": true, "upright": true},
+      "openAtLogin": false,
+      "beside": "",
+      "lines": [
+        "1 agent session (off)", "-",
+        "Settings…", "Open Settings in Browser", "Pair a Phone…", "Show Me Around Again", "-",
+        "Portable office: ON · last sent 4 s ago (off)", "Stop portable office", "Copy viewer link", "-",
+        "Show Office", "Office Window",
+        "  Always on Top", "  Show on All Spaces ✓", "  Click-Through ✓", "  -", "  Sideways", "  Upright ✓",
+        "Install Screen Saver…", "Open at Login", "-",
+        "Quit Smolcorp"
+      ]
+    },
+    {
+      "name": "the viewer not set up yet",
+      "pushed": {"menu": {"sessions": 0, "waiting": 0, "phones": 0, "logo": "smolcorp", "onTop": false,
+                          "portable": {"on": false, "setUp": false, "status": "starting", "problem": ""}}},
+      "office": {"shown": false, "onTop": false, "allSpaces": false, "clickThrough": false, "upright": false},
+      "openAtLogin": false,
+      "beside": "",
+      "lines": [
+        "0 agent sessions (off)", "-",
+        "Settings…", "Open Settings in Browser", "Pair a Phone…", "Show Me Around Again", "-",
+        "Going away: launch portable office (off)", "    Set up the viewer on the setup page", "-",
+        "Show Office", "Office Window",
+        "  Always on Top", "  Show on All Spaces", "  Click-Through", "  -", "  Sideways ✓", "  Upright",
+        "Install Screen Saver…", "Open at Login", "-",
+        "Quit Smolcorp"
+      ]
+    },
+    {
+      "name": "set up, but the viewer can't be reached",
+      "pushed": {"menu": {"sessions": 3, "waiting": 3, "phones": 2, "logo": "smolcorp", "onTop": false,
+                          "portable": {"on": false, "setUp": true, "status": "couldn't reach the viewer", "problem": "Couldn't reach the viewer"}}},
+      "office": {"shown": true, "onTop": false, "allSpaces": false, "clickThrough": false, "upright": false},
+      "openAtLogin": false,
+      "beside": " 3",
+      "lines": [
+        "3 agent sessions (off)", "-",
+        "Settings…", "Open Settings in Browser", "Pair a Phone…", "Show Me Around Again", "Unpair All Phones…", "-",
+        "Going away: launch portable office", "Couldn't reach the viewer (off)", "-",
+        "Show Office ✓", "Office Window",
+        "  Always on Top", "  Show on All Spaces", "  Click-Through", "  -", "  Sideways ✓", "  Upright",
+        "Install Screen Saver…", "Open at Login", "-",
+        "Quit Smolcorp"
+      ]
+    }
+  ]
+}

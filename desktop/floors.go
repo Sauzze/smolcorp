@@ -146,11 +146,21 @@ func (d *Deck) aboveGround(s *Session) (int, bool) {
 	if bot, ok := d.cloud.botOf(s.ID); ok {
 		return d.cloudFloor(bot), true
 	}
+	if hire, ok := d.t3Desks.hireOf(s.ID); ok {
+		return t3FloorOf(hire), true
+	}
 	put, ok := d.floorOf[s.ID]
 	if !ok {
 		put = -1
 	}
-	return floorOfProject(s.Project, put, d.config.FloorRules)
+	if floor, ok := floorOfProject(s.Project, put, d.config.FloorRules); ok {
+		return floor, true
+	}
+	// Pinned to a desk upstairs, and nothing else says where: on that floor, as a pinned key keeps its folder downstairs.
+	if seat, ok := d.config.upstairsPin(s.Project); ok {
+		return seat.Floor, true
+	}
+	return 0, false
 }
 
 // cloudFloor is the floor cloud bot bot sits on: the one it was put on, else
@@ -181,6 +191,14 @@ func (d *Deck) seatedBuilding(overflow []*Session) ([][]seatedPerson[*Session], 
 		if seat, ok := d.seatOf[s.ID]; ok {
 			p.had = &seat
 		}
+		// A pin is a project's desk for its agents' sessions. A cloud bot has its own desk (its floor, kept or
+		// not), and a hire in T3 Code the desk the registry kept for it, where swapKeys leaves it; a pin on
+		// their folder doesn't move them.
+		_, bot := d.cloud.botOf(s.ID)
+		_, t3 := d.t3Desks.hireOf(s.ID)
+		if seat, ok := d.config.upstairsPin(s.Project); ok && !bot && !t3 {
+			p.pin = &seat
+		}
 		return p
 	}
 	var placed, rest []upstairsPerson[*Session]
@@ -199,6 +217,17 @@ func (d *Deck) seatedBuilding(overflow []*Session) ([][]seatedPerson[*Session], 
 	for i, s := range bots {
 		put(s, of[i].floorIndex() < 0)
 	}
+	// A hire in T3 Code upstairs is on the floor it was hired onto, at the desk the registry kept for it.
+	for _, one := range d.t3Seated() {
+		if floor := t3FloorOf(one.hire); floor > 0 && !isPlaced[one.session.ID] {
+			p := up(one.session, floor)
+			if p.had == nil && one.hire.T3Desk != nil {
+				p.had = &Seat{floor, *one.hire.T3Desk}
+			}
+			placed = append(placed, p)
+			isPlaced[one.session.ID] = true
+		}
+	}
 	for _, s := range headless {
 		put(s, false)
 	}
@@ -213,7 +242,7 @@ func (d *Deck) seatedBuilding(overflow []*Session) ([][]seatedPerson[*Session], 
 			rest = append(rest, up(s, -1))
 		}
 	}
-	seated, over, seats := seatBuilding(placed, rest)
+	seated, over, seats := seatBuilding(placed, rest, d.config.upstairsPins()...)
 	for id, seat := range seats {
 		d.seatOf[id] = seat
 	}
@@ -254,6 +283,12 @@ func (d *Deck) upperEntry(s *Session) map[string]any {
 	if bot, ok := d.cloud.botOf(s.ID); ok {
 		return d.cloudEntry(s, bot)
 	}
+	// Picked by a tap, upstairs as downstairs, so its thread opens: there's nothing to drive.
+	if hire, ok := d.t3Desks.hireOf(s.ID); ok {
+		entry := d.t3Entry(s, hire)
+		entry["headless"], entry["drivable"] = false, true
+		return entry
+	}
 	entry := d.sessionEntry(s)
 	if !s.Headless() {
 		floor, put := d.aboveGround(s)
@@ -263,7 +298,7 @@ func (d *Deck) upperEntry(s *Session) map[string]any {
 		return entry
 	}
 	entry["headless"] = true
-	for _, control := range []string{"keys", "fire", "mic", "dial", "dictates", "summary"} {
+	for _, control := range []string{"keys", "fire", "mic", "dial", "dictates", "summary", "phoneMic"} {
 		entry[control] = false
 	}
 	entry["role"] = nil
@@ -305,9 +340,16 @@ func (d *Deck) floorsState(overflow []*Session) ([]map[string]any, int, map[stri
 	}
 	shown := make([]map[string]any, floorCount)
 	for i, floor := range checkedFloors(d.config.Floors) {
-		// How many there wait on you, for the elevator's list to say so.
+		// How many there wait on you, for the elevator's list to say so; and each desk's pin, by its folder's name,
+		// as a key's: a pinned desk upstairs with nobody at it is kept for its folder.
+		pins := make([]any, desksPerFloor)
+		for desk := range pins {
+			if pin := d.config.pinAt(i, desk); pin != nil {
+				pins[desk] = lastPathComponent(*pin)
+			}
+		}
 		shown[i] = map[string]any{"n": i + 1, "name": floor.Name, "preset": floor.Preset, "desks": entries(floors[i]),
-			"asking": asking(floors[i])}
+			"asking": asking(floors[i]), "pins": pins}
 	}
 	second, past := secondFloor(floors, over)
 	return shown, over, map[string]any{"desks": entries(second), "overflow": past}

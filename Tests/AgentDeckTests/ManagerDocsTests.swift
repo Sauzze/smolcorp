@@ -10,7 +10,13 @@ final class ManagerDocsTests: XCTestCase {
 
     func testAPIDocMentionsEveryGMRoute() throws {
         let text = try String(contentsOf: docs.appendingPathComponent("API.md"), encoding: .utf8)
-        let rows = SetupRoutes.table.filter { $0.path.hasPrefix("/setup/gm/") }
+        // Setup's route table as the Go app keeps it (desktop/routes.go), in its shared copy.
+        let table = docs.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Tests/fixtures/frontdesk/routes.json")
+        let routes = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: table)) as? [String: Any])?["routes"] as? [[String: Any]])
+        let rows = routes.compactMap { row -> (method: String, path: String)? in
+            guard let method = row["method"] as? String, let path = row["path"] as? String, path.hasPrefix("/setup/gm/") else { return nil }
+            return (method, path)
+        }
         XCTAssertGreaterThan(rows.count, 15)
         for row in rows {
             XCTAssertTrue(text.contains("`\(row.method) \(row.path)`"), "docs/manager/API.md doesn't mention \(row.method) \(row.path)")
@@ -34,13 +40,5 @@ final class ManagerDocsTests: XCTestCase {
     func testReadmeSaysHiringTheGMTurnsTheManagerOn() throws {
         let readme = try String(contentsOf: docs.appendingPathComponent("README.md"), encoding: .utf8)
         XCTAssertTrue(readme.contains("Hiring the GM turns the manager on"))
-    }
-
-    func testThePhoneAppIsNoLongerBuild5() throws {
-        let ios = docs.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("ios")
-        let yml = try String(contentsOf: ios.appendingPathComponent("project.yml"), encoding: .utf8)
-        let plist = try String(contentsOf: ios.appendingPathComponent("Smolcorp/Info.plist"), encoding: .utf8)
-        XCTAssertTrue(yml.contains("CFBundleShortVersionString: \"0.4\"") && yml.contains("CFBundleVersion: \"6\""))
-        XCTAssertTrue(plist.contains("<string>0.4</string>") && plist.contains("<string>6</string>"))
     }
 }

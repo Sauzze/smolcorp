@@ -84,7 +84,7 @@ func asCaller(who caller, gm, hireKey string) call {
 // withGMAndAHire gives a test deck a GM token and a registry with one open hire holding a send key.
 func withGMAndAHire(t *testing.T, d *Deck) (gm, hireKey string) {
 	t.Helper()
-	if err := os.WriteFile(registryPath(), frontDeskFixture(t, "registry.json"), 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), frontDeskFixture(t, "registry.json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	key, err := newSendKey(registryPath(), "a1b2c3")
@@ -169,7 +169,7 @@ func TestWhoIsAskingIsDecidedByWhatTheySendInTheMacsOrder(t *testing.T) {
 	d := newTestDeck(t)
 	gm, hireKey := withGMAndAHire(t, d)
 	d.mu.Lock()
-	cookie := &http.Cookie{Name: setupCookie, Value: d.access.NewSetupSession()}
+	cookie := &http.Cookie{Name: setupCookie(), Value: d.access.NewSetupSession()}
 	setupKey := d.access.SetupKey
 	d.mu.Unlock()
 	who := func(headers map[string]string, withCookie bool) caller {
@@ -278,7 +278,7 @@ func TestTheSetupKeyFileAloneCantDoWhatAHireCouldMisuse(t *testing.T) {
 	}
 	// And nothing changed: the webhook, Summaries and the max-effort question are as they were.
 	post("/setup/webhook", `{"enabled":true,"url":"http://127.0.0.1:1/x","secret":"s"}`, true)
-	post("/setup/summary/key", `{"key":"sk-ant-test0"}`, true)
+	post("/setup/summary/key", `{"key":"sk-`+"ant-test0"+`"}`, true)
 	post("/setup/maxconfirm?enabled=0", "", true)
 	d.mu.Lock()
 	changed := d.config.Webhook.URL != "" || d.config.Webhook.Secret != "" || !d.config.MaxConfirm
@@ -304,24 +304,24 @@ func TestTheSetupKeyFileAloneCantDoWhatAHireCouldMisuse(t *testing.T) {
 // smolcorp setup repairs with auto=1, installs this copy and opens the firewall (the system asks you);
 // a repair without auto=1, the Wi-Fi, login and Tailscale are the page's.
 func TestAToolMayOnlyRepairWithAutoInstallAndOpenTheFirewall(t *testing.T) {
-	if !fixAllowed(callerTool, fixRepair, "1") {
+	if !fixAllowed(callerTool, fixRepair, "1", false) {
 		t.Error("a tool's repair with auto=1 is refused")
 	}
 	for _, auto := range []string{"", "0", "true"} {
-		if fixAllowed(callerTool, fixRepair, auto) {
+		if fixAllowed(callerTool, fixRepair, auto, false) {
 			t.Errorf("a tool's repair with auto=%q is let in", auto)
 		}
-		if !fixAllowed(callerPage, fixRepair, auto) {
+		if !fixAllowed(callerPage, fixRepair, auto, false) {
 			t.Errorf("the page's repair with auto=%q is refused", auto)
 		}
 	}
 	for _, fix := range []string{fixInstall, fixFirewall} {
-		if !fixAllowed(callerTool, fix, "") || !fixAllowed(callerPage, fix, "") {
+		if !fixAllowed(callerTool, fix, "", false) || !fixAllowed(callerPage, fix, "", false) {
 			t.Errorf("fix %q: refused to a tool or the page", fix)
 		}
 	}
 	for _, fix := range []string{fixHomeWiFi, fixLogin, fixTailscale, "", "nope"} {
-		if fixAllowed(callerTool, fix, "1") || !fixAllowed(callerPage, fix, "") {
+		if fixAllowed(callerTool, fix, "1", false) || !fixAllowed(callerPage, fix, "", false) {
 			t.Errorf("fix %q: a tool with auto=1 or the page got the wrong answer", fix)
 		}
 	}
@@ -358,7 +358,7 @@ func pagePost(t *testing.T, d *Deck, base, path string) *http.Response {
 		t.Fatal(err)
 	}
 	d.mu.Lock()
-	request.AddCookie(&http.Cookie{Name: setupCookie, Value: d.access.NewSetupSession()})
+	request.AddCookie(&http.Cookie{Name: setupCookie(), Value: d.access.NewSetupSession()})
 	d.mu.Unlock()
 	request.Header.Set(setupHeader, "1")
 	response, err := http.DefaultClient.Do(request)

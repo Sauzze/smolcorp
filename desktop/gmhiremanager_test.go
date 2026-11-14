@@ -35,7 +35,7 @@ func TestHiringTheGMTurnsTheManagerOnAndTheGMRoutesAnswer(t *testing.T) {
 
 func TestARefusedGMHireLeavesTheManagerOffAndSavesNothing(t *testing.T) {
 	d, h, _ := hiringDeck(t, "")
-	os.WriteFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"bbb222","name":"GM","folder":"/w","role":"gm","state":"working"}]}`), 0o600)
+	writeRegistryFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"bbb222","name":"GM","folder":"/w","role":"gm","state":"working"}]}`), 0o600)
 	os.Remove(configFile)
 	w := serve(t, d, call{method: "POST", target: "/setup/hire/gm", host: "localhost:7710", from: thisComputer,
 		withoutSetupKey: true, headers: map[string]string{setupHeader: "1", gmTokenHeader: d.newGMToken()}})

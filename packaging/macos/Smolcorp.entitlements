@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  What the hardened runtime lets Smolcorp do, for a Developer ID release
-  (scripts/release.sh with SMOLCORP_DEVELOPER_ID set; an ad hoc build doesn't
-  use this): send Apple Events to Terminal, Spotify and Music, and hear the mic
-  for dictation. macOS still asks the person first, as the Info.plist says.
+  What the hardened runtime lets Smolcorp do, for every build: a Developer ID
+  release (scripts/release.sh), and an ad hoc or local one and a test copy
+  (scripts/build-app.sh, scripts/test-copy.sh), which have the runtime too:
+  send Apple Events to Terminal, Spotify and Music, and hear the mic for
+  dictation. macOS still asks the person first, as the Info.plist says.
+  Nothing here lets a debugger in or a library be slipped in
+  (scripts/check-runtime.sh refuses those).
 -->
 <plist version="1.0">
 <dict>

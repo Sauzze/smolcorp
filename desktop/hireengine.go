@@ -14,7 +14,7 @@ import (
 // The hire engine (Phase 6 T602, part C1): a managed Claude hire made in order,
 // each step ready before the next, as the Mac's HireDesk: the guard for a test
 // copy, a tmux server of its own, the worktree and ports (prepareHire), the
-// hire's own settings, its start script, then the session. If a step refuses,
+// hire's own settings, its start ticket, then the session. If a step refuses,
 // what the steps before it made is taken away. Then the hire is watched until
 // it reports (waitForStart); one that never does is cleaned up (cleanUpHire).
 
@@ -35,7 +35,12 @@ type engineOptions struct {
 	Every     time.Duration
 	Now       func() time.Time
 	Pause     func(time.Duration)
+	// The GM's fire, unless removeWorktree is asked: leave the worktree. Zero removes it when clean.
+	KeepWorktree bool
 }
+
+// worktrees is the folder hires' worktrees are made in, "" for beside the repo (hiresFolder).
+func (o engineOptions) worktrees() string { return o.Worktrees }
 
 func (o engineOptions) withDefaults() engineOptions {
 	if o.Git == nil {
@@ -73,14 +78,30 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if err := testCopyRefusal(r.TestPort, string(Claude), r.ConfigDir); err != nil {
 		return Hire{}, err
 	}
+	// A Claude Code that can't make a stopped guard refuse gets no desk (SANDBOX-PLAN §3.4), nor does a Smolcorp
+	// whose own files changed (ownseal.go).
+	if refusal := claudeVersionRefusal(); refusal != nil {
+		return Hire{}, refusal
+	}
+	if refusal := ownSealRefusal(); refusal != nil {
+		return Hire{}, refusal
+	}
 	id := strings.ToLower(newID())[:12]
 	tmux := newHireTmux(id, r.TestPort, o.Tmux)
 	if tmux == nil {
 		return Hire{}, &hireRefusal{Status: http.StatusConflict, Message: "Smolcorp couldn't set up a tmux server of its own for this hire: tmux is missing, or its socket's path is too long."}
 	}
-	place, err := prepareHire(hireRequest{HireID: id, Name: r.Role.Name, Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir,
-		APIKey: r.APIKey, Worktree: true},
-		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: o.Git, PortFree: o.PortFree, Key: o.Key})
+	name := r.Role.Name
+	if r.Nickname != "" {
+		name = r.Nickname
+	}
+	key := o.Key
+	if r.APIKeyText != "" {
+		key = func() string { return r.APIKeyText } // the key the Mac app gave for this hire
+	}
+	place, err := prepareHire(hireRequest{HireID: id, Name: name, Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir,
+		APIKey: r.APIKey, Worktree: !r.NoWorktree},
+		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: o.Git, PortFree: o.PortFree, Key: key})
 	if err != nil {
 		return Hire{}, err
 	}
@@ -98,17 +119,32 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if r.Role.ID == "gm" {
 		profile = guardGM
 	}
-	settings, err := writeHireSettings(hireSettingsOptions{HireID: id, Profile: profile, CLI: o.CLI, Support: supportDir, ReportPort: r.TestPort, Run: o.Guard, IsExec: o.IsExec})
+	settings, err := hireSettingsLine(hireSettingsOptions{HireID: id, Auto: engineAutoMode, Profile: profile, CLI: o.CLI, Support: supportDir,
+		ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec})
 	if err != nil {
 		undo()
 		return Hire{}, err
+	}
+	// Its brief, as the Mac writes it: the first message then only says to read it.
+	message, brief, err := engineBrief(r, place, id, o.Now())
+	if err != nil {
+		return fail(http.StatusInternalServerError, err.Error())
+	}
+	if brief != "" && place.Worktree == "" {
+		undoSettings := undo
+		undo = func() {
+			_ = os.Remove(brief) // written for this hire a moment ago, and read by no one
+			undoSettings()
+		}
 	}
 	// The hire is written down before its start script, so it can be given its
 	// own send key (T726: newSendKey keeps only the key's hash, against its row).
 	// The socket is the one its tmux server will have; the one tmux reports is
 	// kept below. Any refusal from here on takes the row and its key away again.
-	hire := Hire{ID: id, Name: r.Role.Name, Role: r.Role.ID, Folder: place.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
-		TmuxSocket: tmux.socket, Model: r.Role.Model, Ports: place.Ports, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note}
+	// Its folder is the project it was hired into, its worktree where it works (the contract's registry.json).
+	hire := Hire{ID: id, Name: r.Role.Name, Nickname: r.Nickname, Account: r.AccountName, Role: r.Role.ID, Folder: r.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
+		TmuxSocket: tmux.socket, TmuxProgram: tmux.program, Model: r.Role.Model, Ports: place.Ports, Brief: brief, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note,
+		Scope: r.Scope, ScopeRoles: r.ScopeRoles}
 	if err := updateRegistry(func(f *registryFile) { f.hires = append(f.hires, hire) }); err != nil {
 		return fail(http.StatusInternalServerError, "Couldn't save the hire in the registry.")
 	}
@@ -126,27 +162,57 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		if r.GMToken != nil {
 			gmToken = r.GMToken()
 		}
+		if gmToken == "" && recordsHeldOnly() {
+			// Its token can't be kept while the records' key can't be read (gmTokenKeeper.writeNow).
+			return fail(http.StatusConflict, recordsHeldAnswer)
+		}
 		if gmToken == "" {
 			return fail(http.StatusInternalServerError, "Couldn't make the General Manager's token.")
 		}
 	}
-	start := hireStart{Role: r.Role, Message: r.Role.firstMessage(place.Folder, r.How), ConfigDir: r.ConfigDir, DefaultAccount: r.DefaultAccount,
-		Settings: settings, CLIDir: filepath.Dir(o.CLI), Ports: place.Ports, SendKey: sendKey, GMToken: gmToken, APIKey: r.APIKey}
+	start := hireStart{Role: r.Role, Message: message, ConfigDir: r.ConfigDir, DefaultAccount: r.DefaultAccount,
+		Settings: settings, CLIDir: filepath.Dir(o.CLI), Ports: place.Ports, SendKey: sendKey, GMToken: gmToken, APIKey: r.APIKey, KeyText: r.APIKeyText}
+	// The GM is told who it is, and starts with its rules, skills and tools where the app bundles them (GO-PARITY's
+	// GM start, as the Mac's Swift engine started it: Deck.gmIntroduction, Role.startScript's plugin).
+	if r.Role.ID == gmRole && agentOrClaude(r.Role.Agent) == Claude {
+		isExec := o.IsExec
+		if isExec == nil {
+			isExec = isExecutableFile
+		}
+		if start.GMPlugin = gmPluginFolder(o.CLI); start.GMPlugin != "" && isExec(o.CLI) {
+			start.GMCLI = o.CLI
+		}
+		start.Message += "\n\n" + gmIntroduction(place.Folder, start.GMPlugin != "" && start.GMCLI == "")
+	}
+	if r.StartTyped != nil {
+		r.StartTyped(start.Message)
+	}
 	if r.TestPort != 0 {
 		start.TestPort, start.TestSupportDir = r.TestPort, supportDir
 	}
-	script, err := start.script()
+	plan, err := start.plan()
 	if err != nil {
 		return fail(http.StatusInternalServerError, err.Error())
 	}
-	file, err := writeHireStartScript(hireFolder(supportDir, id), script)
-	if err != nil {
-		return fail(http.StatusInternalServerError, "Couldn't write the hire's start script.")
+	// Its own folder, its owner's alone, where its brief and status go (the start script made it before SG2).
+	if err := os.MkdirAll(hireFolder(supportDir, id), 0o700); err != nil {
+		return fail(http.StatusInternalServerError, "Couldn't make the hire's own folder.")
 	}
-	_, socket, ok := tmux.start(place.Folder, loginShell(), file)
+	// Its start goes to its pane alone, by a ticket (deskstart.go): no script, no shell.
+	command, err := deskStarts.issue(o.CLI, id, tmux, plan, key)
+	if err != nil {
+		return fail(http.StatusInternalServerError, err.Error())
+	}
+	undoIssued := undo
+	undo = func() {
+		deskStarts.forget(id)
+		undoIssued()
+	}
+	_, socket, started, ok := tmux.start(place.Folder, command)
 	if !ok {
 		return fail(http.StatusInternalServerError, "tmux didn't start the hire.")
 	}
+	deskStarts.pin(id, started)
 	if socket != hire.TmuxSocket {
 		// As tmux spells it (it may say /private/var for /var): the same file, which isHireSocket allows.
 		hire.TmuxSocket = socket
@@ -164,7 +230,7 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 			// It was started, so its row stays, marked failed; its key's hash stays but is inert
 			// (hireForSendKey only finds open hires).
 			tmux.end()
-			setHire(id, "failed", "Its window didn't open.")
+			failHire(id, "Its window didn't open.")
 			undoMade()
 			return Hire{}, &hireRefusal{Status: http.StatusInternalServerError, Message: "The terminal didn't open."}
 		}
@@ -187,9 +253,15 @@ func watchManagedHire(hire Hire, testPort int, o engineOptions) {
 		setHire(hire.ID, "working", hire.Notes)
 		return
 	}
+	// Its ticket goes; a start the core refused (its ticket, its program, Smolcorp's own files) says why.
+	if refused := deskStarts.forget(hire.ID); refused != "" {
+		reason = strings.TrimSuffix(refused, ".")
+	}
 	cleanUpHire(hire, reason, hireOwnTmux(hire, testPort, o.Tmux), removeHireWorktree(o.Git, testPort, o.Worktrees),
 		func(id, why string) { setHire(id, "failed", firstRunes(why, longestNotes)) })
-	// A start script that never ran still holds its send key or token: it goes too.
+	// Its windows' records go too, as a fired hire's do (hirewindows.go).
+	forgetHireWindows(hire.ID, windowsOfHire(hire.ID))
+	// A start script left from before 1.26, never run, still holds its send key or token: it goes too.
 	scripts, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hire.ID), "hire-*.sh"))
 	for _, script := range scripts {
 		_ = os.Remove(script)
@@ -202,33 +274,60 @@ func watchManagedHire(hire Hire, testPort int, o engineOptions) {
 // they did). held is the desk chosen (-1 for none) on floor, where the hire's session
 // is seated when it appears. The lock is let go while the engine works.
 func (d *Deck) managedHire(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int) (status int, message string, handled bool) {
+	return d.managedHireWith(roleID, folder, terminal, hasTerminal, held, floor, nil)
+}
+
+// managedHireWith is managedHire with what setup's own hire says besides, or nil.
+func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int, extra *setupHire) (status int, message string, handled bool) {
 	i := slices.IndexFunc(d.config.Roles, func(r Role) bool { return r.ID == roleID })
 	if i < 0 {
 		return 0, "", false
 	}
 	role, how := d.config.Roles[i], hiredIntoGeneralFolder
 	options, testPort := d.engine, testCopyPort()
+	options.Worktrees = d.worktreesFolder(options.Worktrees)
 	if options.HeardFrom == nil {
 		options.HeardFrom = d.hireHeardFrom
 	}
+	// The window shown, by its terminal's record (a Mac's): kept for the hire once it's made.
+	window := ""
 	if hasTerminal {
-		options.Attach = func(socket string) error {
-			return openWindow(terminal, folder, []string{tmuxPath(), "-S", socket, "attach", "-t", "=" + hireSession})
+		options.Attach = func(socket string) (err error) {
+			window, err = showWindow(terminal, folder, []string{tmuxDriving(socket), "-S", socket, "attach", "-t", "=" + hireSession})
+			return err
 		}
 	}
-	request := engineRequest{Role: role, How: how, Folder: folder, DefaultAccount: true, TestPort: testPort}
+	request := engineRequest{Role: role, How: how, Folder: folder, DefaultAccount: true, TestPort: testPort, Desk: briefDesk(held, floor)}
+	// The accounts' settings and transcripts are denied to the hire, every saved folder's, even one no hire may
+	// work on: the saved list is copied here, and its folders are looked in once the lock is let go (claudeaccounts.go).
+	savedAccounts := slices.Clone(d.config.ClaudeProfiles)
+	if extra != nil {
+		extra.apply(&request, d.config.ManagerEnabled)
+	}
 	// The GM gets a new token at its hire, in its start script alone; the one it
 	// was given is taken away again if the hire doesn't go ahead or never starts.
 	token := ""
 	if role.ID == gmRole {
 		request.GMToken = func() string { token = d.newGMToken(); return token }
+		request.StartTyped = d.owner.notOwners
 	}
 	d.mu.Unlock()
-	hire, err := runManagedHire(request, options)
+	request.Profiles = claudeDenyProfiles(savedAccounts)
+	var hire Hire
+	var err error
+	// On the API-key account, under the Mac app: the key, from its Keychain through the bridge, for this hire alone.
+	if request.APIKey {
+		request.APIKeyText, err = d.hireAPIKeyText()
+	}
+	if err == nil {
+		hire, err = runManagedHire(request, options)
+	}
+	request.APIKeyText = "" // not kept after the hire; copies stay until the garbage collector (hireapikey.go)
 	d.mu.Lock()
 	if err != nil {
 		if token != "" && constantTimeEqual(d.gmToken, token) {
 			d.gmToken = "" // d.mu is held: clearGMToken would take it again
+			d.gmTokenChanged()
 		}
 		d.lastHire = time.Time{} // nobody was hired, so the next try needn't wait
 		if refused, ok := err.(*hireRefusal); ok {
@@ -236,7 +335,9 @@ func (d *Deck) managedHire(roleID, folder string, terminal hireOpener, hasTermin
 		}
 		return http.StatusInternalServerError, err.Error(), true
 	}
+	recordHireWindow(hire.ID, window)
 	d.seatEngineHire(hire.TmuxSocket, held, floor)
+	d.hiredInto(hire)
 	d.watching.Add(1)
 	go func() {
 		defer d.watching.Done()

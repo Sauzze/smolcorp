@@ -1,0 +1,236 @@
+--- a/client.c
++++ b/client.c
+@@ -68,8 +68,168 @@
+ static void		 client_dispatch_attached(struct imsg *);
+ static void		 client_dispatch_wait(struct imsg *);
+ static const char	*client_exit_message(void);
++
++/*
++ * Smolcorp's guard. SMOLCORP_TMUX_SERVER names the only server this client
++ * may talk to: the pid Smolcorp checked when that server started, or
++ * "unchecked" for a desk with no checked pid (the refusals stay on), or "off"
++ * for stock tmux, which only the client starting a desk's server inside its
++ * sandbox uses. Unset or anything else, and the client stops before it
++ * connects. A guarded client never starts a server, sends no environment,
++ * and takes from the server only the messages a client of its kind needs:
++ * anything else (a program to run, a file to open by name, the screen to
++ * lock) ends it before it acts.
++ */
++#define GUARD_REFUSED	97
++#define GUARD_PEER	98
++static int		 guard_on = 1;
++static pid_t		 guard_pid;	/* 0 is unchecked */
++static int		 guard_attach;	/* may become an attached client */
++
++/* Reads SMOLCORP_TMUX_SERVER, or stops the client. */
++static void
++guard_setup(void)
++{
++	const char	*s = getenv("SMOLCORP_TMUX_SERVER"), *errstr;
++
++	if (s != NULL && strcmp(s, "off") == 0) {
++		guard_on = 0;
++		return;
++	}
++	if (s != NULL && strcmp(s, "unchecked") == 0)
++		return;
++	if (s != NULL)
++		guard_pid = strtonum(s, 1, INT_MAX, &errstr);
++	if (guard_pid == 0) {
++		fprintf(stderr, "smolcorp guard: no server pid given "
++		    "(SMOLCORP_TMUX_SERVER)\n");
++		exit(GUARD_PEER);
++	}
++}
++
++/*
++ * Checks the server on the connection just made, before anything is sent:
++ * the user it listened as must be this one (LOCAL_PEERCRED on a Mac,
++ * SO_PEERCRED on Linux), and its pid the one given (LOCAL_PEERPID on a Mac,
++ * which names the process holding the server's socket now, the same pid
++ * across an exec; SO_PEERCRED's on Linux).
++ */
++static void
++guard_check_peer(int fd)
++{
++	uid_t		uid;
++	gid_t		gid;
++	pid_t		pid = -1;
++	socklen_t	len;
++#if !defined(LOCAL_PEERPID) && defined(SO_PEERCRED)
++	struct ucred	uc;
++#endif
++
++	if (getpeereid(fd, &uid, &gid) != 0 || uid != geteuid()) {
++		fprintf(stderr, "smolcorp guard: the server isn't this "
++		    "user's\n");
++		exit(GUARD_PEER);
++	}
++	if (guard_pid == 0)
++		return;
++#if defined(LOCAL_PEERPID)
++	len = sizeof pid;
++	if (getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &len) != 0)
++		pid = -1;
++#elif defined(SO_PEERCRED)
++	len = sizeof uc;
++	if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &uc, &len) == 0)
++		pid = uc.pid;
++#endif
++	if (pid != guard_pid) {
++		fprintf(stderr, "smolcorp guard: server pid %ld, not %ld\n",
++		    (long)pid, (long)guard_pid);
++		exit(GUARD_PEER);
++	}
++}
++
++/* Whether a command can attach: only then may MSG_READY come. */
++static int
++guard_may_attach(struct cmd_list *cmdlist)
++{
++	struct cmd	*cmd;
++	const char	*name;
++
++	for (cmd = cmd_list_first(cmdlist); cmd != NULL;
++	    cmd = cmd_list_next(cmd)) {
++		name = cmd_get_entry(cmd)->name;
++		if (strcmp(name, "attach-session") == 0 ||
++		    strcmp(name, "new-session") == 0)
++			return (1);
++	}
++	return (0);
++}
+ 
++static __dead void
++guard_refuse(const char *what, u_int type)
++{
++	fprintf(stderr, "smolcorp guard: refused %s (message %u) from the "
++	    "server\n", what, type);
++	exit(GUARD_REFUSED);
++}
++
+ /*
++ * The messages a guarded client takes, per state. Waiting (every one-shot
++ * client): the exit messages, the flags, the version, and streams on 0, 1
++ * and 2; MSG_READY too if the command can attach. Attached: the exit
++ * messages, the flags, detach and suspend. MSG_DETACHKILL is taken as
++ * MSG_DETACH, so the client's parent isn't sent SIGHUP.
++ */
++static void
++guard_check_message(struct imsg *imsg)
++{
++	struct msg_read_open	*ro = imsg->data; /* fd is second in both */
++	size_t			 len = imsg->hdr.len - IMSG_HEADER_SIZE;
++	u_int			 type = imsg->hdr.type;
++
++	switch (type) {
++	case MSG_EXIT:
++	case MSG_EXITED:
++	case MSG_SHUTDOWN:
++	case MSG_FLAGS:
++		return;
++	case MSG_DETACHKILL:
++		imsg->hdr.type = MSG_DETACH;
++		/* FALLTHROUGH */
++	case MSG_DETACH:
++	case MSG_SUSPEND:
++		if (client_attached)
++			return;
++		break;
++	case MSG_VERSION:
++	case MSG_READ_CANCEL:
++	case MSG_WRITE:
++	case MSG_WRITE_CLOSE:
++		if (!client_attached)
++			return;
++		break;
++	case MSG_READY:
++		if (!client_attached && guard_attach)
++			return;
++		break;
++	case MSG_READ_OPEN:
++	case MSG_WRITE_OPEN:
++		if (client_attached || len < sizeof *ro)
++			break;
++		if (ro->fd < 0 || ro->fd > 2)
++			guard_refuse("a file opened by name", type);
++		return;
++	case MSG_SHELL:
++	case MSG_EXEC:
++		guard_refuse("a program to run", type);
++	case MSG_LOCK:
++		guard_refuse("a lock command", type);
++	}
++	guard_refuse(client_attached ? "a message for an attached client" :
++	    "a message for a waiting client", type);
++}
++
++/*
+  * Get server create lock. If already held then server start is happening in
+  * another client, so block until the lock is released and return -2 to
+  * retry. Return -1 on failure to continue and start the server anyway.
+@@ -244,6 +404,8 @@
+ 	u_int			 ncaps = 0;
+ 	struct args_value	*values;
+ 
++	guard_setup();
++
+ 	/* Set up the initial command. */
+ 	if (shell_command != NULL) {
+ 		msg = MSG_SHELL;
+@@ -251,6 +413,7 @@
+ 	} else if (argc == 0) {
+ 		msg = MSG_COMMAND;
+ 		flags |= CLIENT_STARTSERVER;
++		guard_attach = 1;
+ 	} else {
+ 		msg = MSG_COMMAND;
+ 
+@@ -264,6 +427,7 @@
+ 		if (pr->status == CMD_PARSE_SUCCESS) {
+ 			if (cmd_list_any_have(pr->cmdlist, CMD_STARTSERVER))
+ 				flags |= CLIENT_STARTSERVER;
++			guard_attach = guard_may_attach(pr->cmdlist);
+ 			cmd_list_free(pr->cmdlist);
+ 		} else
+ 			free(pr->error);
+@@ -275,6 +439,12 @@
+ 	client_proc = proc_start("client");
+ 	proc_set_signals(client_proc, client_signal);
+ 
++	/* A guarded client never starts a server. */
++	if (guard_on) {
++		flags &= ~CLIENT_STARTSERVER;
++		flags |= CLIENT_NOSTARTSERVER;
++	}
++
+ 	/* Save the flags. */
+ 	client_flags = flags|CLIENT_WRITE_ACK;
+ 	log_debug("flags are %#llx", (unsigned long long)client_flags);
+@@ -297,6 +467,8 @@
+ 		}
+ 		return (1);
+ 	}
++	if (guard_on)
++		guard_check_peer(fd);
+ 	client_peer = proc_add_peer(client_proc, fd, client_dispatch, NULL);
+ 
+ 	/* Save these before pledge(). */
+@@ -477,7 +649,7 @@
+ 	pid = getpid();
+ 	proc_send(client_peer, MSG_IDENTIFY_CLIENTPID, -1, &pid, sizeof pid);
+ 
+-	for (ss = environ; *ss != NULL; ss++) {
++	for (ss = environ; !guard_on && *ss != NULL; ss++) {
+ 		sslen = strlen(*ss) + 1;
+ 		if (sslen > MAX_IMSGSIZE - IMSG_HEADER_SIZE)
+ 			continue;
+@@ -585,6 +757,8 @@
+ 		return;
+ 	}
+ 
++	if (guard_on)
++		guard_check_message(imsg);
+ 	if (client_attached)
+ 		client_dispatch_attached(imsg);
+ 	else

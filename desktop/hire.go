@@ -1,16 +1,22 @@
 package desktop
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // Hiring from the office, as the Mac app's Deck.hire: a new terminal window
@@ -67,6 +73,10 @@ type hireOpener struct {
 	program string
 	// args are the terminal's arguments to run command in folder.
 	args func(folder string, command []string) []string
+	// open, where set, opens the window itself, in place of args: the Mac
+	// app's Terminal, iTerm2 and Ghostty under its engine (hire_darwin.go).
+	// It gives the window's record, or "" for none.
+	open func(folder string, command []string) (window string, err error)
 }
 
 // installedOpeners are the terminals here that can open a hire's window, in
@@ -89,8 +99,241 @@ var tmuxPath = func() string {
 	if !hasTmuxHires {
 		return ""
 	}
-	path, _ := exec.LookPath("tmux")
+	return findTmux()
+}
+
+// macShell is the shell a Mac with no SHELL starts, as Terminal and the Mac's
+// engine do (TerminalDrivers.swift): zsh, so your ~/.zprofile and ~/.zshrc
+// still give the PATH your agents are on.
+const macShell = "/bin/zsh"
+
+// tmuxPlaces are where tmux may be besides this program's PATH, as the Mac's
+// engine looks (Tmux.path in TerminalDrivers.swift): a program opened from
+// the Finder or the Dock has only launchd's PATH, which has no Homebrew.
+// A variable, for the tests.
+var tmuxPlaces = []string{"/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin", "/usr/bin"}
+
+// tmuxLoginPath is the PATH your login shell sets, for a tmux somewhere
+// stranger (a home folder's own bin, Nix, Linuxbrew): never waited for, as
+// the deck's lock may be held. Until the shell has said, it's nothing, and
+// the shell is asked in the background (Serve asks at start). A variable,
+// for the tests.
+var tmuxLoginPath = func() []string {
+	if loginPathKnown.Load() {
+		return loginPath
+	}
+	if loginPathAsking.CompareAndSwap(false, true) {
+		go askLoginPath()
+	}
+	return nil
+}
+
+// bundledTmux is the tmux that came with Smolcorp, or "": beside this program in the Mac app
+// (Contents/Resources/bin, where its tmux is put next to the core), or in ~/.local/lib/smolcorp on Linux.
+// A variable, for the tests. Looked up each time, not kept: an app that was replaced while this runs
+// must not leave a path that's gone.
+var bundledTmux = bundledTmuxBesideThisProgram
+
+func bundledTmuxBesideThisProgram() string {
+	program, err := executable()
+	if err != nil {
+		return ""
+	}
+	return bundledTmuxFor(program, homeDir, runtime.GOOS)
+}
+
+// bundledTmuxFor is the bundled tmux of a Smolcorp running as program, on goos with home as the home folder:
+// next to the program (with its links resolved: Setup links smolcorp into Terminal's PATH, and the bundle is
+// still beside the real file), then in Linux's library folder. "" when neither has a tmux you can run.
+func bundledTmuxFor(program, home, goos string) string {
+	if resolved, err := filepath.EvalSymlinks(program); err == nil {
+		program = resolved
+	}
+	if path := trustedExecutableIn(filepath.Dir(program), "tmux"); path != "" {
+		return path
+	}
+	if goos == "linux" && home != "" {
+		return trustedExecutableIn(filepath.Join(home, ".local", "lib", "smolcorp"), "tmux")
+	}
+	return ""
+}
+
+// findTmux is the tmux program, or "": the one that came with Smolcorp, then on this program's PATH,
+// then in the usual places, then on the PATH your login shell sets. The shell is asked only when the
+// first three have nothing.
+func findTmux() string {
+	if path := bundledTmux(); path != "" {
+		return path
+	}
+	if path, err := exec.LookPath("tmux"); err == nil {
+		return path
+	}
+	for _, folder := range tmuxPlaces {
+		if path := executableIn(folder, "tmux"); path != "" {
+			return path
+		}
+	}
+	for _, folder := range tmuxLoginPath() {
+		if path := executableIn(folder, "tmux"); path != "" {
+			return path
+		}
+	}
+	return ""
+}
+
+// recordedTmux is the tmux that started the hire server on socket, as its registry row says (TmuxProgram), when
+// that file is still a program you can run; "" for a hire with no path recorded (made before 1.26), one that
+// isn't on socket, or a tmux that's gone or refused. The tmux that started a server drives it while it can: a
+// later tmux may not speak the same protocol.
+func recordedTmux(socket string) string {
+	path, _, _ := recordedTmuxChecked(socket)
 	return path
+}
+
+// recordedTmuxChecked is recordedTmux that also says what it skipped: when the row names a tmux that isn't used,
+// path is "", recorded is that name and why says why (see untrustedWhy). With no tmux recorded all three are "".
+func recordedTmuxChecked(socket string) (path, recorded, why string) {
+	// Only a hire's own socket has a row: any other tab's tmux (a tab polls) costs no registry read.
+	if !hasTmuxHires || !strings.HasPrefix(filepath.Base(socket), hireSocketPrefix) {
+		return "", "", ""
+	}
+	for _, h := range readRegistry(registryPath(), false).hires {
+		if h.TmuxProgram == "" || h.TmuxSocket == "" || !sameSocket(h.TmuxSocket, socket) {
+			continue
+		}
+		if !filepath.IsAbs(h.TmuxProgram) {
+			return "", h.TmuxProgram, "it isn't a full path"
+		}
+		if why := untrustedWhy(filepath.Dir(h.TmuxProgram), filepath.Base(h.TmuxProgram)); why != "" {
+			return "", h.TmuxProgram, why
+		}
+		return h.TmuxProgram, h.TmuxProgram, ""
+	}
+	return "", "", ""
+}
+
+// skippedTmuxLogged holds the hires (socket and recorded path) whose skipped tmux has been said, so it is one
+// line per hire, not one per poll.
+var (
+	skippedTmuxMu     sync.Mutex
+	skippedTmuxLogged = map[string]bool{}
+)
+
+// sayTmuxSkipped logs, once per socket and recorded path, that the tmux a hire's row names isn't used, why, and
+// the tmux that drives its server instead: a different tmux never takes over a running server unsaid.
+func sayTmuxSkipped(socket, recorded, why, instead string) {
+	if recorded == "" {
+		return
+	}
+	key := filepath.Clean(socket) + "\x00" + recorded
+	skippedTmuxMu.Lock()
+	seen := skippedTmuxLogged[key]
+	skippedTmuxLogged[key] = true
+	skippedTmuxMu.Unlock()
+	if !seen {
+		log.Printf("tmux: the hire on %s was started by %s, which isn't used: %s. %s drives it instead.", filepath.Base(socket), recorded, why, instead)
+	}
+}
+
+// recordableTmux is program as a hire's row keeps it: with its links resolved, so a tmux that is a link by design
+// (Homebrew's /opt/homebrew/bin/tmux) is recorded as the file it points to, which trustedExecutableIn accepts, while
+// a link put there later is refused.
+func recordableTmux(program string) string {
+	if resolved, err := filepath.EvalSymlinks(program); err == nil {
+		return resolved
+	}
+	return program
+}
+
+// sameSocket says whether a and b are one socket file, however spelt (tmux says /private/tmp for /tmp).
+func sameSocket(a, b string) bool {
+	return filepath.Clean(a) == filepath.Clean(b) || physical(filepath.Dir(a)) == physical(filepath.Dir(b)) && filepath.Base(a) == filepath.Base(b)
+}
+
+// tmuxDriving is the tmux to run for the hire server on socket: its recorded one, else tmuxPath (today's
+// order, bundled first).
+func tmuxDriving(socket string) string {
+	path, recorded, why := recordedTmuxChecked(socket)
+	if path != "" {
+		return path
+	}
+	instead := tmuxPath()
+	sayTmuxSkipped(socket, recorded, why, instead)
+	return instead
+}
+
+// tmuxProgram is what a tab's tmux command runs: tmux where it was found, or
+// the bare name, left to the PATH (a system with no tmux then fails to start
+// it, as before). It looks for itself, not through tmuxPath, which the tests
+// stand in for.
+func tmuxProgram() string {
+	if hasTmuxHires {
+		if path := findTmux(); path != "" {
+			return path
+		}
+	}
+	return "tmux"
+}
+
+// tmuxProgramFor is tmuxProgram for a tab on socket: the tmux that started that hire's server when its row says
+// so (recordedTmux).
+func tmuxProgramFor(socket string) string {
+	path, recorded, why := recordedTmuxChecked(socket)
+	if path != "" {
+		return path
+	}
+	instead := tmuxProgram()
+	sayTmuxSkipped(socket, recorded, why, instead)
+	return instead
+}
+
+// executableIn is folder/name when that is a program you can run, or "".
+func executableIn(folder, name string) string {
+	if folder == "" {
+		return ""
+	}
+	path := filepath.Join(folder, name)
+	if info, err := os.Stat(path); err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0 {
+		return path
+	}
+	return ""
+}
+
+// trustedExecutableIn is folder/name when that is a program you can run and nobody else could have swapped: a
+// regular file, not a link, with an execute bit, that isn't group- or world-writable, in a folder that isn't
+// world-writable; else "". For the paths Smolcorp runs without the user having chosen them (the bundled tmux, the
+// one a hire's row records), never for the usual places, where a link is how Homebrew puts tmux.
+func trustedExecutableIn(folder, name string) string {
+	if untrustedWhy(folder, name) != "" {
+		return ""
+	}
+	return filepath.Join(folder, name)
+}
+
+// untrustedWhy is why trustedExecutableIn refuses folder/name, in words for a log line, or "" when it accepts it.
+// A Windows computer has no execute bits on a regular file, so it always lands on "can't be run" there: tmux isn't
+// run on Windows.
+func untrustedWhy(folder, name string) string {
+	if folder == "" {
+		return "it has no folder"
+	}
+	info, err := os.Lstat(filepath.Join(folder, name))
+	switch {
+	case err != nil:
+		return "it's gone"
+	case !info.Mode().IsRegular():
+		return "it isn't a regular file (a link, or a folder)"
+	case info.Mode().Perm()&0o111 == 0:
+		return "it can't be run"
+	case info.Mode().Perm()&0o022 != 0:
+		return "it's writable by others"
+	}
+	if dir, err := os.Stat(folder); err != nil {
+		return "its folder is gone"
+	} else if dir.Mode().Perm()&0o002 != 0 {
+		return "its folder is writable by others"
+	}
+	return ""
 }
 
 // canOpenWindows is whether there's a desktop to open a hire's window on: a
@@ -137,6 +380,49 @@ func canHireHere() bool {
 	return len(terminals) > 0 || tmux
 }
 
+// unfencedNote is the office's line for a hire that won't get Smolcorp's
+// fence (Claude Code's deny rules and the guard, hiresettings.go), or "" for
+// one that will. It follows hireAs: the fence is written only for a role's
+// Claude Code hire made by the engine, in tmux (hireengine.go), or on Windows
+// in the launcher's window behind the beta switch (hirelauncher.go). A hire at
+// a pinned desk, or on a floor with a folder of its own, takes the old way too;
+// the snapshot can't tell which desk will be held, so those get no line.
+// worktreesFolder is where hires' worktrees are made: config.json's hireWorktrees,
+// as the Mac's Deck.hire places them (HireDesk.place), else given ("" for beside
+// the repo). Their fire and clean-up look there too. With the lock held.
+func (d *Deck) worktreesFolder(given string) string {
+	if d.config.HireWorktrees != "" {
+		return d.config.HireWorktrees
+	}
+	return given
+}
+
+func (d *Deck) unfencedNote(roleID, program string, terminals []hireOpener, tmux bool) string {
+	agent := Agent(program)
+	if agent != Claude {
+		if name := agent.Name(); name != "" {
+			return name + " hires don't get Smolcorp's fence: they run with their own settings."
+		}
+		return "This hire doesn't get Smolcorp's fence: it runs with its own settings."
+	}
+	terminal, hasTerminal := hireTerminal(d.config.HireTerminal, terminals)
+	if roleID == "" {
+		// Under the Mac app, with the manager on, it isn't started at all (hireAsWith).
+		if d.config.ManagerEnabled && underMacApp(terminal, hasTerminal) {
+			return macHireNoRoleUnfenced
+		}
+		return "A hire with no role doesn't get Smolcorp's fence: it runs with its own settings."
+	}
+	inTmux := tmux && (d.config.HireInTmux || !hasTerminal || underMacApp(terminal, hasTerminal))
+	if hasTmuxHires && inTmux || !inTmux && launcherHires && d.config.HireManagedWindows && hasTerminal {
+		return ""
+	}
+	if !hasTmuxHires {
+		return "On Windows, only managed hires (a beta, off by default) get Smolcorp's fence: this one runs with its own settings."
+	}
+	return "Outside tmux, this hire doesn't get Smolcorp's fence: it runs with its own settings. Start inside tmux, in setup, gives it the fence."
+}
+
 // hire opens a new hire's terminal, as the Mac app's: see the top of this
 // file. desk and roleID are as the phone sent them, either empty.
 func (d *Deck) hire(desk, roleID string) (int, string) {
@@ -155,8 +441,8 @@ func (d *Deck) hireUpstairs(floor, desk, roleID string) (int, string) {
 }
 
 // hireFromSetup is a hire of roleID asked for on the setup page, on this
-// computer: hiring needn't be on for the phones, and with no folder for new
-// hires it starts in your home folder.
+// computer: hiring needn't be on for the phones. With no folder for new hires
+// it's refused (setupHireNeedsFolder), never started in your home folder.
 func (d *Deck) hireFromSetup(roleID string) (int, string) {
 	return d.hireAs("", roleID, 0, true)
 }
@@ -179,10 +465,102 @@ func hooksRefusal(agent Agent) string {
 	return ""
 }
 
+// setupHireNeedsFolder is a hire from the setup page with no folder for your
+// hires, or one that's gone: the page points at Start here's folder step. The
+// same words as the GM route's refusal (POST /setup/hire/gm) on both apps.
+const setupHireNeedsFolder = "Choose the folder for your hires first: it's the first step of Start here."
+
+// Refusals of a hire that would otherwise start without its fence, or on the wrong Claude account.
+const (
+	// Since 1.25.0 the Mac has no other engine to go back to (M7): each says only what to do here.
+	macHireNeedsTmux      = "Hires need tmux on your Mac to start fenced: install it, then hire again."
+	macHirePinnedUnfenced = "A hire at a desk or floor pinned to a folder can't start fenced yet: hire at another desk."
+	// The GM's route names a floor, never a desk: only a floor's own folder pins it, and another floor is its way out.
+	macGMHirePinnedUnfenced = "A hire on a floor with a folder of its own can't start fenced yet: hire on another floor."
+	// Setup's sheet picks the desk pinned to the folder itself, so another desk isn't its way out.
+	macSetupHirePinnedUnfenced = "A hire in a folder a desk or floor is pinned to can't start fenced yet: unpin that folder."
+	// A role whose agent isn't one Smolcorp knows: the Swift engine started it as Claude Code, fenced.
+	macHireUnknownAgent = "A role whose agent Smolcorp doesn't know can't start fenced yet: set its agent to Claude Code in setup."
+	// Anyone's hire (no role) with the manager on: the Swift engine fenced it, the engine only hires a role.
+	macHireNoRoleUnfenced   = "A hire with no role can't start fenced yet: pick a role."
+	plainHireDefaultAccount = "This hire would start on your default Claude account, so it wasn't started: hire in tmux, at a desk that isn't pinned."
+	// Setup's hire that went the plain way, said with its answer (setuphire.go).
+	setupHireNotPassedOn = "It starts the old way: your task and answers weren't passed on, and it asks its role's questions itself."
+)
+
+// underMacApp is whether hires open through the Mac app (`smolcorp core`,
+// hire_darwin.go): there, a role's Claude hire is always the engine's.
+func underMacApp(terminal hireOpener, hasTerminal bool) bool {
+	return host != nil || hasTerminal && terminal.open != nil
+}
+
 func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, string) {
+	return d.hireAsWith(desk, roleID, floor, fromSetup, nil)
+}
+
+// hireAsWith is hireAs, with what setup's own hire says besides (setuphire.go),
+// or nil: its folder, answers, task, account, model and nickname.
+func (d *Deck) hireAsWith(desk, roleID string, floor int, fromSetup bool, extra *setupHire) (int, string) {
+	return d.hireWith(hireSpec{desk: desk, roleID: roleID, floor: floor, fromSetup: fromSetup, extra: extra})
+}
+
+// hireSpec is a hire's request, as hireAs, setup's hire and POST /setup/gm/hire make it: the one hire path.
+type hireSpec struct {
+	desk, roleID string
+	floor        int
+	fromSetup    bool
+	extra        *setupHire // setup's own hire (setuphire.go), or nil
+	folder       string     // asked for and checked by the caller; "" is the folder for new hires
+	fenced       bool       // only a fenced way (the tmux engine, or the launcher's): 409 where a plain terminal would open
+	seat         *int       // when set, is given the desk the hire takes
+	// The Claude account Start here's GM hire (POST /setup/hire/gm, as the Mac's DeckRouter) or the GM route
+	// names ("" for none), and whether Start here's GM gets a worktree of its own (worktree=1); nil for the
+	// path's own way. Setup's sheet says both in extra.
+	account  string
+	worktree *bool
+	// The GM route's task, into the hire's brief as the Mac's BriefContext.task ("" for none); setup's sheet
+	// says its own in extra.
+	task string
+}
+
+// fenceRefusal is why a fenced hire of program can't be made, or "": a plain terminal has no guard.
+// Under the Mac app, a missing tmux (M4's words) and a pinned folder are said in the engine's own words.
+func fenceRefusal(program, pinned string, tmux, launcher, macApp bool) string {
+	switch {
+	// An ACP agent that runs its tools inside itself is said by name: the fence only reaches what goes through
+	// Smolcorp, and it doesn't. One the list doesn't have, or one that doesn't (none yet; hiring is A5's), falls to
+	// the line below.
+	case acpUnfenced(Agent(program)):
+		return Agent(program).Name() + " runs its tools itself, so Smolcorp can't fence it: the General Manager doesn't hire it."
+	case Agent(program) != Claude:
+		return "The General Manager hires only Claude roles: Smolcorp can't fence another agent."
+	case pinned != "" && macApp:
+		return macGMHirePinnedUnfenced
+	case pinned != "":
+		return "The General Manager doesn't hire into a pinned desk's or a floor's own folder."
+	case tmux, launcherHires && launcher:
+		return ""
+	case macApp:
+		return macHireNeedsTmux
+	case launcherHires:
+		return `Turn on managed windows ("hireManagedWindows": true in config.json, then restart Smolcorp): the General Manager hires only into a hire Smolcorp can fence.`
+	}
+	return "Install tmux: the General Manager hires only into a hire Smolcorp can fence."
+}
+
+// hireWith is hireAs for a hireSpec.
+func (d *Deck) hireWith(s hireSpec) (int, string) {
+	desk, roleID, floor, fromSetup, extra := s.desk, s.roleID, s.floor, s.fromSetup, s.extra
+	// The Claude accounts a hire may name: their folders are looked in without the lock, as setup's own list is.
+	d.mu.Lock()
+	accounts := slices.Clone(d.config.ClaudeProfiles)
+	d.mu.Unlock()
+	if extra == nil {
+		accounts = claudeAccountList(accounts)
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if !fromSetup && !d.config.HiringEnabled {
+	if !d.config.HiringEnabled && (!fromSetup || s.fenced) {
 		return http.StatusForbidden, hiringOff
 	}
 	pinned := ""
@@ -191,19 +569,35 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	held := -1
 	if floor > 0 {
 		// Upstairs, at a desk nobody sits at: its floor's folder, if the floor has one.
+		_, overflow := d.layout()
+		seated, _ := d.seatedBuilding(overflow)
+		seatedAt := func(i int) bool {
+			return slices.ContainsFunc(seated[floor], func(p seatedPerson[*Session]) bool { return p.desk == i })
+		}
 		index, err := strconv.Atoi(desk)
+		if desk == "" && (extra != nil || s.fenced) {
+			// From setup or the GM route, which name a floor and no desk: its first free one.
+			index, err = 0, nil
+			for index < desksPerFloor && seatedAt(index) {
+				index++
+			}
+			if index == desksPerFloor && s.fenced {
+				return http.StatusConflict, checkedFloors(d.config.Floors)[floor].Name + " is full."
+			}
+		}
 		if err != nil || index < 0 || index >= desksPerFloor {
 			return http.StatusBadRequest, "Unknown desk"
 		}
-		_, overflow := d.layout()
-		seated, _ := d.seatedBuilding(overflow)
-		if slices.ContainsFunc(seated[floor], func(p seatedPerson[*Session]) bool { return p.desk == index }) {
+		if seatedAt(index) {
 			return http.StatusConflict, "Someone's at that desk already."
 		}
 		if !d.hasRoom(floor, "") {
 			return http.StatusConflict, checkedFloors(d.config.Floors)[floor].Name + " is full."
 		}
 		held = index
+		if s.seat != nil {
+			*s.seat = index
+		}
 		pinned, _ = existingFolder(floorFolder(d.config.FloorRules, floor))
 	} else if desk != "" {
 		keys, _ := d.layout()
@@ -229,15 +623,30 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 				held = index
 			}
 		}
+	} else if s.seat != nil {
+		if !d.hasFreeKey() {
+			return http.StatusConflict, "Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room."
+		}
+		keys, _ := d.layout()
+		if *s.seat = slices.IndexFunc(keys, func(k deckKey) bool { return k.pin == nil && k.session == nil }); *s.seat < 0 {
+			*s.seat = len(keys)
+		}
 	}
 	folder := pinned
+	if extra != nil && extra.Folder != "" {
+		// The folder setup chose, checked already, before a desk's or a floor's.
+		folder = extra.Folder
+	} else if folder == "" && s.folder != "" {
+		// The GM route's folder, checked already; a pinned one is refused (fenceRefusal).
+		folder = s.folder
+	}
 	if folder == "" {
 		var ok bool
 		if folder, ok = existingFolder(d.config.HireFolder); !ok && fromSetup {
-			folder, ok = existingFolder(homeDir)
+			return http.StatusConflict, setupHireNeedsFolder
 		}
 		if !ok {
-			return http.StatusConflict, "Choose a folder for new hires in setup, on your computer."
+			return http.StatusConflict, hireFolderFirst
 		}
 	}
 	program := d.config.HireAgent
@@ -248,15 +657,42 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 		}
 		program = d.config.Roles[i].Agent
 	}
-	// T721, on every hire route, before anything is made or the cooldown is spent.
-	if err := testCopyRefusal(testCopyPort(), program, ""); err != nil {
-		return refusalStatus(err), err.Error()
+	// An ACP agent isn't hired yet (A5's): refused on every path, before its program is looked for anywhere and
+	// before any account is asked about, so nothing can run its "acp:<id>" name as a program. The GM route, and the
+	// GM's token on setup's hire, get the fence's sentence; the owner, a line that says it's coming.
+	if Agent(program).IsACP() {
+		return http.StatusConflict, acpHireRefusal(program, s.fenced || extra != nil && extra.byGM)
 	}
 	// One GM per office, by whichever route it is hired.
 	if roleID == "gm" {
 		if err := d.gmRefusal(); err != nil {
 			return refusalStatus(err), err.Error()
 		}
+	}
+	// With more than one Claude account, every way in names one (the Mac's Deck.hire, C05): the office's
+	// hires, Anyone's, the GM route's and Start here's. Setup's sheet has asked already, in the same words,
+	// and found the account's folder (setupHireRequest), where a hire on the API-key account names none.
+	account, configDir := s.account, ""
+	if extra != nil {
+		account, configDir = extra.Account, extra.configDir
+	} else if agentOrClaude(program) == Claude {
+		if status, why := claudeAccountRefusal(account, accounts); status != 0 {
+			return status, why
+		}
+		if named, ok := claudeAccountNamed(account, accounts); ok && named.Name != claudeDefaultName {
+			configDir = named.Dir
+		}
+	}
+	// What the engine is told of an account, a worktree or a task that setup's sheet didn't send (Start here's,
+	// the GM route's).
+	engineExtra := extra
+	if extra == nil && (account != "" || s.worktree != nil || s.task != "") {
+		engineExtra = &setupHire{Account: account, configDir: configDir, Worktree: s.worktree == nil || *s.worktree, Task: s.task}
+	}
+	// T721, on every hire route, before anything is made or the cooldown is spent (a test copy never hires
+	// on the default account).
+	if err := testCopyRefusal(testCopyPort(), program, configDir); err != nil {
+		return refusalStatus(err), err.Error()
 	}
 	if d.hiring || time.Since(d.lastHire) < hireCooldown {
 		return http.StatusTooManyRequests, "Hired a moment ago. Try again in a few seconds."
@@ -265,6 +701,15 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	terminal, hasTerminal := hireTerminal(d.config.HireTerminal, terminals)
 	if !hasTerminal && !tmux {
 		return http.StatusConflict, "There's no terminal here to open a hire in."
+	}
+	macApp, claudeRole := underMacApp(terminal, hasTerminal), roleID != "" && agentOrClaude(program) == Claude
+	// A fenced hire (the GM route's, decided as the GM's whoever calls it) that no fenced way could take is
+	// refused here, before anything is made (gates.go).
+	if s.fenced {
+		ask := fenceAsk{program: program, pinned: pinned, tmux: tmux, launcher: d.config.HireManagedWindows && hasTerminal, macApp: macApp}
+		if v := d.decide(actorGM, action{hire: &ask}); !v.allowed() {
+			return v.status, v.why
+		}
 	}
 	d.lastHire = time.Now()
 	// Until it's done, however long the lock is let go, which may be longer
@@ -282,16 +727,27 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	}
 	// After the agent is known to be there: not installed is the clearer thing
 	// to say. Without the lock: it reads the agents' settings files.
+	// A test copy's Claude hire reports through its own settings file, not the account's hooks (as the Mac's).
 	d.mu.Unlock()
-	why := hooksNotConnected(Agent(program))
+	why := ""
+	if testCopyPort() == 0 || agentOrClaude(program) != Claude {
+		why = hooksNotConnected(Agent(program))
+	}
 	d.mu.Lock()
 	if why != "" {
 		d.lastHire = time.Time{}
 		return http.StatusConflict, why
 	}
 
-	// In tmux when chosen, or when there's no window to open.
-	inTmux := tmux && (d.config.HireInTmux || !hasTerminal)
+	// In tmux when chosen, or when there's no window to open. Agent windows in
+	// the background (T796): in tmux, with no window, as without a terminal.
+	// Under the Mac app, a role's Claude hire is the engine's whatever the tmux
+	// choice: it runs in its own tmux server and its window is attached through
+	// the app, so it is fenced as the Swift engine's are. A fenced hire (the GM
+	// route's) is in tmux whenever there is tmux.
+	background := backgroundHires(d.config, tmux)
+	inTmux := tmux && (d.config.HireInTmux || !hasTerminal || background || macApp && claudeRole || s.fenced)
+	showWindow := hasTerminal && !background
 	// A role's Claude hire goes through the engine, at the desk chosen too (it
 	// is seated there when its session appears); the rest open as they did.
 	// A pinned desk stays on the old path: the engine's hire sits in a
@@ -299,15 +755,67 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 	// at its pinned desk.
 	if roleID != "" && pinned == "" && Agent(program) == Claude {
 		if inTmux {
-			if status, message, handled := d.managedHire(roleID, folder, terminal, hasTerminal, held, floor); handled {
+			if status, message, handled := d.managedHireWith(roleID, folder, terminal, showWindow, held, floor, engineExtra); handled {
 				return status, message
 			}
-		} else if launcherHires && d.config.HireManagedWindows && hasTerminal {
-			// Beta: in a window run by the launcher, only where that is made and the switch is on.
-			if status, message, handled := d.managedLauncherHire(roleID, folder, terminal, hasTerminal, held, floor); handled {
+		} else if launcherHires && d.config.HireManagedWindows && hasTerminal && !onAPIKey(extra) && (extra == nil || extra.Scope == "") {
+			// Beta: in a window run by the launcher, only where that is made and the switch is on. The GM route's
+			// task and account go with it whole (setup's sheet keeps its way through the launcher: its account alone).
+			var routeExtra *setupHire
+			if s.fenced {
+				routeExtra = engineExtra
+			}
+			if status, message, handled := d.managedLauncherHire(roleID, folder, terminal, hasTerminal, held, floor, engineExtra, routeExtra); handled {
 				return status, message
 			}
 		}
+	}
+	// A General Manager held to one project (gmscope.go) keeps its scope only in the engine's registry row:
+	// any other way would drop it, so it is refused rather than hired unscoped.
+	if extra != nil && extra.Scope != "" {
+		d.lastHire = time.Time{}
+		return http.StatusConflict, gmScopeNeedsEngine
+	}
+	// The plain path, through the launcher: it writes no fence and starts on the default account.
+	// Under the Mac app, a hire the Mac would manage (the manager on, a worktree asked for, or the
+	// GM) starts fenced or not at all, as the Swift engine's Deck.open does.
+	if macApp && claudeRole && (d.config.ManagerEnabled || extra != nil && extra.Worktree || roleID == gmRole) {
+		d.lastHire = time.Time{}
+		switch {
+		case !tmux:
+			return http.StatusConflict, macHireNeedsTmux
+		case Agent(program) != Claude:
+			// Not pinned: the engine only took it as Claude Code if its agent says so.
+			return http.StatusConflict, macHireUnknownAgent
+		case extra != nil:
+			return http.StatusConflict, macSetupHirePinnedUnfenced
+		}
+		return http.StatusConflict, macHirePinnedUnfenced
+	}
+	// A hire with no role isn't the engine's: under the Mac app, with the manager on, it would start
+	// unfenced. Agent(program): the hire agent always loads as a known one (loadConfig, as the
+	// Mac's Config), so this is the Mac's hiredAgent(role: nil).
+	if macApp && roleID == "" && Agent(program) == Claude && d.config.ManagerEnabled {
+		d.lastHire = time.Time{}
+		return http.StatusConflict, macHireNoRoleUnfenced
+	}
+	// A hire on the API-key account is the engine's or nobody's: the launcher can't give it the key,
+	// and a plain terminal would start it on the subscription.
+	if onAPIKey(extra) {
+		d.lastHire = time.Time{}
+		return http.StatusConflict, apiKeyNeedsEngine
+	}
+	// The backstop of a fenced hire (the GM route's) that no fenced way took: never a plain terminal.
+	// fenceRefusal has already refused every such hire before anything was made, so this isn't reached
+	// while the two agree: it is there in depth, so a change to one can't open a plain terminal unseen.
+	if s.fenced {
+		d.lastHire = time.Time{}
+		return http.StatusConflict, "The General Manager hires only into a hire Smolcorp can fence, and this one couldn't be."
+	}
+	// The launcher can't start on a named Claude account, and a test copy never hires on the default one.
+	if agentOrClaude(program) == Claude && (configDir != "" || testCopyPort() != 0) {
+		d.lastHire = time.Time{}
+		return http.StatusConflict, plainHireDefaultAccount
 	}
 	token := newID()
 	command := []string{commandLineProgram(), "run", "--hire", token}
@@ -321,15 +829,20 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 		// The agent looked for, whatever setup changed meanwhile.
 		command = append(command, program)
 	}
+	// A plain hire (not the engine's: a pinned desk, another agent, no role)
+	// isn't on a tmux server of its own, so in the background nothing but
+	// `tmux attach` would show it, and it has no "Open a window": it opens in
+	// its window as before (T796).
+	plainInTmux := tmux && (d.config.HireInTmux || !hasTerminal)
 	// Opened outside the lock: the terminal may take a moment to start.
 	d.mu.Unlock()
-	err := openHire(command, folder, terminal, hasTerminal, inTmux)
+	err := openHire(command, folder, terminal, hasTerminal, plainInTmux)
 	d.mu.Lock()
 	if err != nil {
 		// Nobody was hired, so the next try needn't wait.
 		d.lastHire = time.Time{}
 		name := terminal.name
-		if inTmux {
+		if plainInTmux {
 			name = "tmux"
 		}
 		return http.StatusInternalServerError, name + " didn't open"
@@ -340,6 +853,13 @@ func (d *Deck) hireAs(desk, roleID string, floor int, fromSetup bool) (int, stri
 		}
 	}
 	d.hires[token] = &pendingHire{desk: held, floor: floor, at: time.Now()}
+	// The folder it starts in, first among setup's recent ones (the Mac's Deck.open, Config.noteHire).
+	d.config.noteHireFolder(folder)
+	d.config.save()
+	if extra != nil {
+		// Setup's sheet is told: only the engine's hires get its task and answers, in a BRIEF.
+		return http.StatusNoContent, setupHireNotPassedOn
+	}
 	return http.StatusNoContent, ""
 }
 
@@ -405,12 +925,15 @@ func whereAppFinds(program string) string {
 
 // openHire opens command in folder: in a window of terminal, or in a tmux
 // session of its own, shown in a window of terminal when there is one.
+// command is the launcher (`smolcorp launch`), started as it is, never
+// through a login shell of Smolcorp's: the launcher finds the agent and
+// checks it (RT126SG2 B3, SANDBOX-PLAN §4 g6, g7).
 func openHire(command []string, folder string, terminal hireOpener, hasTerminal, inTmux bool) error {
 	if !inTmux {
-		return openWindow(terminal, folder, inLoginShell(command))
+		return openWindow(terminal, folder, command)
 	}
 	name := "smolcorp-" + strings.ToLower(newID()[:8])
-	made, err := runTmux(tmuxSessionArguments(name, folder, inLoginShell(command))...)
+	made, err := runTmux(tmuxSessionArguments(name, folder, command)...)
 	if err != nil {
 		return err
 	}
@@ -437,22 +960,46 @@ func tmuxSessionArguments(name, folder string, command []string) []string {
 
 // openWindow starts terminal, showing command in folder.
 func openWindow(terminal hireOpener, folder string, command []string) error {
+	_, err := showWindow(terminal, folder, command)
+	return err
+}
+
+// showWindow is openWindow, and the record of the window it opened, "" for
+// none: only a terminal the Mac app opens gives one (hirewindows.go).
+func showWindow(terminal hireOpener, folder string, command []string) (string, error) {
+	// A test copy opens no window of the owner's terminal app, whichever way it's asked (RTCH N1): a hire that
+	// would open one fails, saying so; one in tmux (the switch for it, or no terminal) never gets here.
+	if why := testCopyKeepsAway(testCopyKeepsTerminal); why != "" {
+		return "", errors.New(why)
+	}
+	if terminal.open != nil {
+		return terminal.open(folder, command)
+	}
 	args := terminal.args(folder, command)
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := disclaim.Cmd(exec.Command(args[0], args[1:]...))
 	cmd.Dir = folder
 	cmd.Env = hireEnvironment()
 	prepareHireWindow(cmd, terminal.id)
-	return startHire(cmd)
+	return "", startHire(cmd)
 }
 
 // hireEnvironment is this app's environment, less what says where it was
 // started: a hire is in a terminal of its own, not the one Smolcorp was
 // started from, nor a headless run. It never carries the GM's token.
+// Nor another hire's send key (each hire's start script exports its own).
+// The office's own hires never get the port and support folder the Mac app
+// names its engine by: a Mac-engine hire doesn't have them either, and
+// `smolcorp` finds the office without them. A test copy's keep them, as a
+// Mac test copy's do, so its hires never reach the real office.
 func hireEnvironment() []string {
+	dropped := []string{"SMOLCORP_SESSION", "SAUZZEDECK_SESSION", "SMOLCORP_HEADLESS", "SMOLCORP_PARENT_FOLDER",
+		"SMOLCORP_GM_TOKEN", hireKeyEnvironment, "TMUX", "TMUX_PANE", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON"}
+	if testCopyPort() == 0 {
+		dropped = append(dropped, "SMOLCORP_PORT", testSupportVariable)
+	}
 	return slices.DeleteFunc(os.Environ(), func(variable string) bool {
 		name, _, _ := strings.Cut(variable, "=")
-		return slices.Contains([]string{"SMOLCORP_SESSION", "SAUZZEDECK_SESSION", "SMOLCORP_HEADLESS", "SMOLCORP_PARENT_FOLDER",
-			"SMOLCORP_GM_TOKEN", "TMUX", "TMUX_PANE", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON"}, strings.ToUpper(name))
+		return slices.Contains(dropped, strings.ToUpper(name))
 	})
 }
 
@@ -479,8 +1026,9 @@ func (d *Deck) hiredPending(token string) (desk, floor int, hireID string, ok bo
 }
 
 // hireState is what the setup page shows of hiring: the switch, the folder
-// and agent, and where hires open. With the lock held.
-func (d *Deck) hireState() map[string]any {
+// and agent, where hires open, and the API-key account as offered now (asked
+// without the lock). With the lock held.
+func (d *Deck) hireState(apiKey apiKeyOffer) map[string]any {
 	terminals, tmux := hireWays()
 	choices := []map[string]any{}
 	for _, terminal := range terminals {
@@ -489,19 +1037,25 @@ func (d *Deck) hireState() map[string]any {
 	chosen, _ := hireTerminal(d.config.HireTerminal, terminals)
 	return map[string]any{
 		"enabled": d.config.HiringEnabled, "folder": d.config.HireFolder, "agent": d.config.HireAgent,
-		"canHire": len(terminals) > 0 || tmux, "canChoose": hasFolderPicker(),
+		"canHire": len(terminals) > 0 || tmux, "canChoose": d.canChooseFolder(),
 		"terminal": chosen.id, "terminals": choices,
 		"tmux": d.config.HireInTmux && tmux, "hasTmux": tmux,
 		// Beta: a role's Claude hire through the launcher, where that is made (Windows). Field only.
 		"managedWindows": d.config.HireManagedWindows && launcherHires, "managedBeta": launcherHires,
+		// The API-key account for a hire, as the Mac's: offered only with a key where Summaries keep it.
+		"apiKey": apiKey.state(),
+		// Whether agents' programs are checked here (a Mac checks Claude Code's signature), and an unsigned Claude
+		// Code refused since a signed one ran, for the owner to confirm (agentcheck.go), or "".
+		"agentsChecked": claudeSignaturesChecked, "claudeUnsigned": claudeInstalls.waiting(),
 	}
 }
 
 // hiredRoleAt is the role of the engine's hire whose tmux server is socket, or
 // "" for any other: a session in its pane has no launcher to say which. Only a
-// socket in the support folder is looked up.
+// socket in a hire socket folder is looked up: where new hires go (tmux's own
+// folder), or the support folder, where the Go core put them before 1.25.
 func (d *Deck) hiredRoleAt(socket string) string {
-	if socket == "" || filepath.Dir(filepath.Clean(socket)) != filepath.Clean(supportDir) {
+	if socket == "" || !inHireSocketFolder(socket) {
 		return ""
 	}
 	for _, h := range readRegistry(registryPath(), false).hires {
@@ -510,6 +1064,13 @@ func (d *Deck) hiredRoleAt(socket string) string {
 		}
 	}
 	return ""
+}
+
+// inHireSocketFolder says whether socket is right inside a hire socket folder, with the folders on the way
+// resolved, as recordedOwnSocket compares them: a hire the Mac's engine made says /private/tmp for /tmp.
+func inHireSocketFolder(socket string) bool {
+	folder := physical(filepath.Dir(filepath.Clean(socket)))
+	return slices.ContainsFunc(hireSocketFolders(), func(own string) bool { return physical(own) == folder })
 }
 
 // refusalStatus is the status a refusal carries, or 409 for an error that isn't one.

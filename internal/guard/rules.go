@@ -40,7 +40,10 @@ func DefaultGroups() []Group {
 		{Name: "remote", On: true, Commands: []Rule{"ssh", "scp", "sftp", "rsync @remote"}},
 		{Name: "local", On: true, Commands: []Rule{
 			"tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
-			"smolcorp gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
+			"smolcorp|smolcorp-cli gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
+			// The person's own commands (1.26 X3): a hire is not a person. say, open and hire are refused by the command
+			// itself for now, but its own check (an environment variable) is only a polite refusal, so they are fenced here too.
+			"smolcorp|smolcorp-cli hire|say|open",
 			"security", "osascript",
 			// stored credentials, printed
 			"git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager", "op read|item|inject|signin", "bw", "pass",
@@ -64,7 +67,7 @@ func ForGM(groups []Group) []Group {
 		out[i].gm = true
 		out[i].Commands = nil
 		for _, r := range g.Commands {
-			if w := ruleWords(r); len(w) >= 2 && strings.EqualFold(w[0], "smolcorp") && strings.EqualFold(w[1], "gm") {
+			if w := ruleWords(r); len(w) >= 2 && oneOf(strings.ToLower(w[0]), "smolcorp") && strings.EqualFold(w[1], "gm") {
 				continue
 			}
 			out[i].Commands = append(out[i].Commands, r)
@@ -87,6 +90,8 @@ func matches(rule Rule, name string, args []string) bool {
 			anywhere = true
 		case p == "@remote":
 			remote = true
+		case p == baseRule:
+			// the merge group's: what the command moves is checked apart (onBase), at the line's place
 		case strings.HasPrefix(p, "-"):
 			flags = append(flags, strings.Split(p, "|")...)
 		default:
@@ -212,7 +217,7 @@ var valueOptions = map[string][]string{
 	"pnpm":     {"-C", "--dir", "--filter", "-F", "-w", "--workspace", "--reporter", "--loglevel"},
 	"yarn":     {"--cwd"},
 	"bun":      {"--cwd", "--filter"},
-	"smolcorp": {"--port", "--test"},
+	"smolcorp": {"--port", "--test"}, "smolcorp-cli": {"--port", "--test"},
 	"vercel":   {"--cwd", "--scope", "-S", "--token", "-t", "-A", "--local-config", "-Q", "--global-config"},
 	"netlify":  {"--cwd", "--auth"},
 	"firebase": {"--project", "-P", "--config", "-c", "--token"},
@@ -260,6 +265,33 @@ type inner struct {
 	ps    bool // the line is PowerShell or cmd, not bash
 }
 
+// lineOf is the line a wrapper runs when it hands the shell its first word as a line and the others as that line's
+// words (`first "$@"`: git's bisect run and submodule foreach, env -S's split string and the words after it): each of
+// the others quoted, so that it is read back whole (RT126NS0aR4 N4). A word keeps the guard's marks inside its quotes.
+func lineOf(first string, more []string) string {
+	var b strings.Builder
+	b.WriteString(first)
+	for _, w := range more {
+		b.WriteString(" '")
+		b.WriteString(strings.ReplaceAll(w, "'", `'\''`))
+		b.WriteByte('\'')
+	}
+	return b.String()
+}
+
+// cmdQuoted is words as Git Bash and PowerShell hand them to cmd.exe in its command line: a word with a blank in it
+// (or none at all) in double quotes.
+func cmdQuoted(words []string) string {
+	out := make([]string, len(words))
+	for i, w := range words {
+		if w == "" || strings.ContainsAny(w, " \t") {
+			w = `"` + w + `"`
+		}
+		out[i] = w
+	}
+	return strings.Join(out, " ")
+}
+
 var shells = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "fish": true, "csh": true, "tcsh": true}
 
 // wrapped is what a command runs in its turn: sh -c's line, eval's words,
@@ -296,8 +328,18 @@ func wrapped(name string, args []string) []inner {
 				break // a later -c has no more words after it than this one
 			}
 		}
-		for _, a := range args {
-			if !strings.HasPrefix(a, "-") {
+		for i := 0; i < len(args); i++ {
+			a := args[i]
+			if strings.IndexByte(a, subMark) >= 0 {
+				break // a script, an rcfile or an option's value from a <( ) or a $( ): a pipe (bash --rcfile <(…) -i)
+			}
+			switch {
+			case a == "--rcfile" || a == "--init-file" || a == "-o" || a == "+o" || a == "-O" || a == "+O":
+				if i+1 < len(args) && strings.IndexByte(args[i+1], subMark) >= 0 {
+					return []inner{{words: simple{"\x00stdin"}}}
+				}
+				i++ // its value
+			case !strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "+"):
 				return nil // a script file: not seen here
 			}
 		}
@@ -317,11 +359,7 @@ func wrapped(name string, args []string) []inner {
 		}
 		return nil
 	case name == "cmd":
-		for i, a := range args {
-			if low := strings.ToLower(a); low == "/c" || low == "/k" || low == "/r" {
-				return []inner{{line: strings.Join(args[i+1:], " "), ps: true}}
-			}
-		}
+		return cmdLines(args)
 	case name == "invoke-expression" || name == "iex":
 		if len(args) == 0 {
 			return []inner{{words: simple{"\x00stdin"}}} // ... | iex runs what it is piped
@@ -366,7 +404,15 @@ func wrapped(name string, args []string) []inner {
 			}
 		}
 		return out
+	case name == "git":
+		// What git runs from its options: a line, or one program's name (gitruns.go).
+		_, out := gitRuns(args)
+		return out
 	case name == "eval":
+		// eval -- 'git push' is eval 'git push' (RWIN8 B4).
+		if len(args) > 0 && args[0] == "--" {
+			args = args[1:]
+		}
 		return []inner{{line: strings.Join(args, " ")}}
 	case name == "su":
 		for i, a := range args {
@@ -391,14 +437,14 @@ func wrapped(name string, args []string) []inner {
 			case a == "--" || !strings.HasPrefix(a, "-") && !isAssignment(a):
 				break scan
 			case strings.HasPrefix(a, "--split-string="):
-				out = append(out, inner{line: strings.TrimPrefix(a, "--split-string=") + " " + strings.Join(args[i+1:], " ")})
+				out = append(out, inner{line: lineOf(strings.TrimPrefix(a, "--split-string="), args[i+1:])})
 			case a == "--split-string" && i+1 < len(args):
-				out = append(out, inner{line: strings.Join(args[i+1:], " ")})
+				out = append(out, inner{line: lineOf(args[i+1], args[i+2:])})
 			case strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "S"):
 				if v := a[strings.Index(a, "S")+1:]; v != "" {
-					out = append(out, inner{line: v + " " + strings.Join(args[i+1:], " ")})
+					out = append(out, inner{line: lineOf(v, args[i+1:])})
 				} else if i+1 < len(args) {
-					out = append(out, inner{line: strings.Join(args[i+1:], " ")})
+					out = append(out, inner{line: lineOf(args[i+1], args[i+2:])})
 				}
 			}
 		}
@@ -499,6 +545,47 @@ func wrapped(name string, args []string) []inner {
 		return rest(nil, 0)
 	case name == "setsid" || name == "chronic" || name == "busybox" || name == "coproc":
 		return rest(nil, 0)
+	case name == "noglob" || name == "nocorrect" || name == "-":
+		// zsh's precommand modifiers (RWIN7 B2), beside builtin, command and exec: noglob git push is git push.
+		return rest(nil, 0)
+	case name == "repeat":
+		// zsh's repeat N command: the words after its count.
+		return afterFirst(rest(nil, 0))
+	case name == "emulate":
+		// zsh's emulate [-LR] [zsh|sh|ksh|csh [flags]] -c line: the line runs in that mode. Every word after the
+		// -c is read as a line: the safe side.
+		for i, a := range args {
+			if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.ContainsRune(a, 'c') {
+				var out []inner
+				for _, b := range args[i+1:] {
+					out = append(out, inner{line: b})
+				}
+				return out
+			}
+		}
+	case name == "taskpolicy":
+		// The Mac's taskpolicy [-b] [-c clamp] … program args (RWIN7 N6).
+		return rest([]string{"-d", "-g", "-c", "-p", "-m", "-j", "-P", "-S", "-t", "-l"}, 0)
+	case name == "hyperfine":
+		// hyperfine runs each command it's given (and --prepare's, --setup's) in a shell: every plain word is
+		// read as a line.
+		var out []inner
+		for _, a := range args {
+			if !strings.HasPrefix(a, "-") {
+				out = append(out, inner{line: a})
+			}
+		}
+		return out
+	case name == "rlwrap":
+		// rlwrap's options take values attached or not, and nobody lists them all: each plain word may start
+		// the command.
+		var out []inner
+		for i, a := range args {
+			if !strings.HasPrefix(a, "-") && len(out) < 8 {
+				out = append(out, inner{words: args[i:]})
+			}
+		}
+		return out
 	case name == "unshare":
 		return rest([]string{"--setgroups", "--propagation", "--map-user", "--map-group", "--map-users", "--map-groups",
 			"-R", "--root", "-w", "--wd", "-S", "--setuid", "-G", "--setgid", "--monotonic", "--boottime"}, 0)
@@ -514,6 +601,13 @@ func wrapped(name string, args []string) []inner {
 			}
 		}
 		return afterFirst(rest([]string{"-w", "-E", "--timeout", "--conflict-exit-code"}, 0))
+	case name == "jobs":
+		// bash's jobs -x runs its words as a command, a job's number in them swapped for its process group (RWIN9 B5).
+		for i, a := range args {
+			if a == "-x" {
+				return []inner{{words: args[i+1:]}}
+			}
+		}
 	case name == "trap":
 		// trap 'line' SIGNAL: the first plain word is the line.
 		for _, a := range args {
@@ -618,12 +712,57 @@ func wrapped(name string, args []string) []inner {
 	case name == "rbenv":
 		return afterSub(args, nil, "exec")
 	case name == "script":
-		// script [-q] [file [command …]]
+		// script [-q] [file [command …]] on the Mac; util-linux's script -c line [file] (-qc too).
+		for i, a := range args {
+			if (a == "--command" || strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.HasSuffix(a, "c")) && i+1 < len(args) {
+				return []inner{{line: args[i+1]}}
+			} else if strings.HasPrefix(a, "--command=") {
+				return []inner{{line: strings.TrimPrefix(a, "--command=")}}
+			}
+		}
 		if r := rest([]string{"-t", "-T"}, 0); len(r) == 1 && len(r[0].words) > 1 {
 			return []inner{{words: r[0].words[1:]}}
 		}
 	}
 	return nil
+}
+
+// cmdLines are the lines cmd.exe runs (RWIN10 B1): after a /c, /k or /r switch (any case), however it's spelled. Git
+// Bash turns a lone /c into a drive's path, so cmd //c is its usual spelling: a word starting // loses one /. cmd
+// reads switches run together (/q/c) and a switch glued to its text (/cgit push, /c"git push"): each part of a switch
+// word between its slashes is read, and the first that starts with c, k or r starts the line, with the rest of that
+// word. Every such word gives a line, not only the first, so that no reading of cmd's is left out.
+func cmdLines(args []string) []inner {
+	var out []inner
+	switches := 0
+	for i, a := range args {
+		w := strings.TrimPrefix(a, "/")
+		if !strings.HasPrefix(a, "/") {
+			continue
+		}
+		if !strings.HasPrefix(w, "/") {
+			w = "/" + w
+		}
+		parts := strings.Split(w[1:], "/")
+		for k, p := range parts {
+			if p == "" || strings.IndexByte("ckrCKR", p[0]) < 0 {
+				continue
+			}
+			text := strings.Join(append([]string{p[1:]}, parts[k+1:]...), "/")
+			out = append(out, inner{line: strings.TrimSpace(text + " " + strings.Join(args[i+1:], " ")), ps: true})
+			// cmd reads its command line, where a word with a blank came quoted (RT126NS0aR4 N4): cmd //c sh -c "git
+			// push origin x" runs sh -c with the whole line.
+			if quoted := strings.TrimSpace(text + " " + cmdQuoted(args[i+1:])); quoted != out[len(out)-1].line {
+				out = append(out, inner{line: quoted, ps: true})
+			}
+			switches++
+			break
+		}
+		if switches >= 8 {
+			break
+		}
+	}
+	return out
 }
 
 // takesNext is whether the option a takes the next word as its value:

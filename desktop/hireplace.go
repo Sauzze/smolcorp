@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // The hire's place (Phase 6 T602, part A), as the Mac's HireDesk.prepare: a git
@@ -44,7 +46,7 @@ func runGit(dir string, args ...string) (int, string, bool) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	out, err := disclaim.Cmd(exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)).CombinedOutput()
 	if err != nil {
 		if exit, isExit := err.(*exec.ExitError); isExit && ctx.Err() == nil {
 			return exit.ExitCode(), strings.TrimSpace(string(out)), true

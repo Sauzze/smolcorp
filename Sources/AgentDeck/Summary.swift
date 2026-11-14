@@ -1,20 +1,6 @@
 import Foundation
 import Security
 
-/// ✨ Summary: what an agent has been doing, in a few lines written from the
-/// end of its Claude Code transcript, for a phone that can't see the Terminal.
-/// Off until you turn it on in setup, and made either by a coding agent you
-/// already have, on your own plan (see `SummaryProviders`), or by Claude Haiku
-/// with your own Anthropic API key, billed to you.
-///
-/// Only the tail of the transcript is read, tool output cut down to a line,
-/// lines that look like secrets taken out, and at most `TranscriptTail.budget`
-/// characters sent, and only when a summary is asked for. The key (see
-/// `SummaryKey`) is read as each call is made, held in memory only for it, and
-/// never written anywhere else, logged or answered.
-
-// MARK: The transcript's tail
-
 /// The end of a Claude Code transcript as short plain lines, oldest first:
 /// what the user asked, what Claude said, each tool it ran in a line, and
 /// each tool's result in a line.
@@ -373,8 +359,6 @@ enum TranscriptTail {
     }
 }
 
-// MARK: Redaction
-
 /// Lines that look like they hold a secret, taken out before anything is sent.
 enum Redact {
     static let placeholder = "[redacted]"
@@ -440,8 +424,6 @@ enum Redact {
     }
 }
 
-// MARK: Language
-
 /// French or English, from the words the user wrote.
 enum Language {
     private static let french: Set = [
@@ -472,8 +454,6 @@ enum Language {
         return fr > en ? "French" : en > fr ? "English" : nil
     }
 }
-
-// MARK: Asking Claude
 
 /// Why a summary couldn't be had, in the phone's words: fixed text, never a
 /// reply's body, the request or the key.
@@ -617,6 +597,9 @@ enum SummaryKey {
     }
 
     private static var learning = false
+    /// Bumped by `forgetKnown`: a look begun before it found what was there then (nothing, while the Keychain's gate
+    /// was shut), so its answer isn't kept. Guarded by `lock`.
+    private static var generation = 0
     /// Told on the main queue when the hint has been learned from the Keychain, so what shows it can redraw.
     static var onLearned: () -> Void = {}
 
@@ -625,30 +608,40 @@ enum SummaryKey {
         lock.lock()
         let begin = !learning && knownHintValue == nil
         if begin { learning = true }
+        let begun = generation
         lock.unlock()
         guard begin else { return }
         queue.async {
             let hint = store.hint()
             DispatchQueue.main.async {
                 lock.lock()
-                if knownHintValue == nil { knownHintValue = .some(hint) }
-                learning = false
+                let current = begun == generation
+                if current {
+                    if knownHintValue == nil { knownHintValue = .some(hint) }
+                    learning = false
+                }
                 lock.unlock()
-                onLearned()
+                if current { onLearned() }
             }
         }
     }
 
     /// Runs `then` on the main queue once the hint is known (at once if it is).
     static func whenKnown(_ then: @escaping () -> Void) {
-        if knownHint != nil { return then() }
+        lock.lock()
+        let known = knownHintValue != nil
+        let begun = generation
+        lock.unlock()
+        if known { return then() }
         queue.async {
             let hint = store.hint()
             DispatchQueue.main.async {
                 lock.lock()
-                if knownHintValue == nil { knownHintValue = .some(hint) }
+                let current = begun == generation
+                if current, knownHintValue == nil { knownHintValue = .some(hint) }
                 lock.unlock()
-                then()
+                // Looked at before `forgetKnown`: looked at again, so `then` finds the hint known.
+                current ? then() : whenKnown(then)
             }
         }
     }
@@ -658,8 +651,9 @@ enum SummaryKey {
     /// answers setup, the office, phones and hooks.
     static let queue = DispatchQueue(label: "smolcorp.summary-key")
 
-    /// Asks the store again next time, as after the store is swapped in a test.
-    static func forgetKnown() { lock.lock(); knownHintValue = nil; learning = false; lock.unlock() }
+    /// Asks the store again next time, as after the store is swapped in a test or the Keychain's gate opens
+    /// (`KeychainGate.open`); a look still under way then isn't kept (`generation`).
+    static func forgetKnown() { lock.lock(); knownHintValue = nil; learning = false; generation += 1; lock.unlock() }
 }
 
 extension SummaryKey.Store {
@@ -673,7 +667,7 @@ extension SummaryKey.Store {
                 kSecMatchLimit as String: kSecMatchLimitOne,
             ]
             var found: CFTypeRef?
-            guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let data = found as? Data,
+            guard Keychain.copyMatching(query, &found) == errSecSuccess, let data = found as? Data,
                   let key = String(data: data, encoding: .utf8), SummaryKey.isKey(key) else { return nil }
             return key
         },
@@ -687,7 +681,7 @@ extension SummaryKey.Store {
                 kSecMatchLimit as String: kSecMatchLimitOne,
             ]
             var found: CFTypeRef?
-            guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess,
+            guard Keychain.copyMatching(query, &found) == errSecSuccess,
                   let attributes = found as? [String: Any] else { return nil }
             return attributes[kSecAttrComment as String] as? String ?? "sk-ant-…"
         },
@@ -697,13 +691,13 @@ extension SummaryKey.Store {
                 kSecAttrService as String: SummaryKey.service,
                 kSecAttrAccount as String: SummaryKey.account,
             ]
-            SecItemDelete(match as CFDictionary)
+            Keychain.delete(match)
             var item = match
             item[kSecAttrLabel as String] = "Smolcorp Summary (Anthropic API key)"
             item[kSecAttrComment as String] = hint
             item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             item[kSecValueData as String] = Data(key.utf8)
-            return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+            return Keychain.add(item) == errSecSuccess
         },
         delete: {
             let match: [String: Any] = [
@@ -711,255 +705,6 @@ extension SummaryKey.Store {
                 kSecAttrService as String: SummaryKey.service,
                 kSecAttrAccount as String: SummaryKey.account,
             ]
-            SecItemDelete(match as CFDictionary)
+            Keychain.delete(match)
         })
-}
-
-/// One call to Claude's Messages API, with what it needs and nothing more.
-enum SummaryRequest {
-    static let endpoint = testEndpoint() ?? URL(string: "https://api.anthropic.com/v1/messages")!
-    static let model = "claude-haiku-5-5"
-    /// What setup's dialog names.
-    static let modelName = "Claude Haiku 5.5"
-
-    /// For a test copy only (scripts/test-copy.sh): a stand-in for Anthropic's
-    /// API on this computer, from SMOLCORP_TEST_ANTHROPIC_URL, so a summary can
-    /// be tried without a key or a bill. Only the test copy's own build, by its
-    /// bundle id, which the app in use never has, and only with its variables.
-    static let testCopyBundle = "io.github.sauzze.agentdeck.test"
-
-    static func testEndpoint(_ environment: [String: String] = ProcessInfo.processInfo.environment,
-                             testCopy: Bool = TestCopy.isOn && Bundle.main.bundleIdentifier == testCopyBundle) -> URL? {
-        guard testCopy, let text = environment["SMOLCORP_TEST_ANTHROPIC_URL"], let url = URL(string: text),
-              url.scheme == "http", ["127.0.0.1", "localhost"].contains(url.host ?? "") else { return nil }
-        return url
-    }
-    static let maxTokens = 300
-    static let timeout: TimeInterval = 15
-
-    static func system(language: String) -> String {
-        """
-        You summarise a coding agent's session for its owner, who is away from the computer and reads on a phone. \
-        If a line starts with LATEST REQUEST, it is what the user last asked: summarise that request and the work \
-        since. Lines before it are background only: mention older work only if it is still in progress. \
-        If no line starts with LATEST REQUEST, summarise the most recent work in the excerpt. \
-        A line starting LATEST PEER MESSAGE is a newer message from another session: if it gives the agent its \
-        current task, say what that task is in one line. Lines starting REPORT are reports other sessions handed \
-        back, not requests. \
-        From the transcript excerpt, write 3 to 5 short lines, plain text, no markdown, no bullets, no preamble:
-        1. what the user last asked for;
-        2. what the agent did or is doing about it now;
-        3. whether it is waiting on the user, and for what (say plainly if it isn't);
-        4. the last result or error.
-        Write in \(language), the language the user writes in. Each line under 100 characters. \
-        Lines marked [redacted] held secrets: never guess them.
-        """
-    }
-
-    /// What's summarised, as the API key and each coding agent get it.
-    static func prompt(_ extract: TranscriptTail.Extract, project: String) -> String {
-        "Project: \(project)\n\nTranscript excerpt, oldest first:\n\(extract.text)"
-    }
-
-    static func body(_ extract: TranscriptTail.Extract, project: String) -> Data {
-        let object: [String: Any] = [
-            "model": model,
-            "max_tokens": maxTokens,
-            // Haiku 5.5 thinks by default, and thinking would come out of the few tokens a summary has.
-            // It can be turned off at its default effort, medium.
-            "thinking": ["type": "disabled"],
-            "system": system(language: extract.language),
-            "messages": [[
-                "role": "user",
-                "content": prompt(extract, project: project),
-            ]],
-        ]
-        return (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
-    }
-
-    static func request(_ extract: TranscriptTail.Extract, project: String, key: String) -> URLRequest {
-        var request = URLRequest(url: endpoint, timeoutInterval: timeout)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.setValue(key, forHTTPHeaderField: "x-api-key")
-        request.httpBody = body(extract, project: project)
-        return request
-    }
-
-    /// The reply's text, or why there's none.
-    static func answer(_ data: Data?, status: Int?, error: Error?) -> Result<String, SummaryError> {
-        if let error = error as? URLError {
-            return .failure(error.code == .timedOut ? .timeout : .unreachable)
-        }
-        if error != nil { return .failure(.unreachable) }
-        guard let status else { return .failure(.unreachable) }
-        guard (200..<300).contains(status) else { return .failure(.refused(status)) }
-        guard let data, let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let content = reply["content"] as? [[String: Any]] else { return .failure(.empty) }
-        let text = content.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }
-            .joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? .failure(.empty) : .success(text)
-    }
-}
-
-/// Summaries by session: one call at a time for each, kept for `keepFor` so a
-/// second tap doesn't pay twice unless the user has asked something since, and
-/// at most `most` calls in `window` for the whole computer, so no phone can run
-/// up your bill or use up your plan. Never retried: a tap is one call at
-/// most, and a second, with your key, only when the coding agent chosen
-/// fails, which the summary then says. Runs on the main queue, as the deck does.
-final class Summaries {
-    static let keepFor: TimeInterval = 30
-    static let most = 20
-    static let window: TimeInterval = 10 * 60
-
-    typealias Done = (Result<String, SummaryError>) -> Void
-    /// Sends a request and hands back what came, on any queue. Swapped in tests.
-    typealias Transport = (URLRequest, @escaping (Data?, Int?, Error?) -> Void) -> Void
-    /// Runs a coding agent for a summary, with the instructions and the excerpt, on any queue. Swapped in tests.
-    typealias Agent = (SummaryProvider, _ system: String, _ prompt: String) -> Result<String, SummaryCLIFailure>
-
-    private var kept: [String: (text: String, latest: String?, at: Date)] = [:]
-    private var waiting: [String: [Done]] = [:]
-    /// When each call to Anthropic went, within `window`.
-    private var calls: [Date] = []
-    private let transport: Transport
-    private let key: () -> String?
-    /// A key pasted in setup, never one from Smolcorp's environment: the only one a summary falls back to.
-    private let savedKey: () -> String?
-    private let agent: Agent
-    private let now: () -> Date
-    /// Why the last summary was made with the key instead, for setup: nil once one isn't.
-    private(set) var lastFallback: String?
-
-    init(transport: @escaping Transport = Summaries.urlSession, key: @escaping () -> String? = { SummaryKey.read() },
-         savedKey: @escaping () -> String? = { SummaryKey.store.read() },
-         agent: @escaping Agent = Summaries.runAgent, now: @escaping () -> Date = Date.init) {
-        self.transport = transport
-        self.key = key
-        self.savedKey = savedKey
-        self.agent = agent
-        self.now = now
-    }
-
-    /// The coding agent's run, unless it's known not to take Smolcorp's flags any more.
-    static let runAgent: Agent = { provider, system, prompt in
-        guard provider.isSupported else { return .failure(.unsupported) }
-        let state = SummaryProviders.shared.statesNow()[provider]
-        if state?.kind == .changed { return .failure(.changed) }
-        if state?.kind == .unsupported { return .failure(.unsupported) }
-        guard let program = state?.program ?? SummaryProviders.program(provider) else { return .failure(.missing) }
-        let result = SummaryCLI.run(provider, program: program, system: system, prompt: prompt, expected: state?.kind ?? .ready)
-        // What setup shows is looked at again, as it may be out of date.
-        if case .failure(let why) = result, [.loginChanged, .unsupported, .signedOut].contains(why) {
-            SummaryProviders.shared.refresh(force: true)
-        }
-        return result
-    }
-
-    /// The line a summary made with the key instead ends with.
-    static func fallbackNote(_ failure: SummaryCLIFailure, _ provider: SummaryProvider) -> String {
-        let why = failure.short(provider)
-        return "(" + why.prefix(1).uppercased() + why.dropFirst() + ", so this was made with your API key.)"
-    }
-
-    static let urlSession: Transport = transport(using: .ephemeral)
-
-    /// Sends through a session of its own that never follows a redirect: one
-    /// could take the key's header elsewhere. A redirect comes back as it is,
-    /// and is answered as a refusal.
-    static func transport(using base: URLSessionConfiguration) -> Transport {
-        { request, done in
-            let configuration = base.copy() as! URLSessionConfiguration
-            configuration.httpCookieStorage = nil
-            configuration.timeoutIntervalForRequest = SummaryRequest.timeout
-            configuration.timeoutIntervalForResource = SummaryRequest.timeout
-            configuration.urlCache = nil
-            let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
-            session.dataTask(with: request) { data, response, error in
-                done(data, (response as? HTTPURLResponse)?.statusCode, error)
-                session.finishTasksAndInvalidate()
-            }.resume()
-        }
-    }
-
-    final class NoRedirects: NSObject, URLSessionTaskDelegate {
-        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-            completionHandler(nil)
-        }
-    }
-
-    /// The summary of session `id`, from its transcript at `transcript`.
-    func summarize(_ id: String, transcript: String, project: String, provider: SummaryProvider = .apiKey, done: @escaping Done) {
-        // A summary kept is served only while the user's latest request is still the one it covered,
-        // which only the file can tell; it's read off the main queue, and a call made only if it isn't.
-        if let hit = kept[id], now().timeIntervalSince(hit.at) < Summaries.keepFor {
-            DispatchQueue.global(qos: .userInitiated).async {
-                let latest = TranscriptTail.read(transcript)?.latest
-                DispatchQueue.main.async { [weak self] in
-                    if latest == hit.latest { return done(.success(hit.text)) }
-                    self?.call(id, transcript: transcript, project: project, provider: provider, done: done)
-                }
-            }
-            return
-        }
-        call(id, transcript: transcript, project: project, provider: provider, done: done)
-    }
-
-    /// A call for session `id`, to Anthropic or a coding agent, or a wait on the one already going.
-    private func call(_ id: String, transcript: String, project: String, provider: SummaryProvider, done: @escaping Done) {
-        if waiting[id] != nil { waiting[id]!.append(done); return }
-        calls.removeAll { now().timeIntervalSince($0) >= Summaries.window }
-        guard calls.count < Summaries.most else { return done(.failure(.tooMany)) }
-        calls.append(now())
-        waiting[id] = [done]
-        let finish = { [weak self] (result: Result<String, SummaryError>, latest: String?) in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                if case let .success(text) = result { self.kept[id] = (text, latest, self.now()) }
-                let callers = self.waiting.removeValue(forKey: id) ?? []
-                callers.forEach { $0(result) }
-            }
-        }
-        // The file and the Keychain are read off the main queue, so the deck never waits on them.
-        let key = key, savedKey = savedKey, transport = transport, agent = agent, clock = now
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let extract = TranscriptTail.read(transcript) else { return finish(.failure(.noHistory), nil) }
-            if provider == .apiKey {
-                guard let secret = key() else { return finish(.failure(.noKey), nil) }
-                DispatchQueue.main.async { self?.lastFallback = nil }
-                let request = SummaryRequest.request(extract, project: project, key: secret)
-                return transport(request) { data, status, error in
-                    finish(SummaryRequest.answer(data, status: status, error: error), extract.latest)
-                }
-            }
-            let system = SummaryRequest.system(language: extract.language)
-            let failure: SummaryCLIFailure
-            switch agent(provider, system, SummaryRequest.prompt(extract, project: project)) {
-            case let .success(text):
-                DispatchQueue.main.async { self?.lastFallback = nil }
-                return finish(.success(text), extract.latest)
-            case let .failure(why):
-                failure = why
-            }
-            // With a key pasted in setup, it's made with that instead, and says so: a call of its own, within the limit.
-            guard let secret = savedKey() else { return finish(.failure(failure.error(provider)), nil) }
-            let note = Summaries.fallbackNote(failure, provider)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.calls.removeAll { clock().timeIntervalSince($0) >= Summaries.window }
-                guard self.calls.count < Summaries.most else { return finish(.failure(failure.error(provider)), nil) }
-                self.calls.append(clock())
-                self.lastFallback = note
-                transport(SummaryRequest.request(extract, project: project, key: secret)) { data, status, error in
-                    finish(SummaryRequest.answer(data, status: status, error: error).map { $0 + "\n" + note }, extract.latest)
-                }
-            }
-        }
-    }
-
-    /// Forgets every summary kept, as the setting goes off.
-    func forget() { kept = [:] }
 }

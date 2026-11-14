@@ -2,15 +2,15 @@
 
 Paste everything below the line into your coding agent (Claude Code, Codex,
 Gemini CLI, OpenCode or Grok), opened in the folder where you unzipped or
-downloaded Smolcorp. It installs Smolcorp, connects your agents, checks everything,
-and tells you the two or three things only you can do.
+downloaded Smolcorp. It installs Smolcorp, checks everything, and tells you
+the few things only you can do, on Smolcorp's setup page.
 
 ---
 
-You're setting up Smolcorp on this computer for me. Smolcorp shows my coding
-agents as little people in a pixel office, on this computer and on my
-phone. Do the whole setup, check it, and report. Work only with what's
-described here.
+You're setting up Smolcorp on this computer for me. Smolcorp gives my AI
+coding agents a General Manager, and shows the team as little people in a
+pixel office, in any browser: on this computer, and on my phone. Do the whole
+setup, check it, and report. Work only with what's described here.
 
 **Rules**
 - Don't read, print or copy any key: not Smolcorp's `setup-key` or
@@ -22,12 +22,11 @@ described here.
 
 **1. Find Smolcorp and run its setup.** Look in this folder.
 - **Windows** (`Smolcorp.exe` and `smolcorp-cli.exe`): run
-  `.\smolcorp-cli.exe setup`. The first run installs Smolcorp in
-  `%LOCALAPPDATA%\Smolcorp` and starts it from there. Windows then asks once
-  to change the firewall: tell me to choose **Yes**. If WebView2 is missing,
+  `.\smolcorp-cli.exe setup`. It starts Smolcorp, which installs itself in
+  `%LOCALAPPDATA%\Smolcorp` and starts from there. If WebView2 is missing,
   Smolcorp says so; the office then opens in the browser, which works too.
 - **Linux** (`smolcorp` and `install.sh`): run `./install.sh`, which
-  installs to `~/.local/bin` and runs `smolcorp setup` itself.
+  installs to `~/.local/bin`, then run `smolcorp setup`.
 - **Mac** (`Smolcorp.app`, or `Smolcorp.dmg`): if it's a DMG, tell me to
   open it and drag Smolcorp to Applications, then open it once from there.
   It's signed with a Developer ID and notarised by Apple: the first time,
@@ -43,12 +42,14 @@ described here.
 **2. Read the checklist it prints.** `✓` is done, `✗` is in the way, `•` is
 a step still to take, `i` is worth knowing. It ends with exit code 0 when
 nothing is in the way.
-- For each `✗` line, do what it says, then run the setup command again
-  (with `--check` to only look). If a line says no coding agent is
+- The setup command only checks: it changes nothing. For each `✗` line, tell
+  me what it says to do on Smolcorp's setup page (on Windows, the firewall
+  line's fix asks Windows once: tell me to choose **Yes**), then run the setup
+  command again. If a line says no coding agent is
   installed, tell me: installing one is my choice.
 - If agents don't show up in the office, or a line says their hooks point
-  at another copy of Smolcorp (an old download, say), use the checklist's
-  **Connect them** fix, then tell me to restart any agent sessions that were
+  at another copy of Smolcorp (an old download, say), tell me to click the
+  checklist's **Connect them** on the setup page, then to restart any agent sessions that were
   already open: they only pick up the change when they start.
 - Run only one Smolcorp: if an older copy is still running from a
   download folder, tell me to quit it before going on.

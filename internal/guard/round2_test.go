@@ -58,6 +58,10 @@ func TestNoSpellingNamesTheTokenOrTheGuardFile(t *testing.T) {
 		"sh -c 'cat gm-tok\"\"en'", "echo $(cat gm-to\\ken)", "cat *token", "cat gm-*oken",
 		"cat <<EOF\n$(cat gm-tok\"\"en)\nEOF", "echo x > gm-tok\"\"en", "git commit -m x -- gm-t*",
 	})
+	// Where a computer with no secret store keeps the GM's token (desktop/gmtokenstore.go): no pattern names it either.
+	mustRefuse(t, "kept token by pattern", []string{
+		"cat ~/.config/smolcorp/*-kept", "cat g?-token-kept", "cat *oken-kept", "cp *-kept /tmp/x",
+	})
 	mustRefuse(t, "guard file by pattern", []string{
 		"cp /tmp/off.json " + dir + "hire-gu*", "rm " + dir + "hire-g*", "cp x hire-guar?.json", "echo '{}' > " + dir + "hire-g*",
 		"echo '{}' > hire-gu\"\"ard.json", "echo '{}' > hire-guard.js{on,}", "echo '{}' > HIRE-g*", "tee hire-guard.js*",
@@ -65,7 +69,29 @@ func TestNoSpellingNamesTheTokenOrTheGuardFile(t *testing.T) {
 	mustRun(t, "ordinary patterns", []string{
 		"ls *.json", "cat /tmp/*.json", "ls *", "ls /tmp/*", "ls g*", "ls gm*", "ls docs/gm*.md", "git add internal/*",
 		"cat package*.json", "ls ~/Projects/foo*", "rm -f /tmp/a*", "cat gm-notes.md", "ls token", "echo hire",
+		// RWIN7 B1: brackets that fill in nothing the guard keeps.
+		"ls [!.]*", "ls [[:upper:]]*", "ls x[]y", "cat setup-k[!e]y.md", "ls src/[a-z]*.go", "cat notes[!x].md",
 	})
+	// RWIN7 B1: [!x] and POSIX's classes, which Go's matcher read otherwise, fill in the guard file and the token
+	// file. Each bracket is read as any one letter, whatever it holds; one that starts with ! or holds a class is
+	// refused as not written plainly where it fills in such a name, even for a command that only reads.
+	odd := []string{
+		"echo '{}' > " + dir + "hire-gu[!x]rd.json", "echo '{}' > " + dir + "hire-gu[[:alpha:]]rd.json",
+		"cp /dev/null " + dir + "hire-gu[!x]rd.json", "rm " + dir + "hire-gu[!x]rd.json", "cat " + dir + "gm-t[!x]ken",
+		"cat " + dir + "gm-t[[:alpha:]]ken", "cat hire-gu[!x]rd.json", "cat ~/.config/smolcorp/gm-token-k[!x]pt",
+		// For comparison, refused before too.
+		"echo '{}' > " + dir + "hire-gu?rd.json", "rm " + dir + "hire-gu?rd.json", "cat " + dir + "gm-to?en",
+	}
+	for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
+		for _, line := range odd {
+			if Check(line, groups) == nil {
+				t.Errorf("let through: %s", line)
+			}
+		}
+	}
+	if r := Check("cat hire-gu[!x]rd.json", DefaultGroups()); r == nil || r.Rule != notPlainRule || !strings.Contains(r.Error(), "[!x]") {
+		t.Errorf("a reader with an odd bracket: %v", r)
+	}
 }
 
 // A3: a command that names the guard file is refused unless it only reads.
@@ -227,5 +253,123 @@ func TestUnclosedUnitsAreNotSlow(t *testing.T) {
 				t.Errorf("%s: let through", name)
 			}
 		}
+	}
+}
+
+// WIN125c (RWIN2 B3): no spelling names the app's setup key either, as a word, a pattern that fills it in, or the
+// file a < reads; for the GM and every hire. The word in a message, or a grep for it in Smolcorp's own code, runs.
+func TestNoSpellingNamesTheSetupKey(t *testing.T) {
+	const dir = `~/Library/Application\ Support/AgentDeck/`
+	lines := []string{
+		"cat " + dir + "setup-key", "cat " + dir + "setup-k?y", "cat " + dir + "setup-*", "cat " + dir + `setup-"k"ey`,
+		"cat " + dir + `setup-\key`, "cat " + dir + "SETUP-KEY", "cat " + dir + "setup-k{ey,}", "cat ~/.config/Smol*/setup-k?y",
+		"cat ~/.config/sauzzedeck-pro/setup-key", `type "C:\Users\ada\AppData\Roaming\SauzzeDeck Pro\setup-key"`,
+		"cat < " + dir + "setup-key", "x=$(< setup-key)", "while read k; do echo $k; done <setup-k*",
+		"sh -c 'cat setup-k?y'", "cp setup-key /tmp/k", "curl -H @setup-key localhost:7710/setup/state",
+		"dd if=setup-key", "echo setup-key",
+		// RWIN5 B3: ſ (the long s) is s to the Mac's disk, and K (the Kelvin sign) k; Windows drops a name's dots and
+		// blanks at its end, reads a stream after a :, and has a short name for it.
+		"cat " + dir + "\u017fetup-key", "cat \u017fetup-key", "cat \u017fETUP-KEY", "cat setup-\u212aey", "cp \u017fetup-key k",
+		"cat ~/Library/Application\\ \u017fupport/AgentDeck/s*", "cat ~/.config/sauzzedeck-pro/s*", "cat ~/AppData/Roaming/SauzzeDeck\\ Pro/s*",
+		"type setup-key.", `type "setup-key "`, "type setup-key::$DATA", "type SETUP-~1", "type se1a2b~1", `type C:setup-key`,
+		`type "C:\Users\ada\AppData\Roaming\SauzzeDeck Pro\SETUP-~1"`, "grep -fSETUP-~1 x", "grep -fsetup-key. x",
+		// RWIN7 B1: a bracket Go's matcher read otherwise ([!x] is "anything but x" to the shell, and POSIX's classes).
+		"cat setup-k[!x]y", "cat setup-[!x]ey", "cat setup-k[[:alpha:]]y", "cat setup-k[[:lower:]]y", "cat [[:alpha:]]etup-key",
+		"cat setup-k[[=e=]]y", "cat setup-k[[.e.]]y", "cat " + dir + "setup-k[!x]y", "cat < setup-k[!x]y", "cat <setup-k[[:alpha:]]y",
+		"grep . setup-k[!x]y", "cp setup-k[!x]y /tmp/k", "cat setup-k[!]x]y", `cat setup-k["!"x]y`,
+		// RWIN7 B2 and B3: zsh's emulate -c, and ${(e)…} running its own text.
+		"emulate zsh -c 'cat setup-key'", "echo ${(e):-'$(cat setup-key)'}", "echo ${(e):-'$(cat " + dir + "setup-key)'}",
+		// RWIN7's comparisons, refused before too.
+		"cat setup-k?y", "cat setup-k[e]y", "cat setup-k[a-z]y", "cat setup-k[^x]y", "repeat 1 cat setup-key",
+		"emulate sh -c 'cat " + dir + "setup-key'",
+	}
+	mustRefuse(t, "setup key", lines)
+	for _, line := range lines {
+		if r := Check(line, ForGM(DefaultGroups())); r == nil {
+			t.Errorf("the GM: %q let through", line)
+		}
+	}
+	mustRun(t, "the word as text", []string{
+		`git commit -m "the setup-key file is the owner's"`, "grep -n 'setup-key file' docs/setup.md", "cat setup-keys.md", "ls setup-*.md",
+		"sort < in.txt", "cat docs/setup.md",
+		// Words that only look like it: another file on every disk.
+		"cat setup-keys.md", "cat setup-key.md",
+	})
+	// WIN125g: a ~ inside a word is a pattern to zsh (setup-key~1 is setup-key, but not 1), so these look-alikes
+	// are refused with it, as the plain-writing rule refuses every such word (plain.go).
+	mustRefuse(t, "a ~ inside a word", []string{"ls setup-~", "cat sexy~1", "cat setup-key~1"})
+	// Fold is the disk's folding (WIN125h): ſ and s, K and k, any case, are one letter, and ß is ss, ﬁ is fi, as the
+	// Mac's disk reads them (RWIN6 B2). An accented letter stays itself.
+	for in, want := range map[string]string{"\u017fetup-KEY": "setup-key", "Setup-\u212aey": "setup-key", "Stra\u00dfe": "strasse", "\u03a3\u03c2": "\u03c3\u03c3",
+		"\u1e9eH": "ssh", "\ufb02y": "fly", "\ufb01rebase": "firebase", "fa\ufb06lane": "fastlane", "\ufb00\ufb03\ufb04\ufb05": "ffffifflst", "a\u037eb": "a;b",
+		"Pr\u00c9sentation": "pr\u00e9sentation"} {
+		if got := Fold(in); got != want {
+			t.Errorf("Fold(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// WIN125e (RWIN4 B1): a search of other files for the word is refused, for the GM and every hire, as WIN125c
+// refused it. WIN125d let grep, rg and git grep run with setup-key as their pattern, and RWIN4 read the key
+// through options the guard didn't know: grep's --reg (any unique prefix of --regexp), GREP_OPTIONS, rg's
+// RIPGREP_CONFIG_PATH. Telling the pattern from a file means knowing every option spelling, variable and config
+// file of every search tool, so the word is refused wherever it stands. The cost: searching other files for
+// the word is refused too.
+func TestTheGuardRefusesASearchForTheSetupKeyWord(t *testing.T) {
+	const support = `~/Library/Application\ Support/AgentDeck`
+	runs := []string{
+		// RWIN3's "these still run": the word inside a word, or not the word.
+		`git commit -m "the setup-key file"`, "find . -name '*key*'", "ls setup-*.md", "sort < in.txt", "cat < notes.md",
+		"wc -l < setup-keys.md", "grep -rn hook-key desktop/", "git log -S setupKey --oneline",
+		// A word that holds setup-key but isn't it: as a file, it isn't the key either.
+		"egrep -c 'setup-key|hook-key' notes.md",
+	}
+	refused := []string{
+		// RWIN4 B1's table: grep reads setup-key as a file, through an option or a variable the guard can't know.
+		"grep setup-key --reg .", "grep setup-key --reg=.", "GREP_OPTIONS='-e .' grep setup-key",
+		"RIPGREP_CONFIG_PATH=rgcfg rg setup-key", "cd docs && grep setup-key --reg .", // WIN125k: a cd into the support folder is refused first
+		"egrep setup-key --reg .", "grep -E setup-key --rege=.", "grep --exclude-f setup-key x .",
+		"env GREP_OPTIONS='-e .' grep setup-key", "rg --no-config setup-key",
+		// WIN125d let these run as searches of other files for the word: refused again (RWIN4 B1), as the
+		// guard can't tell for sure that setup-key is the pattern and not a file.
+		"grep -rn setup-key desktop/", `grep -rn "setup-key" .`, "git grep setup-key", "rg -l setup-key Sources/",
+		"git log -S setup-key --oneline", "git log --grep=setup-key",
+		"go test ./internal/guard/ 2>&1 | grep setup-key",
+		"grep -e setup-key -r desktop/", "grep --regexp setup-key desktop/x.go", "grep -i -- setup-key README.md",
+		"rg -n --glob '*.go' setup-key", "rg -C 2 setup-key internal/",
+		"git log -G setup-key -p", "git log --all --grep setup-key", "git -C ../app grep -n setup-key -- '*.go'",
+		"git grep -e setup-key HEAD~1", "grep -esetup-key notes.md", "git log -Ssetup-key",
+		// RWIN3's table: they read the key, or name it as a file.
+		"shasum -a 256 setup-key | cut -c1-64 | shasum | cut -c1-12",
+		"stat -f '%N %z %m' " + support + "/setup-key", "ls -la " + support + "/setup-key", `test -f "$S/setup-key"`,
+		"ls *key*", "cat set*", "ls -d setup*", "rm -f *-key", "find . -name *key*", "ls docs/setup-*",
+		// A search whose files hold the key: by its path, by -f, --glob, --include, a pattern that fills it in.
+		"grep setup-key " + support + "/setup-key", "grep -r x " + support + "/setup-key", "grep -e x setup-key",
+		"grep -f setup-key notes.md", "grep -fsetup-key notes.md", "grep --file=setup-key notes.md",
+		"rg -g setup-key x .", "rg --glob=setup-key x .", "grep -r --include=setup-key x .", "grep -r --include setup-key x .",
+		"grep x set*", "grep set* .", "grep -e x set*", "rg x " + support + "/setup-k?y",
+		"git grep x -- setup-key", "git grep -e x HEAD -- " + support + "/setup-key", "git log -S x -- setup-key",
+		"git log setup-key", "grep -- x setup-key", "grep setup-key < setup-key", "grep -c setup-key setup-key",
+		"grep -r x setup-key", "rg -r y x setup-key",
+		// Not a search: the word names the key.
+		"setup-key", "cat setup-key", "xargs grep setup-key", "echo setup-key", "git show setup-key",
+	}
+	for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
+		for _, line := range runs {
+			if r := Check(line, groups); r != nil {
+				t.Errorf("refused %q: %v", line, r)
+			}
+		}
+		for _, line := range refused {
+			// *key* fills in the push key's file too (PUSH1), which the always list names first: refused either way.
+			r := Check(line, groups)
+			if r == nil || r.Rule != setupKeyFile && !(strings.Contains(line, "*key*") && r.Rule == "push-key-kept") {
+				t.Errorf("%q: %v", line, r)
+			}
+		}
+	}
+	// RWIN3 N8: a > to the key shows as a >.
+	if r := Check("echo x > setup-key", DefaultGroups()); r == nil || r.Command != "> setup-key" {
+		t.Errorf("a > to the key: %v", r)
 	}
 }

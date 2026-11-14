@@ -157,3 +157,33 @@ func TestAFreshRulesFileHasEveryGroupOn(t *testing.T) {
 		}
 	}
 }
+
+// A test copy's folder comes only from the guard's own command line (--rules), never from
+// SMOLCORP_TEST_SUPPORT_DIR, which a hire can set for itself (SANDBOX-PLAN §3.4, g4).
+func TestTheGuardNeverTakesItsFolderFromTheEnvironment(t *testing.T) {
+	copyDir := t.TempDir()
+	t.Setenv(testSupportEnv, copyDir)
+	got, err := supportFile()
+	if err != nil || strings.HasPrefix(got, copyDir) {
+		t.Fatalf("supportFile() = %q, %v; the variable was followed", got, err)
+	}
+	// A looser file there is never read: push is still refused.
+	loose := filepath.Join(copyDir, fileName)
+	if err := os.WriteFile(loose, []byte(`{"groups":[{"name":"push","on":false,"commands":["git push"]}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	Run(nil, strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"git push"}}`), &out, &bytes.Buffer{})
+	if !strings.Contains(out.String(), "deny") {
+		t.Errorf("the variable's file was read: %q", out.String())
+	}
+	// Named in the command line, the copy's own file is the one read: a broken one there denies every command.
+	if err := os.WriteFile(loose, []byte("it isn't a guard file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	Run([]string{"--rules", loose}, strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"ls"}}`), &out, &bytes.Buffer{})
+	if !strings.Contains(out.String(), "deny") || !strings.Contains(out.String(), "broken") {
+		t.Errorf("the copy's broken file wasn't read: %q", out.String())
+	}
+}

@@ -22,6 +22,7 @@ type HireOptions struct {
 	Role, Folder, Account, Model, Nickname, Task string
 	Floor                                        int // -1: not given
 	Worktree, APIKey                             bool
+	T3                                           bool // into T3 Code (experimental; needs T3 Code and its t3 command)
 }
 
 // body is the request as POST /setup/gm/hire takes it.
@@ -40,6 +41,9 @@ func (o HireOptions) body() map[string]any {
 	}
 	if o.APIKey {
 		m["apiKey"] = true
+	}
+	if o.T3 {
+		m["engine"] = "t3"
 	}
 	return m
 }
@@ -79,7 +83,7 @@ func resolveHire(c *Client, ref string) (string, error) {
 }
 
 // Fire fires the hire; the app answers 204, or 200 with {kept, worktree, branch} when it was asked to remove the
-// worktree and left it. A refusal comes back whole, the app's words as it wrote them (the unsaved files it lists,
+// worktree and left it, and with {note} when it marked the hire fired with no window closed (firedNote). A refusal comes back whole, the app's words as it wrote them (the unsaved files it lists,
 // the question it sees), not cut to one line.
 func Fire(c *Client, id string, force, removeWorktree bool) ([]byte, error) {
 	body := map[string]any{"id": id}
@@ -110,6 +114,15 @@ func keptNote(raw []byte) string {
 		where = " (" + oneLine(a.Worktree) + ")"
 	}
 	return fmt.Sprintf(" Its worktree%s and branch were kept, not removed: %s", where, afterColon(oneLine(strings.TrimSuffix(a.Kept, ".")+".")))
+}
+
+// firedNote is what the app says of a fire that closed no window ("Rex is marked fired, but…"), or "".
+func firedNote(raw []byte) string {
+	var a struct{ Note string }
+	if json.Unmarshal(raw, &a) != nil {
+		return ""
+	}
+	return oneLine(a.Note)
 }
 
 // afterColon lowers the first letter of a reason that follows a colon ("It holds…" reads "it holds…"),
@@ -209,6 +222,7 @@ func runDesk(cmd string, args []string, env Env, stdout, stderr io.Writer) int {
 		fs.IntVar(&o.Floor, "floor", -1, "the floor, 0 to 5")
 		fs.BoolVar(&o.Worktree, "worktree", false, "a worktree of its own")
 		fs.BoolVar(&o.APIKey, "api-key", false, "on the API-key account")
+		fs.BoolVar(&o.T3, "t3", false, "into T3 Code (experimental)")
 		fs.StringVar(&o.Task, "task", "", "what to do")
 		fs.StringVar(&taskFile, "task-file", "", "a file with what to do (- for standard input)")
 	case "brief":
@@ -285,7 +299,7 @@ func runDesk(cmd string, args []string, env Env, stdout, stderr io.Writer) int {
 	if cmd == "hire" {
 		raw, err := Hire(c, o)
 		return finish(show(err, *asJSON, stdout, raw, func() error {
-			_, err := fmt.Fprintf(stdout, "Hired a %s.%s\n", oneLine(o.Role), deskNote(raw))
+			_, err := fmt.Fprintf(stdout, "Hired a %s.%s%s\n", oneLine(o.Role), deskNote(raw), worksNote(raw))
 			return err
 		}), stderr)
 	}
@@ -294,7 +308,9 @@ func runDesk(cmd string, args []string, env Env, stdout, stderr io.Writer) int {
 		return finish(err, stderr)
 	}
 	raw, err := Fire(c, id, force, removeWorktree)
-	if err == nil && !*asJSON {
+	if note := firedNote(raw); err == nil && !*asJSON && note != "" {
+		fmt.Fprintf(stdout, "%s%s\n", note, keptNote(raw))
+	} else if err == nil && !*asJSON {
 		fmt.Fprintf(stdout, "Fired %s.%s\n", oneLine(ref), keptNote(raw))
 	} else if err == nil && len(strings.TrimSpace(string(raw))) > 0 {
 		err = prettyJSON(stdout, raw)
@@ -302,6 +318,22 @@ func runDesk(cmd string, args []string, env Env, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, `{"ok": true}`)
 	}
 	return finish(err, stderr)
+}
+
+// worksNote is " Works in /path/repo-hires/name (a worktree of its own on branch hire/name, not the project folder
+// itself)." from the hire's answer, when it says where the hire works.
+func worksNote(raw []byte) string {
+	var a struct {
+		WorksIn string `json:"worksIn"`
+		Branch  string `json:"branch"`
+	}
+	if json.Unmarshal(raw, &a) != nil || a.WorksIn == "" {
+		return ""
+	}
+	if a.Branch == "" {
+		return " Works in " + oneLine(a.WorksIn) + "."
+	}
+	return fmt.Sprintf(" Works in %s (a worktree of its own on branch %s, not the project folder itself).", oneLine(a.WorksIn), oneLine(a.Branch))
 }
 
 // deskNote is " At desk 3." from the hire's answer, when it names one.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -81,7 +82,10 @@ func (s *Sessions) Saved() []savedSession {
 func (s *Sessions) Restore(saved []savedSession, fresh bool) bool {
 	restored := false
 	for _, entry := range saved {
-		if _, known := s.byID[entry.ID]; known || entry.ID == "" || entry.Tab == "" {
+		// t3: ids are the desks of hires in T3 Code, made from the registry alone: none comes back as a session. Nor
+		// does an acp: one, an ACP desk's (acpdesk.go), which lives only as long as the core holds its agent.
+		if _, known := s.byID[entry.ID]; known || entry.ID == "" || entry.Tab == "" || strings.HasPrefix(entry.ID, t3DeskPrefix) ||
+			strings.HasPrefix(entry.ID, acpDeskPrefix) || strings.HasPrefix(entry.Tab, acpDeskPrefix) {
 			continue
 		}
 		if _, ended := s.endedAt[entry.ID]; ended {
@@ -121,10 +125,12 @@ func (d *Deck) scheduleSave() {
 		return
 	}
 	d.savePending = true
-	time.AfterFunc(saveDelay, d.saveSessions)
+	d.saveTimer = time.AfterFunc(saveDelay, d.saveSessions)
 }
 
 func (d *Deck) saveSessions() {
+	d.saveMu.Lock()
+	defer d.saveMu.Unlock()
 	d.mu.Lock()
 	d.savePending = false
 	saved := savedDeck{SavedAt: nowMillis(), Sessions: d.sessions.Saved(), Keys: map[string]int{},

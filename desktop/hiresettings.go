@@ -5,25 +5,37 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
+	"github.com/Sauzze/smolcorp/internal/guard"
 )
 
 // A manager hire's own Claude Code settings, ported from the Mac's HireSettings.swift:
-// a file the app writes for that hire alone, <support>/hires/<id>/settings.json (private
-// to you), which the hire's Claude Code starts with (--settings), merged on top of the
-// account's own settings. It holds
+// made for that hire alone and given to its Claude Code in its command line
+// (--settings '<json>'), never as a file a hire could change (SANDBOX-PLAN §3.4, SG1).
+// Settings given there rank above the account's, the project's and the local ones,
+// which are merged under them. They hold
 //
 //   - deny rules for the plain forms of what the guard refuses (push, deploy, publish…),
 //     for reading .env files and Claude's session transcripts, and for editing Claude's
 //     settings and this app's files;
-//   - the guard (`smolcorp guard`) as a PreToolUse hook before every tool call;
-//   - disableAllHooks:false, so a checkout's own settings can't turn the guard off;
+//   - the guard (`smolcorp guard`) as a PreToolUse hook before every tool call, with the
+//     core's copy of the owner's guard in its own command line (--groups);
+//   - the guard as a ConfigChange hook (`smolcorp guard --config`), which refuses every
+//     reload of the account's, the project's or the local settings during the session;
+//   - every one of this app's hooks run without a shell (command and args), and with
+//     onFailure "block": a guard that times out, is killed or fails refuses the call;
+//   - pinned keys a lower file could otherwise loosen: the permission mode, always set,
+//     bypass mode switched off, an empty shell prefix and a fixed shell, and
+//     disableAllHooks:false;
 //   - auto mode, where the account allows it.
 //
 // Deny rules only see the start of a command, so they stop the plain forms; the guard
@@ -33,14 +45,14 @@ import (
 // the GM's token, and the rules below keep it out of the token, the setup key, the hook
 // key, other hires' folders and the app's state.
 //
-// Nothing calls this yet. T602's hire engine (Linux tmux) will call writeHireSettings
-// when it starts a managed Claude hire and pass the file as --settings=<path>; T604
-// does the same from the Windows launcher.
+// The tmux engine puts them in the hire's start script (hirestart.go); the Windows
+// launcher gets them with the hire's start environment (hirestartenv.go). A desk is
+// started only on a Claude Code that takes onFailure (claudeVersionRefusal).
 
 // hireGuardFile is the app's guard rules file, in the support folder.
 const hireGuardFile = "hire-guard.json"
 
-// hireSettingsFile is the name of a hire's settings file in its own folder.
+// hireSettingsFile is the name of the settings file a hire had in its own folder before 1.26.
 const hireSettingsFile = "settings.json"
 
 // hireKnownFolders are the folders the app makes in its support folder, besides
@@ -56,8 +68,8 @@ type guardGroup struct {
 
 // claudeProfile is a Claude Code account's config folder (CLAUDE_CONFIG_DIR).
 type claudeProfile struct {
-	Name string
-	Dir  string
+	Name string `json:"name"`
+	Dir  string `json:"dir"`
 }
 
 // guardProfile chooses whose guard rules a file carries: a hire's, or the GM's own.
@@ -69,17 +81,20 @@ const (
 )
 
 // arguments are the words after `guard` that choose it. A hire's has none.
-func (p guardProfile) arguments() string {
+func (p guardProfile) arguments() []string {
 	if p == guardGM {
-		return "--profile gm "
+		return []string{"--profile", "gm"}
 	}
-	return ""
+	return nil
 }
 
 // hireRefusal is why a hire can't be started: the status and words the front desk gives.
 type hireRefusal struct {
 	Status  int
 	Message string
+	// keyTaken: a fire refused while the records' key can't be read, once the hire's session was ended and its send
+	// key taken away for the run (heldFire).
+	keyTaken bool
 }
 
 func (r *hireRefusal) Error() string { return r.Message }
@@ -93,7 +108,7 @@ func runGuardTool(tool string, arguments []string) (int, string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var out bytes.Buffer
-	command := exec.CommandContext(ctx, tool, arguments...)
+	command := disclaim.Cmd(exec.CommandContext(ctx, tool, arguments...))
 	command.Stdout = &out
 	if err := command.Run(); err != nil {
 		var exit *exec.ExitError
@@ -118,14 +133,12 @@ func hireFolder(support, hireID string) string {
 	return filepath.Join(support, "hires", hireID)
 }
 
-// guardGroups is the groups in force, as the guard itself reads rules: the app and the
-// hook never disagree. Nil if it can't be run or says something we can't read.
-func guardGroups(tool, rules string, profile guardProfile, run guardRunner) []guardGroup {
-	arguments := []string{"guard", "--print"}
-	if profile == guardGM {
-		arguments = append(arguments, "--profile", "gm")
-	}
-	status, output, ok := run(tool, append(arguments, "--rules", rules))
+// guardGroups is the groups in force, as the guard itself reads them, from held (the
+// core's copy, as --groups gives it) and what the rules file adds: the app and the hook
+// never disagree. Nil if it can't be run or says something we can't read.
+func guardGroups(tool, rules, held string, profile guardProfile, run guardRunner) []guardGroup {
+	arguments := append([]string{"guard", "--print"}, profile.arguments()...)
+	status, output, ok := run(tool, append(arguments, "--groups", held, "--rules", rules))
 	if !ok || status != 0 {
 		return nil
 	}
@@ -150,10 +163,57 @@ func guardGroups(tool, rules string, profile guardProfile, run guardRunner) []gu
 	return groups
 }
 
-// guardHookCommand is the hook's command line: the tool, quoted for the shell, then
-// `guard` and the rules file.
-func guardHookCommand(tool, rules string, profile guardProfile) string {
-	return shellPath(tool) + " guard " + profile.arguments() + "--rules " + shellPath(rules)
+// smolcorpHook is one of this app's hooks, run without a shell: the tool and its
+// arguments as they are, so no shell start file, BASH_ENV or shell prefix wraps it, and
+// a failure (a timeout, a kill, a crash) blocks what the event guards (SANDBOX-PLAN
+// §3.4). timeout 0 leaves Claude Code's own.
+func smolcorpHook(tool string, arguments []string, timeout int) map[string]any {
+	hook := map[string]any{"type": "command", "command": tool, "args": arguments, "onFailure": "block"}
+	if timeout > 0 {
+		hook["timeout"] = timeout
+	}
+	return hook
+}
+
+// guardHook is the PreToolUse hook: `guard`, its profile, the core's copy of the
+// groups (held) and the rules file, which only adds to them.
+func guardHook(tool, rules, held string, profile guardProfile) map[string]any {
+	arguments := append(append([]string{"guard"}, profile.arguments()...), "--groups", held, "--rules", rules)
+	return smolcorpHook(tool, arguments, 10)
+}
+
+// configHook is the ConfigChange hook: `guard --config`, which refuses a reload of the
+// account's, the project's and the local settings.
+func configHook(tool string) map[string]any {
+	return smolcorpHook(tool, []string{"guard", "--config"}, 10)
+}
+
+// pinnedShell is the shell a desk's Bash tool runs, pinned in its settings so a
+// project's settings can't name another (CLAUDE_CODE_SHELL, then SHELL, come first
+// in Claude Code's choice): yours when it is the system's bash or zsh, else the
+// system's of the same name as yours (a Homebrew zsh gets /bin/zsh), else the
+// system's bash, else its zsh. "" off Mac and Linux, and when none is there.
+func pinnedShell(goos, yours string, exists func(string) bool) string {
+	if goos != "darwin" && goos != "linux" {
+		return ""
+	}
+	system := []string{"/bin/bash", "/bin/zsh", "/usr/bin/bash", "/usr/bin/zsh"}
+	if slices.Contains(system, yours) && exists(yours) {
+		return yours
+	}
+	if name := filepath.Base(yours); name == "bash" || name == "zsh" {
+		for _, shell := range system {
+			if filepath.Base(shell) == name && exists(shell) {
+				return shell
+			}
+		}
+	}
+	for _, shell := range system {
+		if exists(shell) {
+			return shell
+		}
+	}
+	return ""
 }
 
 // hireCommandRules are the deny rules the groups in force give: each command with its
@@ -223,8 +283,9 @@ func absoluteRulePath(path string) string {
 // hireDenyRules is every deny rule for hire hireID. others are the names of the other
 // hires' folders under <support>/hires, entries what sits in the support folder now (a
 // folder named here is denied whole, except hires, which is denied hire by hire so this
-// hire's own STATUS.md stays writable; hireKnownFolders are listed too when absent).
-func hireDenyRules(hireID string, groups []guardGroup, support string, profiles []claudeProfile, others, entries []string) []string {
+// hire's own STATUS.md stays writable; hireKnownFolders are listed too when absent). system
+// is Go's name for the system the hire runs on.
+func hireDenyRules(hireID string, groups []guardGroup, support string, profiles []claudeProfile, others, entries []string, system string) []string {
 	rules := hireCommandRules(groups)
 	// Claude Code's Edit rules cover every tool that changes a file (Write too); a Write(path) rule never matches and warns at every start.
 	both := func(pattern string) { rules = append(rules, "Edit("+pattern+")") }
@@ -249,7 +310,15 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 
 	// This app's folder, piece by piece: never a rule that would cover the hire's own STATUS.md.
 	root := absoluteRulePath(support)
-	for _, pattern := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "setup-key", "hook-header", "hook-key", "window-key", "token"} {
+	// The secrets of both engines a Mac may run (the Swift app's gm-session and hook-header, the Go
+	// engine's hook-key and window-key), in the order the Mac's fence has always had (the fixtures,
+	// Tests/fixtures/frontdesk): one file either way.
+	// Then the owner's grant record (grants.go): its key's name, kept off the disk, and the file it is written
+	// through (grants.jsonl itself is a *.jsonl); the paired phones' seal's key (access.go: phones.json itself
+	// is a *.json); and which Claude Code the owner has (agentcheck.go: one a hire wrote "npm" in would let an
+	// unsigned Claude Code start after a signed one, at the next start), and the file it is written through,
+	// whether or not they are there yet.
+	for _, pattern := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "grants-key", "grants.jsonl.tmp", phoneSealName, claudeInstallName, claudeInstallTemp} {
 		both(root + "/" + pattern)
 	}
 	has := func(list []string, name string) bool {
@@ -260,13 +329,24 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 		}
 		return false
 	}
+	// An entry is denied as a file and as a folder: a /** rule alone doesn't match a file.
 	for _, entry := range entries {
-		if entry != "hires" && !strings.HasPrefix(entry, ".") && !strings.Contains(entry, "/") {
+		if entry != "hires" && entry != keptGMTokenName && entry != keptGMTokenTemp && !strings.HasPrefix(entry, ".") && !strings.Contains(entry, "/") {
+			if file := "Edit(" + root + "/" + entry + ")"; !has(rules, file) {
+				rules = append(rules, file)
+			}
 			both(root + "/" + entry + "/**")
 		}
 	}
 	// The folders the app is known to make, listed even when absent now.
 	for _, name := range hireKnownFolders {
+		if !has(entries, name) {
+			both(root + "/" + name + "/**")
+		}
+	}
+	// Which Claude Code the owner has, and the file it is written through, as folders too, listed even when absent
+	// now: a folder a hire left in either's place would stop "signed" from ever reaching the disk (RT126SG2F B1).
+	for _, name := range []string{claudeInstallName, claudeInstallTemp} {
 		if !has(entries, name) {
 			both(root + "/" + name + "/**")
 		}
@@ -283,46 +363,59 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 		}
 	}
 	// Nothing secret or app-state can be read either.
-	for _, name := range []string{"gm-token", "setup-key", "hook-header", "hook-key", "window-key", "token", hireGuardFile, "phones.json", "sessions.json", "config.json", "registry.json"} {
+	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", hireGuardFile, "phones.json", "sessions.json", "config.json", "registry.json", "grants-key", "grants.jsonl", "grants.jsonl.tmp", phoneSealName, claudeInstallName, claudeInstallTemp} {
 		rules = append(rules, "Read("+root+"/"+name+")")
+	}
+	// The GM's token, kept in a file on a computer whose secret store can't keep it (gmtokenstore.go), and the file
+	// it is written through: on Linux and Windows always, whether or not it is there yet, since a GM hired after this
+	// hire makes it. A Mac never keeps it there, so its fence is unchanged. So is the push key (pushkey.go), which
+	// signs every notification, and the file it is written through.
+	if system != "darwin" {
+		for _, name := range []string{keptGMTokenName, keptGMTokenTemp, keptPushKeyName, keptPushKeyName + ".tmp"} {
+			rules = append(rules, "Edit("+root+"/"+name+")", "Read("+root+"/"+name+")")
+		}
 	}
 	return rules
 }
 
-// hireSettingsValue is the settings file's content. Auto mode goes in as the default
-// mode, where Claude Code lets the account have it.
+// hireSettingsValue is the settings' content. Auto mode goes in as the default mode,
+// where Claude Code lets the account have it; otherwise the default mode is pinned too.
+// guard and config are the PreToolUse and ConfigChange hooks; shell the pinned shell.
 // reporting is only for a test copy's hire: the hooks that make it report to the
 // copy, after the guard (T704); nil for a real install's, which reports through the
 // account's own settings to the default port.
-func hireSettingsValue(deny []string, guardCommand string, auto bool, reporting map[string]any) map[string]any {
-	permissions := map[string]any{"deny": deny}
+func hireSettingsValue(deny []string, guard, config map[string]any, shell string, auto bool, reporting map[string]any) map[string]any {
+	permissions := map[string]any{"deny": deny, "defaultMode": "default", "disableBypassPermissionsMode": "disable"}
 	if auto {
 		permissions["defaultMode"] = "auto"
 	}
-	// Hooks stay on: this file sits above the project's and local settings, so a checkout can't turn the guard off.
-	hooks := map[string]any{"PreToolUse": []any{map[string]any{
-		"matcher": "*",
-		"hooks":   []any{map[string]any{"type": "command", "command": guardCommand, "timeout": 10}},
-	}}}
+	// Hooks stay on: these settings sit above the project's and local settings, so a checkout can't turn the guard off.
+	hooks := map[string]any{
+		"PreToolUse":   []any{map[string]any{"matcher": "*", "hooks": []any{guard}}},
+		"ConfigChange": []any{map[string]any{"hooks": []any{config}}},
+	}
 	for event, groups := range reporting {
 		existing, _ := hooks[event].([]any)
 		hooks[event] = append(existing, groups.([]any)...)
 	}
-	return map[string]any{"permissions": permissions, "disableAllHooks": false, "hooks": hooks}
+	// No prefix wraps a command, and the Bash tool's shell is the one named here.
+	env := map[string]any{"CLAUDE_CODE_SHELL_PREFIX": "", "CLAUDE_CODE_SHELL": shell}
+	return map[string]any{"permissions": permissions, "disableAllHooks": false, "hooks": hooks, "env": env}
 }
 
 // reportingHooks are a test copy's hire's hooks: Claude's usual events, running
 // the app's own hook command aimed at the copy's port, never the default one.
 func reportingHooks(cli string, port int) map[string]any {
-	command := fmt.Sprintf("%s hook --port %d", shellPath(cli), port)
 	hooks := map[string]any{}
 	for _, event := range entriesFor(Claude).events {
-		hooks[event] = []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": command, "async": true}}}}
+		hook := smolcorpHook(cli, []string{"hook", "--port", strconv.Itoa(port)}, 0)
+		hook["async"] = true
+		hooks[event] = []any{map[string]any{"hooks": []any{hook}}}
 	}
 	return hooks
 }
 
-// hireSettingsOptions are what writeHireSettings needs from outside, each with a test stand-in.
+// hireSettingsOptions are what hireSettingsLine needs from outside, each with a test stand-in.
 type hireSettingsOptions struct {
 	HireID  string
 	Auto    bool
@@ -334,11 +427,63 @@ type hireSettingsOptions struct {
 	Profiles   []claudeProfile // the Claude accounts whose settings and transcripts are denied
 	Run        guardRunner     // nil: run the real tool
 	IsExec     func(string) bool
+	// Shell is the shell the Bash tool is pinned to; "" asks pinnedShell.
+	Shell string
+	// System is Go's name for the system the desk starts on; "" is this one.
+	System string
 }
 
-// writeHireSettings writes hire HireID's settings and says where: refused if the guard
-// can't be run. The file is private to you and replaced whole.
-func writeHireSettings(o hireSettingsOptions) (string, error) {
+// hireSettingsLine is hire HireID's settings as its Claude Code takes them in its
+// command line, after --settings: refused if the guard can't be run. Each start that
+// uses it has checked Claude Code's version first (claudeVersionRefusal).
+func hireSettingsLine(o hireSettingsOptions) (string, error) {
+	object, err := hireSettingsObject(o)
+	if err != nil {
+		return "", err
+	}
+	var line bytes.Buffer
+	encoder := json.NewEncoder(&line)
+	encoder.SetEscapeHTML(false)
+	if encoder.Encode(object) != nil {
+		return "", &hireRefusal{Status: 500, Message: "Couldn't make the hire's settings, so Smolcorp won't start it unguarded."}
+	}
+	settings := strings.TrimSuffix(line.String(), "\n")
+	if err := settingsTooLong(settings, o.Profiles, cmpOr(o.System, runtime.GOOS)); err != nil {
+		return "", err
+	}
+	return settings, nil
+}
+
+// settingsTooLong refuses, on Windows only, settings Windows couldn't start a desk with: they ride in its command
+// line (--settings=<json>, quoted as Windows takes it), which holds at most 32767 characters. Each Claude account
+// kept outside ~/.claude* adds about 2,000 of them (promptStoreRules), so the sentence names those accounts.
+func settingsTooLong(settings string, profiles []claudeProfile, system string) error {
+	if system != "windows" || len(exeLine("--settings="+settings, nil)) <= exeLongest {
+		return nil
+	}
+	var names []string
+	for _, profile := range profiles {
+		if _, ok := claudeStoreFolder(profile.Dir); ok {
+			names = append(names, cmpOr(profile.Name, profile.Dir))
+		}
+	}
+	if len(names) == 0 {
+		return &hireRefusal{Status: 409, Message: "Windows can't start this desk: its settings are too long, so turn off some guard rules in Settings, then hire again."}
+	}
+	accounts, fix := "the Claude account "+names[0]+" is", "move it to one or remove it"
+	if len(names) > 1 {
+		accounts = "the Claude accounts " + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1] + " are"
+		fix = "move them to ~/.claude-<name> folders or remove some"
+	}
+	return &hireRefusal{Status: 409, Message: "Windows can't start this desk: " + accounts + " kept outside a ~/.claude-<name> folder, " +
+		"which makes its settings too long, so " + fix + " under Claude accounts in Settings, then hire again."}
+}
+
+// hireSettingsObject is what hire HireID's settings hold (deny rules, the guard as a
+// PreToolUse and a ConfigChange hook, the pinned keys, auto mode), as hireSettingsLine
+// gives them: refused if the guard can't be run. A hire in T3 Code gets the same, as its worktree's fence (t3desk.go), as
+// the Mac's HireSettings.object gives both.
+func hireSettingsObject(o hireSettingsOptions) (map[string]any, error) {
 	run, isExec := o.Run, o.IsExec
 	if run == nil {
 		run = runGuardTool
@@ -351,15 +496,16 @@ func writeHireSettings(o hireSettingsOptions) (string, error) {
 		profile = guardHire
 	}
 	if o.HireID == "" || strings.ContainsAny(o.HireID, `/\`) || strings.HasPrefix(o.HireID, ".") {
-		return "", &hireRefusal{Status: 400, Message: "That isn't a hire's name, so Smolcorp won't write settings for it."}
+		return nil, &hireRefusal{Status: 400, Message: "That isn't a hire's name, so Smolcorp won't write settings for it."}
 	}
 	if !isExec(o.CLI) {
-		return "", errGuardMissing
+		return nil, errGuardMissing
 	}
 	rules := filepath.Join(o.Support, hireGuardFile)
-	groups := guardGroups(o.CLI, rules, profile, run)
+	held := guard.GroupsArgument(heldGuardGroups(rules))
+	groups := guardGroups(o.CLI, rules, held, profile, run)
 	if groups == nil {
-		return "", &hireRefusal{Status: 500, Message: "The guard couldn't say which commands a hire is refused, so Smolcorp won't start one unguarded."}
+		return nil, &hireRefusal{Status: 500, Message: "The guard couldn't say which commands a hire is refused, so Smolcorp won't start one unguarded."}
 	}
 	names := func(dir string) []string {
 		var list []string
@@ -375,28 +521,15 @@ func writeHireSettings(o hireSettingsOptions) (string, error) {
 			others = append(others, name)
 		}
 	}
-	deny := hireDenyRules(o.HireID, groups, o.Support, o.Profiles, others, names(o.Support))
+	deny := hireDenyRules(o.HireID, groups, o.Support, o.Profiles, others, names(o.Support), cmpOr(o.System, runtime.GOOS))
+	deny = append(deny, photoFenceRules(o.Support, o.Profiles, deny)...)
 	var reporting map[string]any
 	if o.ReportPort != 0 {
 		reporting = reportingHooks(o.CLI, o.ReportPort)
 	}
-	object := hireSettingsValue(deny, guardHookCommand(o.CLI, rules, profile), o.Auto, reporting)
-
-	var data bytes.Buffer
-	encoder := json.NewEncoder(&data)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	failed := &hireRefusal{Status: 500, Message: "Couldn't write the hire's settings, so Smolcorp won't start it unguarded."}
-	if encoder.Encode(object) != nil {
-		return "", failed
+	shell := o.Shell
+	if shell == "" {
+		shell = pinnedShell(runtime.GOOS, os.Getenv("SHELL"), isExecutableFile)
 	}
-	folder := hireFolder(o.Support, o.HireID)
-	if os.MkdirAll(folder, 0o700) != nil || os.Chmod(folder, 0o700) != nil {
-		return "", failed
-	}
-	target := filepath.Join(folder, hireSettingsFile)
-	if writePrivate(target, data.Bytes()) != nil {
-		return "", failed
-	}
-	return target, nil
+	return hireSettingsValue(deny, guardHook(o.CLI, rules, held, profile), configHook(o.CLI), shell, o.Auto, reporting), nil
 }

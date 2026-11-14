@@ -1,8 +1,13 @@
 package desktop
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -83,45 +88,157 @@ func TestCentred(t *testing.T) {
 	}
 }
 
+// The window's address never holds its key (RT126SK2 B2): WebView2 keeps addresses in its profile, a folder of files.
+// The key goes to the page in-process, by a script for this computer's own office page alone, which the page reads.
 func TestOfficeAddress(t *testing.T) {
-	if got := officeAddress("http://localhost:7710", "abc-_"); got != "http://localhost:7710/office?t=abc-_" {
-		t.Fatal(got)
+	const key = "fake-window-key-abc"
+	address := officeAddress("http://localhost:7710", key)
+	if address != "http://localhost:7710/office?deck&own" || strings.Contains(address, key) || strings.Contains(address, "t=") {
+		t.Fatal(address)
 	}
 	if got := officeAddress("http://localhost:7710", ""); got != "http://localhost:7710/office" {
-		t.Fatal("no key, no ?t=:", got)
+		t.Fatal("no key, the pairing page:", got)
+	}
+	script := windowKeyScript("http://localhost:7710", key)
+	for _, want := range []string{`location.origin === "http://localhost:7710"`, `location.pathname === '/office'`, `'smolcorpWindowKey', { value: "` + key + `"`} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the script lacks %q: %s", want, script)
+		}
+	}
+	if windowKeyScript("http://localhost:7710", "") != "" {
+		t.Error("a script with no key")
+	}
+	if got := windowKeyScript("http://localhost:7710", `x"; alert(1); "`); !strings.Contains(got, `"x\"; alert(1); \""`) {
+		t.Errorf("a key is quoted as JSON: %s", got)
+	}
+	// The page alone answers the address, and reads the key the script gave before ?t=.
+	d := newTestDeck(t)
+	d.mu.Lock()
+	windowKey := ensureWindowKey(d.access.Phones, &d.access.windowDeviceKey)
+	d.mu.Unlock()
+	if w := serve(t, d, call{method: "GET", target: "/office?deck&own", host: "localhost:7710", from: thisComputer, bare: true}); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "const givenKey = typeof window.smolcorpWindowKey === 'string'") {
+		t.Errorf("the window's address: %d, or the page doesn't read its key", w.Code)
+	}
+	if w := serve(t, d, call{method: "GET", target: "/paired?t=" + windowKey, host: "localhost:7710", from: thisComputer, bare: true}); w.Code != http.StatusNoContent {
+		t.Errorf("the key the script gives: %d", w.Code)
 	}
 }
 
-func TestWindowKeyPairsOnceAndIsKept(t *testing.T) {
+// The office's and Setup's own scripts parse, in node: a name declared twice in one (the window's key beside the
+// ⧉ window key's, in FXSK2R1) stops the whole page, on every device, and no string check sees it. Without node the
+// test is skipped.
+func TestTheOfficeAndSetupScriptsParse(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed: the pages' scripts can't be checked")
+	}
+	inline := regexp.MustCompile(`(?s)<script>(.*?)</script>`)
+	for _, name := range []string{"deck.html", "setup.html"} {
+		data, err := os.ReadFile(filepath.Join("..", "Resources", "web", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		scripts := inline.FindAllStringSubmatch(string(data), -1)
+		if len(scripts) == 0 {
+			t.Fatalf("%s has no script of its own", name)
+		}
+		for i, script := range scripts {
+			file := filepath.Join(t.TempDir(), fmt.Sprintf("%s-%d.js", name, i))
+			if err := os.WriteFile(file, []byte(script[1]), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if out, err := exec.Command(node, "--check", file).CombinedOutput(); err != nil {
+				t.Errorf("%s's script %d doesn't parse: %v\n%s", name, i, err, out)
+			}
+		}
+	}
+}
+
+// The window's key lives in this process's memory alone (1.26, SK2): one device per run, opened again with the same
+// key, and after a restart a new device in place of the one before, whose key no longer opens anything.
+func TestWindowKeyPairsOncePerRunAndIsInNoFile(t *testing.T) {
 	isolate(t)
 	phones := loadPhones()
-	key := ensureWindowKey(phones, windowKeyFile)
-	if key == "" || len(phones.All) != 1 || phones.All[0].Name != windowDeviceName {
+	var held string
+	key := ensureWindowKey(phones, &held)
+	if key == "" || held != key || len(phones.All) != 1 || phones.All[0].Name != windowDeviceName {
 		t.Fatalf("expected one device %q, got %+v", windowDeviceName, phones.All)
 	}
 	if phones.WithKey(key) == nil {
 		t.Fatal("the key must open the device")
 	}
 	// Opened again: the same device, not a second one.
-	if again := ensureWindowKey(phones, windowKeyFile); again != key || len(phones.All) != 1 {
+	if again := ensureWindowKey(phones, &held); again != key || len(phones.All) != 1 {
 		t.Fatalf("a second opening must reuse the device: %d devices", len(phones.All))
 	}
-	// After a restart too: the key is read from its file, the phones from theirs.
-	if again := ensureWindowKey(loadPhones(), windowKeyFile); again != key {
-		t.Fatal("the key must survive a restart")
+	// After a restart: nothing was kept, so a new device takes the old one's place, and the old key opens nothing.
+	restarted := loadPhones()
+	var heldAgain string
+	fresh := ensureWindowKey(restarted, &heldAgain)
+	if fresh == "" || fresh == key || len(restarted.All) != 1 || restarted.WithKey(key) != nil || restarted.WithKey(fresh) == nil {
+		t.Fatalf("after a restart: %d devices, the old key still opens one: %v", len(restarted.All), restarted.WithKey(key) != nil)
 	}
-	// Only a hash is stored beside the phones: the key is in no other file.
+	// No file holds either key: phones.json the hash only, and no window-key file.
 	data, _ := os.ReadFile(phonesFile)
-	if strings.Contains(string(data), key) {
+	if strings.Contains(string(data), key) || strings.Contains(string(data), fresh) {
 		t.Fatal("phones.json must hold the key's hash only")
+	}
+	if _, err := os.Stat(windowKeyFile); !os.IsNotExist(err) {
+		t.Fatalf("a window-key file was written: %v", err)
+	}
+}
+
+// A window's key from the run before opens nothing once Smolcorp starts again, at once, before the owner opens the
+// window in this run (RT126SK2R2 B2): this build's, and a 1.25 window's, whose WebView2 history keeps it, as 1.25 put
+// it in the address. Its devices are gone from phones.json, and a phone paired then still opens the office.
+func TestTheRunBeforesWindowKeyIsRefusedAtStart(t *testing.T) {
+	d := newTestDeck(t)
+	d.mu.Lock()
+	before := ensureWindowKey(d.access.Phones, &d.access.windowDeviceKey)
+	phone := d.access.Phones.Pair("Phone", false)
+	d.mu.Unlock()
+	// A 1.25 window's entry, with no seal, as 1.25's list had it.
+	const before125 = "fake-125-window-key"
+	var listed []PairedPhone
+	data, _ := os.ReadFile(phonesFile)
+	if err := json.Unmarshal(data, &listed); err != nil || len(listed) != 2 {
+		t.Fatalf("phones.json before the restart: %v, %d entries", err, len(listed))
+	}
+	listed = append(listed, PairedPhone{ID: "w125", Name: windowDeviceName, KeyHash: hashKey(before125)})
+	data, _ = json.Marshal(listed)
+	if err := os.WriteFile(phonesFile, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	opens := func(d *Deck, key string) int {
+		return serve(t, d, call{method: "GET", target: "/paired?t=" + key, host: "localhost:7710", from: thisComputer, bare: true}).Code
+	}
+	restarted := startDeck(t) // the same folder: Smolcorp started again, its window not opened yet
+	if code := opens(restarted, before); code != http.StatusUnauthorized {
+		t.Errorf("the run before's window key, right after a restart: GET /paired %d, want 401", code)
+	}
+	if code := opens(restarted, before125); code != http.StatusUnauthorized {
+		t.Errorf("a 1.25 window's key, right after a restart: GET /paired %d, want 401", code)
+	}
+	if code := opens(restarted, phone); code != http.StatusNoContent {
+		t.Errorf("the phone, after a restart: GET /paired %d, want 204", code)
+	}
+	data, _ = os.ReadFile(phonesFile)
+	if strings.Contains(string(data), windowDeviceName) || len(restarted.access.Phones.All) != 1 {
+		t.Errorf("the window's devices are still listed: %s", data)
+	}
+	// Saved under the new record key as one: the phone still opens the office at the start after.
+	if code := opens(startDeck(t), phone); code != http.StatusNoContent {
+		t.Errorf("the phone, a start later: GET /paired %d, want 204", code)
 	}
 }
 
 func TestUnpairAllRemovesTheWindowAndItComesBack(t *testing.T) {
 	isolate(t)
 	phones := loadPhones()
-	phone := phones.Pair("Phone")
-	window := ensureWindowKey(phones, windowKeyFile)
+	phone := phones.Pair("Phone", true)
+	var held string
+	window := ensureWindowKey(phones, &held)
 	if phonesOnly(phones) != 1 || len(phones.All) != 2 {
 		t.Fatalf("the window is not a phone: %d phones of %d devices", phonesOnly(phones), len(phones.All))
 	}
@@ -129,19 +246,9 @@ func TestUnpairAllRemovesTheWindowAndItComesBack(t *testing.T) {
 	if phones.WithKey(window) != nil || phones.WithKey(phone) != nil {
 		t.Fatal("Unpair All must remove every device, the window's too")
 	}
-	fresh := ensureWindowKey(phones, windowKeyFile)
+	fresh := ensureWindowKey(phones, &held)
 	if fresh == window || phones.WithKey(fresh) == nil || len(phones.All) != 1 {
 		t.Fatal("the next opening must pair a new device for the window")
-	}
-}
-
-func TestWindowKeyFileIsPrivateAndNotALoginPath(t *testing.T) {
-	isolate(t)
-	phones := loadPhones()
-	key := ensureWindowKey(phones, windowKeyFile)
-	saved, err := os.ReadFile(windowKeyFile)
-	if err != nil || strings.TrimSpace(string(saved)) != key {
-		t.Fatalf("the key must be in %s: %v", windowKeyFile, err)
 	}
 }
 

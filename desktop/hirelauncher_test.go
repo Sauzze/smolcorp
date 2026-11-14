@@ -278,6 +278,19 @@ func TestTheSwitchOnMakesTheHireWithTheEngineAndNoSecretIsInTheOpenersArgumentsO
 	r.d.config.HiringEnabled, r.d.config.HireFolder = true, r.repo
 	o := r.o
 	o.Open = nil // the real opener, through the terminal's own arguments
+	// No launcher connects here, so the hire is heard from only once the test is done: its watch ends then,
+	// in this test, and never writes the registry in a later test's folder.
+	done := make(chan struct{})
+	o.HeardFrom = func(Hire) bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}
+	o.Every = 5 * time.Millisecond
+	t.Cleanup(func() { close(done); r.d.watching.Wait() })
 	r.d.launcherEngine = o
 	if status, message := r.d.hireFromSetup("janitor"); status != http.StatusNoContent {
 		t.Fatalf("hire: %d %s", status, message)
@@ -292,7 +305,7 @@ func TestTheSwitchOnMakesTheHireWithTheEngineAndNoSecretIsInTheOpenersArgumentsO
 	args := commandWords(h.windows[0])
 	token := flagAfter(args, "--hire")
 	if !hireToken.MatchString(token) || flagAfter(args, "--hire-id") != hires[0].ID || flagAfter(args, "--role") != "janitor" ||
-		!slices.Contains(args, "--settings="+filepath.Join(hireFolder(supportDir, hires[0].ID), hireSettingsFile)) {
+		slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "--settings") }) {
 		t.Errorf("command: %q", args)
 	}
 	// The launcher asks for its environment: the secrets are there, and only there.
@@ -304,6 +317,10 @@ func TestTheSwitchOnMakesTheHireWithTheEngineAndNoSecretIsInTheOpenersArgumentsO
 	if key == "" || got.Set["SMOLCORP_HIRE_PORTS"] != hires[0].Ports || got.Set["SMOLCORP_GM_TOKEN"] != "" ||
 		!slices.Contains(got.Unset, "SMOLCORP_GM_TOKEN") || !slices.Contains(got.Unset, "CLAUDE_CONFIG_DIR") {
 		t.Errorf("environment: %+v", got)
+	}
+	// Its settings come with it, for the launcher to put in the agent's command line (SANDBOX-PLAN §3.4).
+	if !strings.Contains(got.Settings, `"PreToolUse"`) || !strings.Contains(got.Settings, `"onFailure":"block"`) {
+		t.Errorf("settings: %s", got.Settings)
 	}
 	if found := readRegistry(registryPath(), false).hireForSendKey(key); found == nil || found.ID != hires[0].ID {
 		t.Errorf("the key isn't the hire's: %+v", found)
@@ -348,8 +365,8 @@ func TestAStartIsMadeInOrderEachReadyBeforeTheNext(t *testing.T) {
 		if len(hires.hires) != 1 || hires.hires[0].State != "starting" || hires.hires[0].TmuxSocket != "" || hires.keys[hires.hires[0].ID] == "" {
 			t.Errorf("at the window's opening the row or its key wasn't ready: %+v %v", hires.hires, hires.keys)
 		}
-		if _, err := os.Stat(filepath.Join(hireFolder(supportDir, hires.hires[0].ID), hireSettingsFile)); err != nil {
-			t.Errorf("no settings when the window opened: %v", err)
+		if launcherSettings(r.d, hires.hires[0].ID) == "" {
+			t.Error("no settings when the window opened")
 		}
 		if len(strings.Split(r.worktrees(), "\n")) != 2 {
 			t.Errorf("no worktree when the window opened: %s", r.worktrees())
@@ -587,7 +604,7 @@ func TestMailFindsAnEngineHiresLauncherByIdIncludingTwoHiresInOneFolder(t *testi
 func writeRegistry(t *testing.T, hires ...Hire) {
 	t.Helper()
 	data, _ := json.Marshal(map[string]any{"version": 1, "hires": hires})
-	if err := os.WriteFile(registryPath(), data, 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -596,7 +613,7 @@ func (r *lrig) manage(roleID string) (int, string, bool) {
 	r.d.launcherEngine = r.o
 	r.d.mu.Lock()
 	defer r.d.mu.Unlock()
-	return r.d.managedLauncherHire(roleID, r.repo, hireOpener{}, true, -1, 0)
+	return r.d.managedLauncherHire(roleID, r.repo, hireOpener{}, true, -1, 0, nil, nil)
 }
 
 func TestAHireHeardFromIsWorkingAndOneNeverHeardFromIsCleanedUpWithItsLauncherStopped(t *testing.T) {
@@ -977,17 +994,19 @@ func TestSetupStateShowsTheBetaSwitchAndTheSettingsRouteSetsIt(t *testing.T) {
 
 func TestTheLauncherTakesOnlyTheArgumentsOfAnEngineHire(t *testing.T) {
 	token, id := strings.Repeat("A", 32), "abcdef123456"
-	good := []string{"--hire", token, "--hire-id", id, "--agent", "claude", "--role", "janitor", "--settings=" + filepath.Join(t.TempDir(), "s.json")}
+	good := []string{"--hire", token, "--hire-id", id, "--agent", "claude", "--role", "janitor"}
 	run, err := parseRun(good)
-	if err != nil || run.hireID != id || run.role != "janitor" || run.settings != good[8] {
+	if err != nil || run.hireID != id || run.role != "janitor" {
 		t.Fatalf("%+v %v", run, err)
 	}
+	// The settings come with the start environment, never on the command line or from a file (SANDBOX-PLAN §3.4).
+	settings := "--settings=" + filepath.Join(t.TempDir(), "s.json")
 	for name, args := range map[string][]string{
 		"id without a role":           {"--hire", token, "--hire-id", id, "claude"},
 		"bad id":                      {"--hire", token, "--hire-id", "../x", "--role", "janitor"},
-		"settings without an id":      {"--hire", token, "--role", "janitor", good[8]},
-		"relative settings":           {"--hire", token, "--hire-id", id, "--role", "janitor", "--settings=s.json"},
-		"another argument":            {"--hire", token, "--hire-id", id, "--role", "janitor", good[8], "--dangerous"},
+		"a settings file":             {"--hire", token, "--hire-id", id, "--role", "janitor", settings},
+		"settings without an id":      {"--hire", token, "--role", "janitor", settings},
+		"inline settings":             {"--hire", token, "--hire-id", id, "--role", "janitor", `--settings={"disableAllHooks":true}`},
 		"another argument for a role": {"--hire", token, "--hire-id", id, "--role", "janitor", "--model=x"},
 	} {
 		if run, err := parseRun(args); err == nil {
@@ -1180,5 +1199,36 @@ func TestAHireWithNoWorktreeKeepsItsProtectionAfterItsLauncherConnectsAgain(t *t
 	}
 	if !r.d.launcherHolds(h) {
 		t.Error("the reconnected window isn't counted as the hire's")
+	}
+}
+
+// The launcher's hire has its brief written as the engine's does; the launcher is handed the message
+// that names it with the hire's environment, as it can't make that message itself.
+func TestALauncherHireIsHandedTheMessageToReadItsBrief(t *testing.T) {
+	r := newLRig(t)
+	r.launches = false
+	var token, hireID string
+	r.o.Expect = func(given, id string, env hireStartEnv) {
+		token, hireID = given, id
+		r.d.expectLauncher(given, id, env)
+	}
+	request := r.request("janitor")
+	request.Role.Brief = &RoleBrief{Kind: "library", ID: "janitor"}
+	hire, _, err := runLauncherHire(request, r.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief := filepath.Join(hireFolder(supportDir, hire.ID), "BRIEF.md")
+	if data, err := os.ReadFile(brief); err != nil || !strings.Contains(string(data), "# Brief: Janitor") || hire.Brief != brief {
+		t.Fatalf("the brief: %v %q", err, hire.Brief)
+	}
+	env, status := r.d.takeStartEnv(token, hireID)
+	if status != http.StatusOK || env.Message != "Read `"+tildePath(brief)+"` and follow it: it's your brief, as my Janitor. As it says, your "+
+		"first reply must only ask me its questions, all together; wait for my answers before you read code or run commands." {
+		t.Errorf("handed %d %q", status, env.Message)
+	}
+	// The message isn't on the window's command line.
+	if words := strings.Join(commandWords(r.opened[0]), " "); strings.Contains(words, "BRIEF") {
+		t.Errorf("the command names the brief: %s", words)
 	}
 }

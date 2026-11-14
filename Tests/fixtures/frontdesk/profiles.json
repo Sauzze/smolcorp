@@ -95,25 +95,5 @@
         "status": 400
       }
     ]
-  },
-  "hireRefusals": [
-    {
-      "account": "",
-      "accounts": [
-        "default",
-        "work"
-      ],
-      "message": "Say which Claude account to hire on: default, work.",
-      "status": 400
-    },
-    {
-      "account": "nope",
-      "accounts": [
-        "default",
-        "work"
-      ],
-      "message": "There's no Claude account called nope. Pick one of: default, work.",
-      "status": 404
-    }
-  ]
+  }
 }

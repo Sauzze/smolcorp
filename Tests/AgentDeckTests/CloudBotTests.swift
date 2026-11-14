@@ -2,146 +2,6 @@ import XCTest
 @testable import AgentDeck
 
 final class CloudBotTests: XCTestCase {
-    // MARK: The desk
-
-    func testAPermanentBotIsBlueThenGreenForTenMinutesOnAReport() {
-        let start = Date(timeIntervalSince1970: 1_000_000)
-        var desk = CloudDesk(permanent: true)
-        XCTAssertEqual(desk.state(at: start), .thinking)
-        XCTAssertNil(desk.nextChange(after: start))
-        desk.apply(.report, at: start, permanent: true)
-        XCTAssertEqual(desk.state(at: start), .unread)
-        XCTAssertEqual(desk.state(at: start.addingTimeInterval(599)), .unread)
-        XCTAssertEqual(desk.nextChange(after: start), start.addingTimeInterval(CloudDesk.greenFor))
-        XCTAssertEqual(desk.state(at: start.addingTimeInterval(600)), .thinking)
-    }
-
-    func testATapEndsTheGreenAndANewReportStartsItAgain() {
-        let start = Date(timeIntervalSince1970: 1_000_000)
-        var desk = CloudDesk(permanent: true)
-        desk.apply(.report, at: start, permanent: true)
-        desk.apply(.seen, at: start.addingTimeInterval(5), permanent: true)
-        XCTAssertEqual(desk.state(at: start.addingTimeInterval(6)), .thinking)
-        let later = start.addingTimeInterval(3600)
-        desk.apply(.report, at: later, permanent: true)
-        XCTAssertEqual(desk.state(at: later.addingTimeInterval(300)), .unread)
-    }
-
-    func testAPermanentBotNeverLeavesAndAVisitorComesAndGoes() {
-        let now = Date()
-        var permanent = CloudDesk(permanent: true)
-        permanent.apply(.stop, at: now, permanent: true)
-        XCTAssertEqual(permanent.state(at: now), .thinking)
-
-        var visitor = CloudDesk(permanent: false)
-        XCTAssertNil(visitor.state(at: now), "away until it starts")
-        visitor.apply(.start, at: now, permanent: false)
-        XCTAssertEqual(visitor.state(at: now), .thinking)
-        visitor.apply(.stop, at: now, permanent: false)
-        XCTAssertNil(visitor.state(at: now))
-        visitor.apply(.report, at: now, permanent: false)
-        XCTAssertEqual(visitor.state(at: now), .unread, "a report brings it to its desk")
-    }
-
-    // MARK: Its last action
-
-    func testAnOldReportBodyStillWorks() throws {
-        let now = Date(timeIntervalSince1970: 2_000_000)
-        let action = try CloudAction.parse(["type": "report"], now: now).get()
-        XCTAssertEqual(action, CloudAction(text: "Sent a report", count: 1, at: now))
-    }
-
-    func testAReportSaysWhatHowManyAndWhen() throws {
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let body = try JSONSerialization.jsonObject(with: Data(#"""
-        {"type": "report", "text": "  Drafted <b>3</b> replies\n\u0007 ", "count": 3, "at": "2026-10-28T22:20:00Z"}
-        """#.utf8)) as! [String: Any]
-        let action = try CloudAction.parse(body, now: now).get()
-        XCTAssertEqual(action.text, "Drafted 3 replies", "plain text: no markup, control characters or new lines")
-        XCTAssertEqual(CloudAction(text: "3 > 2, <script", at: now).text, "3  2, script")
-        XCTAssertEqual(action.count, 3)
-        XCTAssertEqual(action.at, CloudAction.parseTime("2026-10-28T22:20:00Z"))
-        XCTAssertNotNil(CloudAction.parseTime("2026-10-28T22:20:00.250+01:00"), "fractional seconds and offsets too")
-
-        let long = try CloudAction.parse(["text": String(repeating: "x", count: 500), "count": 5000], now: now).get()
-        XCTAssertEqual(long.text.count, CloudAction.textLimit)
-        XCTAssertEqual(long.count, CloudAction.most)
-        XCTAssertEqual(try CloudAction.parse(["text": "   "], now: now).get().text, "Sent a report")
-        XCTAssertEqual(try CloudAction.parse(["at": "2099-01-01T00:00:00Z"], now: now).get().at, now, "a time to come is now")
-        XCTAssertEqual(try CloudAction.parse(["text": NSNull(), "count": NSNull(), "at": NSNull()], now: now).get(),
-                       CloudAction(at: now))
-    }
-
-    func testABadPartOfAReportIsRefused() {
-        let now = Date()
-        for body: [String: Any] in [["text": 3], ["count": 0], ["count": 2.5], ["count": "3"], ["count": true],
-                                    ["at": "yesterday"], ["at": 1_793_000_000]] {
-            guard case .failure = CloudAction.parse(body, now: now) else { return XCTFail("took \(body)") }
-        }
-    }
-
-    func testReportsAddUpTillSeenAndTheCardKeepsTheLast() {
-        let start = Date(timeIntervalSince1970: 1_000_000)
-        var desk = CloudDesk(permanent: true)
-        XCTAssertNil(desk.last)
-        desk.apply(.report, at: start, permanent: true)
-        XCTAssertEqual(desk.last, CloudAction(at: start), "the old body: one report, now")
-        let sent = start.addingTimeInterval(-60)
-        desk.apply(.report, at: start.addingTimeInterval(10), permanent: true, action: CloudAction(text: "Drafted replies", count: 2, at: sent))
-        XCTAssertEqual(desk.last, CloudAction(text: "Drafted replies", count: 3, at: sent))
-        XCTAssertEqual(desk.state(at: start.addingTimeInterval(10)), .unread)
-        XCTAssertEqual(desk.nextChange(after: start.addingTimeInterval(10)), start.addingTimeInterval(10 + CloudDesk.greenFor),
-                       "green from when it arrived, not the time it says")
-
-        // Past its green, still unseen: they keep adding up.
-        let late = start.addingTimeInterval(3600)
-        desk.apply(.report, at: late, permanent: true)
-        XCTAssertEqual(desk.last?.count, 4)
-
-        desk.apply(.seen, at: late.addingTimeInterval(1), permanent: true)
-        XCTAssertEqual(desk.state(at: late.addingTimeInterval(1)), .thinking)
-        XCTAssertEqual(desk.last?.count, 4, "seen, the card still says what it last did")
-        desk.apply(.report, at: late.addingTimeInterval(60), permanent: true)
-        XCTAssertEqual(desk.last, CloudAction(at: late.addingTimeInterval(60)), "after seen, counting starts again")
-    }
-
-    func testOpeningACloudCardMarksItSeenAndNothingElse() {
-        let desks = CloudDesks([CloudBot(id: "smolcorp-mini", name: "Smolcorp mini")], looking: false)
-        var changes = 0
-        desks.onChange = { changes += 1 }
-        let id = "cloud-smolcorp-mini"
-        XCTAssertNil(desks.last(ofSession: id))
-        desks.apply(.report, to: "smolcorp-mini", action: CloudAction(text: "Sent a report", count: 2, at: Date()))
-        XCTAssertEqual(desks.seated().map(\.session).first?.state, .unread)
-        desks.apply(.report, to: "smolcorp-mini")
-        XCTAssertEqual(changes, 2, "a second report, still green, changes the card")
-        XCTAssertEqual(desks.last(ofSession: id)?.count, 3)
-
-        XCTAssertTrue(desks.seen(session: id))
-        XCTAssertEqual(desks.seated().map(\.session).first?.state, .thinking, "blue at once")
-        XCTAssertEqual(desks.last(ofSession: id)?.count, 3)
-        XCTAssertFalse(desks.seen(session: "some-terminal-session"), "only a cloud bot's desk")
-        XCTAssertFalse(desks.seen(session: "smolcorp-mini"), "by its desk's session id")
-    }
-
-    func testThePortableViewerSeesACloudDeskAndItsLastActionNotItsWordsWithNamesHidden() {
-        let bot = Session(id: "cloud-smolcorp-mini", agent: .grok, folder: "/cloud/Smolcorp mini", project: "/cloud/Smolcorp mini", startedAt: 0)
-        let run = Session(id: "run", agent: .claude, folder: "/tmp/run", project: "/tmp/run", startedAt: 0)
-        let at = Date(timeIntervalSince1970: 1_800_000_000)
-        let last = CloudAction(text: "Replied to @someone", count: 2, at: at)
-        for hide in [false, true] {
-            let snapshot = ViewerSnapshot.upstairs([bot, run], overflow: 0, hideNames: hide,
-                                                   isCloud: { $0.id == bot.id }, last: { $0.id == bot.id ? last : nil })
-            let desks = snapshot["desks"] as! [[String: Any]]
-            XCTAssertEqual(desks[0]["cloud"] as? Bool, true)
-            let shown = desks[0]["last"] as! [String: Any]
-            XCTAssertEqual(shown["text"] as? String, hide ? "Sent a report" : "Replied to @someone")
-            XCTAssertEqual(shown["count"] as? Int, 2)
-            XCTAssertEqual(shown["at"] as? Int64, 1_800_000_000_000)
-            XCTAssertNil(desks[1]["cloud"], "a headless run says nothing more than before")
-            XCTAssertNil(desks[1]["last"])
-        }
-    }
 
     // MARK: The bots as set
 
@@ -208,14 +68,6 @@ final class CloudBotTests: XCTestCase {
         XCTAssertEqual(GrokBotApp.key(ofFile: fileName("a.roster.last-roster")), "a.roster.last-roster")
         XCTAssertNil(GrokBotApp.key(ofFile: "sand-secrets.json"))
         XCTAssertNil(GrokBotApp.key(ofFile: "not base32!.blob"))
-    }
-
-    func testTheBotIsFoundByNameAndOnlyASafeIDIsTaken() {
-        let roster = #"{"schemaVersion":4,"value":{"rows":[{"name":"Other","id":"AAAA"},{"name":"Smolcorp Mini","id":"6322898C-71DA-4BB8"}]}}"#
-        XCTAssertEqual(GrokBotApp.botID(named: "smolcorp mini", inRoster: Data(roster.utf8)), "6322898C-71DA-4BB8")
-        XCTAssertNil(GrokBotApp.botID(named: "nobody", inRoster: Data(roster.utf8)))
-        let sneaky = #"{"value":{"rows":[{"name":"x","id":"../../secrets"}]}}"#
-        XCTAssertNil(GrokBotApp.botID(named: "x", inRoster: Data(sneaky.utf8)))
     }
 
     /// The roster as the app keeps it: a group chat, between two of its bots, among the bots' own chats.
@@ -337,35 +189,6 @@ final class CloudBotTests: XCTestCase {
         let byName = GrokBotApp(bot: "Smolcorp Mini Manager", counts: "unprompted", folder: folder)
         _ = byName.newReports()
         XCTAssertNil(byName.liveName)
-    }
-
-    func testTheDeskSaysItsLiveNameAndKeepsItsSeatStateAndCard() {
-        let desks = CloudDesks([CloudBot(id: "smolcorp-mini", name: "Smolcorp mini"), CloudBot(id: "xreplier", name: "Xreplier")], looking: false)
-        var changes = 0
-        desks.onChange = { changes += 1 }
-        desks.apply(.report, to: "smolcorp-mini", action: CloudAction(text: "Sent a report", count: 2, at: Date()))
-        changes = 0
-
-        desks.rename("smolcorp-mini", to: "Smolcorp Mini Manager")
-        let seated = desks.seated().map(\.session)
-        XCTAssertEqual(seated.map(\.id), ["cloud-smolcorp-mini", "cloud-xreplier"], "the same desk, at the same seat")
-        XCTAssertEqual(seated[0].projectName, "Smolcorp Mini Manager")
-        XCTAssertEqual(seated[0].state, .unread, "still green")
-        XCTAssertEqual(desks.last(ofSession: "cloud-smolcorp-mini")?.count, 2, "its card kept")
-        XCTAssertEqual(changes, 1)
-        desks.rename("smolcorp-mini", to: "Smolcorp Mini Manager")
-        XCTAssertEqual(changes, 1, "no change, no redraw")
-
-        desks.rename("smolcorp-mini", to: "Mini/Manager")
-        XCTAssertEqual(desks.seated().map(\.session)[0].projectName, "Mini-Manager", "no slash, as a name set")
-        desks.rename("smolcorp-mini", to: nil)
-        XCTAssertEqual(desks.seated().map(\.session)[0].projectName, "Smolcorp mini", "no live name: the one it was set with")
-        desks.rename("nobody", to: "X")
-
-        // Set again, unchanged: it keeps the live name.
-        desks.rename("smolcorp-mini", to: "Smolcorp Mini Manager")
-        desks.configure([CloudBot(id: "smolcorp-mini", name: "Smolcorp mini"), CloudBot(id: "xreplier", name: "Xreplier")])
-        XCTAssertEqual(desks.seated().map(\.session)[0].projectName, "Smolcorp Mini Manager")
     }
 
     func testANameAloneStillFindsItThenTheOneNameLikeIt() {

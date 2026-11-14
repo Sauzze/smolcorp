@@ -2,7 +2,6 @@ package desktop
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,19 +14,19 @@ import (
 	"time"
 )
 
-// smolcorp setup: the whole setup from a terminal, for you or for an agent
-// you ask to do it. It starts Smolcorp if it isn't running, puts right what
-// can be put right without a choice of yours (installing it, connecting
-// your agents, on Windows the firewall's rules, which Windows asks you to
-// OK once), then prints the checklist setup's Start here shows, and ends
-// with 0 when nothing is in the way, 1 when something is.
+// smolcorp setup: setup's checklist from a terminal, for you or for an agent
+// you ask to run it. It starts Smolcorp if it isn't running, then prints the
+// checklist setup's Start here shows, and ends with 0 when nothing is in the
+// way, 1 when something is. It changes nothing: it holds only the check-only
+// key (selftestkey.go), which opens the checklist and nothing else, so what
+// the checklist finds is put right in Setup (SANDBOX-PLAN §3.1, SK2).
 //
 //	smolcorp setup           as above
-//	smolcorp setup --check   the checklist only, changing nothing
+//	smolcorp setup --check   the same, without starting Smolcorp (on Linux and Windows)
 //	smolcorp setup --open    and then where to get a link to the setup page, to pair a phone (it makes none)
 //
-// On a Mac it always only checks, but opens Smolcorp.app first if it is closed
-// (only when setup is aimed at the app's own port).
+// On a Mac it opens Smolcorp.app first if it is closed (only when setup is
+// aimed at the app's own port).
 
 // setupSystem is the system setup runs on; the tests change it.
 var setupSystem = runtime.GOOS
@@ -46,18 +45,18 @@ func setupAimedAtDefaultPort() bool { return Port == portFromEnvironment("") }
 // help it; the tests change this.
 var setupMayOpenApp = setupAimedAtDefaultPort
 
-// The fixes setup makes by itself: none is a choice of yours.
-var setupFixes = []string{fixInstall, fixRepair, fixFirewall}
-
 // RunSetup is `smolcorp setup`.
 func RunSetup(args []string) int {
 	checkOnly, open := slices.Contains(args, "--check"), slices.Contains(args, "--open")
-	if setupSystem == "darwin" && !checkOnly {
-		// On a Mac, setup is in Smolcorp's Settings: this only looks.
-		checkOnly = true
-		fmt.Println("On a Mac, setup is in Smolcorp's Settings. This only checks, and changes nothing.")
+	if !checkOnly {
+		// What the checklist finds is put right in Setup: this only looks (and starts Smolcorp if it's closed).
+		if setupSystem == "darwin" {
+			fmt.Println("On a Mac, setup is in Smolcorp's Settings. This only checks, and changes nothing.")
+		} else {
+			fmt.Println("Setup is on Smolcorp's setup page. This only checks, and changes nothing.")
+		}
 	}
-	client := setupClient{base: localBase(), http: &http.Client{Timeout: 2 * time.Minute}}
+	client := setupClient{base: setupBase(), http: &http.Client{Timeout: 2 * time.Minute}}
 	if !client.answers() {
 		mac := setupSystem == "darwin"
 		if checkOnly && !mac {
@@ -92,28 +91,6 @@ func RunSetup(args []string) int {
 		fmt.Fprintf(os.Stderr, "Setup can't be read: %v\n", err)
 		return 1
 	}
-	if !checkOnly {
-		for _, c := range report.Checks {
-			if c.Status != checkFix || !slices.Contains(setupFixes, c.Fix) {
-				continue
-			}
-			fmt.Printf("Fixing: %s…\n", c.Title)
-			if c.Fix == fixFirewall {
-				fmt.Println("  Windows asks for your OK: choose Yes.")
-			}
-			if err := client.fix(c.Fix); err != nil {
-				fmt.Printf("  %v\n", err)
-			}
-			if c.Fix == fixInstall {
-				// The installed copy takes over: what follows is its checklist.
-				client.waitUntilItAnswers(30 * time.Second)
-			}
-		}
-		if report, err = client.selfTest(); err != nil {
-			fmt.Fprintf(os.Stderr, "Setup can't be read: %v\n", err)
-			return 1
-		}
-	}
 	printChecklist(os.Stdout, report.Checks)
 	if open {
 		client.openSetup(os.Stdout)
@@ -131,7 +108,7 @@ func printChecklist(out io.Writer, checks []check) {
 	fmt.Fprintln(out)
 	for _, c := range checks {
 		fmt.Fprintf(out, "%s %s\n    %s\n", marks[c.Status], c.Title, c.Detail)
-		if c.Status != checkOK && c.Label != "" && !slices.Contains(setupFixes, c.Fix) {
+		if c.Status != checkOK && c.Label != "" {
 			fmt.Fprintf(out, "    On the setup page: %s.\n", c.Label)
 		}
 	}
@@ -148,8 +125,8 @@ type selfTestAnswer struct {
 	Ready  bool    `json:"ready"`
 }
 
-// setupClient is setup's API, as a tool on this computer reaches it: with
-// the setup key the running app wrote for it.
+// setupClient is setup's checklist, as a terminal on this computer reaches it:
+// with the check-only key the running app wrote for it.
 type setupClient struct {
 	base string
 	http *http.Client
@@ -175,16 +152,15 @@ func (c setupClient) waitUntilItAnswers(wait time.Duration) bool {
 }
 
 func (c setupClient) send(method, path string) (*http.Response, error) {
-	key, err := os.ReadFile(setupKeyFile)
+	key, err := readSelftestKey()
 	if err != nil {
-		return nil, errors.New("no setup key: is this the computer Smolcorp runs on, as you?")
+		return nil, err
 	}
 	request, err := http.NewRequest(method, c.base+path, nil)
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set(setupKeyHeader, strings.TrimSpace(string(key)))
-	request.Header.Set(setupHeader, "1")
+	request.Header.Set(selftestKeyHeader, key)
 	return c.http.Do(request)
 }
 
@@ -204,7 +180,7 @@ func (c setupClient) selfTest() (selfTestAnswer, error) {
 
 // openSetup says where to get a link to the setup page. It makes none: a
 // link that opens setup, and so pairing, must come from the app itself (the
-// tray's Open Setup…), never from a program that only holds the setup key.
+// tray's Open Setup…), never from a program that only holds the check-only key.
 func (c setupClient) openSetup(out io.Writer) {
 	if setupSystem == "darwin" {
 		fmt.Fprintln(out, "\nTo open setup, choose Open Settings in Browser from Smolcorp's icon in the menu bar.")
@@ -233,23 +209,6 @@ func setupMenuWords() string {
 		return "choose Open Setup… from the tray icon"
 	}
 	return "choose Open Setup… from the tray icon; with no tray, use the link Smolcorp prints as it starts (for a new one, " + noTrayNewLink + ")"
-}
-
-func (c setupClient) fix(name string) error {
-	response, err := c.send(http.MethodPost, "/setup/fix?fix="+name+"&auto=1")
-	if err != nil {
-		// The install's own copy took over before answering.
-		if name == fixInstall {
-			return nil
-		}
-		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode >= 400 {
-		said, _ := io.ReadAll(io.LimitReader(response.Body, 1000))
-		return errors.New(strings.TrimSpace(string(said)))
-	}
-	return nil
 }
 
 // startApp starts Smolcorp's app, left running: on a Mac it opens Smolcorp.app

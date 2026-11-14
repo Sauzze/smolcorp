@@ -102,8 +102,9 @@ func entriesFor(agent Agent) *hookEntries {
 	command := hookCommand(agent)
 	switch agent {
 	case Claude:
+		// PermissionDenied is the one Claude Code sends when a permission is refused: the event log keeps it (Hooks.swift).
 		return &hookEntries{file: filepath.Join(agentFolder(Claude), "settings.json"), events: []string{
-			"SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse",
+			"SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PermissionDenied", "PostToolUse",
 			"PostToolUseFailure", "Notification", "Stop", "StopFailure", "SessionEnd",
 			"SubagentStart", "SubagentStop", "PreCompact", "PostCompact",
 		}, handler: map[string]any{"type": "command", "command": command, "async": true}}
@@ -170,14 +171,38 @@ func allConnected() bool {
 
 var errNoAgents = errors.New("No coding agent found on this computer. Install one, open it once, then connect again.")
 
+// errNoAgentsMac is errNoAgents as the Mac says it (Hooks.swift), under the Mac app.
+var errNoAgentsMac = errors.New("No coding agent found on this Mac. Install one, open it once, then connect again.")
+
+// noAgentsFound is errNoAgents in this computer's words.
+func noAgentsFound() error {
+	if host != nil {
+		return errNoAgentsMac
+	}
+	return errNoAgents
+}
+
+// errTestCopyAgents is a test copy's no, in the Mac's words (Hooks.HookError.testCopy): a copy on a port of its own
+// never writes your agents' settings, which are the real Smolcorp's. Its hires report through a hook of their own.
+var errTestCopyAgents = errors.New("This is a test copy of Smolcorp: it doesn't change your agents' settings. Report to it with a hook of its own.")
+
+// leavesAgentsAlone is whether this copy never writes your agents' settings (~/.claude, ~/.codex, ~/.gemini,
+// OpenCode's plugin, Grok's hooks): a test copy, on any computer. Every writer below asks it first.
+func leavesAgentsAlone() bool {
+	return testCopyPort() != 0
+}
+
 // connectAgents connects every agent found. One whose settings can't be read
 // is left alone, and named in the error once the others are done.
 // The notice returned says so when connecting turned Claude Code's voice on;
 // with turnOnVoice false (the repair) it never does.
 func connectAgents(turnOnVoice bool) (string, error) {
+	if leavesAgentsAlone() {
+		return "", errTestCopyAgents
+	}
 	found := foundAgents()
 	if len(found) == 0 {
-		return "", errNoAgents
+		return "", noAgentsFound()
 	}
 	var unreadable []string
 	notice := ""
@@ -221,6 +246,9 @@ func connect(agent Agent, turnOnVoice bool) error {
 
 // connectVoice is connect, and says whether it turned voice on.
 func connectVoice(agent Agent, turnOnVoice bool) (bool, error) {
+	if leavesAgentsAlone() {
+		return false, errTestCopyAgents
+	}
 	entries := entriesFor(agent)
 	if entries == nil {
 		if err := writePlugin(); err != nil {
@@ -277,6 +305,9 @@ func connectVoice(agent Agent, turnOnVoice bool) (bool, error) {
 }
 
 func disconnectAgents() error {
+	if leavesAgentsAlone() {
+		return errTestCopyAgents
+	}
 	for _, agent := range agents {
 		entries := entriesFor(agent)
 		switch {
@@ -321,7 +352,11 @@ func disconnectAgents() error {
 // didn't. Voice is left alone: only connecting turns it on. An agent whose
 // entries name another office's port is left as it is, so two offices on one
 // computer never move each other's hooks: only connecting replaces them.
+// A test copy refreshes none: they're the real Smolcorp's.
 func refreshHooks() {
+	if leavesAgentsAlone() {
+		return
+	}
 	for _, agent := range foundAgents() {
 		if namesAnotherOffice(agent) {
 			continue
@@ -416,6 +451,9 @@ func writePlugin() error {
 
 // writePluginLocked is writePlugin, with openCodeMu held.
 func writePluginLocked() error {
+	if leavesAgentsAlone() {
+		return errTestCopyAgents
+	}
 	stamp := openCodeStamp()
 	template, err := fs.ReadFile(agentdeck.Files, openCodePluginTemplate())
 	if err != nil {
@@ -462,6 +500,9 @@ func writePluginLocked() error {
 func isOurs(handler any) bool {
 	h, _ := handler.(map[string]any)
 	command, _ := h["command"].(string)
+	if isMacReportScript(command) {
+		return true
+	}
 	program, found := strings.CutSuffix(command, " hook")
 	if !found {
 		i := strings.LastIndex(command, " hook ")
@@ -491,6 +532,23 @@ func isOurs(handler any) bool {
 		return program == thisCopysPath()
 	}
 	return program == thisCopysPath() || isDecksProgram(program)
+}
+
+// isMacReportScript is whether command is the Swift engine's own entry, under the Mac app only: its
+// report.sh in this support folder, quoted, with the agent's name after it for any agent but Claude Code and
+// Grok (Hooks.command(for:)). It counts as the deck's, so the start-up refresh puts `smolcorp hook` in its
+// place, connecting replaces it rather than adding a second entry, and disconnecting takes it out. The
+// script itself stays: a hire the Swift engine made still runs it from its own settings file.
+func isMacReportScript(command string) bool {
+	if hookHeaderFile == "" {
+		return false
+	}
+	rest, found := strings.CutPrefix(command, `"`+filepath.Join(supportDir, "report.sh")+`"`)
+	if !found {
+		return false
+	}
+	agent, spaced := strings.CutPrefix(rest, " ")
+	return rest == "" || spaced && Agent(agent) != Claude && Agent(agent) != Grok && slices.Contains(agents, Agent(agent))
 }
 
 // isHookArguments is what follows hook in the deck's command: at most
@@ -682,6 +740,9 @@ const (
 // followed, so the file it points to, in a dotfiles folder say, is the one
 // that changes. The backups are made first, or nothing is written.
 func writeSettings(settings map[string]any, file string, backup bool) error {
+	if leavesAgentsAlone() {
+		return errTestCopyAgents
+	}
 	if resolved, err := filepath.EvalSymlinks(file); err == nil {
 		file = resolved
 	}

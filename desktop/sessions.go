@@ -209,10 +209,31 @@ func (s *Sessions) All() []*Session {
 
 func (s *Sessions) Get(id string) *Session { return s.byID[id] }
 
-// Apply returns whether anything changed. startedIn is the folder the agent
-// was started in, when the hook knows it: an event's cwd is wherever the agent
-// is now.
+// Apply takes a hook's event, and returns whether anything changed. startedIn
+// is the folder the agent was started in, when the hook knows it: an event's
+// cwd is wherever the agent is now.
 func (s *Sessions) Apply(event map[string]any, agent Agent, tab, startedIn string, at float64) bool {
+	id, _ := event["session_id"].(string)
+	// t3: ids are the desks of hires in T3 Code (t3desks.go): no hook event takes one. acp: ids and tabs are the
+	// core's ACP desks' (acpdesk.go): no hook event takes one, nor lands in one's tab, where it would take its place.
+	if strings.HasPrefix(id, t3DeskPrefix) || strings.HasPrefix(id, acpDeskPrefix) || strings.HasPrefix(tab, acpDeskPrefix) {
+		return false
+	}
+	return s.apply(event, agent, tab, startedIn, at)
+}
+
+// ApplyACP takes an ACP desk's event (acpdesk.go), and returns whether anything changed. The desk's session is
+// keyed by the desk's own tab, an acp: name the core chose, never by the session id its agent chose: an agent
+// that names another desk's session reaches only its own.
+func (s *Sessions) ApplyACP(event map[string]any, agent Agent, tab, startedIn string, at float64) bool {
+	if id, _ := event["session_id"].(string); !agent.IsACP() || !strings.HasPrefix(tab, acpDeskPrefix) || id != tab {
+		return false
+	}
+	return s.apply(event, agent, tab, startedIn, at)
+}
+
+// apply is Apply's, and ApplyACP's, once each has checked whose event it is.
+func (s *Sessions) apply(event map[string]any, agent Agent, tab, startedIn string, at float64) bool {
 	id, _ := event["session_id"].(string)
 	name, _ := event["hook_event_name"].(string)
 	if id == "" || name == "" {
@@ -275,6 +296,12 @@ func (s *Sessions) Apply(event map[string]any, agent Agent, tab, startedIn strin
 		if next != Failed {
 			session.ErrorKind = ""
 		}
+	}
+	// A turn that no prompt began, such as a queued message picked up after
+	// the last one ended or work carrying on after a missed Stop, still has
+	// a start: the first thing seen of it, never a time long gone.
+	if session.IsBusy() && session.TurnStartedAt == 0 {
+		session.TurnStartedAt = at
 	}
 	return true
 }
@@ -690,6 +717,38 @@ func isWaitingOnUser(event map[string]any) bool {
 	return strings.Contains(strings.ToLower(message), "permission")
 }
 
+// StoppedAsking: session id's question or permission prompt put away from the
+// phone (✗ or Esc). Claude Code ends the turn there and waits for a prompt, and
+// no hook says so: idle, as after an Interrupt, from at on, so an event raised
+// before it, arriving late, changes nothing. As the Mac app's stoppedAsking.
+func (s *Sessions) StoppedAsking(id string, at float64) bool {
+	session := s.byID[id]
+	if session == nil || session.State != Asking {
+		return false
+	}
+	session.State = Idle
+	session.endTurn(nil)
+	session.LastEventAt = max(session.LastEventAt, at)
+	return true
+}
+
+// AnsweredInItsTerminal: session id's permission prompt answered Yes in its own
+// terminal, the tool it allowed now running, which no hook says until that
+// tool ends (RT126P3b N1). Thinking from at on, keeping its tool, its turn and
+// its subagents; only the prompt goes. Go app only: the office window's pick
+// sees it on the screen.
+func (s *Sessions) AnsweredInItsTerminal(id string, at float64) bool {
+	session := s.byID[id]
+	if session == nil || session.State != Asking {
+		return false
+	}
+	session.State = Thinking
+	session.WaitingFor = ""
+	session.clearAsked()
+	session.LastEventAt = max(session.LastEventAt, at)
+	return true
+}
+
 // MarkSeen: looking at a finished session turns it from green back to white.
 func (s *Sessions) MarkSeen(tab string) bool {
 	changed := false
@@ -715,14 +774,34 @@ const (
 	headlessQuietWithPID = 60 * 60_000
 )
 
+// heldByCore is whether the session is an ACP desk's (acpdesk.go): the core holds its agent through a client of its
+// own, and its tab, which is also its id, is no terminal's. Its end comes from that client alone, never from a look
+// at tabs. Any other session of an ACP agent's still ages out as every other does.
+func (s *Session) heldByCore() bool {
+	return s.Agent.IsACP() && strings.HasPrefix(s.ID, acpDeskPrefix) && s.Tab == s.ID
+}
+
 // Prune drops sessions whose tab has gone: an agent killed along with its
 // tab never sends SessionEnd. Each is remembered for a while, in case it's
 // heard from again: see revive. A headless run has no tab to close, and is
-// never dropped here: see PruneGone.
+// never dropped here: see PruneGone. Nor is an ACP desk's session: see heldByCore.
 func (s *Sessions) Prune(alive func(tab string) bool, now float64) bool {
 	changed := false
 	for _, session := range s.All() {
-		if !session.Headless() && !alive(session.Tab) {
+		if !session.Headless() && !session.heldByCore() && !alive(session.Tab) {
+			s.drop(session, now)
+			changed = true
+		}
+	}
+	return changed
+}
+
+// PruneIDs drops the sessions gone names by id, each only while it is still on the tab it was judged on: a session
+// that has taken that tab since is another's, and stays. As for Prune, each is remembered for a while.
+func (s *Sessions) PruneIDs(gone map[string]string, now float64) bool {
+	changed := false
+	for _, session := range s.All() {
+		if tab, ok := gone[session.ID]; ok && session.Tab == tab && !session.Headless() && !session.heldByCore() {
 			s.drop(session, now)
 			changed = true
 		}
@@ -734,10 +813,14 @@ func (s *Sessions) Prune(alive func(tab string) bool, now float64) bool {
 // it was, and headless runs once they have been quiet for headlessQuiet, or
 // headlessQuietWithPID where their process is known: either may have been
 // killed before SessionEnd. Each is remembered for a while, as for a closed
-// tab, and comes back if it's heard from again.
+// tab, and comes back if it's heard from again. An ACP desk's session is
+// never dropped here, as in Prune: see heldByCore.
 func (s *Sessions) PruneGone(gone func(pid int) bool, now float64) bool {
 	changed := false
 	for _, session := range s.All() {
+		if session.heldByCore() {
+			continue
+		}
 		quiet := now - session.LastEventAt
 		if session.PID > 0 && gone(session.PID) ||
 			session.Headless() && (session.PID <= 0 && quiet > headlessQuiet || session.PID > 0 && quiet > headlessQuietWithPID) {

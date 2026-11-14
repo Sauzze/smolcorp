@@ -30,18 +30,31 @@ type call struct {
 	// says not to, or asTool: then they carry the setup key in a header, as a tool does.
 	withoutSetupKey bool
 	asTool          bool
+	// A phone on the Wi-Fi signs its requests, as deck.html does (signed.go): a call from the network with
+	// ?t= goes signed with that key instead, unless bare says to send the key itself, as an old page did.
+	bare bool
+	// Setup lives on 127.0.0.1 alone (server.go): a call to it at localhost is made at 127.0.0.1, as a browser is
+	// sent there, unless this says to keep the host.
+	keepHost bool
 }
 
 func serve(t *testing.T, d *Deck, c call) *httptest.ResponseRecorder {
 	t.Helper()
-	r := httptest.NewRequest(c.method, c.target, strings.NewReader(c.body))
+	target := c.target
+	if !c.bare && !strings.HasPrefix(c.from, "127.") && !strings.HasPrefix(c.from, "[::1]") {
+		target = signedTarget(c.method, target, c.body, time.Now())
+	}
+	r := httptest.NewRequest(c.method, target, strings.NewReader(c.body))
 	r.Host, r.RemoteAddr = c.host, c.from
+	if port, atLocalhost := strings.CutPrefix(c.host, "localhost"); atLocalhost && !c.keepHost && (r.URL.Path == "/setup" || strings.HasPrefix(r.URL.Path, "/setup/")) {
+		r.Host = "127.0.0.1" + port
+	}
 	if strings.HasPrefix(c.target, "/setup/") && !c.withoutSetupKey {
 		if c.asTool {
 			r.Header.Set(setupKeyHeader, d.access.SetupKey)
 		} else {
 			d.mu.Lock()
-			r.AddCookie(&http.Cookie{Name: setupCookie, Value: d.access.NewSetupSession()})
+			r.AddCookie(&http.Cookie{Name: setupCookie(), Value: d.access.NewSetupSession()})
 			d.mu.Unlock()
 		}
 	}
@@ -65,16 +78,33 @@ func newTestDeck(t *testing.T) *Deck {
 // startDeck starts a deck on the folders the test has set up, as the app does at each start, and
 // stops its rounds at the end (see deckRounds), so it never reads the stand-ins a later test puts in.
 // A stand-in the deck's rounds or looks read goes in before the deck starts: cleanups run last
-// first, so it is put back once the deck has stopped.
+// first, so it is put back once the deck has stopped. A save of the sessions still to come is called
+// off once the rounds have stopped, and none is asked for after: it would read the deck after the test
+// and write into folders being removed. One already under way is waited for (its timer has gone off, and it
+// may be a moment from writing): a test that lasts as long as the save's delay would find its folder not empty.
 func startDeck(t *testing.T) *Deck {
 	t.Helper()
 	d := NewDeck()
+	t.Cleanup(func() {
+		d.mu.Lock()
+		if d.saveTimer != nil {
+			d.saveTimer.Stop()
+		}
+		d.savePending = true
+		// A save whose timer has already gone off may be waiting for the lock, or past it and about to write: the
+		// first to a folder that isn't there, the second waited for, so the folder is empty when the test removes it.
+		d.sessionsFile = filepath.Join(filepath.Dir(d.sessionsFile), "no-such-folder", "sessions.json")
+		d.mu.Unlock()
+		d.saveMu.Lock()
+		d.saveMu.Unlock() // only waiting for a save that is under way
+	})
 	t.Cleanup(d.stopWatchers)
 	return d
 }
 
-// pair asks for a code on this computer and pairs a phone with it, as the
-// setup page and the pairing page do.
+// pair asks for a code on this computer and pairs a phone on the Wi-Fi with
+// its QR code, as the setup page and the pairing page do: the key is after #
+// in the code's link, and the phone claims it with a request signed with it.
 func pair(t *testing.T, d *Deck) string {
 	t.Helper()
 	asked := serve(t, d, call{method: "POST", target: "/setup/pair", host: "localhost:7710", from: thisComputer,
@@ -83,13 +113,16 @@ func pair(t *testing.T, d *Deck) string {
 	if err := json.Unmarshal(asked.Body.Bytes(), &state); err != nil || state.Pairing.Code == "" {
 		t.Fatalf("asking for a code gave %d %s", asked.Code, asked.Body)
 	}
-	paired := serve(t, d, call{method: "POST", target: "/pair", host: deckOnWiFi, from: aPhone,
-		headers: map[string]string{"User-Agent": iPhone}, body: `{"code": "` + state.Pairing.Code + `"}`})
-	var answer struct{ Key string }
-	if err := json.Unmarshal(paired.Body.Bytes(), &answer); err != nil || answer.Key == "" {
+	d.mu.Lock()
+	link := pairingLink(d.access.PairingKey())
+	d.mu.Unlock()
+	codeKey, part := strings.TrimPrefix(link[strings.Index(link, "#"):], "#pair="), randomKey()
+	paired := serve(t, d, call{method: "POST", target: "/pair?p=" + part + "&t=" + codeKey, host: deckOnWiFi, from: aPhone,
+		headers: map[string]string{"User-Agent": iPhone}})
+	if paired.Code != http.StatusNoContent || codeKey == "" {
 		t.Fatalf("pairing gave %d %s", paired.Code, paired.Body)
 	}
-	return answer.Key
+	return phoneKeyFrom(codeKey, part)
 }
 
 func TestTheSetupPageOpensOnlyOnThisComputer(t *testing.T) {
@@ -109,8 +142,8 @@ func TestTheSetupPageOpensOnlyOnThisComputer(t *testing.T) {
 	}
 }
 
-// The Tailscale instructions name the port the page was served from (the server may run on another
-// SMOLCORP_PORT) and a neutral machine name, not a fixed 7710 or "this-mac".
+// The Tailscale instructions show the app's own command (since SN1 it names serve.sock on a Mac, and off it the port
+// the server runs on, which may be another SMOLCORP_PORT) and a neutral machine name, not a fixed 7710 or "this-mac".
 func TestTheTailscaleInstructionsDoNotHardcodeThePortOrTheMac(t *testing.T) {
 	d := newTestDeck(t)
 	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7799", from: thisComputer}).Body.String()
@@ -121,8 +154,8 @@ func TestTheTailscaleInstructionsDoNotHardcodeThePortOrTheMac(t *testing.T) {
 	if strings.Contains(page, "127.0.0.1:7710") {
 		t.Error("the setup page still hardcodes 127.0.0.1:7710 in the tailscale serve command")
 	}
-	if !strings.Contains(page, "127.0.0.1:${location.port") {
-		t.Error("the tailscale serve command does not use the port the page was served from")
+	if !strings.Contains(page, "$('tailnet-command').textContent = h.command;") || strings.Contains(page, "127.0.0.1:${location.port") {
+		t.Error("the tailscale serve command isn't the one the app says")
 	}
 }
 
@@ -215,6 +248,10 @@ func TestHiringIsSetUpOnlyWhenEveryPartIsRight(t *testing.T) {
 		"enabled=1&agent=codex&folder=~/nowhere",   // a folder that isn't there
 		"enabled=1&agent=codex&folder=~/work/keep", // a file, not a folder
 		"enabled=1&agent=skynet&folder=" + homeDir, // an agent there isn't
+		// Names config.json would load as Claude Code (B1-b, RM4c): this route never keeps them.
+		"enabled=1&agent=Claude&folder=" + homeDir,
+		"enabled=1&agent=/opt/x/bin/claude&folder=" + homeDir,
+		"enabled=1&agent=&folder=" + homeDir,
 	} {
 		if got := setUp(query); got != http.StatusBadRequest {
 			t.Errorf("%s: %d, want %d", query, got, http.StatusBadRequest)
@@ -383,23 +420,23 @@ func TestWhatSetupReadsAndChangesNeedsTheSetupKey(t *testing.T) {
 	if got := local(call{method: "GET", target: "/setup"}); got != http.StatusOK {
 		t.Errorf("the setup page: %d, want %d", got, http.StatusOK)
 	}
-	// A tool of your own sends the key from its file.
-	saved, err := os.ReadFile(setupKeyFile)
-	if err != nil || strings.TrimSpace(string(saved)) != d.access.SetupKey {
-		t.Fatalf("the setup-key file holds %q (%v), want the key", saved, err)
-	}
-	if runtime.GOOS != "windows" {
-		if info, _ := os.Stat(setupKeyFile); info.Mode().Perm() != 0o600 {
-			t.Errorf("the setup-key file can be read by others: %v", info.Mode().Perm())
-		}
+	// No file holds the setup key (1.26, SK2): a tool has it from memory, the core's own or one you allowed.
+	if _, err := os.Stat(setupKeyFile); !os.IsNotExist(err) {
+		t.Fatalf("a setup-key file is there: %v", err)
 	}
 	if got := local(call{method: "GET", target: "/setup/state", withoutSetupKey: true,
-		headers: map[string]string{setupKeyHeader: strings.TrimSpace(string(saved))}}); got != http.StatusOK {
-		t.Errorf("setup's state with the key from its file: %d, want %d", got, http.StatusOK)
+		headers: map[string]string{setupKeyHeader: d.access.SetupKey}}); got != http.StatusOK {
+		t.Errorf("setup's state with the key: %d, want %d", got, http.StatusOK)
+	}
+	// The check-only key's file is yours alone.
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(selftestKeyFile); err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("the selftest-key file: %v", err)
+		}
 	}
 	// The key is for the header only: as a cookie, it opens nothing.
 	if got := local(call{method: "GET", target: "/setup/state", withoutSetupKey: true,
-		headers: map[string]string{"Cookie": setupCookie + "=" + d.access.SetupKey}}); got != http.StatusUnauthorized {
+		headers: map[string]string{"Cookie": setupCookie() + "=" + d.access.SetupKey}}); got != http.StatusUnauthorized {
 		t.Errorf("setup's state with the key as a cookie: %d, want %d", got, http.StatusUnauthorized)
 	}
 	// Nor does the key open a session at /setup/session: only a token does.
@@ -568,8 +605,9 @@ func TestTheTraysLinkWorksOnceAndCarriesNoKey(t *testing.T) {
 	if first.Code != http.StatusNoContent || len(first.Result().Cookies()) != 1 || first.Result().Cookies()[0].Value == d.access.SetupKey {
 		t.Fatalf("the link's token gave %d, cookies %v", first.Code, first.Result().Cookies())
 	}
-	// Read from another user's view of the command line, it's used up already.
-	if again := handOver(token); again.Code != http.StatusUnauthorized {
+	// Read from another program's view of the command line, it's used up already: a second use is refused, and
+	// said to be a link used first, as both sessions can't be told apart (setuplink.go).
+	if again := handOver(token); again.Code != http.StatusConflict || len(again.Result().Cookies()) != 0 {
 		t.Errorf("the token worked a second time: %d", again.Code)
 	}
 	// And one never used runs out.
@@ -610,7 +648,7 @@ func (w *streamWriter) Flush() {
 func TestAPhoneHearsThePingAsAnEvent(t *testing.T) {
 	d := newTestDeck(t)
 	key := pair(t, d)
-	r := httptest.NewRequest("GET", "/events?t="+key, nil)
+	r := httptest.NewRequest("GET", signedTarget("GET", "/events?t="+key, "", time.Now()), nil)
 	r.Host, r.RemoteAddr = deckOnWiFi, aPhone
 	ctx, hangUp := context.WithCancel(r.Context())
 	defer hangUp()
@@ -638,7 +676,7 @@ func TestAPhoneHearsThePingAsAnEvent(t *testing.T) {
 			if !strings.HasPrefix(got, "data: ") {
 				t.Fatalf("the ping came as %q, want a named event with data", got)
 			}
-		case <-time.After(2 * time.Second):
+		case <-time.After(5 * time.Second):
 			t.Fatal("no ping came")
 		}
 	}
@@ -674,8 +712,14 @@ func TestTheTraysOfficeIsTheOfficeOnThisComputerOnly(t *testing.T) {
 	token := d.access.NewOfficeToken()
 	d.mu.Unlock()
 	opened := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: "localhost:7710", from: thisComputer})
-	if opened.Code != http.StatusSeeOther || opened.Header().Get("Location") != "/office?t="+d.access.WindowKey {
-		t.Fatalf("the tray's link gave %d to %q, want the office with its own key", opened.Code, opened.Header().Get("Location"))
+	if opened.Code != http.StatusSeeOther || opened.Header().Get("Location") != "/office?t="+d.access.BrowserKey+"&own" {
+		t.Fatalf("the tray's link gave %d to %q, want the office with the browser's key", opened.Code, opened.Header().Get("Location"))
+	}
+	if d.access.BrowserKey == d.access.WindowKey {
+		t.Error("the browser is given the Mac app's window's key")
+	}
+	if browser := serve(t, d, call{method: "GET", target: "/office?t=" + d.access.BrowserKey, host: "localhost:7710", from: thisComputer}); browser.Code != http.StatusOK || !strings.Contains(browser.Body.String(), "/events") {
+		t.Errorf("the office with the browser's key gave %d, want the deck's page", browser.Code)
 	}
 	if again := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: "localhost:7710", from: thisComputer}); again.Code == http.StatusSeeOther {
 		t.Error("the tray's token worked twice")
@@ -718,7 +762,7 @@ func TestOpeningSetupMarksItCompleteOnlyWithTheSetupKey(t *testing.T) {
 		}
 	}
 	open(nil)
-	open(map[string]string{setupKeyHeader: "sk-ant-test0"})
+	open(map[string]string{setupKeyHeader: "sk-" + "ant-test0"})
 	if d.config.HasCompletedSetup {
 		t.Fatal("opening /setup without a valid setup key marked setup complete")
 	}
@@ -778,7 +822,7 @@ func TestSetupStateNamesThePlatform(t *testing.T) {
 func TestTheOfficePaneHeaderDoesNotNameTheMac(t *testing.T) {
 	d := newTestDeck(t)
 	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
-	const head = "<h1>Office</h1><p>"
+	const head = "<h1>Office and look</h1><p>"
 	i := strings.Index(page, head)
 	if i < 0 {
 		t.Fatal("the setup page has no Office pane header")

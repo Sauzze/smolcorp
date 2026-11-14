@@ -17,7 +17,7 @@ import (
 // Each agent names its tools its own way, so they're matched in lower case,
 // under each of their names.
 func activityOf(tool string, input map[string]any) string {
-	return cutActivity(activityLine(tool, input))
+	return cutActivity(hidePhotos(activityLine(tool, input)))
 }
 
 // mostActivityCharacters: room for "Editing ConfigurationLoader.swift", and

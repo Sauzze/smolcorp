@@ -74,7 +74,8 @@ var officeWindow struct {
 // windowRun is everything a window needs, so a test can open one on a server of
 // its own, without the app's files.
 type windowRun struct {
-	url      string // the office, with the window's key
+	url      string // the office's page, never its key (window.go's officeAddress)
+	script   string // gives that page the window's key, in this process (windowKeyScript)
 	fallback string // the office as the browser opens it: no key on a command line
 	state    *WindowState
 	onTop    bool
@@ -131,7 +132,7 @@ func (d *Deck) setAlwaysOnTop(on bool) {
 func (d *Deck) windowRun() windowRun {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	key := ensureWindowKey(d.access.Phones, windowKeyFile)
+	key := ensureWindowKey(d.access.Phones, &d.access.windowDeviceKey)
 	icon, _ := trayIcons.ReadFile("tray-" + d.config.Logo + ".png")
 	var state *WindowState
 	if d.config.Window != nil {
@@ -140,6 +141,7 @@ func (d *Deck) windowRun() windowRun {
 	}
 	return windowRun{
 		url:      officeAddress(localBase(), key),
+		script:   windowKeyScript(localBase(), key),
 		fallback: localBase() + "/office?o=" + d.access.NewOfficeToken(), // works once, as window_other.go's: no code to type
 		state:    state,
 		onTop:    d.config.AlwaysOnTop,
@@ -207,6 +209,11 @@ func runOfficeWindow(r windowRun) {
 	}
 	if r.created != nil {
 		r.created(hwnd)
+	}
+	// The key goes to the page in this process, never in its address, which the profile keeps (window.go).
+	// Added before the first page: if it didn't take, the page has no key and opens locked, never the other way.
+	if r.script != "" {
+		w.Init(r.script)
 	}
 	w.Navigate(r.url)
 

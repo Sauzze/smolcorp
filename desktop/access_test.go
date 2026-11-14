@@ -23,14 +23,14 @@ func TestACodePairsOnePhoneOnce(t *testing.T) {
 	isolate(t)
 	a := NewAccess()
 	code := a.NewCode()
-	key, ok := a.Redeem(code, "192.168.1.20", iPhone)
+	key, ok := a.Redeem(code, "192.168.1.20", iPhone, true)
 	if !ok || key == "" {
 		t.Fatal("the active code didn't pair the phone")
 	}
 	if phone := a.Phones.WithKey(key); phone == nil || phone.Name != "iPhone" {
 		t.Fatalf("the paired phone is %+v, want an iPhone holding the key", phone)
 	}
-	if _, ok := a.Redeem(code, "192.168.1.21", iPhone); ok {
+	if _, ok := a.Redeem(code, "192.168.1.21", iPhone, true); ok {
 		t.Fatal("a spent code paired a second phone")
 	}
 }
@@ -41,7 +41,7 @@ func TestNoCodeUntilOneIsAskedFor(t *testing.T) {
 	if a.ActiveCode() != "" {
 		t.Fatal("a code exists before anyone asked for one")
 	}
-	if _, ok := a.Redeem("000000", "192.168.1.20", iPhone); ok {
+	if _, ok := a.Redeem("000000", "192.168.1.20", iPhone, true); ok {
 		t.Fatal("a phone paired with no code asked for")
 	}
 }
@@ -54,7 +54,7 @@ func TestACodeRunsOut(t *testing.T) {
 	if a.ActiveCode() != "" {
 		t.Fatal("an expired code is still active")
 	}
-	if _, ok := a.Redeem(code, "192.168.1.20", iPhone); ok {
+	if _, ok := a.Redeem(code, "192.168.1.20", iPhone, true); ok {
 		t.Fatal("an expired code paired a phone")
 	}
 }
@@ -64,12 +64,12 @@ func TestWrongCodesLockOutTheAddressTheyCameFrom(t *testing.T) {
 	a := NewAccess()
 	code := a.NewCode()
 	for range maxAttemptsPerAddress {
-		a.Redeem(wrongCode(code), "192.168.1.66", "")
+		a.Redeem(wrongCode(code), "192.168.1.66", "", true)
 	}
-	if _, ok := a.Redeem(code, "192.168.1.66", ""); ok {
+	if _, ok := a.Redeem(code, "192.168.1.66", "", true); ok {
 		t.Fatal("a locked-out address paired with the right code")
 	}
-	if _, ok := a.Redeem(code, "192.168.1.20", iPhone); !ok {
+	if _, ok := a.Redeem(code, "192.168.1.20", iPhone, true); !ok {
 		t.Fatal("one address's wrong codes locked out another")
 	}
 }
@@ -80,12 +80,12 @@ func TestTooManyWrongCodesWithdrawTheCode(t *testing.T) {
 	code := a.NewCode()
 	// A device that changes its address after every guess.
 	for i := range maxAttempts {
-		a.Redeem(wrongCode(code), fmt.Sprintf("10.0.0.%d", i), "")
+		a.Redeem(wrongCode(code), fmt.Sprintf("10.0.0.%d", i), "", true)
 	}
 	if a.ActiveCode() != "" {
 		t.Fatal("the code survived twenty wrong guesses")
 	}
-	if _, ok := a.Redeem(code, "192.168.1.20", iPhone); ok {
+	if _, ok := a.Redeem(code, "192.168.1.20", iPhone, true); ok {
 		t.Fatal("a withdrawn code paired a phone")
 	}
 }
@@ -95,16 +95,16 @@ func TestANewCodeLiftsLockouts(t *testing.T) {
 	a := NewAccess()
 	code := a.NewCode()
 	for range maxAttemptsPerAddress {
-		a.Redeem(wrongCode(code), "192.168.1.66", "")
+		a.Redeem(wrongCode(code), "192.168.1.66", "", true)
 	}
-	if _, ok := a.Redeem(a.NewCode(), "192.168.1.66", iPhone); !ok {
+	if _, ok := a.Redeem(a.NewCode(), "192.168.1.66", iPhone, true); !ok {
 		t.Fatal("a lockout outlived the code it was for")
 	}
 }
 
 func TestOnlyAHashOfEachKeyIsKept(t *testing.T) {
 	isolate(t)
-	key := NewAccess().Phones.Pair("iPhone")
+	key := NewAccess().Phones.Pair("iPhone", true)
 	saved, err := os.ReadFile(phonesFile)
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +123,7 @@ func TestOnlyAHashOfEachKeyIsKept(t *testing.T) {
 func TestRevokingAPhoneLeavesTheOthers(t *testing.T) {
 	isolate(t)
 	phones := NewAccess().Phones
-	revoked, kept := phones.Pair("iPhone"), phones.Pair("Android phone")
+	revoked, kept := phones.Pair("iPhone", true), phones.Pair("Android phone", true)
 	phones.Remove(phones.WithKey(revoked).ID)
 	if phones.WithKey(revoked) != nil {
 		t.Fatal("a revoked phone's key still works")
@@ -140,7 +140,7 @@ func TestRevokingAPhoneLeavesTheOthers(t *testing.T) {
 func TestTheHookKeyIsNotAPhoneKey(t *testing.T) {
 	isolate(t)
 	a := NewAccess()
-	phoneKey := a.Phones.Pair("iPhone")
+	phoneKey := a.Phones.Pair("iPhone", true)
 	if a.IsHookKey(phoneKey) || a.IsHookKey("") {
 		t.Fatal("a phone's key, or none, passed as the hook's")
 	}
@@ -167,6 +167,8 @@ func TestPhoneNames(t *testing.T) {
 		"Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)":           "iPad",
 		"Mozilla/5.0 (Linux; Android 15; Pixel 9) Chrome/140.0.0": "Android phone",
 		"curl/8.7.1": "Phone",
+		// The Mac's screen saver pairs from its Options (ScreenSaver/Pairing.swift).
+		"SauzzeDeckScreenSaver/1.25.0": "Screen saver",
 	} {
 		if got := phoneName(userAgent); got != want {
 			t.Errorf("phoneName(%q) = %q, want %q", userAgent, got, want)

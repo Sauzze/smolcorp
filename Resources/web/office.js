@@ -8,7 +8,8 @@
  * whole number of the screen's pixels so every edge stays sharp.
  *
  *   AgentOffice.create(canvas, on) → { show(snapshot), close(), select(id), setVisible(shown), setFramed(framed), moved(),
- *                                      setSaving(on), setLite(on), onElevator(clientX, clientY), ride() }
+ *                                      setSaving(on), setLite(on), setPR(found), setPreview(shown), expand(id),
+ *                                      onElevator(clientX, clientY), ride() }
  *
  * `show` takes what the deck streams; `close` empties the office when the
  * stream drops, and whoever is there when it's back is already at work.
@@ -29,13 +30,15 @@
  * control a finger held on it opens, 'previous', 'playpause' or 'next',
  * `on.key(action)` for one of the picked agent's keys along the foot of the
  * room, out from a finger held on the agent till a tap elsewhere, 'esc', 'send',
- * 'clear', 'up', 'down', 'summary' (personal build: what the agent has been
+ * 'clear', 'up', 'down', 'summary' (what the agent has been
  * doing, where its session has a transcript to read) or 'button:<id>' for one of the layout's own
  * buttons (/clear and a button marked `confirm` on a second tap),
  * `on.hire(desk, role, floor)` for an empty desk held and hired into: by the id
  * of one of the snapshot's `hiring.roles`, along the foot of the room, or
  * null for Anyone, or for its Hire button where there are no roles; `floor`
- * is 0 on the ground floor, whose desks are the keys, and 1 to 5 upstairs,
+ * is 0 on the ground floor, whose desks are the keys, and 1 to 5 upstairs
+ * (a role, or `hiring` for Anyone, with an `unfenced` line is a hire that won't
+ * get Smolcorp's fence: `on.hint` says it as the hire is made),
  * `on.move(id, floor, remember)` for someone put on another floor, 0 to 5,
  * their folder's next sessions too if `remember`, true if they went,
  * `on.settings()` for the cog in the room's corner, where the page opens its
@@ -43,6 +46,29 @@
  * styles' panel from its settings with `openStyles()`,
  * `on.scroll(lines | 'bottom')` for two fingers moving up and down the room,
  * or tapped together, and `on.hint(text)` for a word on the status line.
+ *
+ * `on.talk` (1.26, the office's own window only; see TALK_ANCHORS) turns the bubble over each agent's head into
+ * something to click, and takes the place of the four choice keys: `on.talk.open(id, anchor)` for a click or tap on
+ * the bubble of session `id`, and `on.talk.hover(id, anchor)` once a mouse has rested on it a quarter of a second
+ * (`anchor.again` false when the desk's card was asked for within the second), `on.talk.hover(null)` when it leaves.
+ * The `anchor` is { id, state, since, art: { box, tip }, css: { box, tip } }: the bubble's box and the point its
+ * tail aims at, in art pixels and in CSS pixels on the page. Without `on.talk` the room draws and answers as before.
+ * With the page's network in it too, `on.talk.get(path, params)` and `on.talk.post(path, params, signal, json)` (and
+ * `flash(text)`, `tick()`), the room opens the bubbles itself (TALK_BUBBLE): the conversation over a head, the
+ * small question bubbles of the desks waiting on you, and the Needs you key; and `expand(id)` opens a desk's whole
+ * conversation in the Pixel Terminal (PIXEL_TERMINAL), as the ▤ key does there. Then, with the room's own focus, Enter
+ * opens the picked desk's bubble (an idle one's too, which draws none) and Tab goes to the small question bubbles.
+ *
+ * `on.pr(id)` (1.26, the office's own window only; see PR_LOOKS) turns a desk's pull request into a tag on the front of
+ * the desk, and a click or tap on it into `on.pr(id)` for session `id`; the page gives the pull requests to show with
+ * `setPR` ({ <session id>: { number, state, reviewDecision } }). Without `on.pr`, nothing is drawn or tapped, whatever
+ * setPR was given.
+ *
+ * `on.tv(id, url)` (1.26 TV1, the office's own window only) turns the room's TVs, the wall's and the lounge's, into
+ * something to click: a click or tap on one is `on.tv(id, url)`, for the picked desk's session `id` (null with none
+ * picked) and the address its TV shows (null with none). The page gives the picked desk's preview with `setPreview`
+ * ({ id, url }, or null), and one TV on each floor shows it, "LIVE" and its port on the screen and the address on a tag
+ * under it, while that desk is picked; every other TV plays as before. Without `on.tv`, nothing is shown or tapped.
  *
  * The snapshot's `floors` (before them, its `upstairs`) are the floors over
  * this one, up to six in all, each with its name, its style and the desks on
@@ -55,6 +81,8 @@
  * A cloud bot's desk there (`cloud`, with what it `last` did) opens its card
  * on a tap as well as held, and opening it while the desk is green calls
  * `on.seen(id)`, so its news is seen.
+ * A hire in T3 Code's desk (`t3`, experimental), on any floor, wears a T3 badge on its desk's front; it has no
+ * controls, and a tap on it is `on.select(id)`, as any desk's, for the page to open its thread.
  *
  * Its sound, once set up and tapped, is in the style of an old console. A
  * piece of the room asks for one of its sounds by name with
@@ -62,6 +90,1653 @@
  */
 (() => {
   'use strict';
+
+  /**
+   * How the talk bubbles look (1.26, Talk Bubble): the open bubble over a head, the small question bubbles, the hover's
+   * tag and the Needs you key, drawn as the office is: hard 2-pixel edges in the bubble's ink on its cream, corners
+   * stepped by leaving the edge's corner pixels out, hard shadows, keys in capitals that press 2 pixels down. Reading
+   * text stays in the system font at 13 px; the office's pixel font has only capitals and digits. Put on the page once,
+   * by the bubble, as a <style> of its own. They sit below the deck's own panels (the ▤ slate, a peek, a confirm: z-index
+   * 8 and up), so a panel on top is never covered by a bubble still clickable under it; and the open bubble sits above the
+   * small question bubbles, which are drawn later (as other desks' questions come and go) and would lie over its keys. In
+   * a short window the open bubble gives way in this order, so its keys and its input stay in view: the conversation
+   * shrinks first (to 44 px), then the question (to two lines, scrolling), and only then the choices scroll inside
+   * their box; the input stays at the foot. The Pixel Terminal is the ▤ slate's chalkboard in its wood frame, its
+   * corners stepped, at the slate's height (z-index 8) over a dimmed room.
+   *
+   * Contrast (WCAG AA, checked by the node tests): reading text at least 4.5:1 on its own background, a focus ring at
+   * least 3:1: orange on the dark parts, the bubble's ink on the cream ones (`--focus`), and over the room, where the
+   * floor can be any colour, yellow round the key's own dark edge. The live region and the desk list are for a screen
+   * reader: out of sight, the list shown in the room's corner while the keyboard is in it. With reduced motion nothing
+   * grows, shrinks or slides; the terminal only fades in.
+   */
+  const TALK_STYLE = {
+    ID: 'talk-bubble-style',
+
+    CSS: `
+  .talk-desks, .talk-bubble, .talk-small, .talk-tag, .talk-needs { --edge: #1b1e2a; --cream: #f4f1ea; --paper: #fffdf8; --screen: #171b26;
+    --chalk: #e6e9df; --dim: #8d95a6; --orange: #ff8a1f; --yellow: #ffd34d; --slate: #3e495b; --focus: var(--orange);
+    position: fixed; z-index: 7; box-sizing: border-box; color: var(--edge); font: 13px/1.4 -apple-system, system-ui, sans-serif; }
+  .talk-bubble *, .talk-small * { box-sizing: border-box; }
+  .talk-bubble[hidden], .talk-small[hidden], .talk-tag[hidden], .talk-needs[hidden], .talk-desks[hidden], .talk-bubble [hidden] { display: none !important; }
+  .talk-edge { background: var(--cream);
+    box-shadow: 0 -2px 0 var(--edge), 0 2px 0 var(--edge), -2px 0 0 var(--edge), 2px 0 0 var(--edge), 0 6px 0 rgba(12, 15, 22, .35); }
+  .talk-bubble { width: 320px; display: flex; flex-direction: column; }
+  .talk-bubble > * { flex: none; }
+  .talk-bubble:focus { outline: none; }
+  .talk-bubble:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
+  .talk-bubble.grow { animation: talk-grow 120ms steps(3, end); }
+  .talk-bubble.shrink { animation: talk-grow 120ms steps(3, end) reverse; }
+  @keyframes talk-grow { from { transform: scale(.4); } to { transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) { .talk-bubble.grow, .talk-bubble.shrink { animation: none; } }
+  .talk-head { display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 8px; background: var(--edge); color: var(--cream);
+    font: 700 11px/1 ui-monospace, Menlo, monospace; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+  .talk-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .talk-state { font-weight: 400; color: var(--dim); flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .talk-dot { flex: none; width: 8px; height: 8px; background: var(--dim); }
+  .talk-dot.thinking { background: #3b82f6; } .talk-dot.asking { background: var(--orange); }
+  .talk-dot.unread { background: #22c55e; } .talk-dot.error { background: #ef4444; }
+  .talk-bubble > .talk-lines { flex: 0 100 auto; min-height: 44px; }
+  .talk-bubble > .talk-ask { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+  .talk-lines { display: flex; flex-direction: column; gap: 6px; max-height: 190px; overflow-y: auto; padding: 8px 9px;
+    background: var(--screen); color: var(--chalk); overflow-wrap: anywhere; }
+  .talk-lines:empty { display: none; }
+  .talk-lines .board-row { flex: none; white-space: pre-wrap; max-height: 5.6em; overflow: hidden; }
+  .talk-lines .board-row.user { align-self: flex-end; max-width: 88%; padding: 3px 7px; background: var(--paper); color: var(--edge); }
+  .talk-lines .board-row.tools, .talk-lines .board-row.result, .talk-lines .board-row.tool { color: var(--dim);
+    font: 12px/1.35 ui-monospace, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .talk-lines .board-row.tools::before { content: "> "; }
+  .talk-lines .from { display: block; font: 700 10px/1.2 ui-monospace, Menlo, monospace; text-transform: uppercase; color: var(--orange); }
+  .talk-lines .more { color: var(--dim); }
+  .talk-lines .talk-none { color: var(--dim); font-style: italic; }
+  .talk-ask { display: flex; flex-direction: column; gap: 6px; padding: 8px 9px; background: #252c3d; color: var(--cream); box-shadow: inset 0 0 0 2px var(--orange); }
+  .talk-ask > * { flex: none; }
+  .talk-ask > .talk-q { flex: 0 1 auto; min-height: 2.8em; }
+  .talk-q { color: var(--yellow); font-weight: 600; white-space: pre-wrap; max-height: 7em; overflow: auto; }
+  .talk-keys { display: flex; flex-wrap: wrap; gap: 6px 8px; padding: 2px; }
+  .talk-hint { color: var(--dim); font-size: 12px; }
+  .talk-key { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; min-width: 24px; margin: 2px; padding: 4px 7px; border: 0;
+    border-radius: 0; background: var(--cream); color: var(--edge); cursor: pointer; text-align: left;
+    font: 700 11px/1.15 ui-monospace, Menlo, monospace; text-transform: uppercase; letter-spacing: .03em;
+    box-shadow: 0 -2px 0 var(--edge), 0 2px 0 var(--edge), -2px 0 0 var(--edge), 2px 0 0 var(--edge), inset 0 -2px 0 rgba(0, 0, 0, .18); }
+  .talk-key:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 -2px 0 var(--edge), 0 2px 0 var(--edge), -2px 0 0 var(--edge), 2px 0 0 var(--edge); }
+  .talk-key:disabled { opacity: .45; cursor: default; }
+  .talk-key:focus-visible, .talk-small-q:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+  .talk-input, .talk-small, .pt-menu, .talk-desks { --focus: var(--edge); }
+  .talk-needs:focus-visible { outline-color: var(--yellow); outline-offset: 2px; }
+  canvas[data-talk-room]:focus { outline: none; }
+  canvas[data-talk-room]:focus-visible { outline: 2px solid #ffd34d; outline-offset: -2px; }
+  .talk-key.go { background: var(--orange); }
+  .talk-key.dark { background: var(--slate); color: var(--cream); }
+  .talk-key i { font-style: normal; padding: 2px 4px; margin: -2px 0; background: var(--edge); color: var(--cream); }
+  .talk-input { display: flex; gap: 6px; align-items: center; padding: 7px 8px; }
+  .talk-input input { flex: 1; min-width: 0; height: 28px; padding: 3px 7px; border: 0; border-radius: 0; background: var(--paper); color: var(--edge);
+    font: inherit; box-shadow: inset 0 0 0 2px var(--edge); }
+  .talk-input input:focus { outline: 3px solid var(--focus); outline-offset: 1px; }
+  .talk-input input[readonly], .pt-input textarea[readonly] { background: #e3ded2; color: #4b5263; -webkit-text-fill-color: #4b5263; opacity: 1; }
+  .talk-input input::placeholder, .pt-input textarea::placeholder { color: #5b6170; -webkit-text-fill-color: #5b6170; opacity: 1; }
+  .talk-why, .talk-problem { margin: 0; padding: 7px 9px; color: #4b5263; }
+  .talk-problem { padding-top: 0; color: #a12d2d; }
+  .talk-tail { position: absolute; width: 14px; height: 9px; background: var(--edge);
+    clip-path: polygon(0 0, 100% 0, 100% 22%, 78% 22%, 78% 56%, 57% 56%, 57% 100%, 43% 100%, 43% 56%, 22% 56%, 22% 22%, 0 22%); }
+  .talk-tail::after { content: ""; position: absolute; left: 2px; top: 0; width: 10px; height: 5px; background: var(--cream);
+    clip-path: polygon(0 0, 100% 0, 100% 40%, 70% 40%, 70% 100%, 30% 100%, 30% 40%, 0 40%); }
+  .talk-small { display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 2px 5px; cursor: pointer; overflow: hidden;
+    font-size: var(--talk-font, 11px); line-height: 1.2; }
+  .talk-small-q { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 600;
+    text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .talk-small .talk-keys { flex-wrap: nowrap; gap: 4px; padding: 1px 2px; }
+  .talk-small .talk-key { min-height: 0; padding: 1px 4px; margin: 1px; font-size: .85em; }
+  .talk-small .talk-small-q:focus-visible { outline-offset: 0; }
+  .talk-tag { max-width: 300px; padding: 3px 7px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+  .talk-needs, .talk-small { z-index: 6; }
+  .talk-head .talk-added { display: contents; }
+  .talk-live, .talk-desks:not(:focus-within) { position: fixed; left: 0; top: 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+    white-space: nowrap; }
+  .talk-desks:focus-within { position: fixed; left: 8px; top: 8px; z-index: 7; display: flex; flex-direction: column; gap: 4px; padding: 8px;
+    max-width: min(320px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow-y: auto; }
+  .talk-desk.talk-key { display: block; text-transform: none; letter-spacing: 0; font: 600 12px/1.3 -apple-system, system-ui, sans-serif;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @media (prefers-reduced-motion: reduce) {
+    .talk-key:active:not(:disabled) { transform: none; }
+  }
+  .pt, .pt-dim { --edge: #1b1e2a; --cream: #f4f1ea; --paper: #fffdf8; --chalk: #eef0ea; --board: #1f2b26; --wood: #6b4a2b;
+    --dim: #9fb0a6; --orange: #ff8a1f; --yellow: #f2d16b; --slate: #3e495b; --focus: var(--orange); position: fixed; z-index: 8; box-sizing: border-box; }
+  .pt *, .pt *::before { box-sizing: border-box; }
+  .pt[hidden], .pt-dim[hidden], .pt [hidden] { display: none !important; }
+  .pt-dim { inset: 0; background: rgba(10, 12, 18, .6); }
+  .pt { inset: 16px; display: flex; flex-direction: column; overflow: hidden; background: var(--board); color: var(--chalk);
+    font: 13px/1.4 -apple-system, system-ui, sans-serif; -webkit-user-select: text; user-select: text;
+    clip-path: polygon(0 6px, 2px 6px, 2px 2px, 6px 2px, 6px 0, calc(100% - 6px) 0, calc(100% - 6px) 2px, calc(100% - 2px) 2px,
+      calc(100% - 2px) 6px, 100% 6px, 100% calc(100% - 6px), calc(100% - 2px) calc(100% - 6px), calc(100% - 2px) calc(100% - 2px),
+      calc(100% - 6px) calc(100% - 2px), calc(100% - 6px) 100%, 6px 100%, 6px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 6px), 0 calc(100% - 6px));
+    box-shadow: inset 0 0 0 4px var(--wood), inset 0 0 0 6px var(--edge); padding: 6px; }
+  .pt:focus { outline: none; }
+  .pt.enter, .pt-dim.enter { animation: pt-in 200ms steps(4, end); }
+  @keyframes pt-in { from { opacity: 0; } to { opacity: 1; } }
+  .pt-head { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; background: var(--edge);
+    color: var(--cream); font: 700 11px/1 ui-monospace, Menlo, monospace; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+  .pt-head .talk-name { color: var(--chalk); margin-left: 6px; }
+  .pt-head .talk-state { color: var(--dim); }
+  .pt-menu { position: absolute; right: 8px; top: calc(100% + 4px); z-index: 1; display: flex; flex-direction: column; padding: 6px; min-width: 180px; }
+  .pt-cols { flex: 1; min-height: 0; display: flex; }
+  .pt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .pt-main > * { flex: none; }
+  .pt-body { flex: 1 1 auto; min-height: 60px; overflow-y: auto; padding: 6px 12px 12px; display: flex; flex-direction: column; gap: 7px; overflow-wrap: anywhere; }
+  .pt-body > * { flex: none; }
+  .pt-body .board-top { align-self: center; color: var(--dim); font-size: 12px; padding: 4px 0; }
+  .pt-body .board-row { white-space: pre-wrap; }
+  .pt-body .board-row.user, .pt-body .board-row.answer { align-self: flex-end; max-width: 85%; padding: 5px 9px; background: var(--cream); color: var(--edge);
+    box-shadow: 0 -2px 0 var(--edge), 0 2px 0 var(--edge), -2px 0 0 var(--edge), 2px 0 0 var(--edge); }
+  .pt-body .board-row.answer { background: var(--yellow); }
+  .pt-body .board-row.question { color: var(--yellow); }
+  .pt-body .board-row.peer { color: #9cc7f0; }
+  .pt-body .board-row .from { display: block; font: 700 10px/1.2 ui-monospace, Menlo, monospace; text-transform: uppercase; opacity: .85; }
+  .pt-body .board-row.tool, .pt-body .board-row.result { font: 11px/1.35 ui-monospace, Menlo, monospace; color: var(--dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pt-body .board-row.result { padding-left: 1.6em; opacity: .9; }
+  .pt-body .board-row .more { opacity: .55; }
+  .pt .talk-ask { max-height: 40%; overflow-y: auto; }
+  .pt-main > .pt-panels { flex: 0 1 auto; min-height: 0; max-height: 40%; overflow-y: auto; }
+  .pt-panels:empty, .pt-panel:empty { display: none; }
+  .pt-panel { padding: 8px 12px; border-top: 2px solid var(--edge); }
+  .pt-input { display: flex; gap: 8px; align-items: flex-end; padding: 8px; background: var(--edge); }
+  .pt-input textarea { flex: 1; min-width: 0; min-height: 64px; max-height: 40vh; resize: vertical; padding: 6px 8px; border: 0; border-radius: 0;
+    background: var(--paper); color: var(--edge); font: inherit; box-shadow: inset 0 0 0 2px var(--edge); }
+  .pt-input textarea:focus { outline: 2px solid var(--orange); outline-offset: 0; }
+  .pt .talk-why { color: var(--dim); }
+  .pt .talk-problem { padding-top: 7px; color: #f2a19b; }
+  .pt-side { flex: none; width: 204px; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-left: 2px solid var(--edge); overflow-y: auto; }
+  .pt-side > * { flex: none; }
+  .pt-office.talk-key { padding: 2px; display: block; }
+  .pt .pt-picture { display: block; position: static; width: 184px; height: auto; max-width: 100%; image-rendering: pixelated; }
+  .pt-list-head { font: 700 11px/1 ui-monospace, Menlo, monospace; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); padding: 4px 2px 0; }
+  .pt-list { display: flex; flex-direction: column; gap: 4px; }
+  .pt-desk.talk-key { display: flex; gap: 6px; text-transform: none; letter-spacing: 0; font: 600 12px/1.2 -apple-system, system-ui, sans-serif; }
+  .pt-desk.asking { background: var(--yellow); }
+  .pt-desk-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pt-desk-state { color: #4b5263; font-weight: 400; }
+  .pt-none { color: var(--dim); font-style: italic; }
+  `,
+
+    /** The bubbles' style, put on `doc` once. */
+    inject(doc) {
+      if (doc.getElementById(TALK_STYLE.ID)) return;
+      const style = doc.createElement('style');
+      style.id = TALK_STYLE.ID;
+      style.textContent = TALK_STYLE.CSS;
+      doc.head.append(style);
+    },
+  };
+
+  /**
+   * The talk bubble (1.26, Talk Bubble), in the office's own window only. A click on the bubble over an agent's head
+   * grows it into a small conversation: its last messages, its question with a button per choice, a one-line input. A
+   * mouse resting on a bubble shows a one-line tag; each desk waiting on you shows a small question bubble, and a Needs
+   * you key in the room's corner walks through them, longest waiting first. Its Expand opens the desk's whole
+   * conversation in the Pixel Terminal (PIXEL_TERMINAL).
+   *
+   * The plain functions come first: what the bubble shows of a conversation, a prompt's choices, what a choice sends,
+   * whether the input takes words, which key picks by its digit. The ▤ slate (deck.html) draws its rows and merges its
+   * pages with the same `row` and `merge`. Then `create`, the live part: `page` is the network deck.html passes in
+   * `on.talk` (get, post, flash, tick), `room` where each bubble is and who sits there. Nothing is ever typed into a
+   * prompt: a choice is a labelled button, and words wait until the desk has stopped asking ("tap No, then type").
+   */
+  const TALK_BUBBLE = {
+    /** How often an open bubble looks again, in ms: while its desk asks, and otherwise (the slate's BOARD_EVERY). */
+    ASKING_EVERY: 2000,
+    EVERY: 3000,
+    /** The newest rows an open bubble shows. */
+    SHOWN: 4,
+    /** A hover's tag and a small bubble's question, cut to this many characters. */
+    TAG_MOST: 60,
+    /** A small question bubble, in art pixels: narrower than two desks side by side (50 apart), so neighbours both fit. */
+    SMALL: { w: 46, h: 16 },
+    /** A small question bubble shows its keys only where it is this many CSS pixels wide: narrower, the keys would be cut, so it is the question alone (the open bubble has the keys). */
+    SMALL_KEYS_LEAST: 110,
+    /** The open bubble goes over the head where this many CSS pixels are free above it (and its own height, if more); else beside it. */
+    ABOVE_LEAST: 260,
+    /** Beside the head, the bubble may be narrowed to the room that side has, down to this many CSS pixels; under that, it goes over the head. */
+    SIDE_LEAST: 220,
+    /** Each state as a word: the status is never colour alone. */
+    STATES: { thinking: 'working', asking: 'waiting for you', idle: 'idle', unread: 'done', error: 'stopped on an error' },
+    /** The four keys, where a prompt's choices can't be offered by label: ✕ says No, as a permission's No does. */
+    KEYS: [{ act: 'up', label: '▲', name: 'Up' }, { act: 'down', label: '▼', name: 'Down' },
+      { act: 'accept', label: '✓', name: 'Pick' }, { act: 'reject', label: '✕', name: 'No', no: true }],
+    /** Words sent wait this long for the computer, in ms, as the deck's own (INPUT_WAIT): past it, Send works again. */
+    SAY_WAIT: 20000,
+    NO_ANSWER: 'Your computer didn\'t answer in time. Look at the desk before you try again.',
+    /** The live region says at most this many new lines at once, the newest. */
+    SAID_MOST: 3,
+    /** The keys other files added (F-O, see PIXEL_TERMINAL): name → { label, title, shown(desk), press(desk) }. */
+    added: new Map(),
+
+    /**
+     * A key from another file, on the open bubble's header and in the Pixel Terminal's menu: `press(desk)` what it does,
+     * `shown(desk)`, if given, whether it's there for that desk; `desk` as deskOf gives it. Added again under the same
+     * name, it takes the first one's place. Gives the name.
+     */
+    addKey(name, key) {
+      TALK_BUBBLE.added.set(String(name), key);
+      return name;
+    },
+
+    /** The added keys there for `desk`, in the order they were added. */
+    keysFor(desk) {
+      return [...TALK_BUBBLE.added].filter(([, key]) => {
+        try {
+          return !key.shown || key.shown(desk);
+        } catch {
+          return false;
+        }
+      }).map(([name, key]) => ({ ...key, name }));
+    },
+
+    /**
+     * What an added key or panel is told of a desk: its id, name, card (GET /talk), a copy of its session, and the page's
+     * get, post and flash. Those carry the window's key: a feature file is trusted code, reviewed as the core is.
+     */
+    deskOf(page, room, id, card) {
+      const session = room.session(id);
+      return { id, name: room.name(id), card: card || null, session: session ? { ...session } : null, get: page.get, post: page.post, flash: page.flash };
+    },
+
+    /** A conversation's items in the file's order. */
+    byOrder(a, b) {
+      return a.offset - b.offset || a.n - b.n;
+    },
+
+    /**
+     * The newest page of /conversation merged into what's shown ({ items, before }): its new items added, or, after a
+     * gap (a long time away), the page in place of what was there. `changed` says whether there's anything to draw.
+     */
+    merge(shown, page) {
+      const known = new Set(shown.items.map((i) => i.id));
+      const fresh = page.items.filter((i) => !known.has(i.id));
+      const first = page.items[0], last = shown.items[shown.items.length - 1];
+      const before = shown.items.length ? shown.before : page.before;
+      if (first && last && TALK_BUBBLE.byOrder(first, last) > 0 && page.before !== null && !known.has(first.id)) {
+        return { items: page.items, before: page.before, changed: true };
+      }
+      if (fresh.length) return { items: [...shown.items, ...fresh].sort(TALK_BUBBLE.byOrder), before, changed: true };
+      return { items: shown.items, before, changed: false };
+    },
+
+    /** One item of the conversation as a row, on `doc`: who it's from over a peer's message or a question. */
+    row(doc, item) {
+      const row = doc.createElement('div');
+      row.className = `board-row ${item.kind}`;
+      if (item.kind === 'peer' || item.kind === 'question') {
+        const from = doc.createElement('span');
+        from.className = 'from';
+        from.textContent = item.kind === 'question' ? 'Asked you' : item.from || 'Another session';
+        row.append(from);
+      }
+      const prefix = { tool: '⚙︎ ', result: '↳ ', answer: '→ ' }[item.kind] || '';
+      row.append(prefix + item.text);
+      if (item.kind === 'tool' || item.kind === 'result' || item.kind === 'tools') row.title = item.text;
+      if (item.more) {
+        const more = doc.createElement('span');
+        more.className = 'more';
+        more.textContent = ' … more';
+        row.append(more);
+      }
+      return row;
+    },
+
+    /** `text` on one line, cut to `most` characters. */
+    cut(text, most) {
+      const line = String(text || '').replace(/\s+/g, ' ').trim();
+      return line.length > most ? `${line.slice(0, most - 1).trimEnd()}…` : line;
+    },
+
+    /** What a tool line did, in a few words: "changed cart.ts", "ran npm test". Its item is "Tool: what", from the tool. */
+    didOf(item) {
+      const text = String(item.text), at = text.indexOf(': ');
+      const tool = item.from || (at > 0 ? text.slice(0, at) : text), what = at > 0 ? text.slice(at + 2) : '';
+      const file = what.split(/[\\/]/).pop();
+      if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return file ? `changed ${file}` : 'changed a file';
+      if (tool === 'Read') return file ? `read ${file}` : 'read a file';
+      if (tool === 'Bash') return what ? `ran ${TALK_BUBBLE.cut(what, 32)}` : 'ran a command';
+      if (tool === 'Grep' || tool === 'Glob') return 'searched';
+      if (tool === 'WebFetch' || tool === 'WebSearch') return 'looked on the web';
+      if (tool === 'Task' || tool === 'Agent') return 'asked a helper';
+      return `used ${tool}`;
+    },
+
+    /**
+     * What the open bubble shows of a conversation: its newest `most` rows, each run of tools (and their results) folded
+     * into one dim line, "Changed cart.ts, ran npm test", the same thing done twice said once.
+     */
+    fold(items, most = TALK_BUBBLE.SHOWN) {
+      const rows = [];
+      for (const item of items) {
+        const last = rows[rows.length - 1], run = last && last.kind === 'tools' ? last : null;
+        if (item.kind === 'result') continue;
+        if (item.kind !== 'tool') {
+          rows.push(item);
+          continue;
+        }
+        const did = TALK_BUBBLE.didOf(item);
+        if (!run) rows.push({ id: item.id, kind: 'tools', did: [did] });
+        else if (!run.did.includes(did)) run.did.push(did);
+      }
+      return rows.slice(-most).map((r) => {
+        if (r.kind !== 'tools') return r;
+        const said = r.did.slice(0, 3).join(', ') + (r.did.length > 3 ? `, and ${r.did.length - 3} more` : '');
+        return { id: r.id, kind: 'tools', text: said.charAt(0).toUpperCase() + said.slice(1) };
+      });
+    },
+
+    /** A desk's name: its nickname, else its role, else its project. */
+    nameOf(session, nickname) {
+      return nickname || (session.role && session.role.name) || session.project || session.name || 'Agent';
+    },
+
+    /** What a prompt asks, on one line: the question's text, or the tool it wants to use. */
+    questionOf(asking) {
+      const question = asking.kind === 'question' && asking.questions && asking.questions[0];
+      if (question) return asking.questions.length > 1 ? `${question.question} (and ${asking.questions.length - 1} more)` : question.question;
+      if (asking.kind === 'permission') return `Allow ${asking.label || asking.tool}?`;
+      return 'It\'s asking you something.';
+    },
+
+    /**
+     * A prompt's buttons, when its choices can be offered by label (`pickable`): a question's options by their numbers
+     * and No (Escape, as ✕), or a permission's Yes and No (1 and 2, D4). Null where they can't: the four keys answer it.
+     */
+    choicesOf(asking) {
+      if (!asking || !asking.pickable) return null;
+      if (asking.kind === 'permission') return [{ n: 1, label: 'Yes' }, { n: 2, label: 'No', no: true }];
+      const options = asking.questions[0].options.map((o) => ({ n: o.n, label: o.label, description: o.description }));
+      return [...options, { act: 'reject', label: 'No', no: true }];
+    },
+
+    /** What a choice sends: a numbered one, POST /talk/pick with the prompt's `since`; a key, POST /act. */
+    sendOf(id, asking, choice) {
+      if (choice.act) return { path: '/act', params: { session: id, action: choice.act } };
+      return { path: '/talk/pick', params: { session: id, n: String(choice.n), since: String(asking.since) } };
+    },
+
+    /** A desk's card once a choice went: after a No it no longer asks, so its input wakes for what to do instead. */
+    answered(card, choice) {
+      return card && choice.no ? { ...card, asking: null } : card;
+    },
+
+    /**
+     * The input, from the desk's card: greyed while it asks ("Answer above first"); in its place, one plain line where
+     * the window can't type into it at all (`typing.why`: a Mac terminal app's tab, headless, no terminal…); otherwise
+     * "Tell <name> what to do", with a limit (one line at a time) said under it.
+     */
+    inputOf(card, name) {
+      if (!card) return { shown: true, disabled: true, placeholder: 'Loading…', line: '' };
+      if (card.asking) return { shown: true, disabled: true, placeholder: 'Answer above first', line: '' };
+      const typing = card.typing || {};
+      if (!typing.ok) return { shown: false, disabled: true, placeholder: '', line: typing.why || 'The bubble can\'t type here.' };
+      return { shown: true, disabled: false, placeholder: `Tell ${name} what to do`, line: typing.why || '' };
+    },
+
+    /**
+     * The input greyed (`locked`: inputOf's `disabled`) or awake. Greyed, it is read-only, never disabled: it keeps the
+     * focus, so a prompt arriving while you type leaves you in the box, where Enter sends nothing (a disabled box drops
+     * the focus to the page, from where a key could land on Yes); and the words typed stay there for later.
+     */
+    lock(input, locked) {
+      input.readOnly = locked;
+      input.setAttribute('aria-disabled', String(locked));
+    },
+
+    /**
+     * Send about to be greyed: if it has the focus, the focus goes to `to` first (the input). Chromium drops a greyed
+     * key's focus only later, at its next frame, and onto the page, where the room's Enter then lands on the first choice
+     * and a second Enter answers it; moved before, it never depends on when the engine lets go. `how`: focus()'s options.
+     */
+    offSend(doc, send, to, how) {
+      if (doc.activeElement === send) to.focus(how);
+    },
+
+    /** The choice a key picks by its digit, 1 to 9: never one typed in a box, nor with a modifier held. */
+    digitOf(e) {
+      const target = e.target;
+      if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return null;
+      if (e.altKey || e.ctrlKey || e.metaKey) return null;
+      return /^[1-9]$/.test(e.key) ? Number(e.key) : null;
+    },
+
+    /** Where an arrow key moves the focus among `count` choice keys from the one at `at`, round at the ends; null for any other key. */
+    stepOf(key, at, count) {
+      const by = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[key];
+      return by && at >= 0 && count ? (at + by + count) % count : null;
+    },
+
+    /** Whether `node` is `box` or inside it. */
+    within(box, node) {
+      for (let n = node; n; n = n.parentNode) if (n === box) return true;
+      return false;
+    },
+
+    /** What the live region says as a desk starts asking. */
+    askingSaid(name, asking) {
+      return `${name} is asking: ${TALK_BUBBLE.cut(TALK_BUBBLE.questionOf(asking), 200)}`;
+    },
+
+    /** A desk in the hidden desk list: its name, its state as a word, and what it asks, if it does. */
+    deskSaid(name, state, asking) {
+      const word = TALK_BUBBLE.STATES[state] || state || '';
+      return `${name}, ${word}${asking ? `: ${TALK_BUBBLE.cut(TALK_BUBBLE.questionOf(asking), 80)}` : ''}`;
+    },
+
+    /**
+     * The prompts of /talk/asking's `rows` not heard of yet, each desk once per prompt (by its `since`); `heard` (id →
+     * since) is kept up, a desk that stopped asking forgotten, so its next prompt is new again.
+     */
+    newlyAsking(heard, rows) {
+      const fresh = rows.filter((r) => heard.get(r.session) !== r.since), now = new Set(rows.map((r) => r.session));
+      for (const id of [...heard.keys()]) if (!now.has(id)) heard.delete(id);
+      for (const r of rows) heard.set(r.session, r.since);
+      return fresh;
+    },
+
+    /**
+     * What the live region says of a conversation's new items (in `items`, not in `before`): the agent's own lines and
+     * other sessions' messages, the newest SAID_MOST; never the owner's own words, a tool, or a question (said as it asks).
+     */
+    linesSaid(name, before, items) {
+      const known = new Set(before.map((i) => i.id)), cut = (t) => TALK_BUBBLE.cut(t, 200);
+      return items.filter((i) => !known.has(i.id) && (i.kind === 'agent' || i.kind === 'peer'))
+        .map((i) => (i.kind === 'peer' ? `${i.from || 'Another session'} to ${name}: ${cut(i.text)}` : `${name}: ${cut(i.text)}`))
+        .slice(-TALK_BUBBLE.SAID_MOST);
+    },
+
+    /** A signal that gives up on words sent after SAY_WAIT, where the browser makes one: a computer that never answers doesn't hold Send for good. */
+    limit(win) {
+      const S = win.AbortSignal;
+      return S && S.timeout ? S.timeout(TALK_BUBBLE.SAY_WAIT) : undefined;
+    },
+
+    /** What the computer said to a refusal, short enough to read, or its status; or that it didn't answer in time. */
+    async said(res) {
+      if (res.timedOut) return TALK_BUBBLE.NO_ANSWER;
+      const text = (await res.text().catch(() => '')).trim();
+      return text && text.length <= 200 ? text : `Your computer answered ${res.status}.`;
+    },
+
+    /**
+     * The live bubbles on `win`'s page. `room`: { canvas, anchor(id), view(), shape(), session(id), name(id) }, from the
+     * room. Gives { open(id, anchor), hover(id, anchor), expand(id), frame(bubbles), close(back), enter(id), tab(back),
+     * remove() }: the room's click and hover on a bubble, the Pixel Terminal on a desk (Expand, the ▤ key), each frame
+     * the room draws (the bubbles it drew), a click on the floor, Enter and Tab in the room, and the room leaving the page.
+     *
+     * The keyboard (plan §1.6): Enter in the room opens the picked desk's bubble, Tab walks the small question bubbles,
+     * longest waiting first. An open bubble's focus starts on its first choice while it asks, else on its input; ↑ ↓
+     * move between the choices; 1–9 pick one only from the bubble itself, never from its input; Esc closes it and gives
+     * the focus back where it came from (the desk list), else to the room. A screen reader has a polite live region (a
+     * desk starting to ask, the open desk's new lines) and a list of the desks, hidden until it has the focus, that
+     * mirrors the room, each desk's bubble opened from it without the canvas.
+     */
+    create(win, page, room) {
+      const B = TALK_BUBBLE, doc = win.document;
+      TALK_STYLE.inject(doc);
+      const make = (tag, cls, text) => {
+        const el = doc.createElement(tag);
+        if (cls) el.className = cls;
+        if (text !== undefined) el.textContent = text;
+        return el;
+      };
+      const key = (choice, small) => {
+        const b = make('button', `talk-key${choice.n === 1 ? ' go' : ''}`);
+        b.type = 'button';
+        if (choice.n && !small) b.append(make('i', '', String(choice.n)));
+        b.append(choice.label);
+        if (choice.name) b.setAttribute('aria-label', choice.name);
+        if (choice.description) b.title = choice.description;
+        return b;
+      };
+      const cards = new Map();   // each desk's last card (GET /talk), by id
+      let asked = new Map();     // the waiting desks' prompts (GET /talk/asking), by id
+      const smalls = new Map();  // the small question bubbles shown, by id: { el, drawn }
+      let open = null;           // the open bubble: { id, card, items, before, size, loaded, timer, parts, at, drawn, fit, place }
+      let askingNow = '', smallsAt = '', order = [], tagFor = null;
+      let sending = false;       // words on their way to /talk/say: Enter or Send again sends nothing more till they're back
+      let smallOrder = [];       // the small bubbles' ids, longest waiting first: Tab's order
+      let desksAt = '', heardFrom = false;
+      const heard = new Map();   // the prompts the live region has said, by id: their since
+      const deskKeys = new Map(); // the hidden desk list's keys, by id
+      const tag = make('div', 'talk-tag talk-edge');
+      const smallBox = make('div', 'talk-smalls');
+      const needs = make('button', 'talk-needs talk-key go');
+      needs.type = 'button';
+      tag.hidden = needs.hidden = true;
+      const desks = make('nav', 'talk-desks talk-edge'), live = make('div', 'talk-live');
+      desks.setAttribute('aria-label', 'Desks');
+      desks.hidden = true;
+      live.setAttribute('role', 'status');
+      live.setAttribute('aria-live', 'polite');
+      doc.body.append(tag, smallBox, needs, desks, live);
+      // The room takes the focus back as a bubble closes, so its own keys go on working: focusable, out of Tab's way
+      if (room.canvas.getAttribute && room.canvas.getAttribute('tabindex') === null) room.canvas.tabIndex = -1;
+      room.canvas.setAttribute?.('data-talk-room', '');
+      /** New lines for the live region, in place of what it said before. */
+      const tell = (lines) => lines.length && live.replaceChildren(...lines.map((line) => make('p', '', line)));
+      // Expand: the Pixel Terminal, whose Shrink opens the same desk's bubble again
+      const terminal = PIXEL_TERMINAL.create(win, page, room, { open: (id) => api.open(id) });
+      // Needs you: the next waiting desk after the open one, longest waiting first.
+      needs.addEventListener('click', () => {
+        const next = order[(order.indexOf(open && open.id) + 1) % order.length];
+        if (next && !(open && open.id === next)) api.open(next);
+      });
+      // Esc closes the open bubble wherever the focus is, but where the bubble said it already.
+      const escaped = (e) => {
+        if (open && e.key === 'Escape' && !e.defaultPrevented && !e.isComposing) api.close(true);
+      };
+      doc.addEventListener('keydown', escaped);
+      const rect = () => room.canvas.getBoundingClientRect();
+      const clamp = (v, low, high) => Math.max(low, Math.min(high, v));
+
+      /** The prompt's question and its buttons, into `box`: the open bubble's, or a small one's (no hint, keys only if they fit). */
+      function drawAsk(box, id, asking, small, width) {
+        const choices = B.choicesOf(asking), session = room.session(id) || {};
+        const shown = session.headless === true ? [] : choices || (small ? [] : B.KEYS);
+        const fits = !small || (shown.length <= 3 && shown.reduce((n, c) => n + c.label.length + 3, 0) <= 24 && width >= B.SMALL_KEYS_LEAST);
+        const keys = make('div', 'talk-keys');
+        for (const choice of fits ? shown : []) {
+          const b = key(choice, small);
+          // A small bubble's key names its desk, so it stands alone in a screen reader's list of keys
+          if (small) b.setAttribute('aria-label', `${choice.name || choice.label}, to ${room.name(id)}`);
+          b.addEventListener('click', (e) => {
+            e.stopPropagation();
+            answer(id, asking, choice);
+          });
+          keys.append(b);
+        }
+        // A small bubble's question is a key of its own (Tab reaches it; Enter opens the bubble), named for its desk
+        const q = make(small ? 'button' : 'div', small ? 'talk-small-q' : 'talk-q', small ? B.cut(B.questionOf(asking), B.TAG_MOST) : B.questionOf(asking));
+        if (small) {
+          q.type = 'button';
+          q.setAttribute('aria-label', B.askingSaid(room.name(id), asking));
+        }
+        const hint = choices ? 'Something else? Tap No, then type.' : 'Its menu can\'t be read from here: ▲ ▼ move, ✓ picks, ✕ says No.';
+        box.replaceChildren(q, ...(keys.children.length ? [keys] : []), ...(small || !shown.length ? [] : [make('div', 'talk-hint', hint)]));
+      }
+
+      /** A button tapped: the choice goes, and a No wakes the input. */
+      async function answer(id, asking, choice) {
+        page.tick?.();
+        const { path, params } = B.sendOf(id, asking, choice);
+        const res = await page.post(path, params);
+        if (!res) return page.flash?.('Can\'t reach your computer');
+        if (!res.ok) {
+          page.flash?.(await B.said(res));
+          askingNow = ''; // asked again: it may ask something else now
+        } else if (choice.no) {
+          cards.set(id, B.answered(cards.get(id), choice));
+          asked.delete(id);
+          smallsAt = '';
+        }
+        if (open && open.id === id) {
+          if (res.ok) open.card = B.answered(open.card, choice);
+          render();
+          if (res.ok && choice.no) open.parts.input.focus();
+          look(open);
+        }
+      }
+
+      function build() {
+        const el = make('div', 'talk-bubble talk-edge grow');
+        el.setAttribute('role', 'dialog');
+        el.tabIndex = -1;
+        const head = make('div', 'talk-head'), dot = make('span', 'talk-dot'), name = make('span', 'talk-name'), state = make('span', 'talk-state');
+        const added = make('span', 'talk-added'), expand = make('button', 'talk-key dark', 'Expand'), esc = make('button', 'talk-key dark', 'Esc');
+        expand.type = esc.type = 'button';
+        expand.addEventListener('click', () => open && api.expand(open.id));
+        esc.addEventListener('click', () => api.close(true));
+        head.append(dot, name, state, added, expand, esc);
+        const form = make('form', 'talk-input'), input = make('input'), send = make('button', 'talk-key go', 'Send');
+        input.type = 'text';
+        input.maxLength = 2000;
+        input.autocomplete = 'off';
+        send.type = 'submit';
+        form.append(input, send);
+        const parts = { el, dot, name, state, added, lines: make('div', 'talk-lines'), ask: make('div', 'talk-ask'), form, input, send,
+          why: make('p', 'talk-why'), problem: make('p', 'talk-problem'), tail: make('div', 'talk-tail') };
+        el.append(head, parts.lines, parts.ask, form, parts.why, parts.problem, parts.tail);
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          say();
+        });
+        // Esc, a digit (from the bubble, not its input; none for a headless run, which has no keys), an arrow between choices
+        el.addEventListener('keydown', (e) => {
+          if (e.isComposing || e.keyCode === 229) return;
+          const asking = open && open.card && open.card.asking, headless = open && (room.session(open.id) || {}).headless === true;
+          const n = B.digitOf(e), choice = n && asking && !headless && (B.choicesOf(asking) || []).find((c) => c.n === n);
+          const keys = /^Arrow/.test(e.key) && B.within(parts.ask, e.target) ? [...parts.ask.querySelectorAll('.talk-key')] : [];
+          const to = B.stepOf(e.key, keys.indexOf(e.target), keys.length);
+          if (e.key === 'Escape') api.close(true);
+          else if (choice) answer(open.id, asking, choice);
+          else if (to !== null) keys[to].focus();
+          else return;
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        win.setTimeout(() => el.classList.remove('grow'), 140);
+        doc.body.append(el);
+        return parts;
+      }
+
+      /** The open bubble drawn from its card and items; each part only when it changed, so a focused button stays. */
+      function render() {
+        if (!open) return;
+        const { parts, card } = open, session = room.session(open.id) || {}, name = room.name(open.id);
+        const active = doc.activeElement, had = B.within(parts.el, active), typed = B.within(parts.form, active);
+        const state = card ? card.state : session.state;
+        let grew = false;   // whether anything that changes the bubble's height was drawn, for place() to measure it again
+        parts.el.setAttribute('aria-label', `${name}: conversation`);
+        parts.dot.className = `talk-dot ${state}`;
+        parts.name.textContent = name;
+        parts.state.textContent = B.STATES[state] || '';
+        // The keys other files added, drawn again only when which are there changed
+        const id = open.id, keys = B.keysFor(B.deskOf(page, room, id, card)), names = keys.map((k) => k.name).join(' ');
+        if (names !== open.added) {
+          open.added = names;
+          parts.added.replaceChildren(...keys.map((k) => {
+            const b = make('button', 'talk-key dark', k.label);
+            b.type = 'button';
+            if (k.title) b.title = k.title;
+            b.addEventListener('click', (e) => {
+              e.stopPropagation();
+              try {
+                // The key as it's registered now: added again under the same name, the new one presses
+                (B.added.get(k.name) || k).press(B.deskOf(page, room, id, open && open.id === id ? open.card : null));
+              } catch (err) {
+                win.console?.error?.(err);
+              }
+            });
+            return b;
+          }));
+        }
+        const rows = session.conversation === false ? null : B.fold(open.items);
+        const drawn = rows ? rows.map((r) => r.id + (r.text || '').length).join() + open.loaded : 'none';
+        if (drawn !== open.drawn) {
+          open.drawn = drawn;
+          grew = true;
+          const none = !rows ? 'No conversation for this agent' : !rows.length ? (open.loaded ? 'Nothing written yet' : 'Loading…') : '';
+          parts.lines.replaceChildren(...(none ? [make('div', 'talk-none', none)] : rows.map((r) => B.row(doc, r))));
+          parts.lines.scrollTop = parts.lines.scrollHeight;
+        }
+        const asking = card && card.asking;
+        const at = asking ? `${asking.since} ${asking.pickable} ${session.headless}` : '';
+        if (at !== open.at) {
+          open.at = at;
+          grew = true;
+          parts.ask.hidden = !asking;
+          if (asking) drawAsk(parts.ask, open.id, asking, false);
+          else parts.ask.replaceChildren();
+        }
+        const input = B.inputOf(card, name);
+        parts.form.hidden = !input.shown;
+        B.lock(parts.input, input.disabled);
+        if (input.disabled || sending) B.offSend(doc, parts.send, parts.form.hidden ? parts.el : parts.input);
+        parts.send.disabled = input.disabled || sending;
+        parts.input.placeholder = input.placeholder;
+        parts.why.textContent = input.line;
+        parts.why.hidden = !input.line;
+        const form = `${input.shown} ${input.line}`;
+        if (form !== open.form) grew = true;
+        open.form = form;
+        if (grew) {
+          open.fit += 1;
+          place();
+        }
+        // A key that had the focus drawn again (a new prompt, the choices gone): the focus where the bubble starts it. From
+        // the input or Send, back in the input, never on a choice: a prompt arriving as you type must not put you where
+        // your next Enter answers it
+        if (had && !B.within(parts.el, doc.activeElement)) {
+          if (typed) (parts.form.hidden ? parts.el : parts.input).focus();
+          else focusFirst(open);
+        }
+      }
+
+      /** The first choice while it asks, else the input, else the bubble. */
+      function focusFirst(shown) {
+        const first = shown.parts.ask.querySelector('.talk-key');
+        (first || (shown.parts.input.readOnly ? shown.parts.el : shown.parts.input)).focus();
+      }
+
+      /** The focus after a bubble closes: back on the desk list's key if it was opened from there, else where it was if still there, else the room. */
+      function giveBack(shown) {
+        const from = shown.from, listed = from && B.within(desks, from) ? deskKeys.get(shown.id) : null;
+        const kept = from && from.isConnected && from !== doc.body && !B.within(shown.parts.el, from) ? from : null;
+        (listed || kept || room.canvas).focus?.({ preventScroll: true });
+      }
+
+      function problem(text) {
+        if (!open) return;
+        open.parts.problem.textContent = text;
+        open.parts.problem.hidden = !text;
+        open.fit += 1;
+      }
+
+      /**
+       * The input's words to the desk, with Return, once however often Enter is pressed while they're on their way (a
+       * refresh meanwhile doesn't wake Send); refused, or unanswered in SAY_WAIT, they stay in the box with the reason under it.
+       */
+      async function say() {
+        const shown = open;
+        if (!shown || sending || shown.parts.input.readOnly) return;
+        const text = shown.parts.input.value.trim();
+        if (!text) return;
+        page.tick?.();
+        // Send clicked has the focus (in Chromium): into the input before it's greyed
+        B.offSend(doc, shown.parts.send, shown.parts.input);
+        sending = shown.parts.send.disabled = true;
+        let res;
+        try {
+          res = await page.post('/talk/say', { session: shown.id }, B.limit(win), { text, send: true });
+        } finally {
+          sending = false;
+        }
+        if (open !== shown) return;
+        shown.parts.send.disabled = shown.parts.input.readOnly;
+        if (res && res.ok) {
+          shown.parts.input.value = '';
+          problem('');
+          return look(shown);
+        }
+        problem(res ? await B.said(res) : 'Can\'t reach your computer.');
+      }
+
+      /** The open desk's card again, and its newest messages when the transcript grew; then again in 2 or 3 seconds. */
+      async function look(shown) {
+        if (!shown || open !== shown) return;
+        win.clearTimeout(shown.timer);
+        // Only the newest look goes on to set the next timer: one asked for while another is in flight takes over from it
+        const mine = shown.round = (shown.round || 0) + 1, current = () => open === shown && shown.round === mine;
+        const res = await page.get('/talk', { session: shown.id });
+        if (!current()) return;
+        if (res && res.status === 404) return api.close();
+        const card = res && res.ok ? await res.json().catch(() => null) : null;
+        if (card && current()) cards.set(shown.id, shown.card = card);
+        if (shown.card && shown.card.size !== shown.size && (room.session(shown.id) || {}).conversation !== false) await newest(shown);
+        if (!current()) return;
+        shown.loaded = true;
+        render();
+        if (!shown.focused) {
+          shown.focused = true;
+          focusFirst(shown);
+        }
+        shown.timer = win.setTimeout(() => look(shown), shown.card && shown.card.asking ? B.ASKING_EVERY : B.EVERY);
+      }
+
+      async function newest(shown) {
+        const params = { session: shown.id };
+        if (shown.size !== null && shown.items.length) params.size = shown.size;
+        const res = await page.get('/conversation', params);
+        const got = res && res.status === 200 ? await res.json().catch(() => null) : null;
+        if (!got || open !== shown) return;
+        const merged = B.merge(shown, got);
+        // New lines said aloud once it has shown some: not what was there as it opened
+        const said = shown.loaded ? B.linesSaid(room.name(shown.id), shown.items, merged.items) : [];
+        Object.assign(shown, { items: merged.items, before: merged.before, size: got.size });
+        tell(said);
+      }
+
+      /**
+       * The open bubble over its head, its tail on the head's bubble, inside the room: above it where it fits there, else
+       * beside it (right, or left near the room's edge), its tail pointing across at the head. Beside, it never leaves
+       * the room: where neither side has its full width it is narrowed to the larger side's, and where that is too
+       * narrow too it goes over the head, kept inside, with no tail. Its height is the bubble's own, measured (capped at
+       * the room's): it sits as high as it needs to be whole, and a bubble taller than the room scrolls inside its box
+       * (see the style) with its input kept at the foot.
+       */
+      function place() {
+        const anchor = open && room.anchor(open.id);
+        if (!open) return;
+        open.parts.el.hidden = !anchor;
+        if (!anchor) return;
+        const r = rect(), tip = anchor.css.tip, box = anchor.css.box;
+        const at = [Math.round(tip.x), Math.round(tip.y), Math.round(box.top), r.left, r.top, r.width, r.height, win.innerHeight, open.fit].join();
+        if (at === open.place) return;
+        open.place = at;
+        const el = open.parts.el, style = el.style, tail = open.parts.tail.style;
+        // The bubble's own height at a width, as it would be with nothing holding it in
+        const natural = (width) => {
+          Object.assign(style, { width: `${width}px`, maxHeight: 'none' });
+          return Math.min(el.offsetHeight, r.height - 8);
+        };
+        const above = box.top - 10 - (r.top + 4);
+        let w = Math.min(320, r.width - 8), h = natural(w), way = 'above';
+        if (above < Math.max(h, B.ABOVE_LEAST)) {
+          const free = { right: r.right - 4 - (tip.x + 20), left: tip.x - 20 - (r.left + 4) };
+          way = free.right >= w ? 'right' : free.left >= w ? 'left' : free.right >= free.left ? 'right' : 'left';
+          if (free[way] < w) {
+            if (free[way] >= B.SIDE_LEAST) w = Math.floor(free[way]);
+            else way = 'over';
+          }
+          h = natural(w);
+        }
+        const side = way === 'right' || way === 'left';
+        const centred = clamp(tip.x - w / 2, r.left + 4, r.right - 4 - w);
+        const left = Math.round(way === 'right' ? tip.x + 20 : way === 'left' ? tip.x - 20 - w : centred);
+        const top = Math.round(clamp(tip.y - 48, r.top + 4, r.bottom - 4 - h));
+        Object.assign(style, { left: `${left}px`, width: `${w}px`, maxHeight: `${Math.round(way === 'above' ? above : r.bottom - 4 - top)}px` });
+        tail.display = way === 'over' ? 'none' : '';
+        if (way === 'above') {
+          Object.assign(style, { bottom: `${Math.round(win.innerHeight - box.top + 10)}px`, top: '' });
+          Object.assign(tail, { left: `${Math.round(clamp(tip.x - left - 7, 6, w - 20))}px`, top: 'calc(100% + 2px)', transform: '' });
+        } else {
+          Object.assign(style, { top: `${top}px`, bottom: '' });
+          if (side) Object.assign(tail, { left: way === 'right' ? '-13px' : 'calc(100% - 1px)', top: `${Math.round(tip.y - top - 4)}px`,
+            transform: `rotate(${way === 'right' ? 90 : -90}deg)` });
+        }
+      }
+
+      /** Every waiting desk's prompt, when who is waiting changed; the new ones said aloud, but for those there as the room first came. */
+      async function askAll(saying) {
+        const res = await page.get('/talk/asking');
+        const got = res && res.ok ? await res.json().catch(() => null) : null;
+        if (!got) return;
+        asked = new Map(got.asking.map((row) => [row.session, row]));
+        smallsAt = desksAt = '';
+        const fresh = B.newlyAsking(heard, got.asking);
+        if (saying) tell(fresh.map((row) => B.askingSaid(room.name(row.session), row)));
+      }
+
+      /** The hidden list of desks, as the room has them, waiting ones first: each a key that opens its bubble. */
+      function drawDesks(bubbles) {
+        const rows = PIXEL_TERMINAL.listOf(bubbles.filter((b) => room.session(b.id)), null, room.name);
+        const said = rows.map((r) => B.deskSaid(r.name, r.state, r.state === 'asking' ? asked.get(r.id) : null));
+        const at = said.join('|') + rows.map((r) => r.id).join();
+        if (at === desksAt) return;
+        desksAt = at;
+        const had = doc.activeElement;
+        const keys = rows.map((r, i) => {
+          let b = deskKeys.get(r.id);
+          if (!b) {
+            deskKeys.set(r.id, b = make('button', 'talk-desk talk-key'));
+            b.type = 'button';
+            // The open desk's key gives its bubble the focus rather than closing it
+            b.addEventListener('click', () => (open && open.id === r.id ? focusFirst(open) : api.open(r.id)));
+          }
+          if (b.textContent !== said[i]) b.textContent = said[i];
+          return b;
+        });
+        for (const id of [...deskKeys.keys()]) if (!rows.some((r) => r.id === id)) deskKeys.delete(id);
+        desks.replaceChildren(...keys);
+        desks.hidden = !keys.length;
+        if (had && keys.includes(had) && doc.activeElement !== had) had.focus({ preventScroll: true });
+      }
+
+      /** The small question bubbles that fit, the rest left to the room's "?", and the Needs you key's count. */
+      function layout(waiting) {
+        const view = room.view(), shape = room.shape(), r = rect(), cog = room.cog && room.cog();
+        const list = waiting.filter((b) => asked.has(b.id) && !(open && open.id === b.id));
+        const at = JSON.stringify([list.map((b) => [b.id, b.x, b.top, asked.get(b.id).since]), view, cog, r.left, r.top, waiting.length, open && open.id]);
+        if (at === smallsAt) return;
+        smallsAt = at;
+        order = TALK_ANCHORS.needsYou(waiting).map((b) => b.id);
+        needs.replaceChildren('Needs you ', make('i', '', String(order.length)));
+        needs.hidden = !order.length;
+        const px = view.scale / view.k;
+        const css = (x, y) => ({ x: view.left + (view.ox + x * view.scale) / view.k, y: view.top + (view.oy + y * view.scale) / view.k });
+        // In the room's top corner, right of the settings cog, level with it: from where the room drew the cog (the room
+        // is letterboxed in a small window, so neither the canvas's corner nor the plan's origin is the room's corner).
+        // With no cog drawn, the canvas's corner.
+        if (cog) {
+          const end = css(cog.x + cog.w, cog.y), foot = css(cog.x, cog.y + cog.h);
+          Object.assign(needs.style, { left: `${Math.round(end.x + clamp(12 * px, 8, 24))}px`, top: `${Math.round((end.y + foot.y - (needs.offsetHeight || 28)) / 2)}px` });
+        } else Object.assign(needs.style, { left: `${Math.round(r.left + 76)}px`, top: `${Math.round(r.top + 16)}px` });
+        const { small } = TALK_ANCHORS.layoutSmall(list, B.SMALL, shape);
+        const kept = new Set(small.map((s) => s.id));
+        for (const [id, s] of smalls) if (!kept.has(id)) { s.el.remove(); smalls.delete(id); }
+        for (const { id, box } of small) {
+          let s = smalls.get(id);
+          if (!s) {
+            s = { el: make('div', 'talk-small talk-edge'), drawn: '' };
+            s.el.addEventListener('click', () => api.open(id));
+            smalls.set(id, s);
+          }
+          const from = css(box.left, box.top), asking = asked.get(id);
+          Object.assign(s.el.style, { left: `${from.x}px`, top: `${from.y}px`, width: `${B.SMALL.w * px}px`, height: `${B.SMALL.h * px}px` });
+          s.el.style.setProperty('--talk-font', `${Math.round(clamp(px * 4.5, 9, 14))}px`);
+          const wide = B.SMALL.w * px, drawn = `${asking.since} ${asking.pickable} ${wide >= B.SMALL_KEYS_LEAST}`;
+          if (drawn !== s.drawn) {
+            s.drawn = drawn;
+            drawAsk(s.el, id, asking, true, wide);
+          }
+        }
+        // On the page in Tab's order, longest waiting first, the focus kept where it was
+        const now = small.map((s) => s.id);
+        if (now.join() !== smallOrder.join() || smallBox.children.length !== now.length) {
+          const had = doc.activeElement;
+          smallBox.replaceChildren(...now.map((id) => smalls.get(id).el));
+          if (had && B.within(smallBox, had) && doc.activeElement !== had) had.focus({ preventScroll: true });
+        }
+        smallOrder = now;
+      }
+
+      function showTag(id, anchor) {
+        const card = cards.get(id), row = asked.get(id);
+        const asking = (card && card.asking) || row;
+        const text = asking ? B.questionOf(asking) : card ? card.last || B.STATES[card.state] || '' : '…';
+        tagFor = id;
+        tag.textContent = B.cut(text, B.TAG_MOST);
+        tag.hidden = !tag.textContent;
+        const r = rect();
+        tag.style.left = `${Math.round(clamp(anchor.css.tip.x - tag.offsetWidth / 2, r.left + 4, r.right - 4 - tag.offsetWidth))}px`;
+        tag.style.top = `${Math.round(Math.max(r.top + 4, anchor.css.box.top - tag.offsetHeight - 6))}px`;
+      }
+
+      /** Under the terminal, none of the small bubbles, Needs you or a tag: laid out again once it goes. */
+      function under() {
+        for (const s of smalls.values()) s.el.remove();
+        smalls.clear();
+        smallsAt = desksAt = '';
+        smallOrder = [];
+        tag.hidden = needs.hidden = desks.hidden = true;
+      }
+
+      const api = {
+        /** The bubble over `id`'s head opened, or, open already, closed (a click on the same bubble). */
+        open(id) {
+          if (open && open.id === id) return api.close(true);
+          // Where the focus goes back to: from one bubble to the next (Needs you, a choice), still where the first came from
+          const from = open && B.within(open.parts.el, doc.activeElement) ? open.from : doc.activeElement;
+          api.close(false);
+          terminal.close();
+          page.tick?.();
+          api.hover(null);
+          open = { id, card: cards.get(id) || null, items: [], before: null, size: null, loaded: false, timer: 0, fit: 0, from };
+          open.parts = build();
+          problem('');
+          smallsAt = '';
+          place();
+          render();
+          look(open);
+        },
+        /** The mouse rests on `id`'s bubble (null: on none): its tag, and its card asked for again when it may be. */
+        hover(id, anchor) {
+          tagFor = null;
+          tag.hidden = true;
+          if (id === null || !anchor || (open && open.id === id) || terminal.shown()) return;
+          showTag(id, anchor);
+          if (!anchor.again) return;
+          page.get('/talk', { session: id }).then(async (res) => {
+            const card = res && res.ok ? await res.json().catch(() => null) : null;
+            if (card) cards.set(id, card);
+            if (card && tagFor === id) showTag(id, anchor);
+          });
+        },
+        /**
+         * The Pixel Terminal on `id`'s desk, from the open bubble at the same place in its conversation (or fresh), the
+         * bubble closed behind it; false for a desk the room doesn't have.
+         */
+        expand(id) {
+          const from = open && open.id === id ? { card: open.card, items: open.items, before: open.before, size: open.size } : { card: cards.get(id) || null };
+          if (!terminal.open(id, from)) return false;
+          api.close(false);
+          api.hover(null);
+          under();
+          return true;
+        },
+        /** A frame of the room, with the bubbles it drew: the open bubble follows its head; the small ones are laid out. */
+        frame(bubbles) {
+          terminal.frame(bubbles);
+          if (terminal.shown()) return under();
+          if (open && !room.session(open.id)) api.close();
+          place();
+          const waiting = bubbles.filter((b) => b.state === 'asking');
+          const now = waiting.map((b) => b.id).sort().join(' ');
+          if (now !== askingNow) {
+            askingNow = now;
+            if (waiting.length) askAll(heardFrom);
+            else asked = new Map();
+          }
+          heardFrom = true;
+          layout(waiting);
+          drawDesks(bubbles);
+        },
+        /**
+         * The open bubble closed. `back` true (Esc, its Esc key, a second click): the focus goes back where it came from,
+         * else to the room; false (another bubble, Expand): it stays for what opens next; left out, back only if the bubble had it.
+         */
+        close(back) {
+          if (!open) return;
+          const shown = open, had = B.within(shown.parts.el, doc.activeElement);
+          open = null;
+          smallsAt = '';
+          win.clearTimeout(shown.timer);
+          shown.parts.el.classList.add('shrink');
+          win.setTimeout(() => shown.parts.el.remove(), 120);
+          if (back || (back === undefined && had)) giveBack(shown);
+        },
+        /** Enter in the room on the picked desk `id`: its bubble opened, or, open, given the focus; false where it has none. */
+        enter(id) {
+          if (!id || terminal.shown() || !room.anchor(id)) return false;
+          if (open && open.id === id) focusFirst(open);
+          else api.open(id);
+          return true;
+        },
+        /** Tab in the room: the focus to the first small question bubble (Shift+Tab, the last); false with none shown. */
+        tab(back) {
+          const list = smallOrder.map((id) => smalls.get(id) && smalls.get(id).el.querySelector('.talk-small-q')).filter(Boolean);
+          if (!list.length || terminal.shown()) return false;
+          list[back ? list.length - 1 : 0].focus();
+          return true;
+        },
+        /** The room closed (its stream broke): nothing of the talk layers stays over the page. The next frame draws them again. */
+        away() {
+          api.close();
+          terminal.close();
+          for (const s of smalls.values()) s.el.remove();
+          smalls.clear();
+          asked = new Map();
+          askingNow = smallsAt = desksAt = '';
+          smallOrder = [];
+          tagFor = null;
+          tag.hidden = needs.hidden = desks.hidden = true;
+        },
+        remove() {
+          api.close(false);
+          terminal.remove();
+          for (const s of smalls.values()) s.el.remove();
+          smalls.clear();
+          for (const el of [tag, smallBox, needs, desks, live]) el.remove();
+          doc.removeEventListener('keydown', escaped);
+        },
+      };
+      return api;
+    },
+  };
+
+  /**
+   * The Pixel Terminal (1.26, Talk Bubble's Expand), in the office's own window only: Expand on an open bubble, or the ▤
+   * key, opens that desk's whole conversation on a large chalkboard monitor, the room zooming toward the desk and dimming
+   * behind it (a cross-fade alone with reduced motion). Its header: Back to office (Esc), Shrink to bubble (the office
+   * again, that desk's bubble open), the desk's status as a word, Next question N (the next desk waiting on you, longest
+   * waiting first, N of them; greyed with none) and a Menu with Open in Terminal where the page offers it. Its body: the
+   * conversation with Older messages, following new lines only while its foot is in sight (the ▤ slate's rule); the
+   * desk's question with its choices, and the four keys under them (D4); and a roomy input, Enter sends, Shift+Enter a
+   * new line. Its side: a small picture of the office (a click goes back) and the other desks, waiting ones first, a
+   * click switching the terminal to that desk. One desk at a time.
+   *
+   * The bubble's rules hold: text is shown as text, never as HTML; nothing is typed into a prompt (the input is greyed
+   * while the desk asks, and wakes after a No); a desk the window can't type into says so in one plain line.
+   *
+   * The office's extension seam (F-O): `PIXEL_TERMINAL.addPanel(name, draw)` adds a panel under the conversation, and
+   * `TALK_BUBBLE.addKey(name, key)` a key on the bubble and in this menu. A feature lives in a file of its own,
+   * `talk/<name>.js`, included after this one, that registers itself as its const is made:
+   *
+   *   const TALK_DIFF = {
+   *     draw(box, desk) { … },
+   *     added: PIXEL_TERMINAL.addPanel('diff', (box, desk) => TALK_DIFF.draw(box, desk)),
+   *   };
+   *
+   * so it touches only buildoffice's module list and one //#include line.
+   */
+  const PIXEL_TERMINAL = {
+    /** How much the room grows toward the desk behind the terminal, and how long it takes, in ms. */
+    ZOOM: 1.6,
+    ZOOM_MS: 200,
+    /** The office's picture in the side, its width in CSS pixels, drawn again at most this often (ms). */
+    PICTURE: 184,
+    PICTURE_EVERY: 250,
+    /** The panels other files added (F-O): name → draw(box, desk). */
+    panels: new Map(),
+
+    /**
+     * A panel under the conversation, from another file: `draw(box, desk)` fills `box`, an element of its own (empty,
+     * nothing shows), each time the terminal shows a desk or reads its card again (every 2 or 3 seconds), so it draws
+     * only what changed; on another desk, the box starts empty again. `desk` is TALK_BUBBLE.deskOf's. Added again
+     * under the same name, it takes the first one's place. Gives the name.
+     */
+    addPanel(name, draw) {
+      PIXEL_TERMINAL.panels.set(String(name), draw);
+      return name;
+    },
+
+    /**
+     * Next question: of the desks waiting on you (`order`, longest waiting first), how many there are besides `id`, and
+     * the one Next goes to: the one after `id` in that order, round to the first; the first, where `id` isn't waiting.
+     */
+    nextOf(order, id) {
+      const at = order.indexOf(id), others = order.filter((o) => o !== id);
+      const next = at < 0 ? others[0] : [...order.slice(at + 1), ...order.slice(0, at)][0];
+      return { count: others.length, next: next || null };
+    },
+
+    /**
+     * The side's desk list: every desk with a talk bubble but `id`, those waiting on you first (longest waiting first,
+     * as Needs you), then the rest by name. `desks`: [{ id, state, since }].
+     */
+    listOf(desks, id, nameOf) {
+      const waiting = TALK_ANCHORS.needsYou(desks).filter((d) => d.id !== id);
+      const rest = desks.filter((d) => d.state !== 'asking' && d.id !== id)
+        .sort((a, b) => nameOf(a.id).localeCompare(nameOf(b.id)) || String(a.id).localeCompare(String(b.id)));
+      return [...waiting, ...rest].map((d) => ({ id: d.id, state: d.state, name: nameOf(d.id) }));
+    },
+
+    /** An older page of /conversation put above what's shown ({ items, before }): its items not there yet, in the file's order. */
+    older(shown, page) {
+      const known = new Set(shown.items.map((i) => i.id));
+      return { items: [...page.items.filter((i) => !known.has(i.id)), ...shown.items].sort(TALK_BUBBLE.byOrder), before: page.before };
+    },
+
+    /**
+     * Tab inside the terminal, `count` keys and boxes in it, the focus on the one at `at` (-1: outside it): round from
+     * the last to the first (Shift+Tab, `back`, the other way), and in from outside; null where the page's own Tab does.
+     */
+    wrapOf(count, at, back) {
+      if (!count) return null;
+      if (at < 0) return back ? count - 1 : 0;
+      if (back && at === 0) return count - 1;
+      return !back && at === count - 1 ? 0 : null;
+    },
+
+    /** Whether the conversation's foot is in sight, give or take 40 px: only then do new lines take it down. */
+    atFoot(el) {
+      return el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+    },
+
+    /** A key in the roomy input: Enter sends; Shift+Enter is a new line, and so is Enter while a letter is being composed. */
+    keyOf(e) {
+      return e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 ? 'send' : null;
+    },
+
+    /** The room's zoom toward the desk: the point on the canvas it grows from (the head, else the middle). None with reduced motion. */
+    zoomOf(tip, rect, reduced) {
+      if (reduced) return null;
+      const x = tip ? tip.x - rect.left : rect.width / 2, y = tip ? tip.y - rect.top : rect.height / 2;
+      return { origin: `${Math.round(x)}px ${Math.round(y)}px`, scale: PIXEL_TERMINAL.ZOOM };
+    },
+
+    /**
+     * The live terminal on `win`'s page, with the bubble's `page` and `room` (see TALK_BUBBLE.create), and `bubble`,
+     * whose open(id) Shrink calls. New lines are said in a live region of its own, inside the dialog (a screen reader
+     * may not hear one outside a modal dialog). `page.openInTerminal`, where given,
+     * is the menu's Open in Terminal: { shown(), open(id) }. Gives { open(id, from), close(), shown(), frame(bubbles),
+     * remove() }; `from` is what the bubble showed ({ card, items, before, size }), so the terminal opens at the same
+     * place in the conversation.
+     */
+    create(win, page, room, bubble) {
+      const T = PIXEL_TERMINAL, B = TALK_BUBBLE, doc = win.document;
+      const make = (tag, cls, text) => {
+        const el = doc.createElement(tag);
+        if (cls) el.className = cls;
+        if (text !== undefined) el.textContent = text;
+        return el;
+      };
+      const key = (cls, text, press) => {
+        const b = make('button', `talk-key ${cls}`, text);
+        b.type = 'button';
+        b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          press();
+        });
+        return b;
+      };
+      let p = null;            // the terminal's parts, made on first open
+      let term = null;         // the desk shown: { id, card, items, before, size, loaded, timer, round, drawn, at, listed, boxes }
+      let desks = [];          // the desks with talk bubbles, from the room's frames: { id, state, since }
+      let pictured = 0;
+      let sending = false;     // a /talk/say on its way: Enter or Send again sends nothing more until it's back
+      const drafts = new Map(); // words left in the input, by desk, so switching never sends them to another
+      const reduced = () => !!(win.matchMedia && win.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      const order = () => TALK_ANCHORS.needsYou(desks).map((d) => d.id);
+      const deskOf = (id) => B.deskOf(page, room, id, term && term.id === id ? term.card : null);
+
+      // Esc goes back to the office (or shuts the menu, the focus back on Menu); Tab stays inside the terminal; from the
+      // terminal itself, outside the input, N is Next question, a digit picks a choice, and an arrow moves between choices.
+      const keyed = (e) => {
+        if (!term || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+        const t = e.target, inBox = t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable), mine = B.within(p.el, t) && !inBox;
+        const asking = term.card && term.card.asking, headless = (room.session(term.id) || {}).headless === true;
+        const n = B.digitOf(e), choice = mine && n && asking && !headless && (B.choicesOf(asking) || []).find((c) => c.n === n);
+        const keys = /^Arrow/.test(e.key) && B.within(p.ask, t) ? [...p.ask.querySelectorAll('.talk-key')] : [];
+        const to = B.stepOf(e.key, keys.indexOf(t), keys.length);
+        if (e.key === 'Escape') {
+          if (p.menu.hidden) api.close();
+          else {
+            p.menu.hidden = true;
+            p.more.focus();
+          }
+        } else if (e.key === 'Tab' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+          if (!wrap(e.shiftKey, t)) return;
+        } else if ((e.key === 'n' || e.key === 'N') && mine && !e.altKey && !e.ctrlKey && !e.metaKey) next();
+        else if (choice) answer(term, asking, choice);
+        else if (to !== null) keys[to].focus();
+        else return;
+        e.preventDefault();
+        e.stopPropagation();
+      };
+
+      function build() {
+        p = { dim: make('div', 'pt-dim'), el: make('div', 'pt'), menu: make('div', 'pt-menu talk-edge') };
+        p.el.setAttribute('role', 'dialog');
+        p.el.setAttribute('aria-modal', 'true');
+        p.el.tabIndex = -1;
+        p.live = make('div', 'talk-live');
+        p.live.setAttribute('role', 'status');
+        p.live.setAttribute('aria-live', 'polite');
+        p.menu.setAttribute('role', 'menu');
+        const head = make('div', 'pt-head');
+        p.dot = make('span', 'talk-dot');
+        p.name = make('span', 'talk-name');
+        p.state = make('span', 'talk-state');
+        p.next = key('go', '', next);
+        // The menu is drawn as it opens, so what it offers is what's true now
+        p.more = key('dark', 'Menu ▾', () => {
+          p.menu.hidden = !p.menu.hidden;
+          if (p.menu.hidden) return;
+          drawMenu();
+          p.menu.querySelector('.talk-key')?.focus();
+        });
+        p.more.setAttribute('aria-haspopup', 'menu');
+        head.append(key('dark', 'Back to office', () => api.close()), key('dark', 'Shrink to bubble', shrink), p.dot, p.name, p.state,
+          p.next, p.more, p.menu);
+        p.body = make('div', 'pt-body');
+        p.ask = make('div', 'talk-ask');
+        p.panels = make('div', 'pt-panels');
+        p.form = make('form', 'pt-input');
+        p.input = make('textarea');
+        p.input.rows = 3;
+        p.input.maxLength = 2000;
+        p.input.autocomplete = 'off';
+        p.send = make('button', 'talk-key go', 'Send');
+        p.send.type = 'submit';
+        p.form.append(p.input, p.send);
+        p.why = make('p', 'talk-why');
+        p.problem = make('p', 'talk-problem');
+        const main = make('div', 'pt-main');
+        main.append(p.body, p.ask, p.panels, p.form, p.why, p.problem);
+        p.picture = make('canvas', 'pt-picture');
+        const office = key('pt-office', '', () => api.close());
+        office.setAttribute('aria-label', 'Back to office');
+        office.title = 'Back to office';
+        office.append(p.picture);
+        p.list = make('div', 'pt-list');
+        const side = make('div', 'pt-side');
+        side.append(office, make('div', 'pt-list-head', 'Desks'), p.list);
+        const cols = make('div', 'pt-cols');
+        cols.append(main, side);
+        p.el.append(head, cols, p.live);
+        p.form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          say();
+        });
+        // A held Enter repeats: only the first press sends, and the rest add no new lines either
+        p.input.addEventListener('keydown', (e) => {
+          if (T.keyOf(e) !== 'send') return;
+          e.preventDefault();
+          if (!e.repeat) say();
+        });
+        doc.addEventListener('keydown', keyed);
+        p.dim.hidden = p.el.hidden = true;
+        doc.body.append(p.dim, p.el);
+      }
+
+      /**
+       * Tab from the last key round to the first, Shift+Tab from the first to the last; in from outside, or from the
+       * terminal itself. False: the page's own Tab, from key to key in between, so each is reached in order. A stop of the
+       * page's that isn't a key (Chromium makes the conversation one, as it scrolls) steps as the page has it too, but
+       * for one with no key after it (Shift+Tab: before it), round.
+       */
+      function wrap(back, t) {
+        if (!p.el.querySelectorAll) return false;
+        const all = [...p.el.querySelectorAll('button, textarea')].filter((el) => !el.disabled && el.getClientRects().length);
+        const at = all.indexOf(t);
+        if (at < 0 && t !== p.el && B.within(p.el, t)) {
+          if (!t.compareDocumentPosition) return false;
+          // 4: the key comes after it in the page (inside it too)
+          const after = all.filter((el) => t.compareDocumentPosition(el) & 4).length;
+          if (back ? after < all.length : after > 0) return false;
+        }
+        const to = T.wrapOf(all.length, at, back);
+        if (to === null) return false;
+        all[to].focus();
+        return true;
+      }
+
+      /** The room behind grows toward the desk, or back. */
+      function zoom(id) {
+        const style = room.canvas.style, anchor = id && room.anchor(id);
+        const z = id && T.zoomOf(anchor && anchor.css.tip, room.canvas.getBoundingClientRect(), reduced());
+        style.transition = reduced() ? '' : `transform ${T.ZOOM_MS}ms steps(4, end), transform-origin ${T.ZOOM_MS}ms steps(4, end)`;
+        if (z) style.transformOrigin = z.origin;
+        style.transform = z ? `scale(${z.scale})` : '';
+      }
+
+      /** `id`'s desk in the terminal, from what was shown of it (`from`), or fresh. */
+      function show(id, from = {}) {
+        if (term) {
+          win.clearTimeout(term.timer);
+          drafts.set(term.id, p.input.value);
+        }
+        term = { id, card: from.card || null, items: from.items || [], before: from.before ?? null, size: from.size ?? null,
+          loaded: !!(from.items && from.items.length), timer: 0, drawn: '', at: null, listed: '', boxes: new Map() };
+        p.input.value = drafts.get(id) || '';
+        p.menu.hidden = true;
+        p.panels.replaceChildren();
+        problem('');
+        if (!p.el.hidden) zoom(id);
+        render();
+        look(term);
+      }
+
+      function render() {
+        if (!term) return;
+        const card = term.card, session = room.session(term.id) || {}, name = room.name(term.id), state = card ? card.state : session.state;
+        const typed = B.within(p.form, doc.activeElement);
+        p.el.setAttribute('aria-label', `${name}: conversation`);
+        p.dot.className = `talk-dot ${state}`;
+        p.name.textContent = name;
+        p.state.textContent = B.STATES[state] || '';
+        drawLines(false);
+        drawAsk(session);
+        const input = B.inputOf(card, name);
+        p.form.hidden = !input.shown;
+        B.lock(p.input, input.disabled);
+        if (input.disabled || sending) B.offSend(doc, p.send, p.form.hidden ? p.el : p.input, { preventScroll: true });
+        p.send.disabled = input.disabled || sending;
+        p.input.placeholder = input.disabled ? input.placeholder : `${input.placeholder} (Shift+Enter: a new line)`;
+        p.why.textContent = input.line;
+        p.why.hidden = !input.line;
+        p.more.hidden = !menu().length;
+        // The form lost the focus all the same (hidden under it): back in the input (read-only now) or on the terminal,
+        // never on a choice
+        if (typed && !B.within(p.form, doc.activeElement)) (p.form.hidden ? p.el : p.input).focus({ preventScroll: true });
+        drawSide();
+        const desk = deskOf(term.id);
+        for (const [panel, draw] of T.panels) {
+          let box = term.boxes.get(panel);
+          if (!box) {
+            term.boxes.set(panel, box = make('section', 'pt-panel'));
+            box.setAttribute('data-panel', panel);
+            p.panels.append(box);
+          }
+          try {
+            draw(box, desk);
+          } catch (err) {
+            win.console?.error?.(err);
+          }
+        }
+      }
+
+      /** The whole conversation, drawn again only when there's more of it; new lines followed only while its foot is in sight. */
+      function drawLines(force) {
+        const none = (room.session(term.id) || {}).conversation === false, items = term.items;
+        const drawn = none ? 'none'
+          : [items.length, items[0] && items[0].id, items.length && items[items.length - 1].id, term.before, !!term.loadingOlder, term.loaded].join();
+        if (drawn === term.drawn && !force) return;
+        const follow = !term.drawn || T.atFoot(p.body);
+        term.drawn = drawn;
+        const top = make('div', 'board-top');
+        if (none) top.textContent = 'No conversation for this agent';
+        else if (!items.length && !term.loaded) top.textContent = 'Loading…';
+        else if (term.before !== null) {
+          const older = key('dark', term.loadingOlder ? 'Loading…' : 'Older messages', olderPage);
+          older.disabled = !!term.loadingOlder;
+          top.append(older);
+        } else top.textContent = items.length ? 'The start of the conversation' : 'Nothing written yet';
+        p.body.replaceChildren(top, ...(none ? [] : items.map((i) => B.row(doc, i))));
+        if (follow) p.body.scrollTop = p.body.scrollHeight;
+      }
+
+      /**
+       * The desk's question, its choices by label where they can be offered, and the four keys under them (D4); a headless
+       * run's, the question alone.
+       */
+      function drawAsk(session) {
+        const asking = term.card && term.card.asking, at = asking ? `${asking.since} ${asking.pickable} ${session.headless}` : '';
+        if (at === term.at) return;
+        term.at = at;
+        p.ask.hidden = !asking;
+        if (!asking) return p.ask.replaceChildren();
+        const shown = term, headless = session.headless === true, choices = headless ? null : B.choicesOf(asking);
+        const row = (list) => {
+          const keys = make('div', 'talk-keys');
+          for (const choice of list) {
+            const b = key(choice.n === 1 ? 'go' : '', '', () => answer(shown, asking, choice));
+            if (choice.n) b.append(make('i', '', String(choice.n)));
+            b.append(choice.label);
+            if (choice.name) b.setAttribute('aria-label', choice.name);
+            if (choice.description) b.title = choice.description;
+            keys.append(b);
+          }
+          return keys;
+        };
+        const hint = choices ? 'Something else? Tap No, then type. Or move in its menu:'
+          : 'Its menu can\'t be read from here: ▲ ▼ move, ✓ picks, ✕ says No.';
+        p.ask.replaceChildren(make('div', 'talk-q', B.questionOf(asking)), ...(headless ? [] : [...(choices ? [row(choices)] : []),
+          make('div', 'talk-hint', hint), row(B.KEYS)]));
+      }
+
+      /** Next question's count and the desk list, each drawn again only when it changed. */
+      function drawSide() {
+        const { count, next: to } = T.nextOf(order(), term.id);
+        if (p.next.textContent !== `Next question ${count}`) p.next.replaceChildren('Next question ', make('i', '', String(count)));
+        p.next.disabled = !to;
+        const rows = T.listOf(desks, term.id, room.name), listed = rows.map((r) => `${r.id} ${r.state} ${r.name}`).join('|');
+        if (listed === term.listed) return;
+        term.listed = listed;
+        p.list.replaceChildren(...(rows.length ? rows.map((r) => {
+          const b = key(`pt-desk ${r.state}`, '', () => show(r.id));
+          b.append(make('span', `talk-dot ${r.state}`), make('span', 'pt-desk-name', r.name),
+            make('span', 'pt-desk-state', B.STATES[r.state] || ''));
+          return b;
+        }) : [make('div', 'pt-none', 'No other desks')]));
+      }
+
+      /** The menu: Open in Terminal where the page offers it (a setting), then the keys other files added. */
+      function menu() {
+        const id = term.id, offered = page.openInTerminal;
+        const items = offered && offered.shown() ? [{ label: 'Open in Terminal', press: () => offered.open(id) }] : [];
+        return [...items, ...B.keysFor(deskOf(id))];
+      }
+
+      function drawMenu() {
+        p.menu.replaceChildren(...menu().map((item) => {
+          const b = key('dark', item.label, () => {
+            p.menu.hidden = true;
+            try {
+              item.press(deskOf(term.id));
+            } catch (err) {
+              win.console?.error?.(err);
+            }
+          });
+          b.setAttribute('role', 'menuitem');
+          if (item.title) b.title = item.title;
+          return b;
+        }));
+      }
+
+      /** The office's picture in the side: the room's own canvas, small. */
+      function picture() {
+        const from = room.canvas, to = p.picture, ctx = from.width && from.height && to.getContext && to.getContext('2d');
+        if (!ctx) return;
+        const w = T.PICTURE, h = Math.round((w * from.height) / from.width);
+        if (to.width !== w * 2 || to.height !== h * 2) Object.assign(to, { width: w * 2, height: h * 2 });
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(from, 0, 0, to.width, to.height);
+      }
+
+      function problem(text) {
+        p.problem.textContent = text;
+        p.problem.hidden = !text;
+      }
+
+      function next() {
+        const { next: to } = term ? T.nextOf(order(), term.id) : {};
+        if (to) show(to);
+      }
+
+      function shrink() {
+        const id = term && term.id;
+        api.close();
+        if (id) bubble.open(id);
+      }
+
+      /** A choice tapped, as in the bubble: a No wakes the input. */
+      async function answer(shown, asking, choice) {
+        page.tick?.();
+        const { path, params } = B.sendOf(shown.id, asking, choice);
+        const res = await page.post(path, params);
+        if (term !== shown) return;
+        if (!res) return page.flash?.('Can\'t reach your computer');
+        if (!res.ok) page.flash?.(await B.said(res));
+        else shown.card = B.answered(shown.card, choice);
+        render();
+        if (res.ok && choice.no) p.input.focus();
+        look(shown);
+      }
+
+      /**
+       * The input's words to the desk, with Return; several lines as one paste where it takes them; once, however often
+       * Enter or Send is pressed while they're on their way (a refresh meanwhile doesn't wake Send). Sent, they leave the
+       * box, and what was typed meanwhile stays; refused, or unanswered in SAY_WAIT, they stay, the reason under them.
+       */
+      async function say() {
+        const shown = term;
+        if (!shown || sending || p.input.readOnly) return;
+        const words = p.input.value, text = words.trim();
+        if (!text) return;
+        page.tick?.();
+        // Send clicked has the focus (in Chromium): into the input before it's greyed
+        B.offSend(doc, p.send, p.input, { preventScroll: true });
+        sending = p.send.disabled = true;
+        let res;
+        try {
+          res = await page.post('/talk/say', { session: shown.id }, B.limit(win), { text, send: true });
+        } finally {
+          sending = false;
+        }
+        const sent = !!(res && res.ok), rest = (left) => (left.startsWith(words) ? left.slice(words.length).trimStart() : left);
+        if (term !== shown) {
+          // Another desk is shown now: what went isn't kept as this desk's draft
+          if (sent && drafts.has(shown.id)) drafts.set(shown.id, rest(drafts.get(shown.id)));
+          if (p) p.send.disabled = p.input.readOnly;
+          return;
+        }
+        p.send.disabled = p.input.readOnly;
+        if (sent) {
+          p.input.value = rest(p.input.value);
+          problem('');
+          return look(shown);
+        }
+        problem(res ? await B.said(res) : 'Can\'t reach your computer.');
+      }
+
+      /** The desk's card again, and its newest messages when the transcript grew; then again in 2 or 3 seconds. */
+      async function look(shown) {
+        if (term !== shown) return;
+        win.clearTimeout(shown.timer);
+        const mine = shown.round = (shown.round || 0) + 1, current = () => term === shown && shown.round === mine;
+        const res = await page.get('/talk', { session: shown.id });
+        if (!current()) return;
+        if (res && res.status === 404) return api.close();
+        const card = res && res.ok ? await res.json().catch(() => null) : null;
+        if (card && current()) shown.card = card;
+        if (shown.card && shown.card.size !== shown.size && (room.session(shown.id) || {}).conversation !== false) await newest(shown);
+        if (!current()) return;
+        shown.loaded = true;
+        render();
+        if (!shown.focused) {
+          shown.focused = true;
+          // Without scrolling: the question's first line and the terminal's header stay in sight in a small window
+          const first = p.ask.querySelector('.talk-key');
+          (first || (p.input.readOnly ? p.el : p.input)).focus({ preventScroll: true });
+        }
+        shown.timer = win.setTimeout(() => look(shown), shown.card && shown.card.asking ? B.ASKING_EVERY : B.EVERY);
+      }
+
+      async function newest(shown) {
+        const params = { session: shown.id };
+        if (shown.size !== null && shown.items.length) params.size = shown.size;
+        const res = await page.get('/conversation', params);
+        const got = res && res.status === 200 ? await res.json().catch(() => null) : null;
+        if (!got || term !== shown) return;
+        const merged = B.merge(shown, got);
+        const said = shown.loaded ? B.linesSaid(room.name(shown.id), shown.items, merged.items) : [];
+        Object.assign(shown, { items: merged.items, before: merged.before, size: got.size });
+        if (said.length) p.live.replaceChildren(...said.map((line) => make('p', '', line)));
+      }
+
+      /** Older messages: the page before what's shown, put above it, where you were kept in sight. */
+      async function olderPage() {
+        const shown = term;
+        if (!shown || shown.before === null || shown.loadingOlder) return;
+        const fromFoot = p.body.scrollHeight - p.body.scrollTop, kept = () => { p.body.scrollTop = p.body.scrollHeight - fromFoot; };
+        shown.loadingOlder = true;
+        drawLines(false);
+        kept();
+        const res = await page.get('/conversation', { session: shown.id, before: shown.before });
+        shown.loadingOlder = false;
+        if (term !== shown) return;
+        const got = res && res.status === 200 ? await res.json().catch(() => null) : null;
+        if (!got) problem(res ? await B.said(res) : 'Can\'t reach your computer.');
+        else Object.assign(shown, T.older(shown, got));
+        drawLines(true);
+        kept();
+      }
+
+      const api = {
+        /** The terminal on `id`'s desk, from what the bubble showed of it; false for a desk the room doesn't have. */
+        open(id, from) {
+          if (!room.session(id)) return false;
+          if (!p) build();
+          const was = !!term;
+          show(id, from);
+          if (!was) {
+            p.dim.hidden = p.el.hidden = false;
+            for (const el of [p.dim, p.el]) {
+              el.classList.remove('enter');
+              el.classList.add('enter');
+            }
+            win.setTimeout(() => p && [p.dim, p.el].forEach((el) => el.classList.remove('enter')), T.ZOOM_MS + 20);
+            zoom(id);
+            pictured = 0;
+            picture();
+            // The keys are the terminal's at once; its first choice or input takes the focus once its card is read
+            p.el.focus({ preventScroll: true });
+          }
+          return true;
+        },
+        /** Back to the office: the terminal goes, the room comes back to its size, and the room has the focus again. */
+        close() {
+          if (!term) return;
+          drafts.set(term.id, p.input.value);
+          win.clearTimeout(term.timer);
+          term = null;
+          p.dim.hidden = p.el.hidden = p.menu.hidden = true;
+          zoom(null);
+          room.canvas.focus?.();
+        },
+        shown() {
+          return !!term;
+        },
+        /** A frame of the room, with the bubbles it drew: the desks and Next question kept up, and the office's picture. */
+        frame(bubbles) {
+          // Upstairs or on the ride the room draws no bubbles: the list stays as it was rather than empty
+          desks = (bubbles.length || !term ? bubbles : desks).filter((b) => room.session(b.id)).map((b) => ({ id: b.id, state: b.state, since: b.since }));
+          if (!term) return;
+          if (!room.session(term.id)) return api.close();
+          const now = Date.now();
+          if (now - pictured < T.PICTURE_EVERY) return;
+          pictured = now;
+          picture();
+          drawSide();
+        },
+        remove() {
+          api.close();
+          if (!p) return;
+          p.dim.remove();
+          p.el.remove();
+          doc.removeEventListener('keydown', keyed);
+          p = null;
+        },
+      };
+      return api;
+    },
+  };
 
   /* ------------------------------------------------------------ the floor */
 
@@ -719,6 +2394,30 @@
   /** The pieces added to the lounge in the room's shape now. */
   const addedOf = (room) => (room && room.plan && room.plan.added && room.plan.added[shape === TALL ? 'tall' : 'wide']) || [];
 
+  /**
+   * The TVs (1.26 TV1): the pieces that can show what a desk is building, on the wall and in the lounge. In the
+   * computer's own window each is something to click (`on.tv`), and one on each floor, the first of `tvsOf`, shows the
+   * picked desk's preview, as the page gave it (setPreview); the others, and every TV elsewhere, play as they always have.
+   */
+  const TV_KINDS = { wall: ['tv'], lounge: ['simpsonstv'] };
+  /** The room's TVs, by their part: those hung on the wall first, in turn, then the lounge's; those put away left out. */
+  const tvsOf = (room = decor) => [
+    ...hungOf(room).flatMap((piece, i) => (!piece.away && TV_KINDS.wall.includes(piece.kind) ? [`hung:${i}`] : [])),
+    ...loungePieces(room).filter(({ kind }) => TV_KINDS.lounge.includes(kind)).map(({ part }) => part),
+  ];
+  /**
+   * A desk's preview as a TV shows it, from what the page gave, { id, url }: its session's id, its address, the address
+   * without its http:// for the tag under the TV, and its port for the screen. Anything but a loopback http address at
+   * localhost (as the computer keeps every preview, 127.0.0.1 being Setup's alone), with a path or none, is null.
+   */
+  function onAirOf(shown) {
+    if (!shown || typeof shown !== 'object' || typeof shown.id !== 'string' || !shown.id || typeof shown.url !== 'string') return null;
+    const { id, url } = shown;
+    const found = /^http:\/\/localhost:([1-9][0-9]{0,4})(\/[\x21-\x7e]*)?$/.exec(url);
+    if (!found || Number(found[1]) > 65535 || url.length > 2048 || /[?#\\]/.test(url)) return null;
+    return { id, url, label: url.slice('http://'.length), port: found[1] };
+  }
+
   /** Where each desk is, as the room's shape now and its arrangement put them, and whether it's been put away: upstairs as downstairs, each floor as it's arranged. */
   const desksOf = (room) => STANDARD_DESKS.map((desk, i) => {
     const piece = pieceOf(`desk${i + 1}`, room);
@@ -1229,6 +2928,30 @@
       corner: 'geodegrotto', desk: 'black', chair: 'grey', pet: 'geodegolem', monitor: 'geodemon', staff: 'none',
       wall: ['geodebell', 'geodelantern', 'geodevault', 'geodelantern', 'geodecluster'] },
       things: ['geodetumbler', 'geodespecimens', 'geodelamp', 'geodeuvlamp', 'geodehalf', 'geodecaliper', 'geodepan', 'geodehammer'] },
+    // The royal court's team style (its outfits are the castle… nine): a castle's great hall, from pieces other styles have
+    castle: { name: 'Castle great hall', room: { workspace: 'scriptorium', floor: 'kitchenquarry', paint: 'stone', corner: 'vikinghearth',
+      desk: 'walnut', chair: 'red', pet: 'gentlemenhound', monitor: 'brass', staff: 'some',
+      wall: ['christianstainedglass', 'egypttorch', 'shield', 'egypttorch', 'christianstainedglass'] },
+      things: ['roses', 'goblet', 'hourglass'] },
+    // The Greek gods' home (see STYLE_DRESS), everyone dressed as one of them: a temple of pale stone and marble under a blue and
+    // gold frieze, the sun and the moon either side of an olive wreath, windows onto the sky, two trees in stone planters, an owl
+    // about the place; nectar, lightning and roses on the desks. Only pieces the office already has, and none of them moves shelf
+    // in setup.
+    olympus: { name: 'Mount Olympus', group: 'themes', room: { workspace: 'desk', floor: 'museummarble', paint: 'wowstormwind', lounge: 'sand',
+      corner: 'apple1trees', desk: 'white', chair: 'teal', pet: 'owl', monitor: 'standard', staff: 'some',
+      wall: ['window', 'wessunburst', 'christianwreath', 'moonwindow', 'window'] },
+      things: ['goblet', 'plasmaball', 'roses'] },
+    // A zoo: everyone in one of the nine animal onesies (see STYLE_DRESS), at desks out on the lawn among the animals' houses: the
+    // polar window, the zoo's map, the savanna, the reef tank and the big cat at its window; a pond in the lounge with a penguin
+    // about, and the keeper's megaphone. Only pieces other styles already have, so none of them moves shelf in setup.
+    zoo: { name: 'Zoo', room: { workspace: 'desk', floor: 'grass', paint: 'cream', lounge: 'sand',
+      corner: 'koipond', desk: 'wood', chair: 'green', pet: 'penguin', monitor: 'standard', mic: 'megaphone', staff: 'some',
+      wall: ['arcticbasewindow', 'trail', 'museumdiorama', 'aquariumreef', 'catcafewindow'] },
+      things: ['penguin', 'tikibananas', 'wesbinoculars', 'circusticket'] },
+    antcolony: { name: 'Ant colony', room: { workspace: 'desk', floor: 'forest', paint: 'cavemanwall', lounge: 'halloweendxsoil', corner: 'museumrex',
+      desk: 'wood', chair: 'green', pet: 'snail', monitor: 'bamboo', staff: 'some',
+      wall: ['aztecvines', 'lanternhang', 'preppershelf', 'lanternhang', 'aztecvines'] },
+      things: ['antfarm', 'pinecone', 'terrarium'] },
   };
   /** What a style furnishes. The sky, the seasons, the sound and your team stay as you have them. */
   const STYLED = ['mic', 'wall', 'floor', 'paint', 'lounge', 'loungePaint', 'corner', 'pet', 'desk', 'workspace', 'monitor', 'chair', 'staff'];
@@ -2231,6 +3954,62 @@
   /** The headless desks' badge, a little robot, on the front of each desk upstairs: its antenna's light blinks. */
   const ROBOT_BADGE = ['...a...', '.GGGGG.', 'GgggggG', 'GgcgcgG', 'GgkkkgG', '.GGGGG.'];
   const ROBOT_INKS = { G: 0x7d838f, g: 0xc4c8d0, c: 0x6fe0ff, k: 0x1f2129 };
+  /** A hire in T3 Code's badge, "T3" on a violet tag, on the front of its desk on any floor (T3D-a, experimental). */
+  const T3_BADGE = ['.bbbbbbb.', 'bwwwbwwbb', 'bbwbbbbwb', 'bbwbbbwwb', 'bbwbbbbwb', 'bbwbbwwbb', '.bbbbbbb.'];
+  const T3_INKS = { b: 0x6d28d9, w: 0xf4f1ea };
+  /**
+   * A desk's pull request badge (1.26 R2, only in the computer's own window): "PR #42" on a tag whose colour and
+   * little 3 × 5 mark say where it stands, on the front of the desk at its right, clear of the T3 badge at its left.
+   * One badge, two parts: the pull request's tag is the first; the second, for the lines changed ("+12 −3", C5), has
+   * its place reserved under it (see PR_BADGE.second) and is drawn by whoever gives it something to say.
+   */
+  const PR_LOOKS = {
+    open: { tone: 0x2f4f8f, mark: ['010', '101', '101', '101', '010'] },
+    approved: { tone: 0x2f7d4a, mark: ['000', '001', '101', '010', '000'] },
+    changes: { tone: 0xb4532a, mark: ['010', '010', '010', '000', '010'] },
+    merged: { tone: 0x8250df, mark: ['101', '101', '010', '010', '010'] },
+    closed: { tone: 0x5b6070, mark: ['101', '101', '010', '101', '101'] },
+  };
+  const PR_INK = 0xf4f1ea;
+  /**
+   * Where the tag goes: `top` rows down the desk, `right` pixels in from its right edge, `height` tall, no wider than
+   * `room` unless a number needs it, and `second` rows under it for the part C5 adds.
+   */
+  const PR_BADGE = { top: 7, right: 3, height: 7, room: 29, second: 8 };
+  /**
+   * Which look a pull request has: 'open', 'approved' (open and approved), 'changes' (open and changes asked for),
+   * 'merged' or 'closed'; or null for anything the computer wouldn't send (no badge, never a guess).
+   */
+  function prKindOf(pr) {
+    if (!pr || typeof pr !== 'object' || !Number.isInteger(pr.number) || pr.number < 1 || pr.number > 100000000) return null;
+    const decision = pr.reviewDecision || '';
+    if (pr.state === 'MERGED') return 'merged';
+    if (pr.state === 'CLOSED') return 'closed';
+    if (pr.state !== 'OPEN') return null;
+    if (decision === 'APPROVED') return 'approved';
+    if (decision === 'CHANGES_REQUESTED') return 'changes';
+    return decision === '' || decision === 'REVIEW_REQUIRED' ? 'open' : null;
+  }
+  /**
+   * The tag for a pull request, or null: its look, what it spells and how wide it is (its mark, then "PR", then the
+   * number; a long number gives up its mark, then its "PR", to keep to the room the desk has).
+   */
+  function prTagOf(pr) {
+    const kind = prKindOf(pr);
+    if (!kind) return null;
+    const number = `#${pr.number}`;
+    const forms = [{ marked: true, label: 'PR' }, { marked: false, label: 'PR' }, { marked: false, label: '' }];
+    const widthOf = (form) => 2 + (form.marked ? 5 : 0) + (form.label ? textWidth(form.label) + 2 : 0) + textWidth(number);
+    const form = forms.find((f) => widthOf(f) <= PR_BADGE.room) || forms[forms.length - 1];
+    return { kind, ...PR_LOOKS[kind], ...form, number, width: widthOf(form) };
+  }
+  /** Where a desk's tag is, in art pixels (the same for drawing and for a tap), or null when it has no pull request. */
+  function prBoxOf(desk, pr) {
+    const tag = prTagOf(pr), place = DESKS[desk];
+    if (!tag || !place) return null;
+    const left = place.x + DESK_WIDTH - PR_BADGE.right - tag.width, top = place.y + PR_BADGE.top;
+    return { tag, left, top, right: left + tag.width, bottom: top + PR_BADGE.height };
+  }
   /**
    * What a floor upstairs never has, in either shape, however it's arranged: the red button and the mic, the ground
    * floor's controls, and the ping-pong table, gone from every lounge.
@@ -2322,7 +4101,9 @@
         const name = typeof f.name === 'string' ? f.name.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 24) : '';
         // How many there wait on you, as the computer counts them: none from one from before it did
         const asking = Number(f.asking) > 0 ? Math.round(Number(f.asking)) : 0;
-        return { n: i + 1, name: name || `${i + 1}F`, preset: typeof f.preset === 'string' ? f.preset : '', desks: Array.isArray(f.desks) ? f.desks : [], asking };
+        // Each desk's pin, by its folder's name, as a key's: one from before floors had pins has none
+        const pins = Array.isArray(f.pins) ? f.pins.slice(0, UPSTAIRS_MOST).map((pin) => (typeof pin === 'string' && pin ? pin : null)) : [];
+        return { n: i + 1, name: name || `${i + 1}F`, preset: typeof f.preset === 'string' ? f.preset : '', desks: Array.isArray(f.desks) ? f.desks : [], asking, pins };
       });
     }
     const up = snapshot && snapshot.upstairs && Array.isArray(snapshot.upstairs.desks) ? snapshot.upstairs.desks : [];
@@ -2367,9 +4148,11 @@
    * state), named after its folder, at the desk the computer says it has, or
    * the first free one. An agent the computer says can be driven there keeps
    * its controls and its role, as on the ground floor; anyone else, a
-   * headless run, a cloud bot or the viewer's, has nothing to press.
+   * headless run, a cloud bot or the viewer's, has nothing to press. A desk
+   * pinned to a folder (`pins`, by desk) shows its name, as a pinned key does
+   * downstairs, kept for it while nobody of it is there.
    */
-  function upstairsSeatsOf(given, ahead) {
+  function upstairsSeatsOf(given, ahead, pins = []) {
     const named = new Map();
     const entries = given.filter((entry) => entry && typeof entry === 'object').slice(0, UPSTAIRS_MOST).map((entry) => {
       const name = String(entry.project || entry.name || '');
@@ -2391,8 +4174,9 @@
       while (keys[free]) free += 1;
       keys[free] = entry;
     }
-    return seatsOf({ keys: Array.from(keys, (k) => k || {}) }, ahead).map((seat) => ({
-      pin: null,
+    const pinned = pins.reduce((last, pin, desk) => (pin ? desk + 1 : last), 0);
+    return seatsOf({ keys: Array.from({ length: Math.max(keys.length, pinned) }, (_, desk) => keys[desk] || {}) }, ahead).map((seat, desk) => ({
+      pin: pins[desk] || null,
       session: !seat.session ? seat.session : seat.session.drivable === true ? seat.session
         : { ...seat.session, maxPressedAt: null, messagedAt: null, role: null, keys: false, fire: false, mic: false, dial: false },
     }));
@@ -4291,6 +6075,44 @@
     gentlementracksuit: { style: 'gentlementracksuit', shirt: 0x2a4a8a, pants: 0x2a4a8a, matching: true, shoes: 0xf0f0f0 },
     // The Geode's gem outfits, one for each gem in GEODE_GEMS (see geodeOutfitOf)
     ...Object.fromEntries(Object.keys(GEODE_GEMS).map((gem) => [`geode${gem}`, geodeOutfitOf(gem)])),
+    castleking: { style: 'castleking', shirt: 0xb02a2a, robe: true, shoes: 0x2a1a12, fixed: true },
+    castlequeen: { style: 'castlequeen', shirt: 0x5a2a8a, robe: true, shoes: 0x2a1a2a, fixed: true },
+    castlejester: { style: 'castlejester', shirt: 0xd83a3a, pants: 0xf0c030, shoes: 0x3a2a6a, fixed: true },
+    castleherald: { style: 'castleherald', shirt: 0x2a5aa8, sleeves: 0xf0ece4, pants: 0x2a2a3a, shoes: 0x3a2a1a, fixed: true },
+    castleknight: { style: 'castleknight', shirt: 0xa8aeb8, sleeves: 0xc8ced8, pants: 0x9aa0aa, shoes: 0x6a707a, fixed: true },
+    castlepage: { style: 'castlepage', shirt: 0x3a8a4a, pants: 0xf0c030, shoes: 0x5a3a1a, fixed: true },
+    castlecook: { style: 'castlecook', shirt: 0x7a5a3a, sleeves: 'skin', robe: true, shoes: 0x3a2a1a, fixed: true },
+    castlefalconer: { style: 'castlefalconer', shirt: 0x3a6a3a, pants: 0x5a4030, shoes: 0x3a2a1a, fixed: true },
+    castlelady: { style: 'castlelady', shirt: 0x2a5aa8, robe: true, shoes: 0x2a2a3a, fixed: true },
+    // The Greek gods (see OUTFIT_PARTS): an original team from myth, each in their own colours whatever the agent's
+    olympuszeus: { style: 'olympuszeus', shirt: 0xf4f0e6, robe: true, sleeves: 0xe8c0a0, shoes: 0xd8a840, fixed: true },
+    olympushera: { style: 'olympushera', shirt: 0x2a8a96, robe: true, shoes: 0xd8a840, fixed: true },
+    olympusposeidon: { style: 'olympusposeidon', shirt: 0x2a7a7a, robe: true, shoes: 0xd8a840, fixed: true },
+    olympusathena: { style: 'olympusathena', shirt: 0x3a5aa8, robe: true, shoes: 0xd8a840, fixed: true },
+    olympusapollo: { style: 'olympusapollo', shirt: 0xf6f2e8, pants: 0xf6f2e8, legs: 'skin', shoes: 0xd8a840, fixed: true },
+    olympusartemis: { style: 'olympusartemis', shirt: 0xe4ecdc, pants: 0xe4ecdc, legs: 'skin', shoes: 0x8a6a3a, fixed: true },
+    olympushermes: { style: 'olympushermes', shirt: 0xf4f2ea, pants: 0xf4f2ea, legs: 'skin', shoes: 0xc89a4a, fixed: true },
+    olympusares: { style: 'olympusares', shirt: 0xc8903a, pants: 0xb02a2a, legs: 'skin', shoes: 0xa87830, fixed: true },
+    olympusaphrodite: { style: 'olympusaphrodite', shirt: 0xf2a0b0, robe: true, shoes: 0xd8a840, fixed: true },
+    // The zoo onesies (their hoods drawn by costumeHood, in drawOffice): each animal in its own colours, whatever the agent's
+    zoolion: { style: 'zoolion', shirt: 0xd8a040, pants: 0xd8a040, shoes: 0x8a5a2a, fixed: true },
+    zooelephant: { style: 'zooelephant', shirt: 0x9a9ea8, pants: 0x9a9ea8, shoes: 0x6e727c, fixed: true },
+    zoogiraffe: { style: 'zoogiraffe', shirt: 0xf0c050, pants: 0xf0c050, shoes: 0x5a3418, fixed: true },
+    zoozebra: { style: 'zoozebra', shirt: 0xf4f4f0, pants: 0xf4f4f0, shoes: 0x1a1a1e, fixed: true },
+    zoopenguin: { style: 'zoopenguin', shirt: 0x1e1e26, pants: 0x1e1e26, shoes: 0xf08a20, fixed: true },
+    zoopanda: { style: 'zoopanda', shirt: 0xf4f4f0, sleeves: 0x1e1e22, pants: 0x1e1e22, shoes: 0x1e1e22, fixed: true },
+    zoomonkey: { style: 'zoomonkey', shirt: 0x7a4a2a, pants: 0x7a4a2a, shoes: 0x5a3420, fixed: true },
+    zooflamingo: { style: 'zooflamingo', shirt: 0xf28aa8, pants: 0xf28aa8, shoes: 0xd85a7a, fixed: true },
+    zoocroc: { style: 'zoocroc', shirt: 0x4a8a3a, pants: 0x4a8a3a, shoes: 0x2e5a22, fixed: true },
+    antcolonyqueen: { style: 'antcolonyqueen', shirt: 0x7a2a1a, robe: true, shoes: 0x3a1008, fixed: true },
+    antcolonyworker: { style: 'antcolonyworker', shirt: 0x24242c, pants: 0x1e1e26, shoes: 0x0e0e12, fixed: true },
+    antcolonysoldier: { style: 'antcolonysoldier', shirt: 0x8a2018, pants: 0x6a1810, shoes: 0x3a0c08, fixed: true },
+    antcolonyleafcutter: { style: 'antcolonyleafcutter', shirt: 0xa04a20, pants: 0x8a3e18, shoes: 0x4a1e0a, fixed: true },
+    antcolonynurse: { style: 'antcolonynurse', shirt: 0xc8742a, pants: 0xb06420, shoes: 0x5a3010, fixed: true },
+    antcolonydrone: { style: 'antcolonydrone', shirt: 0x2a2420, pants: 0x221c18, shoes: 0x0e0c0a, fixed: true },
+    antcolonyarchitect: { style: 'antcolonyarchitect', shirt: 0x6a4a2a, pants: 0x5a3e22, shoes: 0x2a1e10, fixed: true },
+    antcolonyhoneypot: { style: 'antcolonyhoneypot', shirt: 0xd8a040, pants: 0xc08a30, shoes: 0x6a4010, fixed: true },
+    antcolonyfarmer: { style: 'antcolonyfarmer', shirt: 0x2e241e, pants: 0x261e18, shoes: 0x0e0c0a, fixed: true },
   };
   /**
    * What an agent left on Auto wears for the workspace they're at, in their
@@ -4461,6 +6283,13 @@
       'ironmanironspider', 'ironmanrescue', 'ironmanmk2', 'ironmanmk3', 'ironmanwarmachine'],
     // The Geode: each person in one of the gems, and a bot named after a gem in its own (see styleDressOf)
     geode: GEODE_OUTFITS,
+    castle: ['castleking', 'castlequeen', 'castlejester', 'castleherald', 'castleknight', 'castlepage', 'castlecook', 'castlefalconer', 'castlelady'],
+    // Mount Olympus: the Greek gods, one each by project name
+    olympus: ['olympuszeus', 'olympushera', 'olympusposeidon', 'olympusathena', 'olympusapollo', 'olympusartemis', 'olympushermes', 'olympusares', 'olympusaphrodite'],
+    // The zoo: everyone in one of the nine animal onesies
+    zoo: ['zoolion', 'zooelephant', 'zoogiraffe', 'zoozebra', 'zoopenguin', 'zoopanda', 'zoomonkey', 'zooflamingo', 'zoocroc'],
+    antcolony: ['antcolonyqueen', 'antcolonyworker', 'antcolonysoldier', 'antcolonyleafcutter', 'antcolonynurse', 'antcolonydrone',
+      'antcolonyarchitect', 'antcolonyhoneypot', 'antcolonyfarmer'],
   };
   /** What the room's style dresses `seed` (a project's name) in, if it dresses each person differently. */
   function styleDressOf(seed) {
@@ -4585,7 +6414,7 @@
       'phi', 'witch', 'skeleton', 'mummy', 'refskeleton', 'mummyjersey', 'jersey', 'warmup', 'referee', 'coachpolo', 'blazer', 'werewolf', 'santa', 'xmasjumper',
       'beanie', 'cableknit', 'redsuit', 'heartsweater', 'tangsuit', 'playoffjersey', 'superfan', 'techwear', 'submariner', 'barista', 'cowboy', 'partyhat', 'sequin',
       'artdirector', 'lawyer', 'therapist', 'plumber', 'gmexec', 'gmcoach', 'gmtycoon',
-      'detective', 'hardhat', 'librarian', 'janitor', 'firefighter', 'pilot', 'postman', 'accountant', 'marketer', 'securityguard', 'chef', 'spacesuit', 'kimono', 'cultistrobe', 'investigator', 'deepone', 'professor', 'divingsuit', 'fleecevest', 'bullparty', 'blanketcape', 'denhoodie', 'homejersey', 'lakersjersey', 'celticsjersey', 'warriorsjersey', 'knicksjersey', 'bullsjersey', 'heatjersey', 'spursjersey', 'thunderjersey', 'wolvesjersey', 'nuggetsjersey', 'hawksjersey', 'netsjersey', 'hornetsjersey', 'cavsjersey', 'mavsjersey', 'pistonsjersey', 'rocketsjersey', 'pacersjersey', 'clippersjersey', 'grizzliesjersey', 'bucksjersey', 'pelicansjersey', 'magicjersey', 'sixersjersey', 'sunsjersey', 'blazersjersey', 'kingsjersey', 'raptorsjersey', 'jazzjersey', 'wizardsjersey', 'marvel1cap', 'marvel1spidey', 'marvel1thor', 'marvel1widow', 'marvel2starlord', 'marvel2strange', 'marvel2panther', 'marvel2loki', 'ironmanmk3', 'ironmanmk2', 'ironmanwarmachine', 'batcavebatsuit', 'batcaverobin', 'batcavealfred', 'batcavecatwoman', 'dcmixsuperman', 'dcmixwonder', 'dcmixflash', 'dcmixgreenlantern', 'pokemontrainer', 'pokemonrocket', 'pokemonnurse', 'pokemonoak', 'loljinx', 'lolahri', 'lolgaren', 'lollux', 'wowpaladin', 'wowgrunt', 'wowmage', 'wowelf', 'gtatommy', 'gtacj', 'gtacop', 'gtaheist', 'destinyhunterwear', 'destinytitanwear', 'destinywarlockwear', 'destinyexo', 'starwarsjedi', 'starwarsvader', 'starwarsstormtrooper', 'starwarsprincess', 'girly1gingham', 'girly1cowgirl', 'girly1tracksuit', 'girly1gown', 'girly2kittyhood', 'girly2bunnyhood', 'girly2sailor', 'girly2overalls', 'narcosboss', 'narcosdea', 'narcosmiami', 'narcoshawaiian', 'apple1turtleneck', 'apple1genius', 'apple1headset', 'apple1hoodie', 'apple2bowtie', 'apple2woz', 'apple2rainbowtee', 'apple2runner', 'jewishkippah', 'jewishtichel', 'jewishknit', 'jewishdress', 'muslimhijab', 'muslimabaya', 'muslimthobe', 'muslimkurta', 'christianpendant', 'christianchoir', 'christiansuit', 'christianlace', 'buddhistrobe', 'buddhistmaroonrobe', 'buddhistlinen', 'buddhistmala', 'ironmantony2', 'ironmantony2b', 'ironmantony2c', 'ironmanmk1', 'ironmanmk4', 'ironmanmk5', 'ironmanmk6', 'ironmanmk7', 'ironmanmk15', 'ironmanmk16', 'ironmanmk17', 'ironmanmk33', 'ironmanmk38', 'ironmanmk42', 'ironmanmk43', 'ironmanmk45', 'ironmanmk46', 'ironmanmk47', 'ironmanmk50', 'ironmanmk85', 'ironmanpatriot', 'ironmanironspider', 'ironmanrescue', 'volcanojumpsuit', 'volcanovillain', 'volcanoheatsuit', 'volcanoguard', 'kitchenchef', 'kitchensous', 'kitchenpartie', 'kitchencommis', 'hospitalscrubs', 'hospitaldoctor', 'hospitalnurse', 'hospitalsurgeon', 'noirtrench', 'noiruniform', 'noirsuspenders', 'noirreporter', 'madlabcoat', 'madlabapron', 'madlabassistant', 'madlabhazmat', 'casinodealer', 'casinotux', 'casinohighroller', 'casinoshowman', 'orientconductor', 'orientattendant', 'orienttraveller', 'orientpearls', 'halloweendxvampire', 'halloweendxplague', 'halloweendxscarecrow', 'halloweendxspider', 'catcafebarista', 'catcafeears', 'catcafejumper', 'catcafeoveralls', 'spiderversemiles', 'spiderversegwensuit', 'spiderversepeterb', 'spiderversepunk', 'xmenwolverine', 'xmencyclops', 'xmengambit', 'xmenstormsuit', 'f1racesuit', 'f1silversuit', 'f1pitcrew', 'f1teampolo', 'ufcrashguard', 'ufcreferee', 'ufccornerhoodie', 'ufcwalkout', 'nyloftpeacoat', 'nyloftflannel', 'nyloftturtleneck', 'nyloftleather', 'pariscafemariniere', 'pariscafegarcon', 'pariscafetrench', 'pariscafepearls', 'muertoscatrinadress', 'muertoscharro', 'muertosblouse', 'muertosbones', 'submarinedeepcoverall', 'submarinedeepwetsuit', 'submarinedeeplabcoat', 'submarinedeepsweater', 'arcticbaseparka', 'arcticbasefleece', 'arcticbasecoldsuit', 'arcticbaseknit', 'sakurayukata', 'sakuracardigan', 'sakurasailor', 'sakuraflorist', 'pottergryffindor', 'potterslytherin', 'potterquidditch', 'potterheadmaster', 'lotrgandalf', 'lotrhobbit', 'lotrelf', 'lotrranger', 'breakingbadhazmat', 'breakingbadheisenberg', 'breakingbadjesse', 'breakingbadsaul', 'strangereleven', 'strangerhellfiretee', 'strangerscoopsuniform', 'strangerhopper', 'gotnightswatch', 'gotlannisterred', 'gotdaenerys', 'gotwhitewalker', 'simpsonshomer', 'simpsonsmarge', 'simpsonsbart', 'simpsonslisa', 'bondtux', 'bondwhitejacket', 'bondmoneypenny', 'bondoddjob', 'dunestillsuit', 'dunefremen', 'dunebenegesserit', 'duneharkonnenblack', 'onepieceluffy', 'onepiecezoro', 'onepiecenami', 'onepiecesanji', 'eldenringtarnished', 'eldenringmaiden', 'eldenringvalkyrie', 'eldenringwitch', 'sevmdr', 'sevmanager', 'sevwellness', 'sevsecurity', 'offdwight', 'offjim', 'offmichael', 'offpam', 'peakytommy', 'peakyarthur', 'peakypolly', 'peakybarman', 'madmdon', 'madmroger', 'madmjoan', 'madmpeggy', 'squidplayer', 'squidguard', 'squidfrontman', 'squidvip', 'boyshomelander', 'boysstarlight', 'boysbutcher', 'boysexec', 'falloutvaultsuit', 'falloutranger', 'falloutraider', 'falloutscientist', 'rickcoat', 'rickmorty', 'ricksummer', 'rickbirdperson', 'mirrorsuit', 'mirrorjumpsuit', 'mirrortech', 'mirrorgown', 'westcowboy', 'westhost', 'westtech', 'westgunslinger', 'bttfmarty', 'bttfdoc', 'bttffuture', 'bttfsodajerk', 'jpranger', 'jpscientist', 'jpvisitor', 'jpnedry', 'wicksuit', 'wickconciergeoutfit', 'wicksommelier', 'wickadjudicator', 'kingsmangalahad', 'kingsmanmerlin', 'kingsmantailor', 'kingsmanagent', 'wonkawonka', 'wonkaoompa', 'wonkacharlie', 'wonkaguide', 'wesgustave', 'weszero', 'wesagatha', 'wesguest', 'mibsuit', 'mibzed', 'mibalien', 'mibworm', 'tronblue', 'tronorange', 'tronflynn', 'tronsiren', 'dbzgoku', 'dbzvegeta', 'dbzpiccolo', 'dbzstudent', 'amongusred', 'amonguscyan', 'amongusyellow', 'amongusimposter', 'tokyohappi', 'tokyokimono', 'tokyosalaryman', 'tokyostreet', 'egyptking', 'egyptpriest', 'egyptqueen', 'egyptworker', 'vikingwarrior', 'vikingmaiden', 'vikingjarl', 'vikingseer', 'aztecjaguarw', 'azteceaglew', 'aztecpriest', 'aztecnoble', 'obsastronomer', 'obsprofessor', 'obsastronaut', 'obsstargazer', 'tikibartender', 'tikisurfer', 'tikiluau', 'tikitourist', 'dinerwaitress', 'dinercook', 'dinergreaser', 'dinerpoodle', 'courtjudge', 'courtlawyer', 'courtbailiff', 'courtclerk', 'artsmock', 'artberet', 'artsculptor', 'artstudent', 'aquariumwetsuit', 'aquariumkeeper', 'aquariumbiologist', 'aquariumscuba', 'circusringmaster', 'circusclown', 'circusacrobat', 'circusstrongman', 'museumcurator', 'museumpaleo', 'museumdocent', 'museumprofessor', 'northpolesanta', 'northpoleelf', 'northpolemrsclaus', 'northpolesweater', 'soundstagedirector', 'soundstagestarlet', 'soundstagecrew', 'soundstagetux', 'cultrobe', 'cultleader', 'cultelder', 'cultinitiate', 'esportsjersey', 'esportshoodie', 'esportscaster', 'esportspro', 'cavemanfur', 'cavemanhunter', 'cavemanshaman', 'cavemanchief', 'lodgerobe', 'lodgemaster', 'lodgeapron', 'lodgeguard', 'prepperhazmat', 'prepperfatigues', 'prepperbugout', 'prepperranger', 'paradisepresident', 'paradisesecret', 'paradiseaide', 'paradisehazmat', 'startrekgold', 'startrekblue', 'startrekred', 'startrekcaptain', 'gentlementweedsuit', 'gentlemengamekeeper', 'gentlemengangster', 'gentlementracksuit', 'geoderuby', 'geodeopal', 'geodesapphire', 'geodeamber', 'geodegarnet', 'geodetopaz', 'geodepearl', 'geodemoonstone', 'geodemalachite', 'geodejade', 'geodelapis', 'geodeamethyst', 'geodeobsidian'],
+      'detective', 'hardhat', 'librarian', 'janitor', 'firefighter', 'pilot', 'postman', 'accountant', 'marketer', 'securityguard', 'chef', 'spacesuit', 'kimono', 'cultistrobe', 'investigator', 'deepone', 'professor', 'divingsuit', 'fleecevest', 'bullparty', 'blanketcape', 'denhoodie', 'homejersey', 'lakersjersey', 'celticsjersey', 'warriorsjersey', 'knicksjersey', 'bullsjersey', 'heatjersey', 'spursjersey', 'thunderjersey', 'wolvesjersey', 'nuggetsjersey', 'hawksjersey', 'netsjersey', 'hornetsjersey', 'cavsjersey', 'mavsjersey', 'pistonsjersey', 'rocketsjersey', 'pacersjersey', 'clippersjersey', 'grizzliesjersey', 'bucksjersey', 'pelicansjersey', 'magicjersey', 'sixersjersey', 'sunsjersey', 'blazersjersey', 'kingsjersey', 'raptorsjersey', 'jazzjersey', 'wizardsjersey', 'marvel1cap', 'marvel1spidey', 'marvel1thor', 'marvel1widow', 'marvel2starlord', 'marvel2strange', 'marvel2panther', 'marvel2loki', 'ironmanmk3', 'ironmanmk2', 'ironmanwarmachine', 'batcavebatsuit', 'batcaverobin', 'batcavealfred', 'batcavecatwoman', 'dcmixsuperman', 'dcmixwonder', 'dcmixflash', 'dcmixgreenlantern', 'pokemontrainer', 'pokemonrocket', 'pokemonnurse', 'pokemonoak', 'loljinx', 'lolahri', 'lolgaren', 'lollux', 'wowpaladin', 'wowgrunt', 'wowmage', 'wowelf', 'gtatommy', 'gtacj', 'gtacop', 'gtaheist', 'destinyhunterwear', 'destinytitanwear', 'destinywarlockwear', 'destinyexo', 'starwarsjedi', 'starwarsvader', 'starwarsstormtrooper', 'starwarsprincess', 'girly1gingham', 'girly1cowgirl', 'girly1tracksuit', 'girly1gown', 'girly2kittyhood', 'girly2bunnyhood', 'girly2sailor', 'girly2overalls', 'narcosboss', 'narcosdea', 'narcosmiami', 'narcoshawaiian', 'apple1turtleneck', 'apple1genius', 'apple1headset', 'apple1hoodie', 'apple2bowtie', 'apple2woz', 'apple2rainbowtee', 'apple2runner', 'jewishkippah', 'jewishtichel', 'jewishknit', 'jewishdress', 'muslimhijab', 'muslimabaya', 'muslimthobe', 'muslimkurta', 'christianpendant', 'christianchoir', 'christiansuit', 'christianlace', 'buddhistrobe', 'buddhistmaroonrobe', 'buddhistlinen', 'buddhistmala', 'ironmantony2', 'ironmantony2b', 'ironmantony2c', 'ironmanmk1', 'ironmanmk4', 'ironmanmk5', 'ironmanmk6', 'ironmanmk7', 'ironmanmk15', 'ironmanmk16', 'ironmanmk17', 'ironmanmk33', 'ironmanmk38', 'ironmanmk42', 'ironmanmk43', 'ironmanmk45', 'ironmanmk46', 'ironmanmk47', 'ironmanmk50', 'ironmanmk85', 'ironmanpatriot', 'ironmanironspider', 'ironmanrescue', 'volcanojumpsuit', 'volcanovillain', 'volcanoheatsuit', 'volcanoguard', 'kitchenchef', 'kitchensous', 'kitchenpartie', 'kitchencommis', 'hospitalscrubs', 'hospitaldoctor', 'hospitalnurse', 'hospitalsurgeon', 'noirtrench', 'noiruniform', 'noirsuspenders', 'noirreporter', 'madlabcoat', 'madlabapron', 'madlabassistant', 'madlabhazmat', 'casinodealer', 'casinotux', 'casinohighroller', 'casinoshowman', 'orientconductor', 'orientattendant', 'orienttraveller', 'orientpearls', 'halloweendxvampire', 'halloweendxplague', 'halloweendxscarecrow', 'halloweendxspider', 'catcafebarista', 'catcafeears', 'catcafejumper', 'catcafeoveralls', 'spiderversemiles', 'spiderversegwensuit', 'spiderversepeterb', 'spiderversepunk', 'xmenwolverine', 'xmencyclops', 'xmengambit', 'xmenstormsuit', 'f1racesuit', 'f1silversuit', 'f1pitcrew', 'f1teampolo', 'ufcrashguard', 'ufcreferee', 'ufccornerhoodie', 'ufcwalkout', 'nyloftpeacoat', 'nyloftflannel', 'nyloftturtleneck', 'nyloftleather', 'pariscafemariniere', 'pariscafegarcon', 'pariscafetrench', 'pariscafepearls', 'muertoscatrinadress', 'muertoscharro', 'muertosblouse', 'muertosbones', 'submarinedeepcoverall', 'submarinedeepwetsuit', 'submarinedeeplabcoat', 'submarinedeepsweater', 'arcticbaseparka', 'arcticbasefleece', 'arcticbasecoldsuit', 'arcticbaseknit', 'sakurayukata', 'sakuracardigan', 'sakurasailor', 'sakuraflorist', 'pottergryffindor', 'potterslytherin', 'potterquidditch', 'potterheadmaster', 'lotrgandalf', 'lotrhobbit', 'lotrelf', 'lotrranger', 'breakingbadhazmat', 'breakingbadheisenberg', 'breakingbadjesse', 'breakingbadsaul', 'strangereleven', 'strangerhellfiretee', 'strangerscoopsuniform', 'strangerhopper', 'gotnightswatch', 'gotlannisterred', 'gotdaenerys', 'gotwhitewalker', 'simpsonshomer', 'simpsonsmarge', 'simpsonsbart', 'simpsonslisa', 'bondtux', 'bondwhitejacket', 'bondmoneypenny', 'bondoddjob', 'dunestillsuit', 'dunefremen', 'dunebenegesserit', 'duneharkonnenblack', 'onepieceluffy', 'onepiecezoro', 'onepiecenami', 'onepiecesanji', 'eldenringtarnished', 'eldenringmaiden', 'eldenringvalkyrie', 'eldenringwitch', 'sevmdr', 'sevmanager', 'sevwellness', 'sevsecurity', 'offdwight', 'offjim', 'offmichael', 'offpam', 'peakytommy', 'peakyarthur', 'peakypolly', 'peakybarman', 'madmdon', 'madmroger', 'madmjoan', 'madmpeggy', 'squidplayer', 'squidguard', 'squidfrontman', 'squidvip', 'boyshomelander', 'boysstarlight', 'boysbutcher', 'boysexec', 'falloutvaultsuit', 'falloutranger', 'falloutraider', 'falloutscientist', 'rickcoat', 'rickmorty', 'ricksummer', 'rickbirdperson', 'mirrorsuit', 'mirrorjumpsuit', 'mirrortech', 'mirrorgown', 'westcowboy', 'westhost', 'westtech', 'westgunslinger', 'bttfmarty', 'bttfdoc', 'bttffuture', 'bttfsodajerk', 'jpranger', 'jpscientist', 'jpvisitor', 'jpnedry', 'wicksuit', 'wickconciergeoutfit', 'wicksommelier', 'wickadjudicator', 'kingsmangalahad', 'kingsmanmerlin', 'kingsmantailor', 'kingsmanagent', 'wonkawonka', 'wonkaoompa', 'wonkacharlie', 'wonkaguide', 'wesgustave', 'weszero', 'wesagatha', 'wesguest', 'mibsuit', 'mibzed', 'mibalien', 'mibworm', 'tronblue', 'tronorange', 'tronflynn', 'tronsiren', 'dbzgoku', 'dbzvegeta', 'dbzpiccolo', 'dbzstudent', 'amongusred', 'amonguscyan', 'amongusyellow', 'amongusimposter', 'tokyohappi', 'tokyokimono', 'tokyosalaryman', 'tokyostreet', 'egyptking', 'egyptpriest', 'egyptqueen', 'egyptworker', 'vikingwarrior', 'vikingmaiden', 'vikingjarl', 'vikingseer', 'aztecjaguarw', 'azteceaglew', 'aztecpriest', 'aztecnoble', 'obsastronomer', 'obsprofessor', 'obsastronaut', 'obsstargazer', 'tikibartender', 'tikisurfer', 'tikiluau', 'tikitourist', 'dinerwaitress', 'dinercook', 'dinergreaser', 'dinerpoodle', 'courtjudge', 'courtlawyer', 'courtbailiff', 'courtclerk', 'artsmock', 'artberet', 'artsculptor', 'artstudent', 'aquariumwetsuit', 'aquariumkeeper', 'aquariumbiologist', 'aquariumscuba', 'circusringmaster', 'circusclown', 'circusacrobat', 'circusstrongman', 'museumcurator', 'museumpaleo', 'museumdocent', 'museumprofessor', 'northpolesanta', 'northpoleelf', 'northpolemrsclaus', 'northpolesweater', 'soundstagedirector', 'soundstagestarlet', 'soundstagecrew', 'soundstagetux', 'cultrobe', 'cultleader', 'cultelder', 'cultinitiate', 'esportsjersey', 'esportshoodie', 'esportscaster', 'esportspro', 'cavemanfur', 'cavemanhunter', 'cavemanshaman', 'cavemanchief', 'lodgerobe', 'lodgemaster', 'lodgeapron', 'lodgeguard', 'prepperhazmat', 'prepperfatigues', 'prepperbugout', 'prepperranger', 'paradisepresident', 'paradisesecret', 'paradiseaide', 'paradisehazmat', 'startrekgold', 'startrekblue', 'startrekred', 'startrekcaptain', 'gentlementweedsuit', 'gentlemengamekeeper', 'gentlemengangster', 'gentlementracksuit', 'geoderuby', 'geodeopal', 'geodesapphire', 'geodeamber', 'geodegarnet', 'geodetopaz', 'geodepearl', 'geodemoonstone', 'geodemalachite', 'geodejade', 'geodelapis', 'geodeamethyst', 'geodeobsidian', 'castleking', 'castlequeen', 'castlejester', 'castleherald', 'castleknight', 'castlepage', 'castlecook', 'castlefalconer', 'castlelady', 'olympuszeus', 'olympushera', 'olympusposeidon', 'olympusathena', 'olympusapollo', 'olympusartemis', 'olympushermes', 'olympusares', 'olympusaphrodite', 'zoolion', 'zooelephant', 'zoogiraffe', 'zoozebra', 'zoopenguin', 'zoopanda', 'zoomonkey', 'zooflamingo', 'zoocroc', 'antcolonyqueen', 'antcolonyworker', 'antcolonysoldier', 'antcolonyleafcutter', 'antcolonynurse', 'antcolonydrone', 'antcolonyarchitect', 'antcolonyhoneypot', 'antcolonyfarmer'],
     colour: ['auto', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'yellow', 'grey', 'black', 'white'],
     desk: ['auto', 'plant', 'papers', 'lamp', 'cactus', 'duck', 'trophy', 'photo', 'mug',
       'helmet', 'rocket', 'terrarium', 'quill', 'candelabra', 'goblet', 'rum', 'compass', 'skull', 'snowglobe', 'thermos', 'penguin',
@@ -7944,15 +9773,17 @@
   const LABEL_SMALLEST = 8;
   /**
    * How long a turn has run, short enough for its name tag: 9:41 for the
-   * first ten minutes, then 12m, then 2h. `short`, where a long name needs
-   * the room, says 41s, then 9m, then 12m.
+   * first ten minutes, then 12m, then 2h, then 4d from 100 hours on, never
+   * stopping at a cap that would read as less than it is. `short`, where a
+   * long name needs the room, says 41s, then 9m, then 12m.
    */
   function turnLength(seconds, short = false) {
     const minutes = Math.floor(seconds / 60);
     if (short && minutes < 1) return `${seconds}s`;
     if (minutes < 10 && !short) return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
     if (minutes < 60) return `${minutes}m`;
-    return `${Math.min(Math.floor(minutes / 60), 99)}h`;
+    const hours = Math.floor(minutes / 60);
+    return hours > 99 ? `${Math.floor(hours / 24)}d` : `${hours}h`;
   }
 
   /** Waiting on you longer than this, in seconds, an agent gets agitated, and more so the longer it goes on… */
@@ -7987,7 +9818,7 @@
     3: ['111', '001', '111', '001', '111'], 4: ['101', '101', '111', '001', '001'], 5: ['111', '100', '111', '001', '111'],
     6: ['111', '100', '111', '101', '111'], 7: ['111', '001', '001', '001', '001'], 8: ['111', '101', '111', '101', '111'],
     9: ['111', '101', '111', '001', '111'], ':': ['0', '1', '0', '1', '0'], '+': ['000', '010', '111', '010', '000'],
-    '-': ['000', '000', '111', '000', '000'],
+    '-': ['000', '000', '111', '000', '000'], '#': ['0101', '1111', '0101', '1111', '0101'],
     m: ['000', '000', '111', '111', '101'], h: ['100', '100', '111', '101', '101'],
     // The letters the office's buttons spell
     D: ['110', '101', '101', '101', '110'], E: ['111', '100', '110', '100', '111'], F: ['111', '100', '110', '100', '100'],
@@ -8003,7 +9834,7 @@
   };
   /** How wide `text` is in the pixel font. */
   const textWidth = (text) => [...text].reduce((w, c) => w + GLYPHS[c][0].length + 1, -1);
-  /** Personal build: how long a dictation's note shows over its desk, and the last part of that, fading, in seconds. */
+  /** How long a dictation's note shows over its desk, and the last part of that, fading, in seconds. */
   const VOICE_NOTE_FOR = 4;
   const VOICE_NOTE_FADE = 1;
   /** How long everyone looks up when the mic goes on, as if the boss were shouting. */
@@ -8164,7 +9995,7 @@
    * agent, or fire one. A first finger landing on them for a two-finger
    * scroll sends nothing.
    */
-  const SENT_ON_LIFT = ['key', 'choice', 'chip', 'button', 'fired', 'maxed'];
+  const SENT_ON_LIFT = ['key', 'choice', 'chip', 'button', 'fired', 'maxed', 'talk', 'pr', 'tv'];
   /** How long the question before firing, or max effort, ignores taps, in seconds: a double tap that opened it doesn't answer it too. */
   const FIRE_QUESTION_SETTLES = 0.5;
   /** Return again this soon, by accept or send, is one tap landing twice, in seconds. */
@@ -8178,7 +10009,7 @@
   const KEY_NAMES = { enter: '⏎', escape: 'esc', tab: '⇥', 'shift-tab': '⇤', up: '↑', down: '↓', 'ctrl-c': '^C' };
   /** ⏎, in pixels. */
   const SEND_MARK = ['0000001', '0000001', '0100001', '1111111', '0100000'];
-  /** ✨ Summary (personal build): for an agent whose session has a transcript to read, with the setting on. */
+  /** ✨ Summary: for an agent whose session has a transcript to read, with the setting on. */
   const SUMMARY_KEY = { action: 'summary', label: '✨ summary' };
   /** The picked agent's key to put them on another floor, where the page can and there's a floor to go to. */
   const MOVE_KEY = { action: 'floor', label: '⇅ floor' };
@@ -8973,6 +10804,137 @@
     return { left, top, w, h, tip, keys };
   }
 
+  /**
+   * Where the talk bubbles are (1.26, Talk Bubble). The bubble over each head is
+   * what a click goes to, once the page gives the room a `talk` (see `on.talk`
+   * above): this works out its box, the point its tail aims at, how long a mouse
+   * rests on it before the tag shows, which waiting agents' small question
+   * bubbles fit and which fall back to the "?", and who is waiting longest.
+   *
+   * Everything here is a plain function of what it's given, art pixels in and
+   * out unless it says CSS pixels, so it runs on its own in node tests, and the
+   * hit test, the hover and the bubble panels share one copy. A box is
+   * { left, right, top, bottom }, its right and bottom edges just past its last
+   * pixel; a bubble, as the room records it, is
+   * { id, x, top, state, since }: the person's column and top row, their state,
+   * and when they started waiting on you (the office's clock, null if unknown);
+   * `quiet` too for an idle head, which draws no bubble and so has no hit box:
+   * its desk is still opened by Enter or the hidden desk list.
+   */
+  const TALK_ANCHORS = {
+    /** The bubble `drawBubble` draws is 11 wide and 10 tall, its tail's last pixel included; a target is at least this many each way. */
+    SMALLEST: 12,
+    /** A mouse rests on a bubble this long before its tag shows, in seconds. */
+    HOVER_AFTER: 0.25,
+    /** A desk's card is asked for at most this often by hovering, in seconds. */
+    HOVER_EVERY: 1,
+    /** A box kept at least this far from the room's edges. */
+    MARGIN: 1,
+
+    /** The bubble over a head whose top row is `top`, in column `x`, as it rests (its shaking, when kept waiting, leaves it where it is). */
+    boxOf(x, top) {
+      return { left: x - 5, right: x + 6, top: top - 10, bottom: top };
+    },
+
+    /** The pixel the bubble's tail ends on: the point a panel grown from it points at. */
+    tipOf(x, top) {
+      return { x: x - 1, y: top - 1 };
+    },
+
+    /** `box` grown to at least `least` pixels each way: sideways about its middle, and only upwards, as its tail points down at the head. */
+    padded(box, least = TALK_ANCHORS.SMALLEST) {
+      const across = Math.max(0, least - (box.right - box.left)), down = Math.max(0, least - (box.bottom - box.top));
+      return { left: box.left - Math.floor(across / 2), right: box.right + Math.ceil(across / 2), top: box.top - down, bottom: box.bottom };
+    },
+
+    /** `box` slid, not resized, to lie `margin` inside a room `room.width` × `room.height`; where it's too big, its top left wins. */
+    fitInside(box, room, margin = TALK_ANCHORS.MARGIN) {
+      const w = box.right - box.left, h = box.bottom - box.top;
+      const left = Math.max(margin, Math.min(room.width - margin - w, box.left));
+      const top = Math.max(margin, Math.min(room.height - margin - h, box.top));
+      return { left, right: left + w, top, bottom: top + h };
+    },
+
+    /** What a click on the bubble over a head reaches: its box, padded, and inside the room even where the head is at its edge. */
+    hitBox(x, top, room) {
+      return TALK_ANCHORS.fitInside(TALK_ANCHORS.padded(TALK_ANCHORS.boxOf(x, top)), room);
+    },
+
+    /** Whether two boxes share a pixel. */
+    overlap(a, b) {
+      return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    },
+
+    /** Notes a bubble the room has just drawn on `list`, once for each person however often the room is drawn in a frame. */
+    record(list, bubble) {
+      if (!list.some((one) => one.id === bubble.id)) list.push(bubble);
+    },
+
+    /**
+     * What the page is told of a bubble: its id and state, and its box and tail point in art pixels and in CSS pixels
+     * on the page. `view` says where the room is: { scale, ox, oy } its art pixel's size and corner in canvas pixels,
+     * `k` the canvas pixels to a CSS pixel, and { left, top } the canvas's corner on the page.
+     */
+    anchorOf(bubble, room, view) {
+      const box = TALK_ANCHORS.hitBox(bubble.x, bubble.top, room), tip = TALK_ANCHORS.tipOf(bubble.x, bubble.top);
+      const css = (x, y) => ({ x: view.left + (view.ox + x * view.scale) / view.k, y: view.top + (view.oy + y * view.scale) / view.k });
+      const from = css(box.left, box.top), to = css(box.right, box.bottom);
+      return {
+        id: bubble.id, state: bubble.state, since: bubble.since,
+        art: { box, tip },
+        css: { box: { left: from.x, right: to.x, top: from.y, bottom: to.y }, tip: css(tip.x, tip.y) },
+      };
+    },
+
+    /** A mouse over nothing yet. */
+    hover() {
+      return { id: null, since: 0, shown: null };
+    },
+
+    /**
+     * The mouse is over bubble `id` (null: over none) at `now`, in seconds; `state` is what this returned before.
+     * Says the next state, who the tag is to show for now (`show`), whether a tag shown before goes away (`hide`), and
+     * how many seconds to wait before looking again (`wait`, null for no need). Moving to another bubble starts the wait again.
+     */
+    hoverStep(state, id, now) {
+      const hide = state.shown !== null && state.shown !== id;
+      if (id === null) return { state: TALK_ANCHORS.hover(), show: null, hide, wait: null };
+      const since = state.id === id ? state.since : now;
+      const due = since + TALK_ANCHORS.HOVER_AFTER;
+      if (now < due) return { state: { id, since, shown: null }, show: null, hide, wait: due - now };
+      return { state: { id, since, shown: id }, show: state.shown === id ? null : id, hide, wait: null };
+    },
+
+    /** Whether a desk's card may be asked for again, `last` being when it last was (undefined if never), in seconds. */
+    mayAsk(last, now) {
+      return last === undefined || now - last >= TALK_ANCHORS.HOVER_EVERY;
+    },
+
+    /** The waiting bubbles, longest waiting first, as the room's agitation grows; those whose start isn't known last, by id. */
+    needsYou(bubbles) {
+      const since = (b) => (typeof b.since === 'number' ? b.since : Infinity);
+      return bubbles.filter((b) => b.state === 'asking')
+        .sort((a, b) => (since(a) === since(b) ? String(a.id).localeCompare(String(b.id)) : since(a) - since(b)));
+    },
+
+    /**
+     * Where each waiting desk's small question bubble goes, `size` { w, h } art pixels, its tail on the head and the
+     * whole kept inside `room`, longest waiting first. One that would cover a bubble placed before it falls back to
+     * the "?" bubble: `small` is { id, box, tip } for those that fit, `marks` the ids of those that fall back, and
+     * `order` all of them in the order the Needs you key walks.
+     */
+    layoutSmall(bubbles, size, room) {
+      const order = TALK_ANCHORS.needsYou(bubbles), small = [], marks = [];
+      for (const b of order) {
+        const tip = TALK_ANCHORS.tipOf(b.x, b.top), left = tip.x - Math.floor(size.w / 2);
+        const box = TALK_ANCHORS.fitInside({ left, right: left + size.w, top: tip.y - size.h, bottom: tip.y }, room);
+        if (small.some((placed) => TALK_ANCHORS.overlap(placed.box, box))) marks.push(b.id);
+        else small.push({ id: b.id, box, tip });
+      }
+      return { small, marks, order: order.map((b) => b.id) };
+    },
+  };
+
   /** What a person is doing with their body, at `now`. */
   function poseOf(person, now) {
     if (person.isWalking) return { kind: 'walk', step: Math.floor(now * 6) % 2 };
@@ -9319,6 +11281,10 @@
     const room = fitRoom(width, height, inset);
     // The scale and the origin change for a while as a piece grown bigger is drawn: see `moved`.
     let { scale, ox, oy } = room;
+    // The floor's TV on air, by its part, with the preview the frame has (frame.tv): see drawOnAir. Where it's drawn, in
+    // the room's art pixels, for the tag under it.
+    const onAir = frame.tv ? tvsOf()[0] || null : null;
+    let onAirAt = null;
 
     // The room shakes for a moment when the button goes down.
     const blast = office.detonation;
@@ -9939,6 +11905,8 @@
       ctx.clearRect(0, 0, seen.width, seen.height);
       ({ ox, oy, scale } = { ox: -seen.left, oy: -seen.top, scale: 1 });
     }
+    // Where the room's art pixels start, as it's drawn: what's drawn round a piece moved finds itself in the room from here.
+    const artBase = { ox, oy, scale };
 
     /* The room */
 
@@ -27378,10 +29346,44 @@
       if (instead) instead.instead(x);
       else drawWallPieceItself(piece, x);
       for (const touch of touches) if (touch.over) touch.over(x);
+      if (onAir !== null && hung !== null && onAir === `hung:${hung}`) drawOnAir(x - 13, 8, 26, 15);
       const pane = STORM_PANES[piece];
       const watched = hung !== null && pane && office.people.some((p) => !p.isWalking && p.place.startsWith('storm:')
         && stormSpots[numberAfter('storm:', p.place)] && stormSpots[numberAfter('storm:', p.place)].hung === hung);
       if (watched) drawStorm(x + pane[0], pane[1], pane[2], pane[3]);
+    }
+
+    /**
+     * A TV on air (TV1), over its own screen, `w` × `h` from `l`, `t`: LIVE by a blinking red dot, and under it the
+     * port of the picked desk's preview, as frame.tv has it. The whole address goes on a tag under the TV, in the
+     * page's own letters, once the room's art is done (drawOnAirTag): it's kept where this TV is, in the room.
+     */
+    function drawOnAir(l, t, w, h) {
+      fill(l, t, w, h, 0x0e1622);
+      fill(l, t + (Math.floor(now * 6) % h), w, 1, WHITE, 0.05);
+      fill(l + 2, t + 3, 2, 2, 0xe8402e, Math.floor(now * 1.5) % 2 ? 0.35 : 1);
+      pixelText('LIVE', l + 6, t + 2, WHITE, false);
+      const port = `:${frame.tv.port}`;
+      pixelText(port, l + Math.round((w - pixelWidth(port)) / 2), t + 9, 0x7fe0a0, false);
+      onAirAt = { x: (ox - artBase.ox + (l + w / 2) * scale) / artBase.scale, y: (oy - artBase.oy + (t + h + 2) * scale) / artBase.scale };
+    }
+
+    /** The address of the TV on air, on a tag just under it, at the screen's own resolution. */
+    function drawOnAirTag({ x, y }) {
+      const size = Math.max(LABEL_SIZE * 0.75 * scale, LABEL_SMALLEST * 0.85 * ratio);
+      ctx.save();
+      ctx.font = `600 ${size}px ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+      const shown = fitText(ctx, `LIVE ${frame.tv.label}`, 72 * scale);
+      const w = ctx.measureText(shown).width + size, h = size * 1.5;
+      const top = screen(x, y);
+      ctx.fillStyle = 'rgba(150,32,24,0.9)';
+      roundedRect(ctx, top.x - w / 2, top.y, w, h, h / 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.fillText(shown, top.x, top.y + h / 2);
+      ctx.restore();
     }
 
     /** A storm through a pane: dark clouds, rain, and lightning now and then. */
@@ -33633,7 +35635,7 @@
         disc(x + 38.5, y - 5.5, 3.4, creamDark); disc(x + 38.5, y - 5.5, 2.6, lens); disc(x + 38.5, y - 5.5, 1.2, 0x4c6a9a); dot(x + 37, y - 7, WHITE, 0.8);
         // The flash window, bursting white when it shoots
         const f = t < 0.4;
-        fill(x + 42, y - 8, 2, 2, f ? WHITE : 0xd8e4ea); 
+        fill(x + 42, y - 8, 2, 2, f ? WHITE : 0xd8e4ea);
         if (f) { dot(x + 41, y - 10, WHITE, 0.8); dot(x + 45, y - 9, WHITE, 0.8); dot(x + 43, y - 12, WHITE, 0.7); dot(x + 46, y - 7, WHITE, 0.6); dot(x + 40, y - 8, WHITE, 0.5); }
         if (f && isNight) glowLate(() => glowAt(x + 43, y - 7, 6, 5, 0xffffff, 0.3));
       },
@@ -35364,7 +37366,7 @@
         [[0xf8b8c8, 35, -4], [G2_MINT, 40, -4], [G2_LILAC, 38, -7], [0xfff0a8, 38, -10]].forEach(([c, dx, dy]) => {
           fill(x + dx, y + dy, 4, 1, c); fill(x + dx, y + dy + 1, 4, 1, G2_CREAM); fill(x + dx, y + dy + 2, 4, 1, shaded(c, 0.9)); dot(x + dx, y + dy, shaded(c, 1.1));
         });
-        
+
       },
       /** A mushroom lamp: a round pink cap with white spots on a cream stem; it glows warm, softly by day and brightly at night, breathing slowly. */
       girly2mushroom(x, y) {
@@ -41488,6 +43490,8 @@
 
     // Where the spots round the piece being drawn start, among the room's spots: set as each is drawn.
     let cornerBase = LOUNGE_SPOTS.length;
+    // And which piece it is, by its part: the TV on air is one of them (see drawOnAir).
+    let cornerPart = null;
     /** Someone at the nth spot round the piece being drawn. */
     const atCorner = (i) => office.people.some((p) => p.place === spotPlace(cornerBase + i) && !p.isWalking && !p.isLeaving);
 
@@ -48728,6 +50732,7 @@
         for (const [dx, dy, c] of [[0, 0, 0x4a8ae8], [1, 0, 0x4a8ae8], [1, -1, 0x4a8ae8], [2, -1, 0x4a8ae8], [0, 1, 0x4a8ae8], [3, -1, 0xd8302a], [-1, 0, 0x4a8ae8]]) if (clip(cx + dx)) dot(cx + dx, 71 + dy, c);
         if (someone) fill(262, 60, 26, 16, WHITE, 0.08);
       }
+      if (onAir !== null && onAir === cornerPart) drawOnAir(262, 60, 26, 16);
       fill(290, 60, 6, 16, woodDark); disc(293, 63, 1.4, 0xc8c8c8); disc(293, 68, 1.4, 0xc8c8c8); for (let k = 72; k < 76; k++) dot(292, k, 0x2a2a30);
       glowAt(275, 68, 16, 10, 0x8ac8ff, isNight ? 0.1 : 0.04);
       if (isNight) glowLate(() => { glowAt(275, 70, 22, 16, 0x8ac8ff, 0.18); fill(262, 60, 26, 16, 0x8ac8ff, 0.15); });
@@ -56611,7 +58616,7 @@
             const spread = (r1 - 0.5) * 34, land = floor + Math.floor(r2 * 4), run = land - top;
             const py = top + 1 + ((t * 46 + r2 * run) % run);
             const px = x + spread * (0.25 + 0.75 * (py - top) / run);
-            fill(px, py, 1, 2, 0x9fd8ff, 0.8 * fade); 
+            fill(px, py, 1, 2, 0x9fd8ff, 0.8 * fade);
             if (land - py < 3) dot(px + (k % 2 ? 1 : -1), land - 1, WHITE, 0.6 * fade);
           }
           const rx = Math.min(15, 4 + t * 6);
@@ -57847,6 +59852,11 @@
       }
 
       if (state === 'idle') {
+        // No bubble over an idle head, but its desk can be talked to: `quiet`, the page opens it by Enter on the
+        // picked desk or from its desk list, never by a click on the empty air over the head
+        if (frame.talk && !person.isStaff && !person.session.t3) {
+          TALK_ANCHORS.record(frame.talk.bubbles, { id: person.session.id, x: Math.round(person.position.x), top, state, since: null, quiet: true });
+        }
         // A nap, after a while on the couch or the beanbag, not at the drums or in the hot tub
         const spot = spotOf(person.place);
         if (person.isWalking || spot === null || spots[spot].pose !== 'sit' || now - person.arrivedAt <= 20) return;
@@ -57878,6 +59888,11 @@
       fill(x - 4, bottom - 6, 9, 7, PALETTE.bubble);
       dot(x - 1, bottom + 1, PALETTE.bubble);
       dot(x - 1, bottom + 2, PALETTE.bubbleEdge);
+      // Where a click on it goes, when the page takes talk bubbles: the bubble at rest, not as it shakes. Staff and a
+      // hire in T3 Code have none.
+      if (frame.talk && !person.isStaff && !person.session.t3) {
+        TALK_ANCHORS.record(frame.talk.bubbles, { id: person.session.id, x: Math.round(person.position.x), top, state, since: person.askingSince });
+      }
 
       // A 5 × 5 mark in the middle, in the state's colour
       const marks = {
@@ -57926,7 +59941,7 @@
      * below.
      */
     /**
-     * Personal build: how a desk's dictation went, a small pill over its
+     * How a desk's dictation went, a small pill over its
      * agent for a few seconds: green once cleaned, grey when typed as heard.
      */
     function drawVoiceNote({ desk, text, cleaned, alpha }) {
@@ -57949,7 +59964,7 @@
     }
 
     /**
-     * Personal build: what the phone hears while its mic is held, live, in a
+     * What the phone hears while its mic is held, live, in a
      * bubble over the listening desk: the latest words, a mic before them.
      */
     function drawHearing({ desk, text }) {
@@ -58003,10 +60018,11 @@
       const inLine = DESKS[desk].off && crowdAnchors.has(desk);
       if (DESKS[desk].off && !inLine) return;
       const between = inLine ? (desk === selectedDesk ? DESK_WIDTH : CROWD_GAP - 1) : DESK_COLUMNS[1] - DESK_COLUMNS[0] - 2;
-      // How long the agent has been at work, between the dot and the name: its room kept as wide as its widest
-      // digits, so the name doesn't shift as they change. Shorter before the name is cut, and left out where even
-      // that would cut a name that fits on its own, as on a phone.
-      const seconds = sessionSecondsAt(desk);
+      // How long the agent has been on its current turn (owner: the tag is the turn, not the session; the ⓘ card
+      // keeps the working time and the session's age), between the dot and the name, empty while it's idle: its room
+      // kept as wide as its widest digits, so the name doesn't shift as they change. Shorter before the name is cut,
+      // and left out where even that would cut a name that fits on its own, as on a phone.
+      const seconds = turnSecondsAt(desk);
       const clockRoom = (text) => (text ? ctx.measureText(text.replace(/\d/g, '0')).width + gap : 0);
       const nameFits = (text) => ctx.measureText(name).width <= between * scale - dotSize - gap - padding * 2 - clockRoom(text);
       let clock = seconds === null ? null : turnLength(seconds);
@@ -58099,6 +60115,50 @@
      */
     /** How far through something done every `period` seconds for `length` is, 0 to 1, or null between times: each wearer at their own moment. */
     const every = (look, period, length, salt) => { const t = (now + look.phase * salt) % period; return t < length ? t / length : null; };
+    /*
+     * The original teams of characters and costumes (Greek gods, zoo onesies, the ant colony, the royal court): shared helpers,
+     * no private code. Each team draws the rest in its own OUTFIT_PARTS entries.
+     */
+    /** A character's own skin and hair, whoever wears it. */
+    const costumeLook = (skin, hair) => ({ skin, hair, hairStyle: 'costumeown', extra: 'none' });
+    /** An arm hanging at the side, `dx` -4 or 4: its sleeve and its hand. */
+    const costumeArm = (x, top, dx, look, sleeve, hand = look.skin) => { sleeve(x + dx, top + 8, 1, 4); dot(x + dx, top + 12, hand); };
+    /** How far each foot is lifted mid-step, left and right, as drawPerson walks them; null sitting down, the legs out of sight. */
+    function costumeLift(pose) {
+      if (pose.kind === 'sit' || pose.kind === 'slump' || pose.kind === 'wallet') return null;
+      return pose.kind === 'walk' ? (pose.step === 0 ? [1, 0] : [0, 1]) : pose.kind === 'tap' ? [0, pose.beat] : [0, 0];
+    }
+    /** A sparkle at `tx`, `ty`: a white point, and its four rays every other moment; it shines through the night. */
+    function costumeTwinkle(tx, ty, strength = 1) {
+      const rays = Math.floor(now * 6) % 2 === 0;
+      const draw = () => {
+        dot(tx, ty, WHITE, strength);
+        if (rays) for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) dot(tx + dx, ty + dy, WHITE, 0.45 * strength);
+      };
+      if (isNight) glowLate(draw); else draw();
+    }
+    /**
+     * A onesie's hood over the head, `c` lit on the left and shaded on the right: rounder and wider than the head, down either
+     * side of the face to the jaw, the face looking out of it; from behind, all of the head.
+     */
+    function costumeHood(x, top, c, light, dark, away) {
+      fill(x - 3, top - 2, 7, 1, c); fill(x - 4, top - 1, 9, 3, c); fill(x - 4, top + 2, 2, 5, c); fill(x + 3, top + 2, 2, 5, c);
+      dot(x - 3, top - 2, light); fill(x - 4, top - 1, 1, 8, light); fill(x + 4, top - 1, 1, 8, dark); dot(x + 3, top - 2, dark);
+      if (away) fill(x - 3, top + 2, 7, 5, c);
+    }
+
+    /*
+     * The royal court: an original team, with no real people and no brand, every id starting castle (`court` is the
+     * courtroom's). Its outfits draw with the shared costume helpers above; these are its own colours.
+     */
+    const CASTLE_GOLD = 0xe8b830, CASTLE_GOLD_LIGHT = 0xffe08a, CASTLE_GOLD_DARK = 0xa07818, CASTLE_STEEL = 0xb8bec8;
+
+    /*
+     * The zoo's onesies (zoo…): under each hood the wearer's hair is tucked in, so long hair or an afro never pokes out round it.
+     * Their own skin, hair colour, glasses and beard stay.
+     */
+    const zooTucked = { hairStyle: 'short' };
+
     const OUTFIT_PARTS = {
       marvel1widow: {
         // Black Widow (brand nod: Marvel): a black catsuit with a silver zip and a belt with the red hourglass buckle; long red hair; her wrist bites spark blue every so often
@@ -63064,7 +65124,1335 @@
       },
       // The Geode's gem outfits, each drawn from its gem's row (see gdGemOutfit)
       ...Object.fromEntries(Object.keys(GEODE_GEMS).map((gem) => [`geode${gem}`, gdGemOutfit(GEODE_GEMS[gem])])),
+      castleking: {
+        // The king: a gold crown of points over red velvet, set with jewels; long white hair and a great white beard down his chest;
+        // a red robe to the floor with a white ermine collar and trim, a gold sceptre in hand. Now and then he raises the sceptre
+        // high, by royal decree, and its jewel flashes.
+        look: costumeLook(0xf0c8a4, 0xf2f0ea),
+        front(x, y) {
+          const ermine = 0xf8f6f0, tail = 0x1e1e22;
+          // The ermine collar over the shoulders and down the front, its black tails; the robe lit on the left
+          fill(x - 3, y, 7, 1, ermine); fill(x - 1, y + 1, 3, 5, ermine);
+          for (const [dx, dy] of [[1, 0], [0, 2], [0, 4]]) dot(x + dx, y + dy, tail);
+          fill(x - 3, y + 1, 1, 5, 0xc83a3a); fill(x + 3, y + 1, 1, 5, 0x801c1c);
+        },
+        back(x, y) { fill(x - 3, y, 7, 1, 0xf8f6f0); dot(x - 1, y, 0x1e1e22); dot(x + 2, y, 0x1e1e22); },
+        head(x, top, look, away) {
+          const G = CASTLE_GOLD, GL = CASTLE_GOLD_LIGHT, GD = CASTLE_GOLD_DARK, red = 0xb02030, W = look.hair, WD = 0xc8c6be;
+          // The crown: a jewelled band, red velvet between its points, a gold ball on top
+          fill(x - 3, top, 7, 1, G); dot(x - 3, top, GL); dot(x + 3, top, GD); dot(x - 2, top, red); dot(x, top, 0x3a6ad8); dot(x + 2, top, red);
+          fill(x - 2, top - 1, 5, 1, red); for (const dx of [-3, -1, 1, 3]) dot(x + dx, top - 1, G);
+          dot(x - 3, top - 2, GL); dot(x, top - 2, G); dot(x + 3, top - 2, GD); dot(x, top - 3, GL);
+          // Long white hair at the sides
+          fill(x - 3, top + 1, 1, 4, W); fill(x + 3, top + 1, 1, 4, WD); fill(x - 4, top + 2, 1, 3, W);
+          if (away) { fill(x - 3, top + 1, 7, 6, W); return; }
+          // The great beard, round the mouth and down his chest, a rosy nose over it
+          fill(x - 3, top + 5, 7, 2, W); fill(x - 2, top + 7, 5, 2, W); fill(x - 1, top + 9, 3, 1, W); dot(x, top + 10, WD);
+          dot(x - 1, top + 5, WD); dot(x + 1, top + 5, WD); dot(x + 2, top + 7, WD); dot(x + 1, top + 9, WD);
+          dot(x, top + 5, 0xe8a090);
+        },
+        // The sceptre in his right hand; now and then raised high, its jewel flashing
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 18, 2.2, 3);
+          const sceptre = (sx, sy) => {
+            fill(sx, sy + 1, 1, 6, CASTLE_GOLD); dot(sx, sy + 1, CASTLE_GOLD_LIGHT); dot(sx, sy, 0xc8283a);
+            dot(sx - 1, sy + 1, CASTLE_GOLD_DARK); dot(sx + 1, sy + 1, CASTLE_GOLD_DARK);
+          };
+          costumeArm(x, top, -4, look, sleeve);
+          if (p !== null) {
+            // Held a column out from the crown, as the office raises an arm
+            sleeve(x + 4, top + 7, 1, 2); sleeve(x + 5, top + 3, 1, 4); dot(x + 5, top + 2, look.skin);
+            sceptre(x + 5, top - 5); costumeTwinkle(x + 5, top - 5, 1);
+          }
+          else { costumeArm(x, top, 4, look, sleeve); sceptre(x + 5, top + 6); }
+          return true;
+        },
+      },
+      castlequeen: {
+        // The queen: a slim gold circlet of three points, long auburn hair in two braids over her shoulders; a purple gown to the
+        // floor with a square neckline, a string of pearls, gold trim and a gold girdle. Now and then she opens a fan and fans herself.
+        look: costumeLook(0xf6d6c0, 0x9a3a1a),
+        front(x, y, o, look) {
+          // The square neckline and the pearls, the gold-trimmed bodice, the girdle hanging down the front; lit on the left
+          fill(x - 1, y, 3, 1, look.skin); for (const dx of [-1, 0, 1]) dot(x + dx, y + 1, 0xf4f0f8); dot(x, y + 1, 0xd8d0e8);
+          fill(x - 2, y, 1, 4, CASTLE_GOLD); fill(x + 2, y, 1, 4, CASTLE_GOLD_DARK);
+          fill(x - 2, y + 4, 5, 1, CASTLE_GOLD); dot(x, y + 5, CASTLE_GOLD_DARK);
+          fill(x - 3, y, 1, 6, 0x7a44aa); fill(x + 3, y, 1, 6, 0x3c1a5a);
+        },
+        back(x, y, o, look) { fill(x - 2, y, 1, 4, look.hair); fill(x + 2, y, 1, 4, look.hair); },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0xc85a2a, HD = 0x6a2410;
+          // The circlet: a gold band, three slim points, a green jewel in the middle
+          fill(x - 3, top, 7, 1, CASTLE_GOLD); dot(x - 3, top, CASTLE_GOLD_LIGHT); dot(x, top, 0x3a9a6a);
+          for (const dx of [-2, 0, 2]) dot(x + dx, top - 1, CASTLE_GOLD); dot(x, top - 2, CASTLE_GOLD_LIGHT);
+          // The braids, over her shoulders and down her front, their gold ties
+          for (const side of [-3, 3]) {
+            fill(x + side, top + 1, 1, 9, H);
+            for (let r = 2; r < 10; r += 2) dot(x + side, top + r, side < 0 ? HL : HD);
+            dot(x + side, top + 10, CASTLE_GOLD);
+          }
+          if (away) { fill(x - 2, top + 1, 5, 6, H); return; }
+          dot(x, top + 6, 0xd84a5a);
+          // The fan, open by her face and fanning (see arms)
+          if (look.castleFan) {
+            const f = Math.floor(now * 8) % 2;
+            fill(x + 4, top + 4 + f, 3, 1, 0xd8b8f0); fill(x + 4, top + 5 + f, 2, 1, 0xb890e0); dot(x + 4, top + 6 + f, CASTLE_GOLD);
+            dot(x + 6, top + 3 + f, 0xd8b8f0); dot(x + 5, top + 3 + f, 0xe8d0f8);
+          }
+        },
+        // A folded fan in her hand; now and then raised to her face and opened (drawn with the face). The skirt lit on the left
+        // and shaded on the right, as the bodice is, standing still
+        arms(x, top, look, o, sleeve, pose) {
+          if (costumeLift(pose) && pose.kind !== 'walk') { fill(x - 3, top + 13, 1, 3, 0x7a44aa); fill(x + 3, top + 13, 1, 3, 0x3c1a5a); }
+          look.castleFan = pose.kind !== 'walk' && every(look, 14, 2.4, 9) !== null;
+          costumeArm(x, top, -4, look, sleeve);
+          if (look.castleFan) { sleeve(x + 4, top + 7, 1, 3); dot(x + 4, top + 7, look.skin); }
+          else { costumeArm(x, top, 4, look, sleeve); fill(x + 5, top + 10, 1, 3, 0xb890e0); dot(x + 5, top + 10, CASTLE_GOLD); }
+          return true;
+        },
+      },
+      castlejester: {
+        // The jester: a three-pointed cap of yellow and red with a gold bell on each point, a zigzag collar; a tunic and hose in
+        // halves of yellow and red, curled shoes; a fool's stick with a little head on it. Now and then he juggles three balls in
+        // arcs high over his cap, the bells glinting.
+        look: costumeLook(0xf2c8a0, 0x8a5a2a),
+        front(x, y) {
+          const R = 0xd83a3a, Y = 0xf0c030;
+          // The halves, yellow and red; the zigzag collar; a bell at the hem
+          fill(x - 3, y, 3, 6, Y); fill(x, y, 4, 6, R);
+          for (const dx of [-3, -1, 1, 3]) dot(x + dx, y, dx < 0 ? R : Y);
+          for (const dx of [-2, 0, 2]) dot(x + dx, y + 1, dx < 0 ? R : Y);
+          dot(x - 2, y + 5, CASTLE_GOLD); dot(x + 1, y + 5, CASTLE_GOLD);
+        },
+        back(x, y) { fill(x - 3, y, 3, 6, 0xd83a3a); fill(x, y, 4, 6, 0xf0c030); },
+        head(x, top, look, away) {
+          const R = 0xd83a3a, RD = 0x9a2222, Y = 0xf0c030, YD = 0xb88a1a;
+          const bell = (bx, by) => { dot(bx, by, CASTLE_GOLD_LIGHT); if (look.castleJuggle && !away) costumeTwinkle(bx, by, 0.5); };
+          // The cap: a band round the brow, three floppy points (left, up and right), a bell on each
+          fill(x - 3, top - 1, 3, 2, Y); fill(x, top - 1, 4, 2, R); fill(x - 3, top + 1, 7, 1, YD);
+          fill(x - 5, top, 2, 1, Y); dot(x - 6, top + 1, Y); bell(x - 6, top + 2);
+          fill(x - 1, top - 3, 2, 2, R); dot(x, top - 4, R); dot(x + 1, top - 5, RD); bell(x + 2, top - 5);
+          fill(x + 4, top, 2, 1, R); dot(x + 6, top + 1, RD); bell(x + 6, top + 2);
+          if (away) return;
+          // A wide toothy grin, its corners a row clear of the eyes
+          fill(x - 2, top + 6, 5, 1, 0x8a3a3a); fill(x - 1, top + 6, 3, 1, 0xf6efe2);
+          // The three balls, each in an arc from hand to hand high over the cap (see arms)
+          if (look.castleJuggle) {
+            [0x3a6ad8, 0x3aa84a, 0xe8602a].forEach((colour, i) => {
+              const u = (now * 0.9 + i / 3) % 1, k = (u % 0.5) * 2, bx = u < 0.5 ? x - 5 + Math.round(k * 10) : x + 5 - Math.round(k * 10);
+              dot(bx, top + 4 - Math.round(Math.sin(Math.PI * k) * 12), colour);
+            });
+          }
+        },
+        // Hose in halves and curled shoes; the fool's stick; now and then both hands up, juggling (the balls are drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose), R = 0xd83a3a;
+          if (lift) {
+            fill(x, top + 13, 4, 1, R); fill(x + 1, top + 14 - lift[1], 2, 2, R);
+            dot(x - 3, top + 16 - lift[0], 0x3a2a6a); dot(x + 3, top + 16 - lift[1], 0x3a2a6a);
+          }
+          look.castleJuggle = pose.kind !== 'walk' && every(look, 15, 3, 6) !== null;
+          if (look.castleJuggle) {
+            // The hands out a column clear of his face
+            const toss = Math.floor(now * 5) % 2;
+            sleeve(x - 4, top + 6, 1, 3); sleeve(x + 4, top + 6, 1, 3); dot(x - 5, top + 5 - toss, look.skin); dot(x + 5, top + 4 + toss, look.skin);
+          } else {
+            // The fool's stick, its little capped head a row below his grin
+            costumeArm(x, top, 4, look, sleeve); costumeArm(x, top, -4, look, sleeve);
+            fill(x - 5, top + 9, 1, 4, 0x8a5a2a); dot(x - 5, top + 8, look.skin); dot(x - 6, top + 7, R); dot(x - 4, top + 7, 0xf0c030);
+          }
+          return true;
+        },
+      },
+      castleherald: {
+        // The herald: a flat velvet cap with a long white plume; a tabard quartered in blue and gold over white sleeves; a long
+        // brass trumpet hung with a little blue banner. Now and then he raises it and blows a fanfare, notes flying from its bell.
+        look: costumeLook(0xe8c0a0, 0x5a3a20),
+        front(x, y) {
+          const B = 0x2a5aa8, G = 0xe8b830;
+          // The tabard in quarters, its edges lit on the left
+          fill(x - 3, y, 3, 3, B); fill(x, y, 4, 3, G); fill(x - 3, y + 3, 3, 3, G); fill(x, y + 3, 4, 3, B);
+          dot(x - 3, y, 0x4a7ac8); dot(x + 3, y + 3, 0x1a3a7a);
+        },
+        back(x, y) { fill(x - 3, y, 3, 3, 0xe8b830); fill(x, y, 4, 3, 0x2a5aa8); fill(x - 3, y + 3, 3, 3, 0x2a5aa8); fill(x, y + 3, 4, 3, 0xe8b830); },
+        head(x, top, look, away) {
+          const cap = 0x1e2a5a, capLight = 0x34428a;
+          // The cap, flat and soft, tipped to one side; the plume curling up and back from it
+          fill(x - 3, top - 1, 7, 2, cap); fill(x - 4, top, 2, 1, cap); fill(x - 3, top - 1, 3, 1, capLight);
+          for (const [dx, dy, c] of [[3, -2, 0xf6f4ee], [4, -3, 0xf6f4ee], [5, -4, 0xe8e6e0], [6, -4, 0xd8d6d0], [4, -2, 0xd8d6d0]]) dot(x + dx, top + dy, c);
+          if (away) return;
+          // Blowing the fanfare: the trumpet at his lips, a row below his eye, its banner, a cheek puffed out, the notes flying from
+          // its bell (see arms)
+          const p = look.castleFanfare;
+          if (p !== null && p !== undefined) {
+            fill(x + 1, top + 6, 7, 1, CASTLE_GOLD); dot(x + 1, top + 6, CASTLE_GOLD_DARK); fill(x + 8, top + 5, 1, 3, CASTLE_GOLD_LIGHT);
+            dot(x + 9, top + 4, CASTLE_GOLD); dot(x + 9, top + 8, CASTLE_GOLD);
+            fill(x + 4, top + 7, 3, 2, 0x2a5aa8); dot(x + 5, top + 8, CASTLE_GOLD); dot(x + 4, top + 9, 0x2a5aa8);
+            dot(x - 4, top + 5, look.skin); dot(x - 4, top + 6, shaded(look.skin, 0.85));
+            const k = (p * 3) % 1, nx = x + 10 + Math.round(k * 3), ny = top + 3 - Math.round(k * 4);
+            dot(nx, ny, 0xf6f4ee, 1 - k); dot(nx, ny - 1, 0xf6f4ee, 1 - k); dot(nx + 1, ny - 1, 0xf6f4ee, 1 - k);
+          }
+        },
+        // The trumpet held upright at his side, its banner hanging; now and then raised to his lips (drawn with the face)
+        arms(x, top, look, o, sleeve, pose) {
+          look.castleFanfare = pose.kind === 'walk' ? null : every(look, 16, 2.4, 11);
+          costumeArm(x, top, -4, look, sleeve);
+          if (look.castleFanfare !== null) { sleeve(x + 4, top + 7, 1, 2); dot(x + 4, top + 7, look.skin); dot(x + 3, top + 7, look.skin); }
+          else {
+            costumeArm(x, top, 4, look, sleeve);
+            fill(x + 5, top + 2, 1, 10, CASTLE_GOLD); fill(x + 4, top + 1, 3, 1, CASTLE_GOLD_DARK); dot(x + 5, top + 1, CASTLE_GOLD_LIGHT);
+            fill(x + 6, top + 4, 2, 2, 0x2a5aa8); dot(x + 6, top + 5, CASTLE_GOLD);
+          }
+          return true;
+        },
+      },
+      castleknight: {
+        // The tournament knight: shining plate under a surcoat in halves of red and white with a belt; a helmet with its visor up
+        // and a great spray of red and white plumes, a red shield with a white band, and a tall lance with its pennon. Now and then
+        // he dips the lance forward in salute.
+        look: costumeLook(0xe8c09c, 0x6a4a2a),
+        front(x, y) {
+          const R = 0xc8302a, W = 0xf2f0ea;
+          // The surcoat in halves over the plate, the belt and its buckle; the plate at the sides, a rivet or two
+          fill(x - 2, y, 2, 6, R); fill(x, y, 3, 6, W); fill(x - 2, y + 4, 5, 1, 0x6a4424); dot(x, y + 4, CASTLE_GOLD);
+          dot(x - 3, y + 1, 0xe8ecf2); dot(x + 3, y + 1, 0x7a808a); dot(x - 3, y + 3, 0xe8ecf2); dot(x + 3, y + 3, 0x7a808a);
+        },
+        back(x, y) { fill(x - 2, y, 2, 6, 0xf2f0ea); fill(x, y, 3, 6, 0xc8302a); },
+        head(x, top, look, away) {
+          const S = CASTLE_STEEL, SL = 0xe8ecf2, SD = 0x6e747e;
+          // The helmet: a round steel bowl, its visor raised over the brow, cheek plates down the sides
+          fill(x - 3, top - 1, 7, 3, S); fill(x - 2, top - 2, 5, 1, S); dot(x - 2, top - 2, SL); fill(x - 3, top - 1, 1, 2, SL); fill(x + 3, top - 1, 1, 3, SD);
+          fill(x - 3, top + 1, 7, 1, SD); fill(x - 3, top + 2, 1, 4, S); fill(x + 3, top + 2, 1, 4, SD);
+          // The plumes: a great spray from its crown, leaning back, a red one rising between two white
+          const R = 0xc8302a, RD = 0xa01c1c, W = 0xf2f0ea, WD = 0xc8c6c0;
+          fill(x + 1, top - 7, 2, 1, R); fill(x, top - 6, 3, 1, R); fill(x, top - 5, 2, 1, R); dot(x + 1, top - 4, R); dot(x + 1, top - 3, RD);
+          dot(x + 3, top - 6, W); fill(x + 2, top - 5, 2, 1, W); dot(x + 2, top - 4, WD);
+          dot(x - 1, top - 5, W); fill(x - 1, top - 4, 2, 1, W); dot(x, top - 3, WD);
+          if (away) fill(x - 3, top + 2, 7, 4, S);
+        },
+        // Greaves; the shield on his left arm; the lance upright in his right hand, now and then dipped forward in salute
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose), wood = 0x8a5a32, steel = CASTLE_STEEL;
+          if (lift) { fill(x - 2, top + 14 - lift[0], 2, 2, 0xa8aeb8); fill(x + 1, top + 14 - lift[1], 2, 2, 0x8a909a); }
+          fill(x - 6, top + 8, 3, 4, 0xc8302a); dot(x - 5, top + 12, 0xc8302a); for (let i = 0; i < 3; i++) dot(x - 6 + i, top + 9 + i, 0xf2f0ea);
+          dot(x - 6, top + 8, 0xe85a4a);
+          costumeArm(x, top, 4, look, sleeve, 0x8a909a);
+          if (pose.kind !== 'walk' && every(look, 17, 2.2, 7) !== null) {
+            line(x + 5, top + 12, x + 12, top - 2, wood); dot(x + 12, top - 3, steel); dot(x + 13, top - 4, steel);
+            dot(x + 11, top - 1, 0xc8302a); dot(x + 12, top, 0xf2f0ea);
+          } else {
+            fill(x + 5, top - 4, 1, 17, wood); fill(x + 5, top - 6, 1, 2, steel); dot(x + 5, top - 7, 0xe8ecf2);
+            fill(x + 6, top - 4, 2, 1, 0xc8302a); fill(x + 6, top - 3, 2, 1, 0xf2f0ea); dot(x + 8, top - 4, 0xc8302a);
+            fill(x + 4, top + 9, 3, 1, steel);
+          }
+          return true;
+        },
+      },
+      castlepage: {
+        // The page: a blond bowl cut with straight bangs; a short green tunic with puffed shoulders and a belt, yellow hose; a red
+        // velvet cushion carried in both hands with a little gold crown on it. Now and then he bows, and the crown wobbles.
+        look: costumeLook(0xf6d2b0, 0xe0b040),
+        front(x, y) {
+          // Puffed shoulders, the belt, the tunic lit on the left
+          dot(x - 3, y, 0x5aaa5a); dot(x + 3, y, 0x2a6a32); fill(x - 3, y + 4, 7, 1, 0x6a4424); dot(x, y + 4, CASTLE_GOLD);
+          fill(x - 3, y + 1, 1, 3, 0x4a9a52); fill(x + 3, y + 1, 1, 3, 0x2a6a32);
+        },
+        back(x, y) { fill(x - 3, y + 4, 7, 1, 0x6a4424); },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0xf8d870, HD = 0xb08a2a;
+          // The bowl cut: round on top, straight bangs over the brow, straight at the sides down to the jaw
+          fill(x - 2, top - 1, 5, 1, H); fill(x - 3, top, 7, 3, H); fill(x - 3, top + 3, 1, 2, H); fill(x + 3, top + 3, 1, 2, HD);
+          fill(x - 2, top - 1, 2, 1, HL); dot(x - 3, top, HL); fill(x - 2, top + 2, 5, 1, HD);
+          if (away) { fill(x - 3, top + 3, 7, 2, H); return; }
+          // The crown on the cushion: three points over its band, a row of tunic clear of his chin; it wobbles as he bows (see arms)
+          const wob = look.castleBow ? (Math.floor(now * 8) % 2 ? 1 : -1) : 0, cx = x + wob, cy = top + 9;
+          fill(cx - 2, cy, 5, 1, CASTLE_GOLD); dot(cx - 2, cy, CASTLE_GOLD_LIGHT); dot(cx + 2, cy, CASTLE_GOLD_DARK);
+          dot(cx - 2, cy - 1, CASTLE_GOLD_LIGHT); dot(cx, cy - 1, CASTLE_GOLD); dot(cx + 2, cy - 1, CASTLE_GOLD);
+        },
+        // The cushion held out in both hands, the tunic's hem; now and then a bow (see nods)
+        arms(x, top, look, o, sleeve, pose) {
+          if (costumeLift(pose)) fill(x - 3, top + 13, 7, 1, 0x2a6a32);
+          look.castleBow = pose.kind !== 'walk' && every(look, 15, 1.6, 8) !== null;
+          const cy = top + 10 + (look.castleBow ? 1 : 0);
+          sleeve(x - 4, top + 8, 1, 3); sleeve(x + 4, top + 8, 1, 3);
+          fill(x - 4, cy, 9, 2, 0xb02030); fill(x - 4, cy, 9, 1, 0xd03a4a); dot(x - 5, cy + 1, CASTLE_GOLD); dot(x + 5, cy + 1, CASTLE_GOLD);
+          dot(x - 4, cy + 2, look.skin); dot(x + 4, cy + 2, look.skin);
+          return true;
+        },
+        nods(look) { return look.castleBow ? 1 : 0; },
+      },
+      castlecook: {
+        // The royal cook: a puffed white linen cap over red hair, rosy cheeks; a brown dress to the floor under a big white apron,
+        // sleeves rolled up; a great golden pie held out on a platter. Now and then a blackbird pops out of it and sings.
+        look: costumeLook(0xf0c0a0, 0xb04a24),
+        front(x, y, o, look) {
+          // The dress's neckline, the apron's bib below it, shaded on the right
+          dot(x, y, look.skin); fill(x - 2, y + 1, 5, 5, 0xf6f4ee); fill(x + 2, y + 1, 1, 5, 0xd8d6d0);
+        },
+        back(x, y) { fill(x - 2, y + 2, 5, 1, 0xf6f4ee); },
+        head(x, top, look, away) {
+          const L = 0xf6f4ee, LD = 0xd8d6d0;
+          // The cap: puffed white linen gathered round the head into a frill, red hair showing at the sides
+          fill(x - 3, top - 2, 7, 1, L); fill(x - 4, top - 1, 9, 2, L); dot(x - 3, top - 2, WHITE);
+          for (let dx = -4; dx <= 4; dx++) dot(x + dx, top + 1, dx % 2 ? L : LD);
+          fill(x - 3, top + 2, 1, 2, look.hair); fill(x + 3, top + 2, 1, 2, look.hair);
+          if (away) { fill(x - 3, top + 2, 7, 3, look.hair); return; }
+          dot(x - 2, top + 5, 0xf09080, 0.6); dot(x + 2, top + 5, 0xf09080, 0.6);
+          // The blackbird: it pops out of the pie through its crust, flutters up past her face and sits on her cap to sing (see arms)
+          const p = look.castleBird;
+          if (p !== null && p !== undefined) {
+            const B = 0x1a1a22, beak = 0xe89a2a, flap = Math.floor(now * 10) % 2;
+            const bird = (bx, by, flying) => { fill(bx, by, 2, 2, B); dot(bx + 2, by, beak); dot(bx + 1, by, WHITE, 0.6); dot(bx - 1, by + (flying ? flap : 1), 0x2a2a34); };
+            fill(x, top + 8, 3, 1, 0x5a3418);
+            if (p < 0.12) { fill(x + 1, top + 8, 2, 1, B); dot(x + 3, top + 8, beak); }
+            else if (p < 0.2) bird(x + 5, top + 3, true);
+            else if (p < 0.26) bird(x + 3, top - 3, true);
+            else {
+              bird(x + 1, top - 4, false);
+              const k = ((p - 0.26) * 3) % 1;
+              dot(x + 4, top - 5 - Math.round(k * 3), 0xf6f4ee, 1 - k); dot(x + 5, top - 6 - Math.round(k * 3), 0xf6f4ee, 1 - k);
+            }
+          }
+        },
+        // The pie held out on its platter in both hands
+        arms(x, top, look, o, sleeve, pose) {
+          look.castleBird = pose.kind === 'walk' ? null : every(look, 16, 2.8, 4);
+          sleeve(x - 4, top + 8, 1, 2); sleeve(x + 4, top + 8, 1, 2); dot(x - 4, top + 10, look.skin); dot(x + 4, top + 10, look.skin);
+          fill(x - 5, top + 11, 11, 1, 0x9a9ea8); dot(x - 5, top + 11, 0xc8ccd4);
+          fill(x - 3, top + 9, 7, 2, 0xd8962a); fill(x - 2, top + 8, 5, 1, 0xe8a840);
+          for (const dx of [-2, 0, 2]) dot(x + dx, top + 9, 0xa86a1a); dot(x - 1, top + 8, 0xf8c868);
+          return true;
+        },
+      },
+      castlefalconer: {
+        // The falconer: a brown hunting hat with a long striped feather, dark hair; a green hunting tunic with a leather baldric and a
+        // pouch, tall boots; a hooded falcon on her raised leather glove. Now and then it spreads its wings and flaps.
+        look: costumeLook(0xe8bc98, 0x2a1a12),
+        front(x, y) {
+          // The baldric across, its buckle, the belt and its pouch; the tunic lit on the left
+          for (let r = 0; r < 5; r++) dot(x - 2 + r, y + r, 0x6a4424); dot(x, y + 2, CASTLE_GOLD);
+          fill(x - 3, y + 4, 7, 1, 0x5a3a1e); fill(x + 1, y + 5, 2, 1, 0x8a5a32);
+          fill(x - 3, y, 1, 4, 0x5a9a5a); fill(x + 3, y, 1, 4, 0x2a5a2e);
+        },
+        back(x, y) { for (let r = 0; r < 5; r++) dot(x + 2 - r, y + r, 0x6a4424); },
+        head(x, top, look, away) {
+          const hat = 0x6a4424, hatLight = 0x8a6034, hatDark = 0x4a2e16;
+          // The hat: a soft crown and a wide brim, the feather sweeping up and back
+          fill(x - 2, top - 2, 5, 2, hat); fill(x - 2, top - 2, 2, 1, hatLight); fill(x - 4, top, 9, 1, hat); dot(x - 4, top, hatLight); dot(x + 4, top, hatDark);
+          for (const [dx, dy, c] of [[3, -2, 0xe8dcc0], [4, -3, 0x8a6a3a], [5, -4, 0xe8dcc0], [6, -5, 0x8a6a3a], [7, -6, 0xe8dcc0]]) dot(x + dx, top + dy, c);
+          // Dark hair at the sides, down to just above her eyes
+          fill(x - 3, top + 1, 1, 3, look.hair); fill(x + 3, top + 1, 1, 3, look.hair);
+          if (away) { fill(x - 3, top + 1, 7, 6, look.hair); return; }
+          // The falcon on her glove, a column clear of her face, in profile looking out: the leather hood, the pale hooked beak,
+          // the pale breast in front and the slate back, its feet on the glove (its tail hangs below it, see arms). Now and then
+          // it flaps: its wings up in a V over its back, then spread low in front, clear of her
+          const B = 0x5a6474, BD = 0x3a4250;
+          fill(x - 7, top + 1, 2, 2, 0x5e3018); dot(x - 7, top + 1, 0x925228); dot(x - 8, top + 2, 0xb8c0cc);
+          fill(x - 7, top + 3, 3, 3, B); fill(x - 7, top + 3, 1, 3, 0xeee6d6); fill(x - 5, top + 3, 1, 3, BD);
+          fill(x - 6, top + 6, 2, 1, 0xe8c040);
+          if (look.castleFlap) {
+            if (Math.floor(now * 9) % 2) { dot(x - 6, top, B); dot(x - 7, top, BD); dot(x - 7, top - 1, B); dot(x - 8, top - 2, BD); fill(x - 5, top + 1, 1, 2, BD); }
+            else { fill(x - 9, top + 3, 2, 1, B); fill(x - 10, top + 4, 2, 1, BD); dot(x - 8, top + 4, BD); }
+          }
+        },
+        // The arm raised with its thick glove under the falcon's feet, the falcon's tail hanging below it (the falcon is drawn
+        // with the face); the other at her side; tall boots
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose);
+          if (lift) { fill(x - 2, top + 14 - lift[0], 2, 2, 0x3a2a1a); fill(x + 1, top + 14 - lift[1], 2, 2, 0x3a2a1a); }
+          look.castleFlap = pose.kind !== 'walk' && every(look, 14, 1.8, 2) !== null;
+          costumeArm(x, top, 4, look, sleeve);
+          sleeve(x - 4, top + 7, 1, 3); fill(x - 6, top + 7, 2, 2, 0x8a5a32); dot(x - 6, top + 7, 0xa8743e);
+          fill(x - 6, top + 9, 1, 2, 0x3a4250);
+          return true;
+        },
+      },
+      castlelady: {
+        // The lady-in-waiting: a tall cone hennin in blue with a gold band and a white veil floating from its tip, a high plucked
+        // brow; a blue gown to the floor with a gold band under the bust and long hanging sleeves. Now and then she curtsies, her
+        // skirt spreading.
+        look: costumeLook(0xf6dcc8, 0xc89a5a),
+        front(x, y, o, look) {
+          // The neckline, the gold band high under the bust, the gown lit on the left
+          fill(x - 1, y, 3, 1, look.skin); dot(x, y + 1, 0xf6f4ee); fill(x - 3, y + 2, 7, 1, CASTLE_GOLD); dot(x + 3, y + 2, CASTLE_GOLD_DARK);
+          fill(x - 3, y, 1, 2, 0x5a9ad8); fill(x - 3, y + 3, 1, 3, 0x5a9ad8); fill(x + 3, y + 3, 1, 3, 0x1e4a7a);
+        },
+        head(x, top, look, away) {
+          const C = 0x2a5aa8, CL = 0x4a7ac8, veil = 0xf6f8ff;
+          // The high plucked brow: no hair showing at the front
+          if (!away) fill(x - 2, top + 1, 5, 1, look.skin);
+          // The hennin: a tall cone leaning back, lit on the left and shaded down its straight right edge, a gold band at its foot;
+          // the veil from its tip floating down behind
+          fill(x - 3, top, 7, 1, CASTLE_GOLD); dot(x - 3, top, CASTLE_GOLD_LIGHT);
+          [[-2, 5], [-2, 5], [-1, 4], [-1, 4], [0, 3], [0, 3], [1, 2], [1, 2], [2, 1]].forEach(([dx, w], i) => {
+            fill(x + dx, top - 1 - i, w, 1, C); dot(x + dx, top - 1 - i, CL); if (w > 1) dot(x + dx + w - 1, top - 1 - i, 0x1e4a7a);
+          });
+          const sway = Math.round(Math.sin(now * 1.3 + look.phase * 6));
+          for (let i = 0; i < 12; i++) {
+            const vx = x + 3 + Math.floor(i / 4) + (i > 6 ? sway : 0), vy = top - 9 + i;
+            dot(vx, vy, veil, 0.8); if (i > 4) dot(vx + 1, vy, veil, 0.45);
+          }
+          if (away) { fill(x - 3, top + 1, 7, 5, look.hair); return; }
+          dot(x, top + 6, 0xd86a7a);
+        },
+        // Long hanging sleeves; now and then a curtsy (see nods), the skirt spreading
+        arms(x, top, look, o, sleeve, pose) {
+          look.castleCurtsy = pose.kind !== 'walk' && every(look, 16, 1.8, 12) !== null;
+          if (costumeLift(pose) && look.castleCurtsy) { fill(x - 4, top + 14, 9, 2, 0x2a5aa8); dot(x - 4, top + 14, 0x5a9ad8); }
+          for (const side of [-1, 1]) {
+            sleeve(x + side * 4, top + 8, 1, 4); dot(x + side * 4, top + 12, look.skin);
+            fill(x + side * 5, top + 10, 1, 4, 0x4a7ac8, 0.9); dot(x + side * 5, top + 14, 0x2a5aa8);
+          }
+          return true;
+        },
+        nods(look) { return look.castleCurtsy ? 1 : 0; },
+      },
+      olympuszeus: {
+        // Zeus: white curls and a great white beard; a white himation round him and over one shoulder, the chest bare on the other
+        // side under a gold border, a gold cord at the waist, gold sandals; a golden thunderbolt in his hand. Now and then he raises
+        // it high and it crackles with lightning; by night it lights him up. His whites are shaded storm-grey on the right, his arms
+        // bare and tanned, so he holds his own against pale stone and marble.
+        look: costumeLook(0xe8c0a0, 0xf2f0ea),
+        front(x, y, o, look) {
+          // The bare chest at his left shoulder above the gold border, the cloth's folds, the cord; lit on the left, storm-grey in
+          // the shade on the right
+          dot(x + 2, y, look.skin); dot(x + 3, y, look.skin); dot(x + 3, y + 1, shaded(look.skin, 0.9));
+          dot(x + 1, y, 0xe8b830); dot(x + 2, y + 1, 0xe8b830); dot(x + 3, y + 2, 0xa07818);
+          dot(x - 1, y + 3, 0xd8d4c8); fill(x + 3, y + 3, 1, 3, 0x9ca0b0); fill(x - 3, y + 4, 7, 1, 0xc8a050);
+          fill(x - 3, y, 1, 4, 0xffffff);
+        },
+        back(x, y) { fill(x + 3, y, 1, 6, 0x9ca0b0); fill(x - 3, y + 4, 7, 1, 0xc8a050); },
+        head(x, top, look, away) {
+          const W = look.hair, WL = 0xffffff, WD = 0xc8c6be, WS = 0x767c90;
+          // The curls, full round the head and down to the jaw, their right edge in storm-grey shade
+          fill(x - 3, top - 1, 7, 1, W); fill(x - 4, top, 9, 2, W); fill(x - 4, top + 2, 1, 3, W); fill(x - 3, top + 2, 1, 2, W); fill(x + 3, top + 2, 1, 2, WD);
+          for (const [dx, dy] of [[-2, -1], [1, -1], [-3, 0], [0, 0], [3, 1], [-1, 1]]) dot(x + dx, top + dy, WL);
+          for (const [dx, dy] of [[2, 0], [-4, 1]]) dot(x + dx, top + dy, WD);
+          fill(x + 4, top, 1, 5, WS); dot(x + 3, top - 1, WS);
+          if (away) { fill(x - 3, top + 2, 7, 5, W); fill(x + 3, top + 2, 1, 3, WD); fill(x + 3, top + 5, 1, 2, WS); return; }
+          // Stern brows and the great beard, curling down onto his chest, shaded down its right edge; light next to the eyes
+          dot(x - 2, top + 3, WD); dot(x + 2, top + 3, WD);
+          fill(x - 3, top + 5, 7, 2, W); fill(x - 2, top + 7, 5, 2, W); fill(x - 1, top + 9, 3, 1, W);
+          for (const [dx, dy] of [[-1, 5], [1, 5], [-2, 7], [0, 9]]) dot(x + dx, top + dy, WD);
+          for (const [dx, dy] of [[3, 5], [3, 6], [2, 7], [2, 8], [1, 9]]) dot(x + dx, top + dy, WS);
+        },
+        // The thunderbolt in his hand, a gold zigzag; now and then raised high over his head, crackling, lighting him by night: his
+        // arm up and out past his curls, as the office raises an arm, the bolt's tip in his fist
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 15, 2.2, 7), lift = costumeLift(pose);
+          // The himation's shade on down to his feet, standing
+          if (lift) { dot(x + 3, top + 13, 0x9ca0b0); if (pose.kind !== 'walk') fill(x + 3, top + 14, 1, 2, 0x9ca0b0); }
+          // `w` wide from `bx`, `by` down: a stroke down to the left, a jog back across, a stroke down to the left again; pale at
+          // the top, gold across, amber at the tip
+          const bolt = (bx, by, w) => {
+            for (let i = 0; i < w; i++) {
+              dot(bx + w - 1 - i, by + i, 0xfff0a0); dot(bx + i, by + w, 0xffd84a); dot(bx + w - 1 - i, by + w + 1 + i, 0xe8a828);
+            }
+          };
+          costumeArm(x, top, -4, look, sleeve);
+          if (p !== null) {
+            sleeve(x + 4, top + 7, 1, 2); sleeve(x + 5, top + 3, 1, 4); dot(x + 5, top + 2, look.skin);
+            bolt(x + 5, top - 7, 4);
+            const flick = Math.floor(now * 12) % 2;
+            for (const [dx, dy] of flick ? [[5, -6], [-1, -5], [4, -1]] : [[1, -8], [5, -3], [-2, -4]]) dot(x + 5 + dx, top + dy, 0xfff6c0, 0.9);
+            if (isNight) glowLate(() => { glowAt(x + 7, top - 3, 8, 8, 0xfff0a0, 0.25); bolt(x + 5, top - 7, 4); }); else glowAt(x + 7, top - 3, 6, 6, 0xfff0a0, 0.12);
+          } else {
+            costumeArm(x, top, 4, look, sleeve);
+            bolt(x + 5, top + 6, 3);
+          }
+          return true;
+        },
+      },
+      olympushera: {
+        // Hera: a tall gold crown, dark hair waved at the sides, gold earrings; a white gown under a peacock-teal mantle with a gold
+        // brooch at each shoulder, a peacock feather in her hand. Now and then a peacock's tail fans out behind her, its eyes
+        // shimmering.
+        look: costumeLook(0xf0d0b8, 0x2e1e14),
+        front(x, y) {
+          // The white gown down the middle, the mantle either side, its brooches; lit on the left
+          fill(x - 1, y, 3, 6, 0xf6f4ee); fill(x + 1, y, 1, 6, 0xdcdad2); dot(x - 2, y, 0xe8b830); dot(x + 2, y, 0xa07818);
+          fill(x - 3, y, 1, 6, 0x4aaab4); fill(x + 3, y, 1, 6, 0x1a5a64);
+        },
+        head(x, top, look, away) {
+          const G = 0xe8b830, GL = 0xffe08a, GD = 0xa07818, H = look.hair;
+          // Dark hair waved at the sides
+          fill(x - 3, top + 1, 1, 4, H); fill(x + 3, top + 1, 1, 4, H); dot(x - 4, top + 2, H); dot(x + 4, top + 2, H);
+          // The crown: a tall gold cylinder rising to three points, a lighter band round it, a teal jewel
+          fill(x - 2, top - 3, 5, 3, G); fill(x - 2, top - 3, 1, 3, GL); fill(x + 2, top - 3, 1, 3, GD); fill(x - 2, top - 2, 5, 1, GL); dot(x, top - 2, 0x2a8a96);
+          dot(x - 2, top - 4, GL); dot(x, top - 4, GL); dot(x + 2, top - 4, G);
+          if (away) { fill(x - 2, top + 2, 5, 4, H); fill(x - 1, top + 6, 3, 1, H); return; }
+          dot(x - 3, top + 5, G); dot(x + 3, top + 5, G); dot(x, top + 6, 0xc84a5a);
+        },
+        // The feather in her hand; now and then the peacock's tail fanning out behind her head and shoulders (drawn here, before her
+        // head, so she stays in front of it)
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 17, 2.6, 5);
+          if (p !== null) {
+            const r = Math.round(4 + Math.min(1, p * 4) * 3), shimmer = Math.floor(now * 6) % 2;
+            for (let i = 0; i <= 8; i++) {
+              const a = Math.PI + (i / 8) * Math.PI, fx = x + Math.round(Math.cos(a) * r), fy = top + 4 + Math.round(Math.sin(a) * r);
+              line(x, top + 4, fx, fy, 0x3a8a4a, 0.9);
+              dot(fx, fy, (i + shimmer) % 2 ? 0x2a6ad8 : 0x2ab0a8); if (r > 5) dot(fx, fy + (fy < top + 4 ? 1 : 0), 0xe8b830, 0.8);
+            }
+          }
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          fill(x + 5, top + 6, 1, 7, 0x3a8a4a); dot(x + 5, top + 5, 0x2a6ad8); dot(x + 5, top + 4, 0x2ab0a8); dot(x + 6, top + 5, 0xe8b830);
+          return true;
+        },
+      },
+      olympusposeidon: {
+        // Poseidon: wild sea-green hair and a sea-green beard under a gold crown of points; a teal mantle patterned like fish scales
+        // over a white tunic; a gold trident. Now and then a wave rises round his feet and spray flies off the trident.
+        look: costumeLook(0xd8b090, 0x2a8a7a),
+        front(x, y) {
+          // The white tunic at the neck and its gold clasp, the scales on the mantle; lit on the left
+          fill(x - 1, y, 3, 1, 0xf2f0e8); dot(x - 2, y, 0xe8b830);
+          for (const [dx, dy] of [[-2, 2], [0, 2], [2, 2], [-1, 3], [1, 3], [-2, 4], [0, 4], [2, 4], [-1, 5], [1, 5]]) dot(x + dx, y + dy, 0x1a6a6a);
+          fill(x - 3, y, 1, 6, 0x4ab4a4); fill(x + 3, y, 1, 6, 0x10484a);
+        },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0x4ab4a4, HD = 0x1a5a50, G = 0xe8b830;
+          // Wild sea-green hair, out past the ears, and the gold crown of points on it
+          fill(x - 4, top, 9, 2, H); fill(x - 4, top + 2, 1, 3, H); fill(x + 4, top + 2, 1, 3, HD); fill(x - 3, top + 2, 1, 2, H); fill(x + 3, top + 2, 1, 2, HD);
+          for (const [dx, dy] of [[-4, 0], [-1, 1], [2, 0], [4, 1]]) dot(x + dx, top + dy, HL);
+          fill(x - 3, top - 1, 7, 1, G); for (const dx of [-3, -1, 1, 3]) dot(x + dx, top - 2, G); dot(x - 1, top - 2, 0xffe08a);
+          if (away) { fill(x - 3, top + 2, 7, 5, H); return; }
+          // The sea-green beard, curling down onto his chest
+          fill(x - 3, top + 5, 7, 2, H); fill(x - 2, top + 7, 5, 2, H); dot(x, top + 9, H);
+          for (const [dx, dy] of [[-2, 5], [1, 6], [-1, 7], [2, 7], [0, 8]]) dot(x + dx, top + dy, HL);
+          dot(x - 1, top + 5, HD); dot(x + 1, top + 5, HD);
+        },
+        // The trident upright in his right hand; now and then a wave round his feet and spray off the trident's tip
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 16, 2.4, 9), lift = costumeLift(pose), G = 0xe8b830;
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          // The trident taller than him, its head clear of his crown: a crossbar and three prongs with a gap between each
+          fill(x + 5, top - 3, 1, 19, G); fill(x + 3, top - 4, 5, 1, G); dot(x + 7, top - 4, 0xa07818);
+          for (const dx of [3, 7]) fill(x + dx, top - 6, 1, 2, G); fill(x + 5, top - 7, 1, 3, G);
+          for (const dx of [3, 5, 7]) dot(x + dx, top - (dx === 5 ? 7 : 6), 0xffe08a);
+          if (p !== null) {
+            const k = Math.floor(now * 6) % 3, rise = k === 1 ? 1 : 0;
+            if (lift) { fill(x - 5, top + 15 - rise, 11, 2, 0x4ab0d8, 0.85); for (const dx of [-5, -2, 1, 4]) dot(x + dx + (k % 2), top + 14 - rise, 0xf2f8ff); }
+            for (const [dx, dy] of [[-2, -2], [2, -3], [0, -4], [1, -1]]) dot(x + 5 + dx, top - 7 + dy - k, 0xbfe8ff, 0.85);
+          }
+          return true;
+        },
+      },
+      olympusathena: {
+        // Athena: a bronze helmet pushed back on her head, its face-guard tipped up and a tall blue crest along it, long brown hair
+        // under it; a golden scaled aegis over the shoulders of a blue gown; a spear, and a little owl on her shoulder. Now and then
+        // the owl hops up flapping, turns its head and blinks.
+        look: costumeLook(0xf0d4bc, 0x4a2a1a),
+        front(x, y) {
+          // The aegis: gold scales over the shoulders and chest, its fringe; the blue gown under it with a gold girdle; lit on the left
+          for (let r = 0; r < 2; r++) for (let dx = -3; dx <= 3; dx++) dot(x + dx, y + r, (dx + r) % 2 ? 0xe8b830 : 0xa07818);
+          for (const dx of [-2, 0, 2]) dot(x + dx, y + 2, 0xa07818);
+          fill(x - 3, y + 2, 1, 4, 0x5a7ac8); fill(x + 3, y + 2, 1, 4, 0x1e3a7a); fill(x - 3, y + 4, 7, 1, 0xe8b830);
+        },
+        head(x, top, look, away) {
+          const B = 0xc8903a, BL = 0xe8b860, BD = 0x7a5420;
+          // Long brown hair under the helmet, down the sides
+          fill(x - 3, top + 1, 1, 6, look.hair); fill(x + 3, top + 1, 1, 6, look.hair);
+          // The helmet pushed back: a bronze bowl over the brow, the tipped-up face-guard with its eye holes (from the front only),
+          // the crest along the top
+          fill(x - 3, top - 2, 7, 3, B); fill(x - 3, top - 2, 1, 3, BL); fill(x + 3, top - 2, 1, 3, BD);
+          fill(x - 1, top - 6, 2, 4, 0x2a5aa8); dot(x - 1, top - 6, 0x6a9ae8); dot(x + 1, top - 5, 0x2a5aa8); dot(x + 1, top - 4, 0x1a3a7a); dot(x - 2, top - 4, 0x6a9ae8);
+          if (away) { fill(x - 3, top + 1, 7, 6, look.hair); return; }
+          dot(x - 2, top, 0x3a2410); dot(x + 2, top, 0x3a2410);
+          dot(x, top + 6, 0xc86a6a);
+          // The owl on her shoulder: grey-brown, lit on the left, ear tufts, a pale face and breast, two big yellow eyes; now and
+          // then it hops up off her shoulder flapping its wings, turns its head and blinks (see arms)
+          const turn = look.costumeOwl, hop = turn !== null && turn !== undefined && turn < 0.5;
+          const ox = x - 5, oy = top + 3 - (hop ? 1 : 0), owl = 0xb09c80, owlLight = 0xd0c0a4, tuft = 0x5e4e3e, face = 0xf4ecdc, eye = 0xffd23a;
+          fill(ox - 1, oy, 3, 4, owl); fill(ox - 1, oy + 2, 1, 2, owlLight); dot(ox - 1, oy, tuft); dot(ox + 1, oy, tuft);
+          if (hop) { const wy = oy + 1 + (Math.floor(now * 8) % 2); dot(ox - 2, wy, owlLight); dot(ox + 2, wy, owl); }
+          if (turn !== null && turn !== undefined && turn < 0.6) { dot(ox - 1, oy + 1, eye); dot(ox, oy + 1, face); }
+          else if (turn !== null && turn !== undefined && turn < 0.75) { dot(ox - 1, oy + 1, tuft); dot(ox, oy + 1, face); dot(ox + 1, oy + 1, tuft); }
+          else { dot(ox - 1, oy + 1, eye); dot(ox, oy + 1, face); dot(ox + 1, oy + 1, eye); }
+          dot(ox, oy + 2, 0xe8a030); dot(ox, oy + 3, face); dot(ox - 1, oy + 4, 0xe8a030); dot(ox + 1, oy + 4, 0xe8a030);
+        },
+        // The spear in her right hand; the owl's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeOwl = pose.kind === 'walk' ? null : every(look, 13, 2, 4);
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          fill(x + 5, top - 2, 1, 16, 0x8a5a32); fill(x + 5, top - 4, 1, 2, 0xc8903a); dot(x + 5, top - 5, 0xe8b860);
+          return true;
+        },
+      },
+      olympusapollo: {
+        // Apollo: short golden curls; a white chiton to the knee with a gold belt and a gold border at the hem, a red cloak pinned at
+        // one shoulder, gold sandals; a golden lyre. Now and then he strums it and notes float up.
+        look: costumeLook(0xf0c8a0, 0xf0c040),
+        front(x, y) {
+          // The red cloak at his shoulders and its gold pin, the gold belt; the chiton lit on the left
+          dot(x - 3, y, 0xc8302a); dot(x + 3, y, 0x8a1c1c); fill(x + 3, y + 1, 1, 3, 0x8a1c1c); dot(x + 2, y, 0xe8b830);
+          fill(x - 3, y + 3, 7, 1, 0xe8b830); fill(x - 3, y + 1, 1, 2, 0xffffff);
+        },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0xffe080, HD = 0xb88a1a;
+          // Short golden curls all over, lit on top
+          fill(x - 3, top - 1, 7, 1, H); fill(x - 4, top, 9, 2, H); dot(x - 4, top + 2, H); dot(x + 4, top + 2, HD); dot(x - 3, top + 2, H); dot(x + 3, top + 2, HD);
+          for (const [dx, dy] of [[-2, -1], [1, -1], [-3, 0], [0, 0], [3, 1], [-1, 1]]) dot(x + dx, top + dy, HL);
+          for (const [dx, dy] of [[2, 0], [-4, 1], [4, 1]]) dot(x + dx, top + dy, HD);
+          if (away) { fill(x - 3, top + 2, 7, 3, H); return; }
+          // Strumming: amber-gold notes floating up off the lyre (see arms), to read on pale stone and dark wood alike
+          const p = look.costumeLyre;
+          if (p !== null && p !== undefined) for (let i = 0; i < 2; i++) {
+            const k = (p * 2 + i * 0.5) % 1, nx = x + 7 + i * 2, ny = top + 4 - Math.round(k * 8);
+            dot(nx, ny, 0xd8921c, 1 - k); dot(nx, ny - 1, 0xd8921c, 1 - k); dot(nx + 1, ny - 1, 0xd8921c, 1 - k);
+          }
+        },
+        // The lyre held at his side, now and then raised and strummed; sitting at a desk, held up at his shoulder, clear of the
+        // desk; the chiton's gold hem when the legs show
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose), G = 0xe8b830, GD = 0xa07818;
+          if (lift) { fill(x - 3, top + 13, 7, 1, 0xf6f2e8); for (const dx of [-3, -1, 1, 3]) dot(x + dx, top + 13, G); }
+          const p = pose.kind === 'walk' ? null : every(look, 14, 2.6, 6);
+          look.costumeLyre = p;
+          // The lyre: two arms curving up out of a round sound box and out at their tips, a crossbar under the tips, two strings
+          const lyre = (lx, ly) => {
+            dot(lx - 1, ly - 1, G); dot(lx + 4, ly - 1, GD); fill(lx, ly, 1, 4, G); fill(lx + 3, ly, 1, 4, GD);
+            fill(lx, ly + 1, 4, 1, G); fill(lx + 1, ly + 4, 2, 1, GD); dot(lx + 1, ly + 4, G);
+            fill(lx + 1, ly + 2, 1, 2, 0xf8f6f0, 0.85); fill(lx + 2, ly + 2, 1, 2, 0xf8f6f0, 0.55);
+          };
+          costumeArm(x, top, -4, look, sleeve);
+          if (p !== null) { sleeve(x + 4, top + 7, 1, 3); lyre(x + 5, top + 5); dot(x + 6 + (Math.floor(now * 8) % 2), top + 7, look.skin); }
+          else if (!lift) { lyre(x + 4, top + 5); dot(x + 4, top + 9, look.skin); }
+          else { costumeArm(x, top, 4, look, sleeve); lyre(x + 5, top + 9); }
+          return true;
+        },
+      },
+      olympusartemis: {
+        // Artemis: auburn hair tied up high, a silver crescent moon on her brow; a short pale chiton belted at the waist, hunting
+        // sandals, a quiver of arrows over her shoulder; a silver bow. Now and then she draws the bow, an arrow on it, and looses it;
+        // by night her crescent shines.
+        look: costumeLook(0xf2d0b4, 0x9a3a1a),
+        front(x, y) {
+          // The quiver's strap over one shoulder, the belt and its silver clasp; the chiton lit on the left
+          dot(x + 2, y, 0x6a4424); dot(x + 1, y + 1, 0x6a4424); dot(x, y + 2, 0x6a4424); fill(x - 3, y + 3, 7, 1, 0x6a4424); dot(x, y + 3, 0xc8ccd4);
+          fill(x - 3, y, 1, 3, 0xffffff);
+        },
+        back(x, y) { fill(x + 1, y - 1, 2, 5, 0x8a5a32); for (const dx of [1, 2]) dot(x + dx, y - 2, 0xf2f0ea); },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0xc85a2a, HD = 0x6a2410, silver = 0xe8ecf4;
+          // The hair tied up high in a knot on a short tail
+          fill(x - 1, top - 3, 3, 2, H); dot(x - 1, top - 3, HL); dot(x + 1, top - 2, HD); dot(x, top - 1, H);
+          fill(x - 3, top + 1, 1, 3, H); fill(x + 3, top + 1, 1, 3, H);
+          if (away) { fill(x - 3, top + 2, 7, 4, H); return; }
+          // The arrows' fletching peeking over her shoulder (from behind, the quiver shows its own)
+          dot(x + 4, top + 6, 0xf2f0ea); dot(x + 5, top + 6, 0xc83a3a); dot(x + 4, top + 7, 0x8a5a32);
+          // The silver crescent on her brow, shining through the night: a soft light on the brow alone
+          const moon = () => { dot(x - 1, top + 1, silver); dot(x + 1, top + 1, silver); dot(x, top + 2, silver); };
+          if (isNight) glowLate(() => { glowAt(x, top + 1, 2, 1, 0xe0e8ff, 0.3); moon(); }); else moon();
+        },
+        // The bow in her left hand, its silver a step darker than pale stone; now and then drawn, an arrow on the string, then
+        // loosed with a streak
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 15, 2.2, 8), S = 0xc0c6d2, SD = 0x767a86;
+          costumeArm(x, top, 4, look, sleeve);
+          if (p === null) {
+            // At rest, upright at her side: the limbs bowed out from tip to tip, the string straight between them
+            costumeArm(x, top, -4, look, sleeve);
+            dot(x - 5, top + 6, SD); dot(x - 6, top + 7, S); fill(x - 7, top + 8, 1, 5, S); dot(x - 6, top + 13, S); dot(x - 5, top + 14, SD);
+            fill(x - 5, top + 7, 1, 7, 0xf2f2f2, 0.6);
+            return true;
+          }
+          // Drawn: the bow out at arm's length, the string back to her chest; or loosed, a streak where the arrow went
+          sleeve(x - 4, top + 8, 1, 1); sleeve(x - 6, top + 8, 2, 1); dot(x - 7, top + 8, look.skin);
+          fill(x - 8, top + 4, 1, 9, S); dot(x - 7, top + 3, SD); dot(x - 7, top + 13, SD);
+          if (p < 0.7) {
+            line(x - 7, top + 4, x - 2, top + 8, 0xf2f2f2, 0.7); line(x - 7, top + 12, x - 2, top + 8, 0xf2f2f2, 0.7);
+            fill(x - 10, top + 8, 8, 1, 0x8a5a32); dot(x - 11, top + 8, 0xc8ccd4); dot(x - 2, top + 7, 0xc83a3a);
+          } else {
+            line(x - 8, top + 4, x - 8, top + 12, 0xf2f2f2, 0.7);
+            const k = (p - 0.7) / 0.3; for (let i = 0; i < 3; i++) dot(x - 11 - Math.round(k * 6) - i * 2, top + 8, 0xe8ecf4, 0.8 - i * 0.25);
+          }
+          return true;
+        },
+      },
+      olympushermes: {
+        // Hermes: a round brimmed traveller's hat with a little white wing either side, brown curls; a short white tunic with a red
+        // cloak at the shoulders and a satchel of letters at the hip; winged sandals; the caduceus. Now and then a letter flies out
+        // of the satchel and zooms off, delivered.
+        look: costumeLook(0xe8bc94, 0x5a3418),
+        front(x, y) {
+          // The red cloak round his shoulders and its clasp, the satchel's strap across; lit on the left
+          dot(x - 3, y, 0xc8302a); dot(x - 2, y, 0xc8302a); dot(x + 2, y, 0x9a2020); dot(x + 3, y, 0x9a2020); dot(x, y, 0xe8b830);
+          dot(x - 1, y + 1, 0x6a4424); dot(x, y + 2, 0x6a4424); dot(x + 1, y + 3, 0x6a4424);
+          fill(x - 3, y + 1, 1, 3, 0xffffff);
+        },
+        head(x, top, look, away) {
+          const hat = 0xb08a5a, wing = 0xf6f6f2, wingDark = 0xc8ccd4, flap = look.costumeLetter !== null && look.costumeLetter !== undefined && Math.floor(now * 10) % 2;
+          // The hat: a low round crown and a wide brim, a little white wing out to each side, beating while a letter goes
+          fill(x - 2, top - 2, 5, 2, hat); fill(x - 2, top - 2, 2, 1, 0xd0aa78); fill(x - 4, top, 9, 1, hat); dot(x - 4, top, 0xd0aa78); dot(x + 4, top, 0x7a5a34);
+          const up = flap ? 1 : 0;
+          dot(x - 5, top - 1 - up, wing); dot(x - 6, top - 2 - up, wing); dot(x - 5, top - 2 - up, wingDark);
+          dot(x + 5, top - 1 - up, wing); dot(x + 6, top - 2 - up, wingDark); dot(x + 5, top - 2 - up, wing);
+          fill(x - 3, top + 1, 1, 2, look.hair); fill(x + 3, top + 1, 1, 2, look.hair);
+          if (away) fill(x - 3, top + 1, 7, 4, look.hair);
+        },
+        // The caduceus in his left hand, the satchel at his right hip, the sandals' wings; now and then a letter zooms off
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose), G = 0xe8b830;
+          // The sandals' little wings, out from each heel, clear of the tunic
+          if (lift) for (const [side, l] of [[-1, lift[0]], [1, lift[1]]]) { dot(x + side * 3, top + 16 - l, 0xd8dce4); dot(x + side * 4, top + 15 - l, 0xf6f6f2); }
+          const p = pose.kind === 'walk' ? null : every(look, 14, 1.6, 3);
+          look.costumeLetter = p;
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          // The caduceus: a gold staff, two green snakes winding up it, little wings at its top
+          fill(x - 5, top + 3, 1, 11, G); dot(x - 6, top + 3, 0xf6f6f2); dot(x - 4, top + 3, 0xf6f6f2); dot(x - 5, top + 2, 0xffe08a);
+          for (let i = 0; i < 4; i++) dot(x - 6 + (i % 2) * 2, top + 5 + i * 2, 0x3a9a4a);
+          // The satchel, a letter in it, or the letter flying off
+          fill(x + 2, top + 11, 3, 2, 0x8a5a32); dot(x + 2, top + 11, 0xa8743e);
+          if (p === null) dot(x + 3, top + 10, 0xf6f4ee);
+          else {
+            const k = Math.min(1, p * 1.2), lx = x + 4 + Math.round(k * 12), ly = top + 9 - Math.round(k * 5);
+            fill(lx, ly, 3, 2, 0xf6f4ee); dot(lx + 1, ly, 0xc8302a);
+            for (let i = 1; i <= 3; i++) dot(lx - i * 2, ly + 1, 0xd8dce4, 0.8 - i * 0.2);
+          }
+          return true;
+        },
+      },
+      olympusares: {
+        // Ares: a bronze helmet closing over his face but for the T of its opening, a tall red crest arching over it; a bronze cuirass
+        // shaped to the chest, a red cloak, a short red skirt, bronze greaves; a round bronze shield and a spear. Now and then he
+        // strikes the shield with a war cry, and it rings.
+        look: costumeLook(0xd8a888, 0x2a1a12),
+        front(x, y) {
+          const BL = 0xe8b860, BD = 0x7a5420;
+          // The cuirass lit on the left, the chest and belly modelled in it; the red cloak at the shoulders; the skirt's strips
+          fill(x - 2, y, 1, 4, BL); dot(x - 1, y + 1, BD); dot(x + 1, y + 1, BD); dot(x, y + 2, BD); dot(x - 1, y + 3, BD); dot(x + 1, y + 3, BD); fill(x + 2, y, 1, 4, BD);
+          dot(x - 3, y, 0xc8302a); dot(x + 3, y, 0x8a1c1c); fill(x - 3, y + 4, 7, 2, 0xb02a2a); for (const dx of [-2, 0, 2]) dot(x + dx, y + 5, 0x7a1414);
+        },
+        back(x, y) { fill(x - 3, y, 7, 6, 0xb02a2a); fill(x + 3, y, 1, 6, 0x7a1414); },
+        head(x, top, look, away) {
+          const B = 0xc8903a, BL = 0xe8b860, BD = 0x7a5420, crest = 0xc8302a;
+          // The helmet: a bronze bowl closing over the face, the T of its opening showing his eyes and mouth
+          fill(x - 3, top - 1, 7, 8, B); fill(x - 3, top - 1, 1, 8, BL); fill(x + 3, top - 1, 1, 8, BD); fill(x - 2, top - 2, 5, 1, B);
+          if (!away) {
+            fill(x - 2, top + 4, 5, 1, look.skin); fill(x, top + 5, 1, 2, look.skin); dot(x - 2, top + 4, PALETTE.eye); dot(x + 2, top + 4, PALETTE.eye); dot(x, top + 3, BD);
+            if (look.costumeCry) dot(x, top + 6, 0x3a1010);
+          }
+          // The crest: tall red horsehair arching over the top from front to back
+          fill(x - 1, top - 6, 3, 4, crest); fill(x - 2, top - 5, 1, 3, crest); fill(x + 2, top - 5, 1, 3, 0x8a1c1c); dot(x - 1, top - 6, 0xe85a4a); dot(x, top - 7, crest);
+        },
+        // Greaves on the shins; the round shield on his left arm, ringing when struck; the spear in his right hand, raised to strike
+        arms(x, top, look, o, sleeve, pose) {
+          const lift = costumeLift(pose), B = 0xc8903a, BL = 0xe8b860, BD = 0x7a5420;
+          if (lift) { fill(x - 2, top + 14 - lift[0], 2, 2, B); fill(x + 1, top + 14 - lift[1], 2, 2, BD); }
+          const p = pose.kind === 'walk' ? null : every(look, 15, 1.8, 2), hit = p !== null && Math.floor(p * 6) % 2 === 0;
+          look.costumeCry = p !== null;
+          costumeArm(x, top, -4, look, sleeve);
+          const sx = x - 6 + (hit ? 1 : 0);
+          disc(sx, top + 10, 3, B); disc(sx - 1, top + 9, 1.5, BL); ring(sx, top + 10, 3.2, BD, 0.9); dot(sx, top + 10, BD);
+          if (hit) costumeTwinkle(sx - 2, top + 8, 0.9);
+          costumeArm(x, top, 4, look, sleeve);
+          const up = p !== null ? 3 : 0;
+          fill(x + 5, top - 3 - up, 1, 16, 0x8a5a32); fill(x + 5, top - 5 - up, 1, 2, 0xc8ccd4); dot(x + 5, top - 6 - up, 0xe8ecf2);
+          return true;
+        },
+      },
+      olympusaphrodite: {
+        // Aphrodite: long golden waves down to her waist with a pink rose in them, red lips; a rose-pink chiton with a gold girdle and a
+        // pearly scallop-shell clasp, a golden apple in her hand. Now and then little hearts float up from her.
+        look: costumeLook(0xf6dcc8, 0xf2c860),
+        front(x, y) {
+          // The shell clasp at her shoulder, the gold girdle under the bust, the chiton's folds; lit on the left
+          dot(x + 2, y, 0xf6eee6); dot(x + 3, y, 0xe8d8cc); dot(x + 2, y + 1, 0xe8d8cc);
+          fill(x - 2, y + 2, 5, 1, 0xe8b830); dot(x, y + 3, 0xe8b830);
+          for (const dx of [-1, 1]) fill(x + dx, y + 3, 1, 3, 0xe07888);
+          fill(x - 3, y, 1, 6, 0xf8b8c4);
+        },
+        back(x, y, o, look) { fill(x - 3, y, 7, 5, look.hair); for (const dx of [-2, 0, 2]) dot(x + dx, y + 2, 0xc8a040); },
+        head(x, top, look, away) {
+          const H = look.hair, HL = 0xfff0a8, HD = 0xc8a040;
+          // The long golden waves: over the head and down both sides past the shoulders, a rose tucked in them
+          fill(x - 3, top - 1, 7, 1, H); fill(x - 4, top, 9, 2, H);
+          for (const side of [-1, 1]) { fill(x + side * 4, top + 2, 1, 10, H); fill(x + side * 3, top + 2, 1, 4, H); }
+          for (const [dx, dy] of [[-2, -1], [1, 0], [-4, 4], [-4, 7], [-4, 10], [4, 3], [4, 6], [4, 9]]) dot(x + dx, top + dy, dx < 0 ? HL : HD);
+          dot(x - 3, top, 0xe8405a); dot(x - 4, top, 0xc82a4a); dot(x - 3, top + 1, 0x4a8a3a);
+          if (away) { fill(x - 3, top + 2, 7, 5, H); return; }
+          fill(x - 1, top + 6, 3, 1, 0xd8283c); dot(x - 2, top + 5, 0xf0a0a8, 0.5); dot(x + 2, top + 5, 0xf0a0a8, 0.5);
+          // The hearts floating up from her (see arms)
+          const p = look.costumeHearts;
+          if (p !== null && p !== undefined) for (let i = 0; i < 3; i++) {
+            const k = (p * 1.5 + i / 3) % 1, hx = x - 3 + i * 3 + Math.round(Math.sin(k * 6 + i)), hy = top - 1 - Math.round(k * 8), a = 1 - k;
+            dot(hx - 1, hy - 1, 0xf0507a, a); dot(hx + 1, hy - 1, 0xf0507a, a); fill(hx - 1, hy, 3, 1, 0xf0507a, a); dot(hx, hy + 1, 0xf0507a, a);
+          }
+        },
+        // The golden apple in her right hand; the hearts' moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeHearts = pose.kind === 'walk' ? null : every(look, 13, 2.4, 6);
+          costumeArm(x, top, -4, look, sleeve); costumeArm(x, top, 4, look, sleeve);
+          // The apple held out past her hair, so it doesn't melt into it: lit on the top left, a leaf at its stalk
+          fill(x + 5, top + 11, 2, 2, 0xe8b830); dot(x + 5, top + 11, 0xffe08a); dot(x + 6, top + 12, 0xa07818); dot(x + 6, top + 10, 0x4a8a3a);
+          return true;
+        },
+      },
+      zoolion: {
+        // The lion onesie: a golden suit with a cream belly, its hood ringed by a big shaggy mane falling over the shoulders, two little
+        // round ears on top. Now and then it roars: the mane bristles out and the mouth opens wide.
+        look: zooTucked,
+        front(x, y) {
+          // The cream belly, the zip, the suit lit on the left
+          fill(x - 1, y + 2, 3, 4, 0xf2e2b8); dot(x, y + 2, 0xb88a2a);
+          fill(x - 3, y + 2, 1, 4, 0xf0c060); fill(x + 3, y + 2, 1, 4, 0xa87820);
+        },
+        back(x, y) { fill(x - 3, y, 7, 2, 0xb8642a); dot(x + 1, y + 5, 0xb88a2a); },
+        head(x, top, look, away) {
+          const M = 0xb8642a, ML = 0xd8843a, MD = 0x8a4418, F = 0xe0aa48, FD = 0xb88a2a, roar = look.costumeRoar ? 1 : 0;
+          // The mane: a shaggy ring round the hood and under the chin, out over the shoulders; it bristles out further as it roars
+          const L = x - 5 - roar, R = x + 5 + roar, T = top - 3 - roar, B = top + 8 + roar;
+          fill(L, T + 1, x - 3 - L, B - T - 1, M); fill(x + 4, T + 1, R - x - 3, B - T - 1, M);
+          fill(x - 3, T, 7, top - 1 - T, M); fill(x - 3, top + 7, 7, B - top - 6, M);
+          for (let yy = T + 1; yy < B; yy += 2) { dot(L - 1, yy, M); dot(R + 1, yy + 1, MD); }
+          for (let xx = x - 3; xx <= x + 3; xx += 2) dot(xx, T - 1, ML);
+          fill(L, T + 1, 1, B - T - 1, ML); fill(R, T + 1, 1, B - T - 1, MD);
+          // The hood's golden fur inside it, round the face; two little round ears on top of the mane
+          fill(x - 3, top - 1, 7, 3, F); fill(x - 3, top + 2, 1, 5, F); fill(x + 3, top + 2, 1, 5, FD); dot(x - 3, top - 1, 0xf0c060);
+          fill(x - 4, T - 2, 2, 2, F); fill(x + 3, T - 2, 2, 2, FD); dot(x - 3, T - 1, 0x7a3a1a); dot(x + 3, T - 1, 0x7a3a1a);
+          if (away) { fill(x - 3, top + 2, 7, 5, M); return; }
+          // Roaring: the mouth wide open
+          if (roar) { fill(x - 1, top + 6, 3, 1, 0x5a1a1a); dot(x, top + 5, 0x5a1a1a); }
+        },
+        // Paws for hands; the roar's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeRoar = pose.kind !== 'walk' && every(look, 14, 1.4, 5) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0xb88a2a); costumeArm(x, top, 4, look, sleeve, 0xb88a2a);
+          return true;
+        },
+      },
+      zooelephant: {
+        // The elephant onesie: a grey suit, its hood with two great round ears pink inside and a trunk hanging down between the eyes,
+        // a little white tusk either side of it. Now and then the ears flap and the trunk swings up with a toot.
+        look: zooTucked,
+        front(x, y) {
+          // The paler belly, the suit lit on the left
+          fill(x - 1, y + 1, 3, 4, 0xb4b8c0); fill(x - 3, y, 1, 6, 0xb4b8c0); fill(x + 3, y, 1, 6, 0x6e727c);
+        },
+        back(x, y) { dot(x, y + 5, 0x6e727c); dot(x, y + 6, 0x4a4e58); },
+        head(x, top, look, away) {
+          const G = 0x9a9ea8, GL = 0xb8bcc6, GD = 0x6e727c, pink = 0xe8a8b4, toot = look.costumeToot;
+          costumeHood(x, top, G, GL, GD, away);
+          // The ears: great round flaps either side, pink inside, flapping as it toots
+          const flap = toot !== null && toot !== undefined && Math.floor(now * 6) % 2, ew = flap ? 2 : 3;
+          fill(x - 4 - ew, top - 1, ew, 7, GL); dot(x - 4 - ew, top - 1, G);
+          fill(x + 5, top - 1, ew, 7, GD); dot(x + 4 + ew, top - 1, G);
+          // From behind, the backs of the ears: grey, the pink only inside
+          if (away) return;
+          fill(x - 3 - ew, top, ew - 1, 5, pink); fill(x + 5, top, ew - 1, 5, pink);
+          // The trunk down between the eyes, or swung up with a toot: over the brow in its darker grey, so it shows on the hood, and
+          // out past it, its tip turned up; the toot puffs off the tip. The tusks.
+          if (toot !== null && toot !== undefined) {
+            dot(x, top + 2, G); dot(x, top + 1, GD); dot(x + 1, top, GD); dot(x + 2, top - 1, GD); dot(x + 3, top - 2, GD);
+            dot(x + 4, top - 3, G); dot(x + 4, top - 4, GL);
+            const k = (toot * 3) % 1, rise = Math.round(k * 2);
+            dot(x + 5 + rise, top - 4 - rise, WHITE, 0.8 * (1 - k)); dot(x + 6 + rise, top - 3 - rise, WHITE, 0.6 * (1 - k));
+          } else { fill(x, top + 2, 1, 4, G); dot(x, top + 6, GD); dot(x + 1, top + 6, GD); }
+          dot(x - 1, top + 5, 0xf6f4ee); dot(x + 1, top + 5, 0xf6f4ee);
+        },
+        // Grey paws; the toot's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeToot = pose.kind === 'walk' ? null : every(look, 14, 1.8, 4);
+          costumeArm(x, top, -4, look, sleeve, 0x6e727c); costumeArm(x, top, 4, look, sleeve, 0x6e727c);
+          return true;
+        },
+      },
+      zoogiraffe: {
+        // The giraffe onesie: a yellow suit with brown patches, its hood rising tall with patches of its own, two horns tipped in brown
+        // and little ears out to the sides. Now and then the ears flick and a long dark tongue curls out.
+        look: zooTucked,
+        front(x, y) {
+          // The patches, the suit lit on the left
+          for (const [dx, dy] of [[-2, 0], [1, 1], [-1, 3], [2, 3], [-3, 4], [0, 5]]) fill(x + dx, y + dy, 2, 1, 0xa86a2a);
+          fill(x - 3, y, 1, 4, 0xf8d878); fill(x + 3, y, 1, 3, 0xc8962a);
+        },
+        back(x, y) { for (const [dx, dy] of [[-2, 1], [1, 2], [-1, 4], [2, 5]]) fill(x + dx, y + dy, 2, 1, 0xa86a2a); },
+        head(x, top, look, away) {
+          const Y = 0xf0c050, YL = 0xf8d878, YD = 0xc8962a, spot = 0xa86a2a, flick = look.costumeFlick ? 1 : 0;
+          costumeHood(x, top, Y, YL, YD, away);
+          // Rising tall over the head, patched
+          fill(x - 2, top - 4, 5, 2, Y); dot(x - 2, top - 4, YL); dot(x + 2, top - 3, YD);
+          for (const [dx, dy] of [[-1, -3], [2, -1], [-3, 0], [1, 1], [-4, 3], [3, 4]]) dot(x + dx, top + dy, spot);
+          // The horns, tipped in brown; the ears out to the sides, flicking now and then
+          fill(x - 2, top - 6, 1, 2, YD); dot(x - 2, top - 7, 0x5a3418); fill(x + 2, top - 6, 1, 2, YD); dot(x + 2, top - 7, 0x5a3418);
+          dot(x - 5, top - 2 - flick, Y); dot(x - 6, top - 2 - flick, YL); dot(x + 5, top - 2 - flick, Y); dot(x + 6, top - 2 - flick, YD);
+          if (!away && flick) { dot(x, top + 6, 0x4a2a6a); dot(x + 1, top + 7, 0x4a2a6a); dot(x + 2, top + 7, 0x6a4a8a); }
+        },
+        // Hooves for hands; the flick's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeFlick = pose.kind !== 'walk' && every(look, 12, 1.4, 7) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0x5a3418); costumeArm(x, top, 4, look, sleeve, 0x5a3418);
+          return true;
+        },
+      },
+      zoozebra: {
+        // The zebra onesie: a white suit striped in black, its hood striped too, with a black-and-white mane standing up over the top
+        // and pointed ears tipped black. Now and then the ears flick and the mane bristles.
+        look: zooTucked,
+        front(x, y) {
+          // The stripes, curving round the body
+          for (const r of [0, 2, 4]) { fill(x - 3, y + r, 2, 1, 0x1a1a1e); fill(x + 2, y + r + 1, 2, 1, 0x1a1a1e); }
+          dot(x - 1, y + 1, 0x1a1a1e); dot(x + 1, y + 3, 0x1a1a1e); dot(x - 1, y + 5, 0x1a1a1e);
+        },
+        back(x, y) {
+          // Its stripes curving round the back as on the front, not in straight bands like a referee's shirt
+          for (const r of [0, 2, 4]) { fill(x + 2, y + r, 2, 1, 0x1a1a1e); fill(x - 3, y + r + 1, 2, 1, 0x1a1a1e); }
+          dot(x + 1, y + 1, 0x1a1a1e); dot(x - 1, y + 3, 0x1a1a1e); dot(x + 1, y + 5, 0x1a1a1e);
+        },
+        head(x, top, look, away) {
+          const W = 0xf4f4f0, WD = 0xc8c8c4, K = 0x1a1a1e, up = look.costumeFlick ? 1 : 0;
+          costumeHood(x, top, W, 0xffffff, WD, away);
+          // The hood's stripes, down either side
+          for (const [dx, dy] of [[-4, 0], [-4, 2], [-4, 4], [-3, -1], [4, 1], [4, 3], [4, 5], [3, -1], [-2, -2], [2, -2]]) dot(x + dx, top + dy, K);
+          // The mane standing up over the top, striped, bristling now and then; the pointed ears tipped black
+          for (let i = 0; i < 4; i++) dot(x, top - 3 - i - up, i % 2 ? W : K);
+          dot(x - 1, top - 3 - up, K); dot(x + 1, top - 4 - up, K);
+          dot(x - 3, top - 3, W); dot(x - 3, top - 4 + up, K); dot(x + 3, top - 3, WD); dot(x + 3, top - 4 + up, K);
+          if (!away) dot(x, top + 6, 0x8a8a90);
+        },
+        // Black hooves for hands; the flick's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeFlick = pose.kind !== 'walk' && every(look, 12, 1.4, 2) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0x1a1a1e); costumeArm(x, top, 4, look, sleeve, 0x1a1a1e);
+          return true;
+        },
+      },
+      zoopenguin: {
+        // The penguin onesie: black with a big white belly and orange feet; its hood black with a white face round the opening and an
+        // orange beak over the brow; flippers for arms. Now and then it flaps them.
+        look: zooTucked,
+        front(x, y) {
+          // The white belly, the black sides
+          fill(x - 2, y, 5, 6, 0xf6f6f2); dot(x - 2, y, 0x1e1e26); dot(x + 2, y, 0x1e1e26); dot(x + 2, y + 1, 0xdcdcd8); fill(x + 2, y + 2, 1, 4, 0xdcdcd8);
+          fill(x - 3, y, 1, 6, 0x3a3a44);
+        },
+        head(x, top, look, away) {
+          const K = 0x1e1e26;
+          costumeHood(x, top, K, 0x3a3a44, 0x0e0e12, away);
+          if (away) return;
+          // The white face round the opening, the orange beak over the brow
+          fill(x - 3, top + 2, 1, 4, 0xf6f6f2); fill(x + 3, top + 2, 1, 4, 0xdcdcd8);
+          fill(x - 1, top + 1, 3, 1, 0xf08a20); dot(x, top + 2, 0xd8701a);
+        },
+        // Flippers for arms, no hands; flapping now and then
+        arms(x, top, look, o, sleeve, pose) {
+          const flap = pose.kind !== 'walk' && every(look, 12, 1.6, 3) !== null && Math.floor(now * 8) % 2;
+          for (const side of [-1, 1]) {
+            if (flap) { fill(x + side * 4, top + 8, 1, 2, 0x1e1e26); fill(x + side * 5, top + 7, 1, 3, 0x2a2a34); }
+            else fill(x + side * 4, top + 8, 1, 5, side < 0 ? 0x2a2a34 : 0x14141a);
+          }
+          return true;
+        },
+      },
+      zoopanda: {
+        // The panda onesie: white with black arms and legs and a black band over the shoulders; its hood white with round black ears
+        // and a panda's face on it, black patches round its eyes and a black nose. Now and then it munches a stalk of bamboo.
+        look: zooTucked,
+        front(x, y) {
+          // The black band over the shoulders, the white belly lit on the left
+          fill(x - 3, y, 7, 2, 0x1e1e22); fill(x - 3, y + 2, 1, 4, 0xffffff); fill(x + 3, y + 2, 1, 4, 0xd8d8d4);
+        },
+        back(x, y) { fill(x - 3, y, 7, 2, 0x1e1e22); dot(x, y + 5, 0xf6f6f2); },
+        head(x, top, look, away) {
+          const W = 0xf6f6f2, K = 0x1e1e22;
+          costumeHood(x, top, W, 0xffffff, 0xd0d0cc, away);
+          // The round black ears on top
+          fill(x - 4, top - 4, 2, 2, K); fill(x + 3, top - 4, 2, 2, K); dot(x - 4, top - 4, 0x3a3a40);
+          if (away) return;
+          // The panda's face on the hood over the brow: black patches round its eyes, their glints, a black nose
+          fill(x - 3, top - 1, 2, 2, K); fill(x + 2, top - 1, 2, 2, K); dot(x - 2, top - 1, WHITE); dot(x + 2, top - 1, WHITE); dot(x, top + 1, K);
+          // Munching bamboo (see arms)
+          if (look.costumeMunch) {
+            const chew = Math.floor(now * 6) % 2;
+            fill(x + 1, top + 4 + chew, 1, 5, 0x5aa83a); dot(x + 1, top + 3 + chew, 0x8ad86a); dot(x + 2, top + 5 + chew, 0x3a8a2a); dot(x + 1, top + 6 + chew, 0x2e7a24);
+          }
+        },
+        // Black paws; now and then one comes up with a stalk of bamboo (the stalk is drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeMunch = pose.kind !== 'walk' && every(look, 15, 2.6, 8) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0x1e1e22);
+          if (look.costumeMunch) { sleeve(x + 4, top + 7, 1, 3); dot(x + 3, top + 7, 0x1e1e22); dot(x + 2, top + 8, 0x1e1e22); }
+          else costumeArm(x, top, 4, look, sleeve, 0x1e1e22);
+          return true;
+        },
+      },
+      zoomonkey: {
+        // The monkey onesie: brown with a tan belly, its hood with big round ears out at the sides, tan inside, and a tan face round the
+        // opening; a banana in hand. Now and then it peels the banana and takes a bite.
+        look: zooTucked,
+        front(x, y) {
+          // The tan belly, the suit lit on the left
+          fill(x - 1, y + 1, 3, 5, 0xd8b088); fill(x - 3, y, 1, 6, 0x9a6a42); fill(x + 3, y, 1, 6, 0x5a3420);
+        },
+        // Its tail curled up its back, in the darker brown so it shows on the suit
+        back(x, y) { for (const [dx, dy] of [[2, 5], [3, 4], [3, 3], [2, 2]]) dot(x + dx, y + dy, 0x5a3420); },
+        head(x, top, look, away) {
+          const B = 0x7a4a2a, BL = 0x9a6a42, BD = 0x5a3420, T = 0xd8b088;
+          costumeHood(x, top, B, BL, BD, away);
+          // Big round ears out at the sides, tan inside
+          fill(x - 7, top + 1, 3, 3, B); fill(x - 6, top + 2, 2, 1, T); dot(x - 7, top + 1, BL);
+          fill(x + 5, top + 1, 3, 3, BD); fill(x + 5, top + 2, 2, 1, T);
+          if (away) return;
+          // The tan face round the opening
+          fill(x - 2, top + 1, 5, 1, T); dot(x - 3, top + 2, T); dot(x + 3, top + 2, T); dot(x - 3, top + 6, T); dot(x + 3, top + 6, T);
+          // The banana, up at the mouth, peeled and bitten (see arms)
+          const p = look.costumeBanana;
+          if (p !== null && p !== undefined) {
+            fill(x + 1, top + 5, 1, 4, 0xf2d84a); dot(x + 2, top + 8, 0xc8a82a);
+            if (p > 0.3) { dot(x, top + 5, 0xf2d84a); dot(x + 2, top + 5, 0xe8c83a); dot(x, top + 6, 0xe8c83a); }
+            if (p > 0.6) dot(x + 1, top + 4, 0xfaf2d0);
+          }
+        },
+        // Brown paws, a banana in one; now and then the banana goes up to its mouth (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 14, 2.4, 3);
+          look.costumeBanana = p;
+          costumeArm(x, top, -4, look, sleeve, 0x5a3420);
+          if (p !== null) { sleeve(x + 4, top + 7, 1, 3); dot(x + 3, top + 8, 0x5a3420); }
+          else { costumeArm(x, top, 4, look, sleeve, 0x5a3420); dot(x + 5, top + 11, 0xf2d84a); dot(x + 5, top + 12, 0xf2d84a); dot(x + 6, top + 10, 0xe8c83a); }
+          return true;
+        },
+      },
+      zooflamingo: {
+        // The flamingo onesie: pink all over, darker at the wing edges; its hood with a long neck curving up out of it and the
+        // flamingo's head on top, its bent beak black at the tip. Now and then the neck bends down to preen.
+        look: zooTucked,
+        front(x, y) {
+          // Feathered rows, the wings' darker edges, lit on the left
+          for (const dx of [-2, 0, 2]) dot(x + dx, y + 2, 0xe0708e); for (const dx of [-1, 1]) dot(x + dx, y + 4, 0xe0708e);
+          fill(x - 3, y, 1, 6, 0xf8b0c4); fill(x + 3, y, 1, 6, 0xc85a7a);
+        },
+        head(x, top, look, away) {
+          const P = 0xf28aa8, PL = 0xf8b0c4, PD = 0xc85a7a, dip = look.costumePreen ? 1 : 0;
+          costumeHood(x, top, P, PL, PD, away);
+          // The neck rising out of the hood in a curve, the head on top with its eye and bent beak, all of it within the outfit
+          // picker's picture; bent down to preen now and then
+          const neck = dip ? [[0, -3], [1, -4], [2, -4], [3, -3], [4, -2]] : [[0, -3], [1, -4], [1, -5]];
+          for (const [dx, dy] of neck) dot(x + dx, top + dy, P);
+          const [hx, hy] = dip ? [x + 5, top - 2] : [x - 1, top - 7];
+          fill(hx - 1, hy, 3, 2, P); dot(hx - 1, hy, PL); dot(hx + (dip ? 0 : -1), hy, 0x1a1a1a);
+          if (dip) { dot(hx + 2, hy + 1, 0xf6f2ea); dot(hx + 2, hy + 2, 0xf6f2ea); dot(hx + 1, hy + 3, 0x1a1a1a); }
+          else { dot(hx - 2, hy + 1, 0xf6f2ea); dot(hx - 2, hy + 2, 0xf6f2ea); dot(hx - 1, hy + 3, 0x1a1a1a); }
+        },
+        // Pink wings for arms, their edges darker; the preen's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumePreen = pose.kind !== 'walk' && every(look, 13, 2, 9) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0xc85a7a); costumeArm(x, top, 4, look, sleeve, 0xc85a7a);
+          dot(x - 4, top + 11, 0xc85a7a); dot(x + 4, top + 11, 0xc85a7a);
+          return true;
+        },
+      },
+      zoocroc: {
+        // The crocodile onesie: green with a pale yellow belly in bands; its hood is the crocodile's open jaws, the face looking out
+        // between rows of white teeth, the bulging yellow eyes on top, a ridged tail behind. Now and then the jaws snap a little.
+        look: zooTucked,
+        front(x, y) {
+          // The banded belly, the suit lit on the left
+          fill(x - 2, y + 1, 5, 5, 0xe8e0a0); for (const r of [2, 4]) fill(x - 2, y + r, 5, 1, 0xc8c080);
+          fill(x - 3, y, 1, 6, 0x6aaa4a); fill(x + 3, y, 1, 6, 0x2e5a22);
+        },
+        back(x, y) { for (const dx of [-2, 0, 2]) dot(x + dx, y, 0x2e5a22); for (const r of [2, 4]) dot(x, y + r, 0x2e5a22); },
+        head(x, top, look, away) {
+          const G = 0x4a8a3a, GD = 0x2e5a22, tooth = 0xf6f6f0, snap = look.costumeSnap ? 1 : 0;
+          costumeHood(x, top, G, 0x6aaa4a, GD, away);
+          // The bulging yellow eyes on top, the bumps along the head
+          fill(x - 3, top - 3, 2, 1, G); fill(x + 2, top - 3, 2, 1, G); dot(x - 3, top - 3, 0xf0d840); dot(x + 3, top - 3, 0xf0d840);
+          dot(x - 2, top - 3, 0x1a1a1a); dot(x + 2, top - 3, 0x1a1a1a); for (const dx of [-1, 1]) dot(x + dx, top - 2, GD);
+          if (away) return;
+          // The teeth: a row along the upper jaw over the brow, another along the lower jaw at the chin; snapping a little now and then
+          for (const dx of [-2, 0, 2]) dot(x + dx, top + 2 + snap, tooth);
+          fill(x - 3, top + 7, 7, 1, G); for (const dx of [-1, 1]) dot(x + dx, top + 6, tooth);
+        },
+        // Green claws; the snap's moment (drawn with the head)
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeSnap = pose.kind !== 'walk' && every(look, 11, 1.2, 6) !== null && Math.floor(now * 5) % 2 === 0;
+          costumeArm(x, top, -4, look, sleeve, 0x2e5a22); costumeArm(x, top, 4, look, sleeve, 0x2e5a22);
+          return true;
+        },
+      },
+      /*
+       * The ant colony (an original team, no brand): nine ants of one nest, each in an ant onesie over the wearer's own face, with
+       * the work that ant does. Their hood, antennae, compound eyes and mandibles, and their second pair of legs, are drawn by
+       * costumeAntHead and costumeAntLegs, just after this table.
+       */
+      antcolonyqueen: {
+        // The queen: a deep red-brown ant hood with a little gold crown between its antennae; a long gown banded like a queen ant's
+        // great abdomen, a gold sash across it. Now and then she gives a royal wave, and the crown glints.
+        front(x, y) {
+          // The narrow waist and the banded abdomen of the gown below it, lit on the left; the gold sash from her shoulder down
+          fill(x - 3, y + 3, 7, 1, 0x3a1008); fill(x - 3, y + 4, 7, 1, 0x8a3420); fill(x - 3, y + 5, 7, 1, 0x6a2414);
+          fill(x - 3, y, 1, 3, 0xa04a30); dot(x - 2, y + 4, 0xb8604a);
+          for (let r = 1; r < 4; r++) fill(x - 4 + r, y + r, 2, 1, 0xe8b830);
+          dot(x - 3, y + 1, 0xffe08a); dot(x, y + 3, 0xb88a20);
+        },
+        back(x, y) { fill(x - 3, y + 3, 7, 1, 0x3a1008); fill(x - 3, y + 5, 7, 1, 0x6a2414); },
+        head(x, top, look, away) {
+          costumeAntHead(x, top, look, 0x7a2a1a, 0xa04a30, 0x4a1408, away);
+          // The little gold crown between the antennae, a ruby in it
+          fill(x - 1, top - 3, 3, 1, 0xe8b830); dot(x - 1, top - 4, 0xffe08a); dot(x + 1, top - 4, 0xe8b830); dot(x, top - 3, 0xc8283a);
+          if (look.costumeWave) costumeTwinkle(x + 1, top - 4, 0.8);
+        },
+        // Now and then a royal wave: the arm raised out past the hood's edge, the hand waggling by her cheek; the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeWave = pose.kind !== 'walk' && every(look, 14, 2.2, 5) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0x4a1408);
+          if (look.costumeWave) { sleeve(x + 4, top + 7, 1, 2); sleeve(x + 5, top + 4, 1, 3); dot(x + 5 + Math.floor(now * 4) % 2, top + 3, 0x4a1408); }
+          else costumeArm(x, top, 4, look, sleeve, 0x4a1408);
+          costumeAntLegs(x, top, pose, 0x4a1408);
+          return true;
+        },
+      },
+      antcolonyworker: {
+        // The worker: a black ant hood; a black suit pinched in at the waist; a big sugar cube carried in both arms. Now and then it
+        // hoists the cube high over its head, proud of its strength, a bead of sweat on its brow.
+        front(x, y) { fill(x - 3, y + 3, 7, 1, 0x0a0a0e); dot(x - 2, y + 4, 0x4a4a58); fill(x - 3, y, 1, 3, 0x3a3a46); },
+        back(x, y) { fill(x - 3, y + 3, 7, 1, 0x0a0a0e); },
+        head(x, top, look, away) {
+          costumeAntHead(x, top, look, 0x1e1e26, 0x3a3a46, 0x0e0e12, away);
+          if (!away && look.costumeHoist) dot(x - 2, top + 3, 0x8ac8f0, 0.85);   // a bead of sweat
+        },
+        // The cube in both arms, or held high over the head, between the antennae; the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 15, 2.4, 3), hand = 0x0e0e12;
+          look.costumeHoist = p !== null && p > 0.15;
+          // A sugar cube: its lit top face, its front, its shaded side, a grain or two
+          const cube = (cx, cy) => {
+            fill(cx, cy, 5, 4, 0xeeeeea); fill(cx, cy, 5, 1, WHITE); fill(cx + 4, cy + 1, 1, 3, 0xc4c8d2);
+            dot(cx + 1, cy + 2, 0xd4d4ce); dot(cx + 3, cy + 3, 0xd4d4ce);
+          };
+          if (look.costumeHoist) {
+            // Both arms up round the hood, elbows out, the hands under the cube's corners
+            for (const side of [-1, 1]) {
+              for (const [dx, dy] of [[4, 7], [4, 8], [5, 4], [5, 5], [5, 6], [6, 0], [6, 1], [6, 2], [6, 3], [5, -2], [5, -1]]) {
+                sleeve(x + side * dx, top + dy, 1, 1);
+              }
+              dot(x + side * 4, top - 3, hand); dot(x + side * 3, top - 4, hand);
+            }
+            cube(x - 2, top - 7);
+            costumeTwinkle(x - 1, top - 6, 0.7);
+          } else {
+            sleeve(x - 4, top + 8, 1, 2); sleeve(x + 4, top + 8, 1, 2);
+            cube(x - 2, top + 8);
+            dot(x - 3, top + 10, hand); dot(x + 3, top + 10, hand);
+          }
+          costumeAntLegs(x, top, pose, hand);
+          return true;
+        },
+      },
+      antcolonysoldier: {
+        // The soldier: a dark red ant hood with great curved amber mandibles round the chin and a stern brow; a dark red suit with a
+        // heavy armoured thorax. Now and then it snaps the mandibles shut and open, on guard.
+        front(x, y) { fill(x - 3, y + 3, 7, 1, 0x2a0808); fill(x - 3, y, 7, 1, 0x6a1810); fill(x - 3, y + 1, 1, 2, 0xa83a2a); dot(x - 2, y + 4, 0xc04a3a); },
+        back(x, y) { fill(x - 3, y + 3, 7, 1, 0x2a0808); },
+        head(x, top, look, away) {
+          costumeAntHead(x, top, look, 0x8a2018, 0xb83a2a, 0x3a0806, away, { big: true, shut: !!look.costumeSnap });
+          if (!away) { dot(x - 2, top + 3, 0x5a1410); dot(x + 2, top + 3, 0x5a1410); }   // a stern brow
+        },
+        // Fists at its sides; now and then the snap (drawn with the head); the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeSnap = pose.kind !== 'walk' && every(look, 11, 1.2, 4) !== null && Math.floor(now * 5) % 2 === 0;
+          costumeArm(x, top, -4, look, sleeve, 0x3a0806); costumeArm(x, top, 4, look, sleeve, 0x3a0806);
+          costumeAntLegs(x, top, pose, 0x3a0806);
+          return true;
+        },
+      },
+      antcolonyleafcutter: {
+        // The leafcutter: a rust-red ant hood; a rust suit; a big green leaf held up over its head like a parasol on its stalk, a
+        // tiny ant riding on it. Now and then the leaf sways in the breeze and the rider waves.
+        front(x, y) { fill(x - 3, y + 3, 7, 1, 0x4a1e0a); fill(x - 3, y, 1, 3, 0xc06a3a); dot(x - 2, y + 4, 0xc06a3a); },
+        back(x, y) { fill(x - 3, y + 3, 7, 1, 0x4a1e0a); },
+        head(x, top, look, away) {
+          // The leaf held up over the head, tip up to the left, lit above its midrib, the rider on its edge: from the front it's
+          // behind the head and its antennae, its stalk down to the hand (see arms); from behind, over the hood
+          const sway = look.costumeSway ? (Math.floor(now * 3) % 2 ? 1 : -1) : 0, lx = x - 5 + sway, ly = top - 6;
+          const leaf = () => {
+            costumeAntSprite(['LLLL........', 'LmmGLLL.....', '.GGmmmGLL...', '..dGGGmmGL..', '....ddGGmmL.', '.......ddGms'], lx, ly,
+              { L: 0x6ab84a, G: 0x4a9a3a, m: 0x9ad870, d: 0x2e6a24, s: 0x5a8a3a });
+            dot(lx + 5, ly, 0x5a2410); dot(lx + 6, ly, 0x5a2410); if (look.costumeSway) dot(lx + 6 + (Math.floor(now * 4) % 2), ly - 1, 0x5a2410);
+          };
+          if (away) { costumeAntHead(x, top, look, 0xa04a20, 0xc06a3a, 0x5a2410, true); leaf(); return; }
+          leaf(); fill(x + 6, top, 1, 3, 0x5a8a3a);
+          costumeAntHead(x, top, look, 0xa04a20, 0xc06a3a, 0x5a2410, false);
+        },
+        // The arm up beside the hood holding the leaf's stalk; the other at its side; the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeSway = pose.kind !== 'walk' && every(look, 13, 2.4, 9) !== null;
+          costumeArm(x, top, -4, look, sleeve, 0x5a2410);
+          sleeve(x + 4, top + 7, 1, 2); sleeve(x + 5, top + 4, 1, 3); dot(x + 6, top + 3, 0x5a2410);
+          costumeAntLegs(x, top, pose, 0x5a2410);
+          return true;
+        },
+      },
+      antcolonynurse: {
+        // The nurse: a ginger ant hood; a ginger suit, a lavender sling from her shoulder, a pale larva cradled in it. Now and then
+        // the larva wriggles and she rocks it.
+        front(x, y) {
+          // The top of the sling's strap, over her shoulder (the rest with the pouch, see arms); the waist; lit on the left
+          dot(x + 3, y, 0xb89ae0); dot(x + 2, y, 0x9a7ac8);
+          fill(x - 3, y + 4, 7, 1, 0x6a3a10); fill(x - 3, y, 1, 3, 0xe09a4a);
+        },
+        back(x, y) { for (let r = 0; r < 4; r++) dot(x - 3 + r, y + r, 0xb89ae0); },
+        head(x, top, look, away) { costumeAntHead(x, top, look, 0xc8742a, 0xe09a4a, 0x6a3a10, away, { twitch: look.costumeRock ? Math.floor(now * 4) % 2 : 0 }); },
+        // The larva in the sling, her arms round it, wriggling and rocked now and then; the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 12, 2.4, 7);
+          look.costumeRock = p !== null;
+          const rock = p !== null ? (Math.floor(now * 3) % 2 ? 1 : 0) : 0, wr = p !== null ? Math.floor(now * 8) % 2 : 0, lx = x - 2 + rock;
+          sleeve(x - 4, top + 8, 1, 3); sleeve(x + 4, top + 8, 1, 3);
+          // The larva: a pale grub, plump and segmented, its little amber head at one end, its tail lifting as it wriggles
+          fill(lx, top + 8, 4, 2, 0xf4ecd8); dot(lx, top + 8, 0xfffaf0); dot(lx + 1, top + 9, 0xd8ccb0); dot(lx + 3, top + 9, 0xd8ccb0);
+          dot(lx + 3, top + 8, 0xe8b07a); dot(lx - 1, top + 9 - wr, 0xf4ecd8);
+          // The sling's pouch under it, round at the bottom, the strap up to her shoulder; her hands at its corners
+          fill(x - 2, top + 10, 5, 1, 0xb89ae0); fill(x - 1, top + 11, 3, 1, 0x9a7ac8); dot(x - 2, top + 10, 0xd0b8f0);
+          fill(x + 3, top + 8, 1, 2, 0xb89ae0);
+          dot(x - 3, top + 10, 0x6a3a10); dot(x + 3, top + 10, 0x6a3a10);
+          costumeAntLegs(x, top, pose, 0x6a3a10);
+          return true;
+        },
+      },
+      antcolonydrone: {
+        // The drone: a slim black-brown ant hood with extra-big compound eyes; two pairs of clear wings out from its shoulders, veined,
+        // a dark spot on each forewing. Now and then the wings buzz.
+        front(x, y) { fill(x - 3, y + 3, 7, 1, 0x0e0a08); fill(x - 3, y, 1, 3, 0x4a3e36); },
+        back(x, y) { for (const dx of [-3, 2]) { fill(x + dx, y, 2, 6, 0xdceaf4, 0.5); dot(x + dx, y + 2, 0x8a9aa8, 0.6); } },
+        head(x, top, look, away) { costumeAntHead(x, top, look, 0x2a2420, 0x4a3e36, 0x0e0c0a, away, { eyes: 3, twitch: look.costumeBuzz ? Math.floor(now * 6) % 2 : 0 }); },
+        // The wings, out either side, buzzing now and then (a blur between two beats); the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeBuzz = pose.kind !== 'walk' && every(look, 12, 1.8, 11) !== null;
+          const beat = look.costumeBuzz ? Math.floor(now * 14) % 2 : 0, a = look.costumeBuzz ? 0.7 : 1;
+          const wing = { w: [0xdceaf4, 0.55 * a], e: [0xeef6fc, 0.75 * a], v: [0x8a9aa8, 0.8 * a], s: [0x3a3440, 0.85 * a], g: [WHITE, 0.85 * a] };
+          for (const side of [-1, 1]) {
+            // The forewing up and out from the shoulder, its dark spot near the tip; the hind wing smaller, below
+            costumeAntSprite(['...ve', '..vsw', '.vwgw', 'vwwwe', 'vwwe.', '.we..'], x + side * 5, top + 1 - beat, wing, 1, side < 0);
+            costumeAntSprite(['vwwe', '.wwe', '..e.'], x + side * 5, top + 7 + beat, wing, 1, side < 0);
+          }
+          costumeArm(x, top, -4, look, sleeve, 0x0e0c0a); costumeArm(x, top, 4, look, sleeve, 0x0e0c0a);
+          costumeAntLegs(x, top, pose, 0x0e0c0a);
+          return true;
+        },
+      },
+      antcolonyarchitect: {
+        // The architect: a brown ant hood, round glasses, a pencil tucked behind one antenna; a brown suit with a pen in its pocket;
+        // a rolled blueprint. Now and then it unrolls the blueprint, the colony's tunnels drawn on it, and studies it.
+        front(x, y) { fill(x - 3, y + 3, 7, 1, 0x2a1a0c); dot(x + 2, y + 1, 0x3a6ad8); dot(x + 2, y + 2, 0x3a6ad8); fill(x - 3, y, 1, 3, 0x8a6a42); },
+        back(x, y) { fill(x - 3, y + 3, 7, 1, 0x2a1a0c); },
+        head(x, top, look, away) {
+          costumeAntHead(x, top, look, 0x6a4a2a, 0x8a6a42, 0x3a2614, away);
+          if (away) return;
+          // The round glasses: a pale rim round each eye, lit at the top, the eye clear inside it; the pencil behind the antenna
+          for (const ex of [x - 2, x + 2]) {
+            dot(ex, top + 3, 0xe4f0f6); dot(ex - 1, top + 4, 0xd0e2ec); dot(ex + 1, top + 4, 0xd0e2ec); dot(ex, top + 5, 0xb8ccd8);
+          }
+          dot(x + 4, top - 3, 0xf0c838); dot(x + 5, top - 4, 0xf0c838); dot(x + 6, top - 5, 0xe88a9a);
+        },
+        // The blueprint rolled in its hand, or unrolled in both and studied; the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 15, 2.8, 2);
+          if (p !== null) {
+            sleeve(x - 4, top + 8, 1, 2); sleeve(x + 4, top + 8, 1, 2);
+            fill(x - 4, top + 8, 9, 4, 0x2a5aa8); fill(x - 4, top + 8, 9, 1, 0x3a6ac0);
+            for (const [dx, dy] of [[-3, 9], [-2, 9], [-1, 9], [-1, 10], [0, 10], [1, 10], [2, 9], [3, 9], [1, 11], [-3, 10]]) dot(x + dx, top + dy, 0xe8f0ff, 0.9);
+            dot(x - 5, top + 8, 0x3a2614); dot(x + 5, top + 8, 0x3a2614);
+          } else {
+            costumeArm(x, top, -4, look, sleeve, 0x3a2614); costumeArm(x, top, 4, look, sleeve, 0x3a2614);
+            fill(x + 5, top + 9, 1, 4, 0x2a5aa8); dot(x + 5, top + 9, 0xe8f0ff); dot(x + 5, top + 12, 0x1a3a7a);
+          }
+          costumeAntLegs(x, top, pose, 0x3a2614);
+          return true;
+        },
+      },
+      antcolonyhoneypot: {
+        // The honeypot: an amber ant hood; a suit swelling below the chest into a great round golden belly of stored honey, glossy
+        // and clear. Now and then the honey sloshes and a drop glints; by night the belly glows softly.
+        front(x, y) { fill(x - 3, y, 1, 2, 0xf0bc5a); },
+        back(x, y) { disc(x, y + 4, 3.5, 0xe0a030); },
+        head(x, top, look, away) { costumeAntHead(x, top, look, 0xd8a040, 0xf0bc5a, 0x8a5a14, away); },
+        // The honey belly, out past the arms, its highlight sloshing now and then, glowing by night; the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          const p = pose.kind === 'walk' ? null : every(look, 12, 1.8, 6), slosh = p !== null ? Math.round(Math.sin(p * Math.PI * 4) * 1) : 0;
+          costumeArm(x, top, -5, look, sleeve, 0x8a5a14); costumeArm(x, top, 5, look, sleeve, 0x8a5a14);
+          fill(x - 3, top + 9, 7, 1, 0x6a4010);
+          disc(x, top + 13, 4.4, 0xe8a830); disc(x, top + 13, 3.4, 0xf2c050, 0.8);
+          dot(x - 2 + slosh, top + 11, WHITE, 0.85); dot(x - 1 + slosh, top + 11, WHITE, 0.5); dot(x + 2, top + 15, 0xc88a20);
+          if (p !== null) costumeTwinkle(x + 2 + slosh, top + 12, 0.8);
+          if (isNight) glowLate(() => glowAt(x, top + 13, 6, 5, 0xffc860, 0.18));
+          costumeAntLegs(x, top, pose, 0x8a5a14);
+          return true;
+        },
+      },
+      antcolonyfarmer: {
+        // The aphid farmer: a black-brown ant hood; a dark suit under a brown leather apron; a plump green aphid perched on its shoulder,
+        // a little milk pail in hand. Now and then the aphid hops and gives a golden drop of honeydew.
+        front(x, y) { fill(x - 2, y + 1, 5, 5, 0x8a5a32); fill(x - 2, y + 1, 5, 1, 0xa8743e); dot(x - 2, y, 0x6a4424); dot(x + 2, y, 0x6a4424); fill(x - 3, y, 1, 3, 0x4a3e36); },
+        back(x, y) { fill(x - 3, y + 2, 7, 1, 0x6a4424); },
+        head(x, top, look, away) {
+          costumeAntHead(x, top, look, 0x2e241e, 0x4a3e36, 0x0e0c0a, away);
+          if (away) return;
+          // The aphid on its shoulder: a plump green body, a dark eye, little legs; hopping and giving a drop now and then (see arms)
+          const hop = look.costumeHop ? 1 : 0, ax = x + 5, ay = top + 5 - hop;
+          fill(ax - 1, ay, 3, 2, 0x6ac04a); dot(ax - 1, ay, 0x8ad86a); dot(ax + 1, ay, 0x1a1a1a); dot(ax - 1, ay + 2, 0x3a7a2a); dot(ax + 1, ay + 2, 0x3a7a2a);
+          if (hop) { dot(ax - 2, ay + 3, 0xf0c040); costumeTwinkle(ax - 2, ay + 3, 0.6); }
+        },
+        // The pail in one hand; the hop's moment (drawn with the head); the second pair of legs
+        arms(x, top, look, o, sleeve, pose) {
+          look.costumeHop = pose.kind !== 'walk' && every(look, 13, 1.6, 4) !== null && Math.floor(now * 4) % 2 === 0;
+          costumeArm(x, top, -4, look, sleeve, 0x0e0c0a); costumeArm(x, top, 4, look, sleeve, 0x0e0c0a);
+          fill(x - 6, top + 11, 2, 2, 0xa8adb6); dot(x - 6, top + 11, 0xd8dce4); dot(x - 5, top + 10, 0x6e727c);
+          costumeAntLegs(x, top, pose, 0x0e0c0a);
+          return true;
+        },
+      },
     };
+
+    /*
+     * The ant colony's own helpers, for its outfits at the end of OUTFIT_PARTS above (function declarations, so they're there
+     * before the table is first drawn).
+     */
+    /**
+     * An ant costume's head over the wearer's own, as `look` has it: the hood in `c`, two big glossy compound eyes on its front
+     * corners, two elbowed antennae from its crown (the right one twitching with `twitch`), and mandibles at the jaw, a soldier's
+     * great amber ones with `big`, snapped shut with `shut`; from behind, the hood and the antennae.
+     */
+    function costumeAntHead(x, top, look, c, light, dark, away, { twitch = 0, big = false, shut = false, eye = 0x14141a, eyes = 2 } = {}) {
+      costumeHood(x, top, c, light, dark, away);
+      // The wearer's own hair where the hood doesn't reach, tucked away: long hair's ends under its sides, an afro's under its crown
+      if (look.hairStyle === 'long') { fill(x - 3, top + 7, 1, 2, c); fill(x + 3, top + 7, 1, 2, c); }
+      if (look.hairStyle === 'afro') { dot(x - 4, top - 2, light); dot(x + 4, top - 2, dark); }
+      // The antennae: up from the crown, bent out at the elbow, a knob at each tip
+      for (const side of [-1, 1]) {
+        const t = side > 0 ? twitch : 0;
+        dot(x + side * 2, top - 3, dark); dot(x + side * 2, top - 4, c); dot(x + side * 3, top - 5 - t, c); dot(x + side * 4, top - 6 - t, c); dot(x + side * 5, top - 6 - t, dark);
+      }
+      if (away) return;
+      // The compound eyes: big and glossy on the hood's front corners, a glint and a facet in each
+      for (const side of [-1, 1]) {
+        const ex = side < 0 ? x - 4 : x + 5 - eyes;
+        fill(ex, top - 1, eyes, 2, eye); dot(side < 0 ? ex : ex + eyes - 1, top - 1, WHITE, 0.8); dot(side < 0 ? ex + 1 : ex, top, 0x4a4a5a);
+      }
+      // The mandibles at the jaw, curving in: small and dark, or a soldier's great amber ones from the corners of its jaw, down
+      // past its chin, their tips swinging in when they snap shut
+      for (const side of [-1, 1]) {
+        const s = (dx, dy, colour = dark) => dot(x + side * dx, top + dy, colour);
+        if (big) { s(3, 6, 0xf4d890); s(3, 7, 0xd89a40); s(2, 8, 0xd89a40); s(shut ? 1 : 2, 9, 0x8a4a18); }
+        else { s(3, 7); s(shut ? 1 : 2, 7); }
+      }
+    }
+    /** An ant costume's second pair of legs, out at the hips, wherever the legs show. */
+    function costumeAntLegs(x, top, pose, c) {
+      if (!costumeLift(pose)) return;
+      for (const side of [-1, 1]) { dot(x + side * 4, top + 13, c); dot(x + side * 5, top + 14, c); dot(x + side * 5, top + 15, c); }
+    }
+    /**
+     * A little picture in rows of pixels from `ox`, `oy`, one character a pixel, '.' for none: each character's colour (or
+     * [colour, alpha]) in `colours`; mirrored, it runs leftwards from `ox`.
+     */
+    function costumeAntSprite(rows, ox, oy, colours, alpha = 1, mirrored = false) {
+      rows.forEach((row, r) => [...row].forEach((ch, k) => {
+        const colour = colours[ch];
+        if (colour !== undefined) dot(mirrored ? ox - k : ox + k, oy + r, colour, Array.isArray(colour) ? undefined : alpha);
+      }));
+    }
 
     /**
      * The front of an outfit, over a shirt `half` either side of `x` and
@@ -63193,20 +66581,8 @@
     function turnSecondsAt(desk) {
       const session = sessionAt(desk);
       if (DESKS[desk].off || !session || !session.turnStartedAt || (session.state !== 'thinking' && session.state !== 'asking')) return null;
+      if (session.startedAt && session.turnStartedAt < session.startedAt) return null;
       return Math.max(0, Math.floor((Date.now() - session.turnStartedAt) / 1000));
-    }
-
-    /**
-     * How long the agent at a desk has been at work, in seconds, while it
-     * works or asks, or null: from its session's start, which /clear and
-     * compaction don't move, or its turn's if that's earlier or the start
-     * isn't said, as the portable viewer doesn't. Its name tag shows it.
-     */
-    function sessionSecondsAt(desk) {
-      const session = sessionAt(desk);
-      if (DESKS[desk].off || !session || (session.state !== 'thinking' && session.state !== 'asking')) return null;
-      const from = Math.min(session.startedAt || Infinity, session.turnStartedAt || Infinity);
-      return from === Infinity ? null : Math.max(0, Math.floor((Date.now() - from) / 1000));
     }
 
     /**
@@ -64275,6 +67651,36 @@
       }));
     }
 
+    /** A hire in T3 Code's badge on the front of its desk: see T3_BADGE. */
+    function drawT3Badge(desk) {
+      const { x, y } = DESKS[desk], bx = x + 3, by = y + 7;
+      T3_BADGE.forEach((row, r) => [...row].forEach((ink, column) => {
+        if (ink !== '.') dot(bx + column, by + r, T3_INKS[ink]);
+      }));
+    }
+
+    /** A desk's pull request, as a tag on the front of the desk: see PR_LOOKS. Nothing at all when it has none. */
+    function drawGitBadge(desk) {
+      const session = office.seats[desk] && office.seats[desk].session;
+      const at = session && frame.pr ? prBoxOf(desk, frame.pr.get(session.id)) : null;
+      if (!at) return;
+      const { tag, left, top } = at;
+      // The tag, its four corners cut as the T3 badge's are
+      fill(left + 1, top, tag.width - 2, PR_BADGE.height, tag.tone);
+      fill(left, top + 1, tag.width, PR_BADGE.height - 2, tag.tone);
+      let x = left + 1;
+      const glyphs = (rows, gx) => rows.forEach((row, r) => [...row].forEach((ink, column) => { if (ink === '1') dot(gx + column, top + 1 + r, PR_INK); }));
+      if (tag.marked) {
+        glyphs(tag.mark, x);
+        x += 5;
+      }
+      if (tag.label) {
+        for (const c of tag.label) { glyphs(GLYPHS[c], x); x += GLYPHS[c][0].length + 1; }
+        x += 1;
+      }
+      for (const c of tag.number) { glyphs(GLYPHS[c], x); x += GLYPHS[c][0].length + 1; }
+    }
+
     /**
      * What stands on the floor upstairs besides what stands downstairs: each headless desk's badge. The racks a floor
      * had in its corner are its chill area's now: the server room's servers, or a style's own, in the lounge's corner.
@@ -64310,6 +67716,7 @@
       // The corner's piece and each added one, each told where the spots round it start
       ...loungePieces().flatMap(({ part, kind }) => CORNER_PARTS[kind].map(([depth, draw]) => lounge(part, depth, () => {
         cornerBase = spotsFrom(part);
+        cornerPart = part;
         draw();
       }))),
     ];
@@ -64323,6 +67730,14 @@
       items.push([d.y + 3, () => drawWorkspaceBack(desk)]);
     });
     if (frame.upstairs && !frame.arranging) upstairsItems(items);
+    // A hire in T3 Code's desk, on any floor: its badge, so it's never taken for a terminal's.
+    if (!frame.arranging) {
+      office.seats.forEach((s, desk) => {
+        if (s && s.session && s.session.t3 && DESKS[desk] && !DESKS[desk].off) items.push([DESKS[desk].y + 5.1, () => drawT3Badge(desk)]);
+        // A pull request's tag, on any floor, in the computer's own window: the page gives it the PRs to show (setPR)
+        if (frame.pr && s && s.session && DESKS[desk] && !DESKS[desk].off && frame.pr.has(s.session.id)) items.push([DESKS[desk].y + 5.2, () => drawGitBadge(desk)]);
+      });
+    }
     // Someone being carried is drawn on top, where the finger has them, not at their desk. Someone at
     // the clock or the whiteboard is in front of the first row's workspaces, the tallest of which reach
     // the wall: they're there to be seen.
@@ -64496,6 +67911,7 @@
       drawPixelKey(left, top, w, h, on ? 0x2f8f5b : 0x5c5c66, label);
     }
     if (frame.voiceNotes) frame.voiceNotes.forEach(drawVoiceNote);
+    if (onAirAt) drawOnAirTag(onAirAt);
     if (frame.choices) drawChoices();
     if (frame.arranging) drawArrangement(frame.arranging);
     if (frame.musicTap) drawMusicTap(frame.musicTap);
@@ -64508,7 +67924,7 @@
     if (frame.hiredCard) drawHiredCard(frame.hiredCard);
     if (frame.floorPicker) drawFloorPicker(frame.floorPicker);
     if (frame.styles) drawStyleMenu(frame.styles);
-    // Personal build: the phone mic's live words, over everything, as they're what you're watching while you speak.
+    // The phone mic's live words, over everything, as they're what you're watching while you speak.
     if (frame.hearing) drawHearing(frame.hearing);
 
     if (layer) layer.ops.push(['mark', []]); // and what's round it starts
@@ -66062,6 +69478,13 @@
   function create(canvas, on = {}) {
     const ctx = canvas.getContext('2d');
     liteOffered = !!on.lite;
+    // The pull requests the page gave (setPR), by session id: drawn and tapped only where the page took `on.pr`, which
+    // is the computer's own window alone, never a phone's page or the viewer's.
+    let gitPRs = new Map();
+    // The picked desk's preview the page gave (setPreview, onAirOf): on a TV only while that desk is picked, and only
+    // where the page took `on.tv`, the computer's own window alone.
+    let tvShown = null;
+    const onAirNow = () => (on.tv && tvShown && tvShown.id === selected ? tvShown : null);
     const office = new Office();
     const clock = () => performance.now() / 1000;
     let visible = true;
@@ -66171,10 +69594,10 @@
     let music = null;        // what the computer says of its music, with the jukebox on: { playing: true | false | null }
     let musicTap = null;     // a music piece just tapped: { part, at, was }, for a moment's ▶ or ❚❚ over it
     let dictation = null;    // the Mac's dictation, from the snapshot: { on, language, cleanup }
-    // Personal build: each desk's last dictation note, by session id, as it came in: { id, text, cleaned, from }
+    // Each desk's last dictation note, by session id, as it came in: { id, text, cleaned, from }
     const voiceNotes = new Map();
     const voiceNotesSeen = new Map(); // the last note's id each session showed, so a snapshot again doesn't show it twice
-    // Personal build: what the phone's own mic hears while it's held, from the deck: { id, text }, or null.
+    // What the phone's own mic hears while it's held, from the deck: { id, text }, or null.
     let hearing = null;
     let musicPanel = null;   // a music piece's control, held open: { part, at }, `at` when it was last used
     let musicDown = null;    // the music control's key last pressed: { action, at, held }
@@ -66184,6 +69607,11 @@
     let keyDown = null;      // the key last pressed: { action, at, held }
     const returnAt = new Map(); // when accept or send last went to each session, so a tap landing twice sends Return once
     let keysAt = null;       // where the keys were last drawn, in art pixels: { keys, box }
+    let bubblesAt = [];      // the talk bubbles last drawn on the ground floor, when the page takes them: { id, x, top, state, since }
+    let talkHover = TALK_ANCHORS.hover(); // the mouse over a talk bubble: see TALK_ANCHORS.hoverStep
+    let talkTimer = null;    // the wait before a hovered bubble's tag shows
+    const talkAsked = new Map(); // when hovering last asked for each desk's card, so it isn't asked for more than once a second
+    let talkPanels = null;   // the talk bubbles on the page (TALK_BUBBLE.create), where the page gives its network
     let roleDown = null;     // the role last tapped, on a held empty desk: { id, at, held }
     let roleOffset = 0;      // how far the roles are slid along, in art pixels
     let rolesAt = null;      // where the roles were last drawn, in art pixels: { roles, box, most }
@@ -66272,13 +69700,22 @@
      */
     function applyUpstairs(snapshot, now) {
       const floors = floorsOf(snapshot);
-      for (const floor of floors.slice(1)) onUpper(floor.n, (there) => there.apply(upstairsSeatsOf(floor.desks, ahead), snapshot.theme, now));
+      for (const floor of floors.slice(1)) onUpper(floor.n, (there) => there.apply(upstairsSeatsOf(floor.desks, ahead, floor.pins), snapshot.theme, now));
       for (const n of [...uppers.keys()]) {
         if (n <= floors.length) continue;
         uppers.get(n).office.close();
         uppers.delete(n);
       }
       if (floorShown > floors.length) floorShown = floors.length;
+    }
+
+    /** The pull request tags on a floor's desks, to a finger, by their session's id: none unless the page took `on.pr`. */
+    function prBoxes(there) {
+      if (!on.pr || !gitPRs.size) return [];
+      return there.seats.flatMap((seat, desk) => {
+        const at = seat && seat.session && DESKS[desk] && !DESKS[desk].off ? prBoxOf(desk, gitPRs.get(seat.session.id)) : null;
+        return at ? [{ id: seat.session.id, box: { left: at.left, right: at.right, top: at.top, bottom: at.bottom } }] : [];
+      });
     }
 
     /** The desks upstairs with someone at them, to a finger, by their session's id: as deskBoxes has a desk downstairs. */
@@ -66518,6 +69955,14 @@
           e.preventDefault();
           return;
         }
+        // With the talk bubbles, from the room itself (never a key or a box that has the focus): Enter opens the picked
+        // desk's bubble, and Tab goes to the waiting desks' small bubbles, longest waiting first
+        const onRoom = !e.target || e.target === canvas || e.target === win.document.body;
+        if (talkPanels && onRoom && !e.altKey && !e.ctrlKey && !e.metaKey && !e.isComposing
+            && ((e.key === 'Enter' && !e.repeat && talkPanels.enter(selected)) || (e.key === 'Tab' && talkPanels.tab(e.shiftKey)))) {
+          e.preventDefault();
+          return;
+        }
         if (e.key === 'Escape' && maxing) maxing = null;
         else if (e.key === 'Escape' && (keysFor || held)) { keysFor = null; held = null; } // as a tap elsewhere puts away the keys and chips
       };
@@ -66525,6 +69970,17 @@
       win.document.addEventListener('pointerdown', tapped, { capture: true });
       win.document.addEventListener('keydown', typed);
       host = { window: win, resizing, seen, tapped, typed };
+      if (on.talk && on.talk.get) talkPanels = TALK_BUBBLE.create(win, on.talk, talkRoom());
+    }
+
+    /** What the talk bubbles are told of the room: where each bubble is, and who sits there. */
+    function talkRoom() {
+      const name = (id) => {
+        const session = sessionOf(id);
+        return session ? TALK_BUBBLE.nameOf(session, memberOf(session) && memberOf(session).name) : 'Agent';
+      };
+      // cog: the settings' key where the room last drew it, in art pixels ({ x, y, w, h }), or null with none drawn
+      return { canvas, anchor: talkAnchor, view: talkView, shape: () => shape, session: sessionOf, name, cog: () => styleKeyAt };
     }
 
     /** The next frame, or step, called off. */
@@ -66541,6 +69997,10 @@
       host.window.document.removeEventListener('visibilitychange', host.seen);
       host.window.document.removeEventListener('pointerdown', host.tapped, { capture: true });
       host.window.document.removeEventListener('keydown', host.typed);
+      if (talkTimer !== null) host.window.clearTimeout(talkTimer);
+      talkTimer = null;
+      if (talkPanels) talkPanels.remove();
+      talkPanels = null;
       host = null;
     }
 
@@ -66558,7 +70018,7 @@
     }
 
     /**
-     * Personal build: the mic's other quick switch, beside FR or EN: Claude's
+     * The mic's other quick switch, beside FR or EN: Claude's
      * clean-up of the text, AI while it's on, RAW while it's off; a tap flips
      * it, for every phone. Over any desk with a mic, so a Claude Code desk
      * back on its own /voice can turn it on again.
@@ -66573,7 +70033,7 @@
       return { left: Math.round(at.x) - w - 2, top: Math.round(at.y), w, h: 9, label, on: dictation.cleanup, next: !dictation.cleanup };
     }
 
-    /** Personal build: the dictation notes still showing, each with its desk and how faded it is. */
+    /** The dictation notes still showing, each with its desk and how faded it is. */
     function voiceNotesShown(now) {
       const shown = [];
       for (const [id, note] of voiceNotes) {
@@ -66588,7 +70048,7 @@
       return shown;
     }
 
-    /** Personal build: the phone mic's live words, over the desk they're for, while it's there. */
+    /** The phone mic's live words, over the desk they're for, while it's there. */
     function hearingShown() {
       if (!hearing) return null;
       const desk = deskInView(hearing.id);
@@ -66652,8 +70112,8 @@
     function hiresHere(desk) {
       if (!desk.floor) return hiresInto(desk.desk);
       if (framed || !hiring.hire || desk.floor !== floorShown || ride || !on.hire) return false;
-      // Still empty: someone who sat down there meanwhile has it
-      return upstairs((upper) => !(upper.seats[desk.desk] && upper.seats[desk.desk].session));
+      // Still empty: someone who sat down there meanwhile has it; and not kept for a folder
+      return upstairs((upper) => !(upper.seats[desk.desk] && (upper.seats[desk.desk].session || upper.seats[desk.desk].pin)));
     }
 
     /** The empty desks upstairs on the floor in view, to a finger, where a hire would sit. */
@@ -66661,13 +70121,20 @@
       if (framed || !hiring.hire || !on.hire) return [];
       return upstairs((upper) => DESKS.slice(0, UPSTAIRS_MOST).flatMap((d, desk) => {
         const seat = upper.seats[desk];
-        if (!d || d.off || (seat && seat.session)) return [];
+        if (!d || d.off || (seat && (seat.session || seat.pin))) return [];
         return [{ desk, box: { left: d.x - 2, right: d.x + DESK_WIDTH + 2, top: d.y, bottom: d.y + 27 } }];
       }));
     }
 
     /** The roles the computer can hire into, as you've set them up: none, and a hire is anyone. */
     const roles = () => (Array.isArray(hiring.roles) ? hiring.roles.filter((r) => r && typeof r.id === 'string' && r.name) : []);
+
+    /** Hires role `id` (null for anyone) into `desk`, and says so when that hire won't get Smolcorp's fence: the computer's `unfenced` line. */
+    function hireInto(desk, id, floor) {
+      on.hire?.(desk, id, floor);
+      const note = id ? (roles().find((r) => r.id === id) || {}).unfenced : hiring.unfenced;
+      if (typeof note === 'string' && note) on.hint?.(note);
+    }
 
     /** The roles a held empty desk can hire into, along the foot of the room, Anyone first, if there are any to choose from. */
     function roleRow() {
@@ -66775,7 +70242,8 @@
     }
 
     function choices() {
-      if (framed) return null;
+      // The talk bubble answers for the four keys, where the page gives one
+      if (framed || on.talk) return null;
       return inView((there) => {
         const desk = there.seats.findIndex((s) => s && s.session && s.session.id === selected);
         const session = desk >= 0 && there.seats[desk].session;
@@ -66909,6 +70377,9 @@
       const room = {
         now, hour: date.getHours(), minute: date.getMinutes(), month: date.getMonth(),
         width: canvas.width, height: canvas.height, ratio: host.window.devicePixelRatio || 1, framed, floating, direct: drawsDirect,
+        pr: on.pr ? gitPRs : null,
+        // On each floor's TV, the floor in view or the ride's
+        tv: onAirNow(),
       };
       // Upstairs, nothing is picked, held or waiting on a key. Only the floors being drawn: the one in view, and those
       // the ride is between.
@@ -66927,6 +70398,7 @@
             firing: firing && { ...fireDialog(), title: `Fire ${firing.name}?`, detail: 'Its agent stops, and its tab closes.' },
             maxing: maxing && { ...maxDialog(), title: `Max effort for ${maxing.name}?`, detail: 'It uses much more of your usage.' },
             keyRow: keys, roleRow: hires, styleKey: key, voiceNotes: voiceNotesShown(now), hearing: hearingShown(),
+            carrying: carrying && carrying.floor === n ? carrying : null,
           });
         }
       }
@@ -66935,7 +70407,8 @@
         // Arranging a floor upstairs, it's drawn as that floor is: its walls, and its number over the elevator
         ...(arranging && arrangingFloor ? { upstairs: true, elevator: { floor: arrangingFloor.n + 1, top: FLOORS_MOST, open: 0, riding: null } } : {}),
         selected, mic, wobble: wobbling, buttonDown, framed, floating, choices: choices(), choiceDown, chips: chips(), chipDown,
-        deskButton: heldButton(), carrying, micLanguage: micLanguageKey(),
+        deskButton: heldButton(), carrying: carrying && carrying.floor === 1 ? carrying : null, micLanguage: micLanguageKey(),
+        talk: on.talk ? { bubbles: [] } : null,
         firing: firing && { ...fireDialog(), title: `Fire ${firing.name}?`, detail: 'Its agent stops, and its tab closes.' },
         maxing: maxing && { ...maxDialog(), title: `Max effort for ${maxing.name}?`, detail: 'It uses much more of your usage.' },
         // Over the desks on the floor in view: downstairs only while it's the ground floor
@@ -66987,6 +70460,9 @@
         if (comparing) compareDirect(storey, frames);
       }
       styleKeyAt = key && key.at;
+      // The talk bubbles the ground floor drew; upstairs and on the ride, none is there to click
+      bubblesAt = storey < 2 && !ride && frames[1].talk ? frames[1].talk.bubbles : [];
+      if (talkPanels) talkPanels.frame(bubblesAt);
       keysAt = keys && keys.at ? { keys: keys.at, box: keys.box } : null;
       rolesAt = hires && hires.at ? { roles: hires.at, box: hires.box, most: hires.most, arrows: hires.arrows || [] } : null;
     }
@@ -67021,8 +70497,8 @@
      * reaches, down to the desk's front; and its label below. A tall one
      * reaches up into the label of the desk behind it, where it wins.
      */
-    function deskBoxes(desk) {
-      const { x, y } = DESKS[desk], seat = office.seats[desk] || {};
+    function deskBoxes(desk, there = office) {
+      const { x, y } = DESKS[desk], seat = there.seats[desk] || {};
       const left = x - 2, right = x + DESK_WIDTH + 2;
       return [
         { left, right, top: y + WORKSPACES[workspaceOf(seat.session, desk)].top, bottom: y + 18 },
@@ -67030,10 +70506,14 @@
       ];
     }
 
-    /** The key's desk under a point of the room, if there is one: where a carried agent would land. */
-    function deskAt(x, y) {
+    /**
+     * The desk under a point of the room, if there is one: where a carried agent would land. Downstairs a key's;
+     * upstairs, run in that floor's room (see inView), any of its desks.
+     */
+    function deskAt(x, y, there = office) {
       const within = (box) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
-      const boxes = DESKS.slice(0, office.seats.length).map((d, desk) => (d.off ? null : deskBoxes(desk)));
+      const count = there === office ? office.seats.length : Math.min(DESKS.length, UPSTAIRS_MOST);
+      const boxes = DESKS.slice(0, count).map((d, desk) => (d.off ? null : deskBoxes(desk, there)));
       let desk = boxes.findIndex((box) => box && within(box[0]));
       if (desk < 0) desk = boxes.findIndex((box) => box && within(box[1]));
       return desk >= 0 ? desk : null;
@@ -67122,8 +70602,12 @@
           return best ? best.target : { kind: 'uncard' };
         }
         for (const { id, box, drivable } of upstairsDeskBoxes()) consider(drivable ? { kind: 'session', id } : { kind: 'upstairsDesk', id }, box, 3);
+        // A desk's pull request tag, over the desk: one tap opens it
+        for (const { id, box } of upstairs(prBoxes) || []) consider({ kind: 'pr', id }, box, 1);
         // An empty desk here, held, hires someone into it, by role, as downstairs.
         for (const { desk, box } of upstairsEmptyBoxes()) consider({ kind: 'empty', desk, floor: floorShown }, box, 4);
+        // A TV here too, behind whatever is in front of it
+        if (on.tv) upstairs(() => { for (const part of tvsOf()) consider({ kind: 'tv', part }, pieceBox(part), 5); });
         // The settings' cog, in the corner here too
         if (styleKey() && styleKeyAt) {
           const { x: kx, y: ky, w: kw, h: kh } = styleKeyAt;
@@ -67134,6 +70618,8 @@
       }
       if (ride) return best && best.target;
 
+      // A person's bubble is its own target, ahead of the person under it
+      for (const bubble of bubblesAt) if (!bubble.quiet) consider({ kind: 'talk', id: bubble.id }, TALK_ANCHORS.hitBox(bubble.x, bubble.top, shape), -1);
       for (const person of office.people) {
         if (person.isStaff || person.isLeaving || person.entering) continue;
         const px = Math.round(person.position.x), top = topOf(person, poseOf(person, now));
@@ -67145,6 +70631,8 @@
       if (music && on.music) {
         for (const { part, kind } of loungePieces()) if (MUSIC_KINDS.includes(kind)) consider({ kind: 'music', part }, pieceBox(part), 1);
       }
+      // A TV, on the wall or in the lounge, in the computer's own window: behind whoever and whatever is in front of it
+      if (on.tv) for (const part of tvsOf()) consider({ kind: 'tv', part }, pieceBox(part), 5);
       if (styleKey() && styleKeyAt) {
         const { x: kx, y: ky, w: kw, h: kh } = styleKeyAt;
         consider({ kind: 'styles' }, { left: kx, right: kx + kw, top: ky, bottom: ky + kh }, -1);
@@ -67175,6 +70663,8 @@
         consider(target, workspace, 2);
         consider(target, label, 3);
       });
+      // A desk's pull request tag, over the desk: one click opens it
+      for (const { id, box } of prBoxes(office)) consider({ kind: 'pr', id }, box, 1);
       return overlaid();
 
       /** What's out over the room for the picked agent or the held desk, which covers what's under it. */
@@ -67229,6 +70719,47 @@
         }
         return best && best.target;
       }
+    }
+
+    /** Where the room is on the page, for TALK_ANCHORS.anchorOf. */
+    function talkView() {
+      const rect = canvas.getBoundingClientRect();
+      const { scale, ox, oy } = fitRoom(canvas.width, canvas.height, floating ? FLOAT_MARGINS[floating] * (host.window.devicePixelRatio || 1) : 0);
+      return { scale, ox, oy, k: canvas.width / rect.width, left: rect.left, top: rect.top };
+    }
+
+    /** What the page is told of the talk bubble over `id`'s head: its box and tail point, in art and CSS pixels. */
+    function talkAnchor(id) {
+      const bubble = bubblesAt.find((b) => b.id === id);
+      return bubble ? TALK_ANCHORS.anchorOf(bubble, shape, talkView()) : null;
+    }
+
+    /**
+     * The mouse is over the talk bubble of `id` (null: over none). A bubble it rests on for TALK_ANCHORS.HOVER_AFTER
+     * is told to the page, `on.talk.hover(id, anchor)`, with `anchor.again` false if the desk's card was asked for
+     * within the last second; one it leaves, `on.talk.hover(null)`. Only a mouse hovers: a touch has no hover.
+     */
+    function hoverTalk(id) {
+      if (!on.talk) return;
+      const at = clock();
+      if (talkTimer !== null) host.window.clearTimeout(talkTimer);
+      talkTimer = null;
+      const step = TALK_ANCHORS.hoverStep(talkHover, id, at);
+      talkHover = step.state;
+      if (step.hide) {
+        talkPanels?.hover(null);
+        on.talk.hover?.(null);
+      }
+      if (step.show !== null) {
+        const anchor = talkAnchor(step.show);
+        if (anchor) {
+          anchor.again = TALK_ANCHORS.mayAsk(talkAsked.get(step.show), at);
+          if (anchor.again) talkAsked.set(step.show, at);
+          talkPanels?.hover(step.show, anchor);
+          on.talk.hover?.(step.show, anchor);
+        }
+      }
+      if (step.wait !== null) talkTimer = host.window.setTimeout(() => { talkTimer = null; hoverTalk(talkHover.id); }, step.wait * 1000);
     }
 
     /** Everything a key or button does on the deck, done by tapping the room. */
@@ -67350,7 +70881,8 @@
       // The lite office's switch: the page keeps the choice, and says so with setLite; the panel stays open
       if (target.kind === 'lite') return on.lite?.(!liteOffice);
       // They carry their things out in a box only once the computer says
-      // they're fired; if it couldn't, the deck says why.
+      // they're fired, with a note or not (the deck says it, as for a hire
+      // marked fired with its window left open); if it couldn't, the deck says why.
       if (target.kind === 'fired') {
         if (!firing) return; // they left while the finger was down
         const { id } = firing;
@@ -67367,7 +70899,7 @@
         if (session) firing = { id: holding.id, name: memberOf(session)?.name || session.name, at: clock() };
         return on.held?.();
       }
-      if (target.kind === 'hire') return on.hire?.(holding.desk, null, holding.floor ? holding.floor - 1 : 0);
+      if (target.kind === 'hire') return hireInto(holding.desk, null, holding.floor ? holding.floor - 1 : 0);
       if (target.kind === 'micLanguage') return on.language?.(target.next);
       if (target.kind === 'micCleanup') return on.cleanup?.(target.next);
       // An empty or pinned desk says something on a tap, once the finger lifts: holding it is something else.
@@ -67382,7 +70914,16 @@
         chipDown = { level: target.level, at: clock(), held: true };
         return target.level === 'max' ? maxOrAsk(selectedSession()) : on.effort?.(target.level);
       }
+      if (target.kind === 'talk') {
+        hoverTalk(null);
+        talkPanels?.open(target.id);
+        return on.talk?.open?.(target.id, talkAnchor(target.id));
+      }
       if (target.kind === 'session') return on.select?.(target.id);
+      // A pull request's tag opens that pull request, through the page: the computer says what it opens, not the room
+      if (target.kind === 'pr') return on.pr?.(target.id);
+      // A TV is the page's to open, for the picked desk, with the address it shows (null if none, or none picked)
+      if (target.kind === 'tv') return on.tv?.(selected || null, onAirNow()?.url || null);
       const session = pickedHere();
       if (!session) {
         wobbling = { what: target.kind, at: clock() };
@@ -67444,11 +70985,12 @@
         }
       }
       if (carrying) {
-        const { from, over, toLift, person } = carrying;
+        const { from, over, toLift, person, floor } = carrying;
         carrying = null;
         finger = null;
         if (dropped && toLift && person && person.session) return openMoving(person.session.id);
-        if (dropped && over !== null && over !== from) on.swap?.(from, over);
+        // Upstairs, the floor's desks, counted from 0 for the ground floor: the ground floor's keys go as they always did
+        if (dropped && over !== null && over !== from) on.swap?.(from, over, floor > 1 ? floor - 1 : 0);
         return;
       }
       // A quick tap on a music piece plays or pauses the computer's music; held, it opened the control instead.
@@ -67472,7 +71014,7 @@
         if (dropped && chip && !finger.slid && held && held.kind === 'empty') {
           const { desk, floor } = held;
           held = null;
-          on.hire?.(desk, id, floor ? floor - 1 : 0);
+          hireInto(desk, id, floor ? floor - 1 : 0);
         }
       }
       if (finger && !finger.held) {
@@ -67863,8 +71405,9 @@
       if (finger) return; // one finger at a time
       if (floorShown === 1 && !ride && skipComingAt(e.clientX, e.clientY)) return;
       const target = targetAt(e.clientX, e.clientY);
-      // A tap on the floor, with nothing there, puts away whatever was held out.
+      // A tap on the floor, with nothing there, puts away whatever was held out, and the open talk bubble.
       if (!target) {
+        talkPanels?.close();
         held = null;
         musicPanel = null;
         keysFor = null;
@@ -67979,8 +71522,13 @@
       }
       if (finger && e.pointerId === finger.id) return carry(e);
       // A mouse shows what can be clicked.
-      if (e.pointerType === 'mouse' && !finger) canvas.style.cursor = targetAt(e.clientX, e.clientY) ? 'pointer' : '';
+      if (e.pointerType === 'mouse' && !finger) {
+        const over = targetAt(e.clientX, e.clientY);
+        canvas.style.cursor = over ? 'pointer' : '';
+        hoverTalk(over && over.kind === 'talk' ? over.id : null);
+      }
     });
+    canvas.addEventListener('pointerleave', () => hoverTalk(null));
 
     // A trackpad's or a wheel's scroll over the styles turns their page, one a swipe: on, going right or down
     canvas.addEventListener('wheel', (e) => {
@@ -68019,23 +71567,26 @@
       roleOffset = Math.max(0, Math.min(rolesAt ? rolesAt.most : 0, finger.from + a.x - b.x));
     }
 
-    /** A finger held on an agent's desk, then moved, picks the agent up and carries them. */
-    /** Who is at each desk, and which are pinned: the desks a swap is counted by, by number. */
-    const desksNow = () => office.seats.map((s) => `${s.session ? s.session.id : ''} ${s.pin || ''}`).join('\n');
+    /** Who is at each desk of the floor in view, and which are pinned: the desks a swap is counted by, by number. */
+    const desksNow = () => `${floorShown}\n${inView((there) => there.seats.map((s) => `${s && s.session ? s.session.id : ''} ${(s && s.pin) || ''}`).join('\n'))}`;
 
+    /**
+     * A finger held on an agent's desk, then moved, picks the agent up and carries them: on the floor in view,
+     * upstairs as downstairs, to be let go at another desk on it.
+     */
     function carry(e) {
       const { x, y } = roomAt(e.clientX, e.clientY);
       if (!carrying) {
         if (!finger.held || finger.target.kind !== 'session') return;
         if (Math.hypot(e.clientX - finger.x, e.clientY - finger.y) < CARRY_AFTER) return;
-        const from = office.seats.findIndex((s) => s.session && s.session.id === finger.target.id);
+        const from = deskInView(finger.target.id);
         if (from < 0) return;
         held = null;
-        const person = office.people.find((p) => !p.isStaff && !p.isLeaving && p.session.id === finger.target.id) || null;
-        carrying = { person, from, x, y, over: from, desks: desksNow() };
+        const person = inView((there) => there.people.find((p) => !p.isStaff && !p.isLeaving && p.session.id === finger.target.id)) || null;
+        carrying = { person, from, x, y, over: from, desks: desksNow(), floor: floorShown };
         on.held?.();
       }
-      const over = deskAt(x, y);
+      const over = inView((there) => deskAt(x, y, there));
       if (over !== null && over !== carrying.over && over !== carrying.from) on.held?.(); // a tick for each desk passed over
       // Over the elevator, with another floor to go to: let go there, the floor list opens for them.
       const lift = on.move && floorList().length > 1 && elevatorBox();
@@ -68056,7 +71607,7 @@
         askMax = snapshot.maxConfirm !== false;
         music = snapshot.music || null;
         dictation = snapshot.dictation || null;
-        // Personal build: a dictation note new since the last snapshot, and only while it's fresh on the computer's clock.
+        // A dictation note new since the last snapshot, and only while it's fresh on the computer's clock.
         // The keys' agents, and those driven upstairs, whose desks are the floors' own.
         const upstairsSessions = floorsOf(snapshot).slice(1).flatMap((f) => f.desks).filter((s) => s && typeof s === 'object');
         for (const session of [...(snapshot.keys || []).map((key) => key.session), ...upstairsSessions]) {
@@ -68083,6 +71634,7 @@
       close() {
         latest = null;
         gaps = [];
+        talkPanels?.away();
         office.close();
         closeUppers();
         dropArt(canvas);
@@ -68113,6 +71665,21 @@
        */
       setLite(on) { liteOffice = !!on; },
       /**
+       * The pull requests to show, an object (or Map) of session id → { number, state, reviewDecision }, as the computer's
+       * /desk/git gave them, for the computer's own window only: a page that took no `on.pr` shows and taps nothing.
+       * Anything that isn't a pull request the badge knows is left out.
+       */
+      /**
+       * The picked desk's preview (TV1), as the computer's /desk/preview gave it, { id, url } for session `id`, or null:
+       * the floor's TV shows it while that desk is picked. For the computer's own window only: a page that took no
+       * `on.tv` shows and taps nothing. Anything but a localhost http address is no preview (onAirOf).
+       */
+      setPreview(shown) { tvShown = onAirOf(shown); },
+      setPR(found) {
+        const entries = found instanceof Map ? [...found] : Object.entries(found || {});
+        gitPRs = new Map(entries.filter(([id, pr]) => typeof id === 'string' && prKindOf(pr)).map(([id, pr]) => [id, { number: pr.number, state: pr.state, reviewDecision: pr.reviewDecision || '' }]));
+      },
+      /**
        * Whether a point on the page is on the elevator, as a finger finds it,
        * for a page that takes the room's taps itself, as the portable viewer
        * does; and `ride()`, the elevator tapped.
@@ -68131,6 +71698,14 @@
       hold(id) {
         if (id) openCard(id);
         else hiredCard = null;
+      },
+      /**
+       * The Pixel Terminal on `id`'s desk, as the ▤ key opens it in the office's own window: false where the page gave
+       * no talk, or for a desk with no talk bubble (a hire in T3 Code), for the page to open its slate instead.
+       */
+      expand(id) {
+        const session = sessionOf(id);
+        return !!(talkPanels && session && !session.t3 && talkPanels.expand(id));
       },
       /** The office's styles' panel opened, from the page's settings: on the ground floor, whose style it is. */
       openStyles() {
@@ -68174,7 +71749,7 @@
         if (row) rideTo(row.n);
         else picker = null;
       },
-      /** Personal build: what the phone's mic hears for session `id`, shown live over its desk; null hides it. */
+      /** What the phone's mic hears for session `id`, shown live over its desk; null hides it. */
       hearing(state) { hearing = state && state.id ? { id: String(state.id), text: String(state.text || '') } : null; },
       /** Floats the room's window in a 'window' of its own or a whole 'screen', fills it from 'edge' to edge, or stops, with null. */
       setFloating(how) { floating = how; },
@@ -68478,6 +72053,8 @@
     // Your team's skin tones, hair colours and clothes colours, as CSS, for the setup page's swatches
     teamColours: Object.fromEntries(Object.entries({ skin: SKIN_TONES, hair: HAIR_COLOURS, colour: SHIRT_COLOURS })
       .map(([part, colours]) => [part, Object.fromEntries(Object.entries(colours).map(([id, hex]) => [id, css(hex)]))])),
+    // The conversation's rows and pages as the talk bubble draws them, for the ▤ slate to draw them the same way
+    conversation: { row: TALK_BUBBLE.row, byOrder: TALK_BUBBLE.byOrder, merge: TALK_BUBBLE.merge, older: PIXEL_TERMINAL.older },
     // The badges a role can wear, in setup's order, and each one's icon on a canvas of its own for a role's card
     badges: BADGE_IDS, badgeIcon: (id, scale = 1) => (Object.hasOwn(BADGES, id) ? paintIcon(BADGES[id].icon, Math.max(1, Math.round(scale))) : null),
   };

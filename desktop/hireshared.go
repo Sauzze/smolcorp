@@ -1,7 +1,12 @@
 package desktop
 
 import (
+	"errors"
+	"maps"
+	"net/http"
+	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,11 +45,88 @@ type engineRequest struct {
 	ConfigDir      string
 	DefaultAccount bool
 	APIKey         bool
+	// Under the Mac app, the API key read through the bridge for this hire alone (hireapikey.go); "" elsewhere.
+	// Its tail is approved and it goes in the start script; the core doesn't keep it after the hire (see hireapikey.go).
+	APIKeyText string
 	// The port of a test copy, 0 for the office's own.
 	TestPort int
 	// GMToken makes the General Manager's token, new at its hire (the Deck's
 	// newGMToken); asked only for the gm role, after the hire is written down.
 	GMToken func() string
+	// StartTyped is told the GM's start message, as it goes to the agent: the core's own words, never the owner's
+	// (ownerwords.go). nil for any other hire.
+	StartTyped func(message string)
+	// For its brief: the desk it was hired at on the ground floor (nil for none
+	// or upstairs), the answers to its role's questions (nil when it asks them
+	// itself) and the task whoever hired wrote for it ("" for none).
+	Desk    *int
+	Answers []string
+	Task    string
+	// Setup's own hire (POST /setup/hire, setuphire.go) may say more: the
+	// nickname, kept in the registry and naming its worktree and branch; no
+	// worktree of its own (the manager off and none asked for, or the GM, as
+	// the Mac's); the account it works on, by name, for the registry; and the
+	// Claude accounts whose settings and transcripts its fence denies.
+	Nickname    string
+	NoWorktree  bool
+	AccountName string
+	Profiles    []claudeProfile
+	// Scope: the project a General Manager is held to (gmscope.go), kept in its registry row; "" for none.
+	Scope string
+	// ScopeRoles: the roles a GM held to a demo's project may hire, kept in its registry row; nil for any other.
+	ScopeRoles string
+}
+
+// engineAutoMode is whether an engine hire's settings put it in auto mode: on
+// a Mac, as the Mac's HireSettings.forHire always does, so a Mac hire's fence
+// is the same file whichever engine starts it. Linux and Windows keep theirs.
+const engineAutoMode = runtime.GOOS == "darwin"
+
+// hireSocketPrefix starts every hire's tmux socket we make (hiretmux.go), and ownsHireSocket checks for it. Here,
+// for every system: Take over (t3takeover.go) refuses a hire without one, on Windows too.
+const hireSocketPrefix = "smolcorp-"
+
+// hireBrief writes a hire's brief where the Mac's HireDesk writes it: a
+// managed hire's (one with a worktree) in its own folder in Smolcorp's, any
+// other's in Smolcorp's briefs folder. Nil for a role on its own
+// instructions, or an agent that takes no first message (Grok).
+func hireBrief(r engineRequest, place hirePlace, hireID string, now time.Time) (*briefMade, error) {
+	if Agent(r.Role.Agent) == Grok {
+		return nil, nil
+	}
+	managed := ""
+	if place.Worktree != "" {
+		managed = hireFolder(supportDir, hireID)
+	}
+	return makeBrief(briefRequest{role: r.Role, library: editableBriefs(bundledBriefs(), briefTemplatesDir()), folder: place.Folder,
+		pinned: r.How == hiredAtPinnedDesk, desk: r.Desk, answers: r.Answers, task: r.Task, managed: managed, date: now,
+		kept: briefsKeptDir(), write: true})
+}
+
+// engineBrief is an engine hire's first message and its brief's path: to read
+// the brief it was just written, or, for a role on its own instructions, the
+// role's own first message ("" for the path).
+func engineBrief(r engineRequest, place hirePlace, hireID string, now time.Time) (message, brief string, err error) {
+	message = r.Role.firstMessage(place.Folder, r.How)
+	if r.Answers != nil {
+		message = r.Role.firstMessageAnswered(place.Folder, r.Answers)
+	}
+	made, err := hireBrief(r, place, hireID, now)
+	if err != nil {
+		return "", "", err
+	}
+	if made != nil {
+		message, brief = made.firstMessage, made.names.brief
+	}
+	return message, brief, nil
+}
+
+// briefDesk is the desk a hire's brief is named for: one held on the ground floor, or none.
+func briefDesk(held, floor int) *int {
+	if floor > 0 || held < 0 {
+		return nil
+	}
+	return &held
 }
 
 // takenPorts are the port ranges of hires still working.
@@ -83,8 +165,20 @@ func forgetHire(id string) {
 	})
 }
 
+// failHire marks hire id failed, with its notes, whatever open state it is in by now: a hire whose start
+// failed after its agent was up (its window didn't open) may already have been marked working, and the
+// answer has told the owner it wasn't hired. Failed is final: setHire only moves a "starting" row, so no
+// watcher brings a failed one back. One already fired or failed is left as it is.
+func failHire(id, notes string) {
+	_ = updateRegistry(func(f *registryFile) {
+		if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id && isOpen(h) }); i >= 0 {
+			f.hires[i].State, f.hires[i].Notes = "failed", notes
+		}
+	})
+}
+
 // setHire gives hire id a state and its notes, only while it is still
-// "starting": a hire the owner fired or changed meanwhile is left as it is.
+// "starting": a hire the owner fired or changed meanwhile, or one that failed, is left as it is.
 func setHire(id, state, notes string) {
 	_ = updateRegistry(func(f *registryFile) {
 		if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id && h.State == "starting" }); i >= 0 {
@@ -98,11 +192,56 @@ func setHire(id, state, notes string) {
 func (d *Deck) hireHeardFrom(h Hire) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	folder := physical(h.Folder)
+	folder := physical(cmpOr(h.Worktree, h.Folder)) // where it works: its worktree if it has one
 	return slices.ContainsFunc(d.sessions.All(), func(s *Session) bool {
 		where := physical(s.Folder)
 		return s.Agent == Claude && s.StartedAt >= h.Started && (where == folder || strings.HasPrefix(where, folder+string(filepath.Separator)))
 	})
+}
+
+// startedIn is where an engine hire started: its worktree, at the same place in it as the folder it was
+// hired into is in the repo; that folder itself when it has no worktree. The folder is kept as it was given (a
+// desk's pin may name it through a link) and the repo resolved, so it is placed with its links resolved, as the
+// Mac's HireDesk.prepare places it (physical(request.folder) against the physical repo).
+func startedIn(h Hire) string {
+	if h.Worktree == "" || h.Repo == "" {
+		return h.Folder
+	}
+	if rest, inside := strings.CutPrefix(physical(h.Folder), physical(h.Repo)+string(filepath.Separator)); inside {
+		return filepath.Join(h.Worktree, rest)
+	}
+	return h.Worktree
+}
+
+// hiredPlace is where a hire works, for whoever hired it: the folder it started in, and the branch of its own
+// worktree when it has one (then the folder is that worktree, not the one it was asked to work in).
+type hiredPlace struct{ WorksIn, Branch string }
+
+// hiredInto is what the Mac's Deck.open keeps of a hire that started, with the lock held: the folder it
+// started in, first among setup's recent ones (Config.noteHire), and, for a hire in a worktree of its own,
+// its nickname on its desk, which the office names by that folder's name (Deck.nicknamed).
+func (d *Deck) hiredInto(h Hire) {
+	folder := startedIn(h)
+	d.lastPlace = hiredPlace{WorksIn: folder}
+	if h.Worktree != "" {
+		d.lastPlace.Branch = h.Branch
+	}
+	d.config.noteHireFolder(folder)
+	if name := firstRunes(trimSwiftSpace(h.Nickname), nicknameLimit); h.Worktree != "" && name != "" {
+		team := maps.Clone(d.config.Layout.Room.Team)
+		if team == nil {
+			team = map[string]TeamMember{}
+		}
+		member, known := team[lastPart(folder)]
+		if !known {
+			member = TeamMember{}.checked()
+		}
+		member.Name = name
+		team[lastPart(folder)] = member
+		d.config.Layout.Room.Team = team
+	}
+	d.config.save()
+	d.changed()
 }
 
 // calledHire is what a fire's answers call a hire: its nickname, else its
@@ -114,29 +253,37 @@ func calledHire(h Hire) string {
 	return h.Name
 }
 
-// firing is the hires being fired right now, so two fires of one can't both go ahead.
+// firing is the hires being fired right now, so two fires of one can't both go ahead; and the hires being taken
+// over in T3 Code right now (t3takeover.go), so a fire and a Take over of one never run at once (RM5c2 N1).
 var firing = struct {
 	sync.Mutex
-	ids map[string]bool
-}{ids: map[string]bool{}}
+	ids        map[string]bool
+	takingOver map[string]bool
+}{ids: map[string]bool{}, takingOver: map[string]bool{}}
 
 // windowRefusal is why a window showing screen (readable false: it couldn't be
 // looked at) may not be ended, or "". A question or a menu, or a window that
-// can't be looked at, is never skipped; force skips the rest.
+// can't be looked at, is never skipped; force skips the rest. The tmux fire
+// types "/exit" into an idle window, so its refusals say nothing was sent, as
+// the Mac's.
 func windowRefusal(h Hire, screen string, readable, force bool) string {
-	return stateRefusal(h, ReadPaneState(screen), readable, force)
+	return refusalOfState(h, ReadPaneState(screen), readable, force, "sent")
 }
 
 // stateRefusal is windowRefusal for a window already read as state (a
-// launcher sends only that).
+// launcher sends only that). The launcher's fire types nothing: nothing was ended.
 func stateRefusal(h Hire, state PaneState, readable, force bool) string {
+	return refusalOfState(h, state, readable, force, "ended")
+}
+
+func refusalOfState(h Hire, state PaneState, readable, force bool, nothing string) string {
 	name := calledHire(h)
 	if !readable {
-		return "Couldn't tell what " + name + "'s window holds, so nothing was ended. Look at it first."
+		return "Couldn't tell what " + name + "'s window holds, so nothing was " + nothing + ". Look at it first."
 	}
 	switch {
 	case state == PaneMenu:
-		return name + " is waiting for an answer in its window. Answer it there first; nothing was ended."
+		return name + " is waiting for an answer in its window. Answer it there first; nothing was " + nothing + "."
 	case force || state == PaneIdle:
 		return ""
 	case state == PaneDraft:
@@ -144,7 +291,88 @@ func stateRefusal(h Hire, state PaneState, readable, force bool) string {
 	case state == PaneBusy:
 		return name + " is working right now. Wait until it is done, or fire with force."
 	}
-	return "Couldn't tell what " + name + "'s window holds, so nothing was ended. Look at it, or fire with force."
+	return "Couldn't tell what " + name + "'s window holds, so nothing was " + nothing + ". Look at it, or fire with force."
+}
+
+// firedWorktreeKept is why a fire left a worktree, as the Mac's HireFire.finish says it.
+const firedWorktreeKept = "It holds changes nobody committed (new files count too), or git wouldn't remove it."
+
+// firedKeptNote is the registry's note of a fired hire whose worktree was kept (the Mac's afterColon).
+func firedKeptNote(worktree string) string {
+	return "Its worktree " + worktree + " was kept: it" + strings.TrimPrefix(firedWorktreeKept, "It")
+}
+
+// firedButHeld is what a fire answers while the records' key can't be read (records.go's recordsHeldOnly), for a hire
+// the saved registry lists (heldFire): the hire's session or window (what; "" when none was found to close) was
+// ended, as a fire ends it, and its send key taken away for this run, so a hire that misbehaves, or what it left
+// running, stops now; but the fire isn't saved, since it would last only until the restart, and its worktree isn't
+// removed (RT126SK1R4 follow-up 2, RT126SK1F B2).
+func firedButHeld(h Hire, what string) string {
+	said := "Smolcorp ended " + calledHire(h) + "'s " + what + " and took its key away for now"
+	if what == "" {
+		said = "Smolcorp found no window of " + calledHire(h) + "'s to close, so it took its key away for now"
+	}
+	said += ", but can't save the fire: it can't read the key that seals its records from your login keychain. So " +
+		calledHire(h) + " is still on your team"
+	if h.Worktree != "" {
+		said += ", its worktree kept at " + h.Worktree
+	}
+	return said + ", and its key works again after the restart: unlock the keychain, restart Smolcorp, then fire it again."
+}
+
+// firedForGoodWhileHeld is what a fire says of a hire hired while the records' key can't be read, fired in full
+// (heldFire): its row was never saved, so the fire lasts.
+func firedForGoodWhileHeld(h Hire) string {
+	return calledHire(h) + " was hired while Smolcorp couldn't read the key that seals its records, so it was never " +
+		"saved: it's fired for good, and won't be back after the restart."
+}
+
+// savedHire is whether the registry file lists the hire id, or is there but can't be read (the hire may be in it).
+// Nothing is written while the records' key can't be read, so the file is the team the restart after the owner
+// unlocks the keychain brings back: a hire it doesn't list was hired in this run (RT126SK1F B2).
+func savedHire(id string) bool {
+	data, err := os.ReadFile(registryPath())
+	if err != nil {
+		return !errors.Is(err, os.ErrNotExist)
+	}
+	f, ok := parseRegistry(data)
+	return !ok || slices.ContainsFunc(f.hires, func(h Hire) bool { return h.ID == id })
+}
+
+// heldFire is a fire while the records' key can't be read, once the hire's session or window (what) was ended: nil
+// any other time, and for a hire hired in this run, whose row lasts only until the restart anyway, so its fire goes
+// ahead in full and lasts (firedForGoodWhileHeld). For a hire the saved registry lists, its send key is taken out of
+// the registry the core holds, with nothing written, so neither it nor anything it left running can send as it in
+// this run; the refusal says so, and that the restart brings it back, its key working again (RT126SK1F B2). The
+// caller fails its waiting mail (Deck.failHeldMail).
+func heldFire(h Hire, what string) *hireRefusal {
+	if !recordsHeldOnly() || !savedHire(h.ID) {
+		return nil
+	}
+	frontDeskMu.Lock()
+	f := readRegistry(registryPath(), false)
+	delete(f.keys, h.ID)
+	holdRegistry(registryPath(), f)
+	frontDeskMu.Unlock()
+	return &hireRefusal{Status: http.StatusConflict, Message: firedButHeld(h, what), keyTaken: true}
+}
+
+// failHeldMail fails the waiting mail of h, whose fire err refused while the records' key can't be read once its key
+// was taken away (heldFire), as a fire fails it: nothing is sent it in this run.
+func (d *Deck) failHeldMail(h Hire, err error) {
+	var refused *hireRefusal
+	if errors.As(err, &refused) && refused.keyTaken && d.mail != nil {
+		d.mail.failTo(h.ID)
+	}
+}
+
+// heldFireNote is what a fire that went ahead says besides: that it lasts, for a hire hired while the records' key
+// can't be read (heldFire); "" otherwise.
+func heldFireNote(h Hire) string {
+	if recordsHeldOnly() && !savedHire(h.ID) {
+		return firedForGoodWhileHeld(h)
+	}
+	return ""
 }
 
 // uncommittedRefusal is why a hire's worktree may not be left, or "": git
@@ -170,9 +398,9 @@ func uncommittedRefusal(h Hire, git gitRunner) string {
 // moves a hire still starting, a fire ends a working hire too. The notes are
 // the owner's: they stay as the registry holds them now (read under its
 // lock, not the copy read when the fire began), and a kept line, if given, goes
-// before them, as the Mac's.
-func markFired(id, keptLine string) {
-	_ = updateRegistry(func(f *registryFile) {
+// before them, as the Mac's. An error when the registry couldn't be written.
+func markFired(id, keptLine string) error {
+	return updateRegistry(func(f *registryFile) {
 		if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id && h.State != "fired" && h.State != "failed" }); i >= 0 {
 			f.hires[i].State = "fired"
 			if keptLine != "" {
@@ -195,5 +423,62 @@ func (d *Deck) clearFiredGMToken() {
 	defer d.mu.Unlock()
 	if !slices.ContainsFunc(officeHires(), gmHired) {
 		d.gmToken = ""
+		d.gmTokenChanged()
+	}
+}
+
+// startScriptNotRun is what a hire says when its start script was taken away at the next start.
+const startScriptNotRun = "Didn't start: Smolcorp stopped before it could, so its start script was taken away."
+
+// resumeScriptNotRun is what a hire handed back from T3 Code says when its resume's start script was taken away.
+const resumeScriptNotRun = "Wasn't resumed after Hand back: Smolcorp stopped before it could, so its start script was taken away. Its worktree and session were kept."
+
+// removeLeftStartScripts takes away every <support>/hires/<id>/hire-*.sh as the core starts. A
+// script still there was never run by its hire's shell (it removes itself as the first thing it
+// does), and the watcher that would have taken it away went with the core that made it: it may
+// still hold the API key, a send key or the GM's token. A hire whose shell hadn't reached it fails
+// to start, which is the safe side, and its "starting" row is marked failed. So is a hire handed
+// back from T3 Code whose resume's script it was (resumeScriptPrefix, t3ResumeInTmux): its row was
+// open already, and its tmux shell had nothing left to run (RMSY N1). Its notes stay, after the reason.
+func removeLeftStartScripts() {
+	scripts, _ := filepath.Glob(filepath.Join(supportDir, "hires", "*", "hire-*.sh"))
+	for _, script := range scripts {
+		if os.Remove(script) != nil {
+			continue
+		}
+		id := filepath.Base(filepath.Dir(script))
+		if !strings.HasPrefix(filepath.Base(script), resumeScriptPrefix) {
+			setHire(id, "failed", startScriptNotRun)
+			continue
+		}
+		// This write's result can't be acted on: the script is gone already, so a failure leaves the row as it was,
+		// as setHire does for a plain script (FXTO2 N4).
+		_ = updateRegistry(func(f *registryFile) {
+			if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id && isOpen(h) }); i >= 0 {
+				f.hires[i].State = "failed"
+				f.hires[i].Notes = firstRunes(strings.Join(slices.DeleteFunc([]string{resumeScriptNotRun, f.hires[i].Notes}, func(s string) bool { return s == "" }), "\n"), longestNotes)
+			}
+		})
+	}
+}
+
+// hireStopWait is how long a clean stop waits for the hires being watched to finish cleaning.
+// A hire that hasn't started by then is left to the next start, which takes its script away.
+const hireStopWait = 5 * time.Second
+
+// waitForHires waits up to within for the hires the deck is still watching to finish (the
+// watchers clean up a hire that never started, scripts included): on a clean stop, so a hire
+// in the middle of cleaning isn't cut off. False when some were still going.
+func (d *Deck) waitForHires(within time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		d.watching.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(within):
+		return false
 	}
 }

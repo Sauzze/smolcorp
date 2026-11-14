@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // ✨ Summary made by a coding agent you already have, on your own plan,
@@ -665,13 +667,19 @@ func (c *cappedBuffer) Bytes() []byte { return c.kept.Bytes() }
 // ends it and anything it started, gives it input, and reads at most
 // summaryOutputMost of its output and summaryErrorMost of its errors.
 func spawnSummary(program string, args []string, input []byte, env []string, folder string, timeout time.Duration) summaryRan {
+	return spawnCapped(program, args, input, env, folder, timeout, summaryOutputMost, summaryErrorMost)
+}
+
+// spawnCapped is spawnSummary with the caps given: at most outputMost bytes of
+// output and errorMost of errors are kept.
+func spawnCapped(program string, args []string, input []byte, env []string, folder string, timeout time.Duration, outputMost, errorMost int) summaryRan {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := summaryCommand(ctx, program, args)
 	cmd.Dir = folder
 	cmd.Env = env
 	cmd.Stdin = bytes.NewReader(input)
-	output, errors := &cappedBuffer{most: summaryOutputMost}, &cappedBuffer{most: summaryErrorMost}
+	output, errors := &cappedBuffer{most: outputMost}, &cappedBuffer{most: errorMost}
 	cmd.Stdout, cmd.Stderr = output, errors
 	ownGroup(cmd)
 	// Ended, with all it started, only while it's still running: Cancel is
@@ -719,12 +727,12 @@ func summaryCommand(ctx context.Context, program string, args []string) *exec.Cm
 			if shell == "" {
 				shell = `C:\Windows\System32\cmd.exe`
 			}
-			cmd := exec.CommandContext(ctx, shell)
+			cmd := disclaim.Cmd(exec.CommandContext(ctx, shell))
 			useCommandLine(cmd, cmdLine(shell, program, args))
 			return cmd
 		}
 	}
-	return exec.CommandContext(ctx, program, args...)
+	return disclaim.Cmd(exec.CommandContext(ctx, program, args...))
 }
 
 // MARK: Which are here
@@ -838,6 +846,10 @@ func (p *summaryProviders) checkProvider(provider summaryProvider) providerState
 	program := summaryProgram(provider)
 	if program == "" {
 		return providerState{kind: providerMissing, reason: "not installed"}
+	}
+	// A Claude Code that isn't Anthropic's is never run, not even for its help (agentcheck.go).
+	if err := checkAgentProgram(string(provider), program); err != nil {
+		return providerState{kind: providerMissing, reason: err.Error()}
 	}
 	env := summaryEnvironment(os.Environ())
 	help := p.helpText(provider, program, env)

@@ -39,12 +39,10 @@ func TestTheDeckHidesWaitingWhereThereIsNoApprovalsRoute(t *testing.T) {
 	}
 }
 
-// The office's waiting tag is in both copies of the page.
+// The office tags a waiting desk (the viewer draws with the same file).
 func TestTheOfficeTagsAWaitingDesk(t *testing.T) {
-	web, viewer := officeSources(t)
-	for name, src := range map[string]string{"Resources/web/office.js": string(web), "viewer/public/office.js": string(viewer)} {
-		if !strings.Contains(src, "s.session.state === 'asking' && !DESKS[desk].off") || !strings.Contains(src, "'WAITING'") {
-			t.Errorf("%s: a waiting desk has no tag", name)
-		}
+	src := string(officeSource(t))
+	if !strings.Contains(src, "s.session.state === 'asking' && !DESKS[desk].off") || !strings.Contains(src, "'WAITING'") {
+		t.Error("Resources/web/office.js: a waiting desk has no tag")
 	}
 }

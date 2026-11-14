@@ -367,6 +367,7 @@ func (d *Deck) botMailboxLook(now time.Time) {
 	barred, most := d.mailboxBarred(), d.mailLimits().MaxBytes
 	for _, bot := range bots {
 		for _, reply := range botMailboxCollect(bot.Mailbox, barred, most, now) {
+			d.owner.notOwners(reply.Text) // a bot's words are never the owner's (ownerwords.go)
 			d.events.append(eventEntry{At: now.UnixMilli(), Session: bot.sessionID(), Folder: bot.folder(), Agent: bot.Agent,
 				Kind: eventKindMail, Detail: bot.Name + " wrote " + botCleanName(reply.Name) + ": " + reply.Text})
 		}
@@ -468,6 +469,13 @@ func (rt *router) botMailboxChoose(w http.ResponseWriter, r *request) {
 	if !found {
 		d.mu.Unlock()
 		writeStatus(w)(http.StatusBadRequest, ask)
+		return
+	}
+	// A mailbox cleared or moved while the records' key can't be read would be back at the restart, mail going
+	// through it again (records_heldconfig.go, RT126SK1F B1).
+	if refused := d.config.heldRefusal(func(c *Config) { c.CloudBots = bots }); refused != "" {
+		d.mu.Unlock()
+		writeStatus(w)(http.StatusConflict, refused)
 		return
 	}
 	d.config.CloudBots = bots

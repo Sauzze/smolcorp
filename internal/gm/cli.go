@@ -13,6 +13,11 @@ const usageText = `Usage: smolcorp gm <command> [--json]
 Asks the Smolcorp running on this computer about the team.
 
 Commands:
+  login [-- <command…>]         start a General Manager by hand (Mac): Smolcorp
+                                asks you in its window, with a code to check
+                                against the one printed here; once you click
+                                Allow, the command (claude unless given) starts
+                                here as your GM, its token in its environment
   team                          who is on the team and what each is doing
   approvals                     who is waiting on a permission prompt, for you
                                 to answer (it only lists; the GM can't answer)
@@ -21,10 +26,15 @@ Commands:
   version                       the app, its API and its features
   accounts                      the Claude accounts the app knows
   hire --role R [--folder F] [--account A] [--model M] [--nickname N]
-       [--floor K] [--worktree] [--api-key] [--task TEXT | --task-file F]
+       [--floor K] [--worktree] [--api-key] [--t3] [--task TEXT | --task-file F]
                                 hire an employee (the folder defaults to the
-                                one set up for new hires). Not the gm role:
-                                the owner hires the GM from Setup
+                                one set up for new hires). It works in a
+                                worktree of its own beside the folder
+                                (<folder>-hires/<name>), not in the folder
+                                itself: the answer says where. Not the gm role:
+                                the owner hires the GM from Setup. --t3 hires
+                                into T3 Code (experimental; needs T3 Code and its
+                                t3 command): its own worktree and a T3 Code thread
   brief <hire> (--text TEXT | --file F)
                                 send a later brief to a hire already working
                                 (it comes to the hire as mail)
@@ -46,31 +56,40 @@ Commands:
   contacts [allow|remove <a> <b> [--one-way]]
                                 which hires may write to each other; with no
                                 argument, the pairs now
-  pin [--desk N] [--folder F]   pin a project to a desk (N counts from 1, as the
-                                office shows; without --desk, the desk its session
-                                sits at now; the folder is this one unless given)
-  unpin --desk N                take what is pinned to desk N away
+  pin [--desk N [--floor N]] [--folder F]
+                                pin a project to a desk (N counts from 1, as the
+                                office shows; --floor 2 for 2F, the ground floor
+                                unless given; without --desk, the desk its session
+                                sits at now, on any floor; the folder is this one
+                                unless given)
+  unpin --desk N [--floor N]    take what is pinned to desk N away
   nickname <name> [--folder F]  name whoever works in the folder (an empty name,
                                 "", takes the nickname away; 16 characters at most)
   tile                          put each hire's window over its desk (a read-only
                                 team grid in one window where the terminal
                                 can't place windows)
+  preview (<url> | --clear) [--hire H]
+                                the address the office's TV shows for a hire's
+                                desk: http://localhost:<port> (127.0.0.1 is
+                                kept as localhost), with a path if you like;
+                                --clear takes it away. A hire sets its own
+                                desk's alone, without --hire
   screens                       the screens, and which one holds the team
   screen <id>                   choose the screen that holds the team (an id from
                                 screens; only matters with two or more)
 
-On Linux and Windows, hire, brief, fire, tile, screens, screen and accounts
+On Linux and Windows, tile, screens, screen and accounts
 aren't served yet.
 
-To get a new token: on the Mac, ask the owner to rotate it in Smolcorp's setup;
-on Linux and Windows, ask the owner to hire the GM again from Setup.
+To get a new token: on the Mac, ask the owner to rotate it in Smolcorp's setup,
+or start the GM again with login; on Linux and Windows, ask the owner to
+hire the GM again from Setup.
 
 --json prints the app's answer as it was served. The port is $SMOLCORP_PORT
-(default 7710); the token is $SMOLCORP_GM_TOKEN. On the Mac it can also come from
-the app's gm-token file (which exists only if "Allow a GM started by hand" is on
-in Smolcorp's setup); on Linux and Windows the GM hired from Setup has the variable.
-With $SMOLCORP_HIRE_KEY set you are a hire: only send works, signed with that
-key; the GM token is never read or sent.
+(default 7710); the token is $SMOLCORP_GM_TOKEN, which a GM hired from Setup and
+one started with login have. No file holds it.
+With $SMOLCORP_HIRE_KEY set you are a hire: only send and preview work, signed
+with that key; the GM token is never read or sent.
 
 Exit codes: 0 ok, 1 refused or an error from the app, 2 usage, 3 app not running.
 `
@@ -97,6 +116,10 @@ func run(args []string, env Env, stdout, stderr io.Writer) int {
 		return runPlace(cmd, rest, env, stdout, stderr)
 	case "send", "outbox", "watch", "unwatch", "watches", "contacts":
 		return runMail(cmd, rest, env, stdout, stderr)
+	case "preview":
+		return runPreview(rest, env, stdout, stderr)
+	case "login":
+		return runLogin(rest, env, stdout, stderr)
 	default:
 		return usageError(stderr, fmt.Sprintf("unknown command %q", cmd))
 	}

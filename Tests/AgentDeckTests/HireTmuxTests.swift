@@ -70,6 +70,12 @@ final class HireTmuxTests: XCTestCase {
         XCTAssertFalse(asked.joined().contains("send-keys"))
     }
 
+    /// A ";" at the end reaches the hire: tmux would take it for the end of set-buffer and drop it.
+    func testASemicolonAtTheEndIsPastedToo() {
+        XCTAssertTrue(desk().paste("lance les tests;"))
+        XCTAssertEqual(asked.first, ["-L", "smolcorp-ab12-cd34", "set-buffer", "-b", "smolcorp-paste", "--", #"lance les tests\;"#])
+    }
+
     /// Escape and Return could press Enter, so those texts never reach tmux.
     func testControlCharactersAreNotPasted() {
         for text in ["a\u{1B}[201~\rb", "a\rb", "a\u{7}b", "a\u{85}b"] {
@@ -84,40 +90,6 @@ final class HireTmuxTests: XCTestCase {
         answer = (1, "")
         XCTAssertFalse(desk().paste("x"))
         XCTAssertEqual(asked.count, 1)
-    }
-
-    func testPasteStateReadsTheTwoFlags() {
-        let want: [String: (inMode: Bool, bracketed: Bool)] = ["0 1": (false, true), "1 0": (true, false), "0 0": (false, false)]
-        for (out, expected) in want {
-            answer = (0, out)
-            let got = desk().pasteState()
-            XCTAssertEqual(got?.inMode, expected.inMode, out)
-            XCTAssertEqual(got?.bracketed, expected.bracketed, out)
-        }
-        XCTAssertEqual(asked.first, ["-L", "smolcorp-ab12-cd34", "display-message", "-p", "-t", HireTmux.pane, "#{pane_in_mode} #{bracket_paste_flag}"])
-    }
-
-    /// A tmux before 3.7 has no bracket_paste_flag and leaves it empty: not bracketed, not "couldn't say".
-    /// `Tool.run` trims the answer, so the Mac's tmux hands over "0" or "1"; the untrimmed forms are the same.
-    func testPasteStateOnATmuxBefore37TakesTheEmptyFlagAsNotBracketed() {
-        for (out, inMode) in [("0 ", false), ("1 ", true), ("0", false), ("1", true)] {
-            answer = (0, out)
-            let got = desk().pasteState()
-            XCTAssertNotNil(got, out)
-            XCTAssertEqual(got?.inMode, inMode, out)
-            XCTAssertEqual(got?.bracketed, false, out)
-        }
-    }
-
-    func testPasteStateRefusesWhatIsMalformed() {
-        for bad in ["", " ", " 1", "0  1", "0 1 2", "a b", "0 x"] {
-            answer = (0, bad)
-            XCTAssertNil(desk().pasteState(), "\"\(bad)\" was read")
-        }
-        answer = (1, "0 1")
-        XCTAssertNil(desk().pasteState(), "a failed call was read")
-        answer = nil
-        XCTAssertNil(desk().pasteState())
     }
 
     func testKillEndsOnlyThisServer() {

@@ -22,8 +22,16 @@ const (
 // fileName is the owner's guard file, in the app's support folder.
 const fileName = "hire-guard.json"
 
-// supportFile is where hire-guard.json lives: the Mac app's folder in
-// Application Support, or the same folder desktop/paths.go uses.
+// testSupportEnv names a test copy's own support folder (the Mac app's
+// TestCopy.support, and SMOLCORP_TEST_SUPPORT_DIR in a hire's start script).
+// The guard never reads it: a hire can set any variable for itself, so a
+// test copy's desk names its folder's file in the guard's own command line
+// (--rules), as every desk does (SANDBOX-PLAN §3.4, g4).
+const testSupportEnv = "SMOLCORP_TEST_SUPPORT_DIR"
+
+// supportFile is where hire-guard.json lives when no --rules names it: the
+// Mac app's folder in Application Support, or the same folder desktop/paths.go
+// uses. Never a folder from the environment.
 func supportFile() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
@@ -56,6 +64,7 @@ func Hook(stdin io.Reader, stdout io.Writer, groups []Group, problem string) int
 	var call struct {
 		ToolName  *string         `json:"tool_name"`
 		ToolInput json.RawMessage `json:"tool_input"`
+		Cwd       string          `json:"cwd"`
 	}
 	data, err := io.ReadAll(io.LimitReader(stdin, 4<<20))
 	if err != nil || json.Unmarshal(data, &call) != nil || call.ToolName == nil {
@@ -73,28 +82,94 @@ func Hook(stdin io.Reader, stdout io.Writer, groups []Group, problem string) int
 		// A shell tool without a readable command, or any tool whose "command" isn't text.
 		return deny(stdout, "Refused by Smolcorp's hire guard: a "+*call.ToolName+" call with no command it can read.")
 	}
-	if problem != "" {
-		// A broken file is never read as "allow": every command waits until it is fixed.
-		return deny(stdout, "Refused by Smolcorp's hire guard: "+fileName+" is broken ("+problem+"). Ask the owner to fix it.")
+	// A call made from inside a .claude folder or the app's own folder reaches what the guard keeps by a short name
+	// (rm ../settings.json): Claude Code keeps a cd that ends in the project for the next call (RWIN9 B1). A broken
+	// file is still said first (Refused), as before.
+	if problem == "" && KeptCwd(call.Cwd) {
+		return deny(stdout, "Refused by Smolcorp's hire guard ("+keptDirRule+"): this call runs in "+call.Cwd+". "+keptDirWhy)
 	}
-	if r := Check(*command, groups); r != nil {
-		return deny(stdout, r.Error())
+	if why := Refused(*command, At(groups, hookPlace(call.Cwd)), problem); why != "" {
+		return deny(stdout, why)
 	}
 	return exitOK
 }
 
+// hookPlace is the repository a call runs in, for the merge group: the call's folder, unless the desk's environment
+// (the hook's own, from Claude Code) names another git folder, work tree or object folder, which the guard doesn't
+// follow.
+func hookPlace(cwd string) Place {
+	for _, name := range []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_NAMESPACE", "GIT_OBJECT_DIRECTORY"} {
+		if os.Getenv(name) != "" {
+			return Place{}
+		}
+	}
+	return PlaceOf(cwd)
+}
+
+// Refused is why the hook refuses a command line with groups, "" to let it run. While the guard file is
+// broken (problem says how), every line is refused: a broken file is never read as "allow", and every
+// command waits until it is fixed. The app's gate service (desktop/gates.go) decides lines with it too.
+func Refused(command string, groups []Group, problem string) string {
+	if problem != "" {
+		return "Refused by Smolcorp's hire guard: " + fileName + " is broken (" + problem + "). Ask the owner to fix it."
+	}
+	if r := Check(command, groups); r != nil {
+		return r.Error()
+	}
+	return ""
+}
+
+// Profiled is the groups from the rules file at path for profile (ProfileHire, or ProfileGM for the
+// General Manager's), and what's wrong with the file, as `smolcorp guard --profile` reads them: with the merge and
+// spend groups when the file doesn't name them (WithGates).
+func Profiled(path, profile string) (groups []Group, problem string) {
+	groups, problem = Load(path)
+	if problem == "" { // a broken file's default groups refuse every line anyway
+		groups = WithGates(groups)
+	}
+	if profile == ProfileGM {
+		groups = ForGM(groups)
+	}
+	return groups, problem
+}
+
+// KeptCwd says whether a tool call's folder (the hook input's cwd, a real path: no pattern in it) is in a .claude
+// folder or the app's support folder (keptFolderName): a command there reaches Claude Code's settings or the app's
+// files by a short name. The demo's fence asks it too. So a hire started inside Claude Code's own .claude/worktrees/…
+// can run nothing (Smolcorp starts none there today), and a cwd in .git isn't refused here as it is in the demo's
+// fence, as nothing the guard keeps is in .git (RWIN10 N3).
+func KeptCwd(cwd string) bool {
+	return keptFolderName(cwd)
+}
+
 // Run is `smolcorp guard`:
 //
-//	guard [--profile P] [--rules FILE]
+//	guard [--profile P] [--groups JSON] [--rules FILE]
 //	                               the hook: the tool call on stdin, the groups of FILE
-//	                               (default: hire-guard.json in the support folder)
-//	guard --print [--profile P] [--rules FILE]
+//	                               (default: hire-guard.json in the support folder); with
+//	                               --groups, those groups, which FILE only adds to (held.go)
+//	guard --print [--profile P] [--groups JSON] [--rules FILE]
 //	                               the groups it uses now, as JSON, and what's wrong with FILE
+//	guard --config                 the ConfigChange hook: a settings change on stdin, refused
+//	                               unless it is managed settings' or a skill's (held.go)
 //	guard --default                the default file, to start one from
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	rules, profile, printing := "", ProfileHire, false
+	held, holding := "", false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--groups":
+			if i+1 >= len(args) || holding {
+				return deny(stdout, "Refused by Smolcorp's hire guard: --groups needs the groups, once.")
+			}
+			i++
+			held, holding = args[i], true
+		case "--config":
+			if len(args) != 1 {
+				fmt.Fprintln(stderr, configRefusal)
+				return exitBlock
+			}
+			return ConfigHook(stdin, stderr)
 		case "--rules":
 			if i+1 >= len(args) {
 				return deny(stdout, "Refused by Smolcorp's hire guard: --rules needs a file.")
@@ -128,9 +203,13 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		rules = path
 	}
-	groups, problem := Load(rules)
-	if profile == ProfileGM {
-		groups = ForGM(groups)
+	// The file is read once per call: held, it only adds to the groups given (Held).
+	var groups []Group
+	var problem string
+	if holding {
+		groups, problem = Held(held, rules, profile)
+	} else {
+		groups, problem = Profiled(rules, profile)
 	}
 	if printing {
 		out, _ := json.MarshalIndent(map[string]any{"groups": groups, "file": rules, "problem": problem}, "", "  ")

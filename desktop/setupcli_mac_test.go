@@ -77,7 +77,7 @@ func macSetupTest(t *testing.T) {
 
 func TestSetupOnMacOpensAClosedAppOnceThenChecks(t *testing.T) {
 	macSetupTest(t)
-	writeFile(t, setupKeyFile, "fake-key\n")
+	writeFile(t, selftestKeyFile, "fake-key\n")
 	var opened int
 	var server *http.Server
 	startProgramWith = func(p string, a []string, _ ...string) error {
@@ -92,7 +92,7 @@ func TestSetupOnMacOpensAClosedAppOnceThenChecks(t *testing.T) {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/pair", func(http.ResponseWriter, *http.Request) {})
 		mux.HandleFunc("/setup/selftest", func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get(setupKeyHeader) != "fake-key" {
+			if r.Header.Get(selftestKeyHeader) != "fake-key" || r.Header.Get(setupKeyHeader) != "" {
 				http.Error(w, "no", http.StatusForbidden)
 				return
 			}
@@ -141,9 +141,18 @@ func TestSetupOnMacSaysSoWhenTheAppStaysClosed(t *testing.T) {
 	}
 }
 
-func TestSetupOnMacNeverRunsTheFixLoop(t *testing.T) {
+// smolcorp setup only checks, on every system (1.26, SK2): it holds the check-only key, and what the checklist finds is
+// put right in Setup.
+func TestSetupNeverRunsTheFixLoopOnAnySystem(t *testing.T) {
+	for _, system := range []string{"darwin", "linux", "windows"} {
+		t.Run(system, func(t *testing.T) { setupNeverFixes(t, system) })
+	}
+}
+
+func setupNeverFixes(t *testing.T, system string) {
 	macSetupTest(t)
-	writeFile(t, setupKeyFile, "fake-key\n")
+	setupSystem = system
+	writeFile(t, selftestKeyFile, "fake-key\n")
 	var posted bool
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
@@ -161,9 +170,9 @@ func TestSetupOnMacNeverRunsTheFixLoop(t *testing.T) {
 	defer srv.Close()
 	startProgramWith = func(string, []string, ...string) error { t.Error("an app that answers was opened"); return nil }
 	var code int
-	printedBy(t, func() { code = RunSetup(nil) })
-	if posted || code != 1 {
-		t.Errorf("posted %v, code %d", posted, code)
+	said := printedBy(t, func() { code = RunSetup(nil) })
+	if posted || code != 1 || !strings.Contains(said, "This only checks, and changes nothing.") {
+		t.Errorf("posted %v, code %d: %q", posted, code, said)
 	}
 }
 

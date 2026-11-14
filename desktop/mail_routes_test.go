@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -34,7 +33,7 @@ func newMailDeck(t *testing.T) *mailDeck {
 		map[string]any{"id": "t1", "name": "Twin", "folder": "/w4", "role": "builder", "state": "idle"},
 		map[string]any{"id": "t2", "name": "twin", "folder": "/w5", "role": "builder", "state": "working"})
 	data, _ := json.Marshal(file)
-	if err := os.WriteFile(registryPath(), data, 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	m := &mailDeck{d: d, gm: d.newGMToken(), keys: map[string]string{}}

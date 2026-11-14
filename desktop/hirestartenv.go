@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -35,6 +34,12 @@ type hireStartEnv struct {
 	Unset []string `json:"unset,omitempty"`
 	// PathFirst is a folder to put first on the agent's PATH: the app's own smolcorp.
 	PathFirst string `json:"pathFirst,omitempty"`
+	// Message is the agent's first message when the app wrote the hire a brief:
+	// to read it, and where it is. Empty, the launcher makes the role's own.
+	Message string `json:"message,omitempty"`
+	// Settings are an engine hire's Claude Code settings, as hireSettingsLine makes them: the launcher puts
+	// them in the agent's command line (--settings), and nowhere else.
+	Settings string `json:"settings,omitempty"`
 }
 
 // startEnvironment is base with env applied: unset names removed, set names
@@ -142,15 +147,8 @@ func fetchHireStartEnv(client *http.Client, base, hookKey, token, hireID string)
 	default:
 		return env, fmt.Errorf("Smolcorp answered %d", response.StatusCode)
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<16)).Decode(&env); err != nil {
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&env); err != nil {
 		return hireStartEnv{}, errors.New("Smolcorp's answer couldn't be read")
 	}
 	return env, nil
-}
-
-// settingsArgument is the one extra argument a hire's launcher takes after its
-// role: the hire's own Claude Code settings file, by an absolute path.
-func settingsArgument(arg string) bool {
-	path, ok := strings.CutPrefix(arg, "--settings=")
-	return ok && filepath.IsAbs(path) && !strings.ContainsAny(path, "\x00\r\n")
 }

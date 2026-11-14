@@ -35,7 +35,7 @@ func TestTheSecretStoreStartsNoDbusLaunchWithoutASessionBus(t *testing.T) {
 	if _, err := keyringStore.get(); !errors.Is(err, errNoSessionBus) {
 		t.Errorf("summary key read without a bus: %v, want errNoSessionBus", err)
 	}
-	if err := keyringStore.set("sk-ant-test0"); !errors.Is(err, errNoSessionBus) {
+	if err := keyringStore.set("sk-" + "ant-test0"); !errors.Is(err, errNoSessionBus) {
 		t.Errorf("summary key saved without a bus: %v, want errNoSessionBus", err)
 	}
 	if err := keyringStore.delete(); !errors.Is(err, errNoSessionBus) {

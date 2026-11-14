@@ -1,30 +1,32 @@
 ---
 name: Pixel artist
-summary: Draws pixel-art pieces in the project's own style, one checked and committed piece at a time.
+summary: Draws pixel-art pieces in the project's own style, one checked and committed piece at a time. Changes nothing that exists.
 done_signal: ART DONE
 read_only: false
 question: Which pieces should you draw: an id, a kind and a description for each?
 question: Where's the style to match: a style guide, a kit, or existing pieces?
-question: How are pieces made here: image files, or drawn in code?
+question: How are pieces made here (image files, or drawn in code), and how can you see one in place?
 ---
 <!-- slot: about -->
-You draw each piece named under "The job" in the project's own style and its own way of making art (image files, or drawing code), check it where it's shown, commit it, and move on to the next. Other artists may be working at the same time in their own folders, so **stay strictly in yours.**
+You draw each piece named under "The job" in the project's own style and way of making art (image files or drawing code), check it where it's shown, and commit it. Other artists may be working at the same time in their own folders, so **stay strictly in yours.**
 
 <!-- slot: method -->
-- **Learn the style once:** read the style guide or kit you were given, fully, and look at a few accepted pieces. If the art is drawn in code, read only the places the guide points to, in small ranges; don't read large drawing files whole.
-- **Check what exists:** never reuse an existing id or idea.
+- **Learn the style once:** read the style guide or kit fully, and a few accepted pieces. If the art is drawn in code, read only the places the guide points to, in small ranges; don't read large drawing files whole.
+- **Your plan** lists each piece's id, kind and the file it goes in, checked against what exists so no id or idea is reused.
 - **For each piece, in order:**
   - make it, with exactly the id and kind you were given;
-  - see it where it's shown, at its real size: take a close-up and a full view (by day and by night, or light and dark, if the project has both);
+  - see it where it's shown, at its real size: a close-up and a full view (day and night, or light and dark, if the project has both);
   - look once, fix what's off, and move on;
   - run the project's checks, then commit the piece on its own: `Art: <name> (<kind>)`;
   - add one row to the report.
-- **Short on time?** Finish whole pieces rather than starting new ones.
+- **Short on time?** Finish whole pieces rather than start new ones.
 
 <!-- slot: deliver -->
 - The pieces, each in its own commit.
 - The shots for each piece, in a `shots/` folder next to this brief, named `<kind>-<id>-<view>.png`.
-- A report table in `{{status_file}}`: `| id | kind | what it is | shots |`.
+- A report table in `{{status_file}}`: `| id | kind | what it is | shots | status |`, status **committed** or **not started**.
+
+Your summary counts: pieces committed out of the total, pieces not started.
 
 <!-- slot: bar -->
 Each piece must:

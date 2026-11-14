@@ -4,10 +4,9 @@
 // GM's hands (a Claude Code session) and yours from a terminal.
 //
 // The GM is whoever sends the GM token: the CLI sends it from
-// $SMOLCORP_GM_TOKEN, else from the gm-token file in the app's support
-// folder. But a hire (anyone with $SMOLCORP_HIRE_KEY set) never acts as the
-// GM: it sends its hire key only, and the token file is never opened. The
-// setup-key file is never sent: it can't run the office.
+// $SMOLCORP_GM_TOKEN, which a GM hired from Setup has, and so does one started
+// with `smolcorp gm login` (login.go). No file holds it. A hire (anyone with
+// $SMOLCORP_HIRE_KEY set) never acts as the GM: it sends its hire key only.
 package gm
 
 import (
@@ -17,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -52,6 +50,9 @@ const (
 	tokenHeader    = "x-smolcorp-gm-token"
 	hireKeyEnv     = "SMOLCORP_HIRE_KEY"
 	hireHeader     = "x-smolcorp-hire-key"
+	// setupKeyHeader is what a person's own tool sends (people.go): the setup key, the owner's, kept in a file only
+	// the owner reads.
+	setupKeyHeader = "X-Smolcorp-Setup-Key"
 	// sessionEnv is the id Claude Code gives the session it runs in; sessionHeader sends it so the
 	// Mac app can tell which session is a GM started by hand. The Go app ignores it.
 	sessionEnv    = "CLAUDE_CODE_SESSION_ID"
@@ -65,11 +66,8 @@ const (
 	maxBody        = 16 << 20
 )
 
-// Names of the token file, the app and its support folders.
-const (
-	tokenFileName = "gm-token"
-	appName       = "Smolcorp"
-)
+// The app's name.
+const appName = "Smolcorp"
 
 // Error is a failure with the exit code the command ends with. Its message
 // never holds the token.
@@ -132,27 +130,13 @@ func (e Env) port() (int, error) {
 	return n, nil
 }
 
-// token is $SMOLCORP_GM_TOKEN, else the gm-token file.
+// token is $SMOLCORP_GM_TOKEN. No file holds it any more (1.26, SK2): a GM started by hand gets it from
+// `smolcorp gm login`.
 func (e Env) token() (string, error) {
 	if t := strings.TrimSpace(e.Getenv(tokenEnv)); t != "" {
 		return validToken(t)
 	}
-	dir, err := e.SupportDir()
-	if err != nil {
-		return "", &Error{Code: exitApp, Msg: err.Error()}
-	}
-	data, err := e.readFile(filepath.Join(dir, tokenFileName))
-	if errors.Is(err, fs.ErrNotExist) || (err == nil && strings.TrimSpace(string(data)) == "") {
-		return "", &Error{Code: exitApp, Cause: errNoToken, Msg: fmt.Sprintf("no GM token: set $%s (a GM hired from %s has it), or turn on 'Allow a GM started by hand' so %s is made in %s.", tokenEnv, appName, tokenFileName, dir)}
-	}
-	if err != nil {
-		var pe *fs.PathError
-		if errors.As(err, &pe) {
-			err = pe.Err
-		}
-		return "", &Error{Code: exitApp, Msg: fmt.Sprintf("can't read the GM token in %s: %v", dir, err)}
-	}
-	return validToken(strings.TrimSpace(string(data)))
+	return "", &Error{Code: exitApp, Cause: errNoToken, Msg: fmt.Sprintf("no GM token: set $%s (a GM hired from %s has it), or start your GM with smolcorp gm login, which asks %s for one in its window.", tokenEnv, appName, appName)}
 }
 
 // validToken refuses a token that couldn't go in a header.
@@ -172,8 +156,10 @@ type Client struct {
 	BaseURL string
 	token   string
 	hireKey string
-	session string // the session id the token is sent from, when the environment names one
-	http    *http.Client
+	// A person's tool (people.go) holds the setup key alone: no GM token, no session id, no hire key.
+	setupKey string
+	session  string // the session id the token is sent from, when the environment names one
+	http     *http.Client
 }
 
 // NewClient is a client for the app at 127.0.0.1 on the environment's port,
@@ -195,7 +181,7 @@ func newEnvClient(e Env, allowHire bool) (*Client, error) {
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 	if given := strings.TrimSpace(e.Getenv(hireKeyEnv)); given != "" {
 		if !allowHire {
-			return nil, &Error{Code: exitApp, Msg: "this command is for the GM; a hire can't use it. A hire can only `smolcorp gm send`."}
+			return nil, &Error{Code: exitApp, Msg: "this command is for the GM; a hire can't use it. A hire can only `smolcorp gm send` and `smolcorp gm preview`."}
 		}
 		key, kerr := validKey(given)
 		if kerr != nil {
@@ -254,9 +240,6 @@ var errNotServedHere = errors.New("route not served by the Go app yet")
 
 // goAppUnserved maps the GM routes the Go app still answers 404 to, to the command that uses each.
 var goAppUnserved = map[string]string{
-	"POST /setup/gm/hire":        "hire",
-	"POST /setup/gm/fire":        "fire",
-	"POST /setup/gm/brief":       "brief",
 	"POST /setup/gm/tile":        "tile",
 	"GET /setup/gm/screens":      "screens",
 	"POST /setup/gm/screen":      "screen",
@@ -350,9 +333,14 @@ func (c *Client) do(method, path string, query url.Values, body []byte, timeout 
 	if c.hireKey != "" {
 		req.Header.Set(hireHeader, c.hireKey)
 	} else {
-		req.Header.Set(tokenHeader, c.token)
-		if c.session != "" {
-			req.Header.Set(sessionHeader, c.session)
+		if c.token != "" {
+			req.Header.Set(tokenHeader, c.token)
+			if c.session != "" {
+				req.Header.Set(sessionHeader, c.session)
+			}
+		}
+		if c.setupKey != "" {
+			req.Header.Set(setupKeyHeader, c.setupKey)
 		}
 	}
 	req.Header.Set("Accept", "application/json")
@@ -378,10 +366,10 @@ func (c *Client) do(method, path string, query url.Values, body []byte, timeout 
 	if resp.StatusCode == http.StatusNotFound {
 		if cmd, ok := goAppUnserved[method+" "+path]; ok && c.isGoApp() {
 			msg := fmt.Sprintf("`gm %s` isn't available in Smolcorp on Linux and Windows yet.", cmd)
-			if cmd == "hire" {
-				msg = "`gm hire` isn't available in Smolcorp on Linux and Windows yet: the owner hires from the office or Setup."
-			}
 			return nil, &Error{Code: exitApp, Status: resp.StatusCode, Cause: errNotServedHere, Msg: msg}
+		} else if ok && strings.HasPrefix(strings.TrimSpace(string(data)), "`gm "+cmd+"` isn't available") {
+			// The Go engine under the Mac app says it in its own words (an older app's 404 is empty).
+			return nil, &Error{Code: exitApp, Status: resp.StatusCode, Cause: errNotServedHere, Msg: c.scrub(oneLine(strings.TrimSpace(string(data))))}
 		}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
@@ -451,6 +439,9 @@ func (c *Client) scrub(s string) string {
 	}
 	if c.hireKey != "" {
 		s = strings.ReplaceAll(s, c.hireKey, "[hire key]")
+	}
+	if c.setupKey != "" {
+		s = strings.ReplaceAll(s, c.setupKey, "[setup key]")
 	}
 	return s
 }

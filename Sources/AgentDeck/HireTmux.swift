@@ -81,9 +81,15 @@ struct HireTmux {
         return answer.status == 0
     }
 
-    /// The ttys of the terminal windows attached to the session: where its viewers are.
-    func clientTTYs() -> [String] {
-        guard let answer = run(command(["list-clients", "-t", "=" + HireTmux.session, "-F", "#{client_tty}"])), answer.status == 0 else { return [] }
+    /// The ttys of the terminal windows attached to the session: where its viewers are. Nil when tmux couldn't be asked.
+    func clientTTYs() -> [String]? {
+        guard let answer = run(command(["list-clients", "-t", "=" + HireTmux.session, "-F", "#{client_tty}"])), answer.status == 0 else { return nil }
+        return answer.output.split(separator: "\n").map(String.init).filter(TabAddress.isTTY)
+    }
+
+    /// The ttys of every pane on this server (the team grid's: each a viewer of one hire). Nil when tmux couldn't be asked.
+    func paneTTYs() -> [String]? {
+        guard let answer = run(command(["list-panes", "-a", "-F", "#{pane_tty}"])), answer.status == 0 else { return nil }
         return answer.output.split(separator: "\n").map(String.init).filter(TabAddress.isTTY)
     }
 
@@ -102,7 +108,7 @@ struct HireTmux {
     /// tmux from turning line feeds into Return.
     func paste(_ text: String) -> Bool {
         guard HireTmux.canPaste(text) else { return false }
-        return ran(["set-buffer", "-b", HireTmux.buffer, "--", text])
+        return ran(["set-buffer", "-b", HireTmux.buffer, "--", Tmux.literal(text)])
             && ran(["paste-buffer", "-p", "-r", "-d", "-b", HireTmux.buffer, "-t", HireTmux.pane])
     }
 
@@ -110,19 +116,6 @@ struct HireTmux {
     /// line feed or tab. The older `Tmux.insert` asks this too.
     static func canPaste(_ text: String) -> Bool {
         !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control && $0 != "\n" && $0 != "\t" })
-    }
-
-    /// How the pane takes a paste: whether it is in a mode of tmux's own (copy mode, scrolled back: a paste
-    /// would go to the mode, not the agent) and whether the agent asked for bracketed paste. Nil if tmux couldn't say.
-    /// A tmux before 3.7 has no bracket_paste_flag and leaves it empty (`"0 "`, which `Tool.run` trims to `"0"`):
-    /// the pane is then taken as not asking for bracketed paste, the safe way, so a multi-line message goes as one line.
-    func pasteState() -> (inMode: Bool, bracketed: Bool)? {
-        guard let answer = run(command(["display-message", "-p", "-t", HireTmux.pane, "#{pane_in_mode} #{bracket_paste_flag}"])),
-              answer.status == 0 else { return nil }
-        let parts = answer.output.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count == 1 || parts.count == 2, !parts[0].isEmpty,
-              parts.allSatisfy({ $0.allSatisfy(\.isNumber) }) else { return nil }
-        return (parts[0] != "0", parts.count == 2 && parts[1] == "1")
     }
 
     /// Return, once. Only after a paste the caller has put into an idle, empty input box: this is the send
@@ -135,6 +128,10 @@ struct HireTmux {
     func exit() -> Bool {
         paste("/exit") && submit()
     }
+
+    /// Detaches the terminal windows attached to the session, on this socket
+    /// alone: the hire carries on, with no window (agent windows in the background).
+    func detachClients() -> Bool { ran(["detach-client", "-s", "=" + HireTmux.session]) }
 
     /// Ends the hire's server, and so its session. Only this socket's.
     func kill() -> Bool { ran(["kill-server"]) }

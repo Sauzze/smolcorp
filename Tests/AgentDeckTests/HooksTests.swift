@@ -132,15 +132,4 @@ final class HooksTests: XCTestCase {
         XCTAssertTrue(text.hasPrefix("Disconnected, except Codex and Gemini CLI"), text)
         XCTAssertTrue(text.contains("disconnect again"))
     }
-
-    /// Disconnecting is remembered in config.json, and connecting again forgets it; nothing is written when it hasn't changed.
-    func testTheDisconnectIsSavedForTheConfig() throws {
-        let saved = folder.appendingPathComponent("config.json")
-        let config = Config.load(from: saved)
-        DeckRouter.keepDisconnected(true, in: config, to: saved)
-        XCTAssertTrue(Config.load(from: saved).hooksDisconnected)
-        DeckRouter.keepDisconnected(true, in: config, to: saved)
-        DeckRouter.keepDisconnected(false, in: config, to: saved)
-        XCTAssertFalse(Config.load(from: saved).hooksDisconnected)
-    }
 }

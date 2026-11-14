@@ -14,7 +14,8 @@ import (
 
 // fakePane puts tmux and ps on PATH that show a pane on /dev/pts/7 running
 // what's given, one command line each: the pane's own process first, the
-// job in front after it. They keep every tmux command they're given.
+// job in front after it. They keep every tmux command they're given; the pane shows what a file tmux-screen
+// beside them holds (paneShows).
 func fakePane(t *testing.T, running string) (setRunning func(string), typed func() string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -26,6 +27,7 @@ case "$*" in
   *pane_pid*) echo /dev/pts/7 100 ;;
   *pane_tty*) echo /dev/pts/7 ;;
   *pane_id*) echo %1 ;;
+  *capture-pane*) echo "$*" >> "` + sent + `"; cat "` + filepath.Join(bin, "tmux-screen") + `" 2>/dev/null ;;
   *) echo "$*" >> "` + sent + `" ;;
 esac
 `,

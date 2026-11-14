@@ -31,6 +31,11 @@ func startProgram(program string, env ...string) error {
 
 // startProgramWith starts program with args, and env added to this one's
 // environment: a variable, for the tests.
+//
+// On a Mac it starts only Smolcorp itself (relaunch) or /usr/bin/open -b for
+// its own app (openMacApp), so it is exempt, as a whole, from going through
+// disclaim.Cmd (spawnsites_test.go). A new start added in here would pass that
+// test unseen: start anything else elsewhere, through disclaim.Cmd.
 var startProgramWith = func(program string, args []string, env ...string) error {
 	cmd := exec.Command(program, args...)
 	cmd.Env = append(os.Environ(), env...)

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -43,6 +44,10 @@ type launcherCommand struct {
 	// isn't safe to paste, and multi-line text when the agent didn't ask for
 	// bracketed paste. See pasteBytes.
 	Paste string `json:"paste,omitempty"`
+	// PhoneText pastes the phone's words as Paste does (one line, or several as one bracketed paste where the
+	// agent asked for it), then answers the look numbered Look with whether it did: "pasted" or "not-taken".
+	// An older launcher, without it, only looks: its answer says neither, and nothing is typed after it.
+	PhoneText string `json:"phoneText,omitempty"`
 	// Stop ends the agent: the office's firing.
 	Stop bool `json:"stop,omitempty"`
 	// Look asks for the state of the window, answered at /launcher/screen
@@ -88,10 +93,9 @@ type launcherRun struct {
 	// The office's token, for a hire, and whether it was at a pinned project's desk.
 	hire   string
 	pinned bool
-	// For an engine hire (hirelauncher.go): its id, and its own settings file. The
-	// launcher then asks the app for the hire's environment before it starts anything.
-	hireID   string
-	settings string
+	// For an engine hire (hirelauncher.go): its id. The launcher then asks the app for
+	// the hire's environment and its settings before it starts anything.
+	hireID string
 	// For a hire of a role, its agent as the office checked it could start: the
 	// role must still have it.
 	agent string
@@ -131,11 +135,7 @@ func parseRun(args []string) (*launcherRun, error) {
 	case len(args) == 0, args[0] == "--hire", args[0] == "--pinned":
 		return nil, errors.New("nothing to run")
 	case args[0] == "--role":
-		switch {
-		case len(args) == 2:
-		case run.hireID != "" && len(args) == 3 && settingsArgument(args[2]):
-			run.settings = args[2]
-		default:
+		if len(args) != 2 {
 			return nil, errors.New("a role, and nothing else")
 		}
 		run.role = args[1]
@@ -148,44 +148,9 @@ func parseRun(args []string) (*launcherRun, error) {
 func launch(run *launcherRun) int {
 	args := run.command
 	folder, _ := os.Getwd()
-	if run.role != "" {
-		how := startedHere
-		if run.hire != "" {
-			how = map[bool]roleStart{true: hiredAtPinnedDesk, false: hiredIntoGeneralFolder}[run.pinned]
-		}
-		found, err := roleArguments(run.role, folder, how)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
-			return 2
-		}
-		if err := sameAgentAsHired(run, found[0]); err != nil {
-			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
-			return 2
-		}
-		args = found
-		if run.settings != "" {
-			// The engine hire's own settings, for Claude Code only, right after the agent.
-			if agentNamed(found[0]) != Claude {
-				fmt.Fprintln(os.Stderr, "smolcorp: a hire's settings are for Claude Code, and this role's agent is another")
-				return 2
-			}
-			args = append([]string{found[0], run.settings}, found[1:]...)
-		}
-	}
-	program, programArgs, err := resolveProgram(args[0], args[1:])
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
-		return 127
-	}
-	if run.role != "" && program != args[0] && len(programArgs) > 0 && programArgs[0] == "/c" {
-		if programArgs, err = forCmd(programArgs); err != nil {
-			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
-			return 2
-		}
-	}
-
 	// An engine hire's secrets come from the app, before anything starts: if they
-	// can't be had, nothing is started and the window says why.
+	// can't be had, nothing is started and the window says why. With them comes
+	// its first message, when the app wrote it a brief.
 	var startEnv *hireStartEnv
 	if run.hireID != "" {
 		key, _ := os.ReadFile(hookKeyFile)
@@ -196,6 +161,70 @@ func launch(run *launcherRun) int {
 		}
 		startEnv = &got
 	}
+	if run.role != "" {
+		how := startedHere
+		if run.hire != "" {
+			how = map[bool]roleStart{true: hiredAtPinnedDesk, false: hiredIntoGeneralFolder}[run.pinned]
+		}
+		message := ""
+		if startEnv != nil {
+			message = startEnv.Message
+		}
+		found, err := roleArguments(run.role, folder, how, message)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
+			return 2
+		}
+		if err := sameAgentAsHired(run, found[0]); err != nil {
+			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
+			return 2
+		}
+		args = found
+		if startEnv != nil {
+			// The engine hire's own settings, for Claude Code only, right after the agent: given with its
+			// environment, never in a file (SANDBOX-PLAN §3.4). Without them, nothing starts unguarded.
+			if agentNamed(found[0]) != Claude {
+				fmt.Fprintln(os.Stderr, "smolcorp: a hire's settings are for Claude Code, and this role's agent is another")
+				return 2
+			}
+			if startEnv.Settings == "" {
+				fmt.Fprintln(os.Stderr, "smolcorp: this hire's settings didn't come with its start settings, so nothing was started")
+				return 1
+			}
+			args = append([]string{found[0], "--settings=" + startEnv.Settings}, found[1:]...)
+		}
+	}
+	program, programArgs, err := resolveProgram(args[0], args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
+		return 127
+	}
+	// The agent found is checked as every agent CLI the core starts is (agentcheck.go; SANDBOX-PLAN §3.4, g7): a
+	// hire can write the folders it's found in. A refused one never runs (RT126SG2 B3).
+	if err := checkAgentProgram(string(agentNamed(args[0])), program); err != nil {
+		fmt.Fprintf(os.Stderr, "smolcorp: %v No desk was started.\n", err)
+		return 126
+	}
+	if run.role != "" && program != args[0] && len(programArgs) > 0 && programArgs[0] == "/c" {
+		if programArgs, err = forCmd(programArgs); err != nil {
+			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
+			return 2
+		}
+	}
+	// cmd.exe takes a line of at most 8191 characters, and a desk's settings, escaped twice for npm's script, can be
+	// longer: refused here rather than cut by cmd.exe.
+	if startEnv != nil && len(programArgs) > 1 && programArgs[0] == "/c" && len(cmdLine(program, programArgs[1], programArgs[2:])) > cmdLongest {
+		fmt.Fprintln(os.Stderr, "smolcorp: this Claude Code was installed with npm, and its script can't take a desk's settings on this computer. "+
+			"Install Claude Code with Anthropic's own installer, then hire again.")
+		return 2
+	}
+	// Windows starts a program with a command line of at most 32767 characters, a desk's settings among them: a
+	// longer one is refused here, in words, rather than left to fail to start.
+	if startEnv != nil && runtime.GOOS == "windows" && !(len(programArgs) > 0 && programArgs[0] == "/c") && len(exeLine(program, programArgs)) > exeLongest {
+		fmt.Fprintln(os.Stderr, "smolcorp: this desk's settings and first message make a command line longer than Windows takes, so nothing was started. "+
+			"Fewer guard rules or saved Claude accounts in Settings, or a shorter brief, make it shorter.")
+		return 2
+	}
 
 	terminal, err := pty.New()
 	if err != nil {
@@ -205,9 +234,17 @@ func launch(run *launcherRun) int {
 	defer terminal.Close()
 
 	id := newID()
+	// Not through disclaim.Words: smolcorp run runs only in a hire's terminal window or a desk's tmux (itself
+	// started through disclaim.Cmd), so the agent is charged to that terminal or tmux, never to Smolcorp.app. This
+	// function is exempt as a whole for it (spawnsites_test.go): a new start added in here would pass unseen.
 	cmd := terminal.Command(program, programArgs...)
 	useCmdLine(cmd, program, programArgs)
 	cmd.Env = append(os.Environ(), "SMOLCORP_SESSION="+id)
+	if run.hire != "" {
+		// A hire's window may have run your shell's start files before this (the terminal's own shell): what they
+		// set to wrap or switch off its hooks isn't passed on (§4 g10).
+		cmd.Env = slices.DeleteFunc(cmd.Env, func(variable string) bool { name, _, _ := strings.Cut(variable, "="); return wrapsHooks(name) })
+	}
 	if startEnv != nil {
 		// On the agent's process alone.
 		cmd.Env = startEnvironment(cmd.Env, *startEnv, runtime.GOOS == "windows")
@@ -247,10 +284,63 @@ func launch(run *launcherRun) int {
 	return 0
 }
 
-// resolveProgram finds the agent on PATH. On Windows, npm installs agents as
+// cmdLongest is the longest line cmd.exe runs.
+const cmdLongest = 8191
+
+// exeLongest is the longest command line Windows starts a program with: 32767 characters, its ending one included.
+const exeLongest = 32766
+
+// exeLine is the command line Windows is given for program and args, each quoted as Go quotes it there
+// (syscall.EscapeArg), written here so its length can be told on any system.
+func exeLine(program string, args []string) string {
+	quoted := func(s string) string {
+		if s == "" {
+			return `""`
+		}
+		if !strings.ContainsAny(s, "\\\" \t") {
+			return s
+		}
+		space := strings.ContainsAny(s, " \t")
+		var b strings.Builder
+		if space {
+			b.WriteByte('"')
+		}
+		slashes := 0
+		for i := 0; i < len(s); i++ {
+			switch s[i] {
+			case '\\':
+				slashes++
+			case '"':
+				b.WriteString(strings.Repeat(`\`, slashes+1))
+				slashes = 0
+			default:
+				slashes = 0
+			}
+			b.WriteByte(s[i])
+		}
+		if space {
+			b.WriteString(strings.Repeat(`\`, slashes) + `"`)
+		}
+		return b.String()
+	}
+	line := quoted(program)
+	for _, arg := range args {
+		line += " " + quoted(arg)
+	}
+	return line
+}
+
+// resolveProgram finds the agent on PATH, or where the core finds agents (programNamed: your login shell's PATH,
+// asked with nothing of yours around it, and the folders their installers use), since a hire's window no longer
+// starts it through your login shell (RT126SG2 B3). On Windows, npm installs agents as
 // .cmd scripts, which a pseudo-console can't start by themselves.
 func resolveProgram(name string, args []string) (string, []string, error) {
 	path, err := exec.LookPath(name)
+	if err != nil && !strings.ContainsRune(name, filepath.Separator) {
+		if found := programNamed(name); found != "" {
+			path, err = found, nil
+		}
+	}
 	if err != nil {
 		return "", nil, fmt.Errorf("%s isn't installed, or isn't on your PATH", name)
 	}
@@ -313,12 +403,22 @@ func sameAgentAsHired(run *launcherRun, agent string) error {
 }
 
 // roleArguments are the agent and its arguments for the role with the id
-// given, as set up on the setup page, started in folder as how says.
-func roleArguments(id, folder string, how roleStart) ([]string, error) {
+// given, as set up on the setup page, started in folder as how says. message,
+// unless it's empty, is its first message instead of the role's own: the one
+// the app made with the hire's brief.
+func roleArguments(id, folder string, how roleStart, message string) ([]string, error) {
 	roles := loadConfig().Roles
 	for _, role := range roles {
 		if role.ID == id {
-			return append([]string{role.Agent}, role.arguments(role.firstMessage(folder, how))...), nil
+			// An ACP role's agent is "acp:<id>", not a program: hiring it is A5's, and until then a launcher
+			// started by hand never looks that name up on PATH.
+			if Agent(role.Agent).IsACP() {
+				return nil, errors.New(acpNotHiredYet)
+			}
+			if message == "" {
+				message = role.firstMessage(folder, how)
+			}
+			return append([]string{role.Agent}, role.arguments(message)...), nil
 		}
 	}
 	names := []string{}
@@ -469,7 +569,10 @@ func serveDeck(id string, agent Agent, folder, role, hire string, input io.Write
 				look := func(proof, number string) {
 					postScreenAnswer(http.DefaultClient, base, secret, proof, id, number, screen)
 				}
-				follow(response.Body, input, cursor, look, stop)
+				pasted := func(proof, number, outcome string) {
+					postPasteAnswer(http.DefaultClient, base, secret, proof, id, number, outcome, screen)
+				}
+				followWith(response.Body, input, cursor, look, pasted, stop)
 				response.Body.Close()
 			}
 		}
@@ -490,6 +593,12 @@ func stopProcess(process *os.Process) {
 // follow carries out the app's commands. look answers a look at the window;
 // it runs on its own, so a slow answer never holds up the keys.
 func follow(commands io.Reader, input io.Writer, cursor *cursorMode, look func(proof, number string), stop func()) {
+	followWith(commands, input, cursor, look, nil, stop)
+}
+
+// followWith is follow, with pasted to answer the phone's text: whether it was pasted, after it was.
+func followWith(commands io.Reader, input io.Writer, cursor *cursorMode, look func(proof, number string),
+	pasted func(proof, number, outcome string), stop func()) {
 	lines := bufio.NewScanner(commands)
 	proof := "" // the secret from the stream's first line
 	for lines.Scan() {
@@ -500,6 +609,16 @@ func follow(commands io.Reader, input io.Writer, cursor *cursorMode, look func(p
 		switch {
 		case command.Secret != "":
 			proof = command.Secret // not a command
+		case command.PhoneText != "":
+			// Written before the answer, in this one goroutine: the answer is what was done.
+			outcome := "not-taken"
+			if text, ok := cursor.pasteBytes(command.PhoneText); ok {
+				_, _ = io.WriteString(input, text)
+				outcome = "pasted"
+			}
+			if pasted != nil && command.Look != "" {
+				go pasted(proof, command.Look, outcome)
+			}
 		case command.Look != "":
 			if look != nil {
 				go look(proof, command.Look)
@@ -550,6 +669,11 @@ type launcherTab struct {
 	// stream only; and a channel closed when the launcher is gone.
 	screenSecret string
 	gone         chan struct{}
+	// The ends of its connection to this app as the app saw them, and the launcher's own process, found from them
+	// once it's asked for (process, in preview.go). Under conn.
+	conn             sync.Mutex
+	connFrom, connTo string
+	pid              int
 }
 
 func (t *launcherTab) send(command launcherCommand) error {

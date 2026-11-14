@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"os"
 	"os/exec"
 	"strconv"
 	"syscall"
@@ -48,6 +49,10 @@ func joinGroup(cmd *exec.Cmd) processGroup {
 	resume(uint32(cmd.Process.Pid))
 	return g
 }
+
+// groupOf is a process started in a pseudo-console (signinrun.go): no job, so kill ends its tree by its
+// pid, only before it's reaped, and close leaves it to the console's closing.
+func groupOf(process *os.Process) processGroup { return processGroup{cmd: &exec.Cmd{Process: process}} }
 
 func makeJob(cmd *exec.Cmd) processGroup {
 	g := processGroup{cmd: cmd}

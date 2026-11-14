@@ -82,15 +82,9 @@ func hiringDeck(t *testing.T, tmux string) (*Deck, *hiring, string) {
 func hiredWith(t *testing.T, window []string) (command []string, token string) {
 	t.Helper()
 	command = window[3:]
-	if len(command) == 3 && strings.HasSuffix(command[1], "c") && strings.HasPrefix(command[2], "exec ") {
-		// Through the login shell: its words, quoted.
-		command = nil
-		for _, word := range strings.Split(strings.TrimPrefix(window[5], "exec "), "' '") {
-			command = append(command, strings.Trim(word, "'"))
-		}
-	}
-	if len(command) < 4 || command[1] != "run" || command[2] != "--hire" || !hireToken.MatchString(command[3]) {
-		t.Fatalf("the window runs %q, want the launcher with a hire's token", command)
+	// The launcher itself, never through a login shell (RT126SG2 B3): it finds the agent and checks it.
+	if len(command) < 4 || !filepath.IsAbs(command[0]) || command[1] != "run" || command[2] != "--hire" || !hireToken.MatchString(command[3]) {
+		t.Fatalf("the window runs %q, want the launcher with a hire's token, with no shell", command)
 	}
 	return command, command[3]
 }
@@ -216,6 +210,10 @@ func TestAHireCanRunInTmux(t *testing.T) {
 	}
 	if len(h.tmux) != 1 || h.tmux[0][0] != "new-session" || !slices.Contains(h.tmux[0], folder) {
 		t.Fatalf("tmux was asked %q, want a session of its own in the folder", h.tmux)
+	}
+	// The launcher, as tmux runs several words: no shell (RT126SG2 B3).
+	if at := slices.Index(h.tmux[0], folder); len(h.tmux[0]) < at+3 || !filepath.IsAbs(h.tmux[0][at+1]) || h.tmux[0][at+2] != "run" {
+		t.Errorf("tmux runs %q, want the launcher with no shell", h.tmux[0])
 	}
 	session := h.tmux[0][slices.Index(h.tmux[0], "-s")+1]
 	if want := []string{"/usr/bin/tmux", "-S", "/tmp/tmux-1000/default", "attach", "-t", session}; len(h.windows) != 1 || !slices.Equal(h.windows[0][3:], want) {
@@ -544,10 +542,15 @@ func TestTheSetupPageSaysHiredOnlyOnceTheHireIsAtADesk(t *testing.T) {
 	if start < 0 {
 		t.Fatal("no Hire your General Manager button handler in the setup page")
 	}
-	handler := page[start:]
-	end := strings.Index(handler, "\n  };\n")
+	// The button marks itself busy and runs hireGm, which does the hire.
+	body := strings.Index(page, "async function hireGm() {")
+	if body < 0 || !strings.Contains(page[start:body], "await hireGm()") {
+		t.Fatal("the Hire your General Manager button doesn't run hireGm: the test needs to learn its new shape")
+	}
+	handler := page[body:]
+	end := strings.Index(handler, "\n  }\n")
 	if end < 0 {
-		t.Fatal("the Hire your General Manager handler has no closing \"  };\" line: the test needs to learn its new shape")
+		t.Fatal("hireGm has no closing \"  }\" line: the test needs to learn its new shape")
 	}
 	handler = handler[:end]
 	accepted := strings.Index(handler, "if (!res.ok)")
@@ -743,9 +746,143 @@ func TestATestCopyRefusesAClaudeHireOnEveryRouteBeforeAnythingIsMade(t *testing.
 	if len(h.windows)+len(h.tmux) != 0 || len(d.hires) != 0 || !d.lastHire.IsZero() {
 		t.Error("something was opened, or the cooldown was spent, for a refused hire")
 	}
-	// Another agent on a test copy opens as it did.
+	// Another agent would report to the real office through its own hooks: refused too, before anything is
+	// made, as the Mac's test copy refuses it (Deck.testCopyRefusal).
 	d.config.HireAgent = "codex"
-	if status, message := d.Perform("hire", "", url.Values{}); status != http.StatusNoContent || len(h.windows) != 1 {
+	d.lastHire = time.Time{}
+	if status, message := d.Perform("hire", "", url.Values{}); status != http.StatusConflict || message != testCopyOnlyClaude ||
+		len(h.windows) != 0 || !d.lastHire.IsZero() {
 		t.Errorf("a test copy's codex hire: %d %q, %d windows", status, message, len(h.windows))
+	}
+}
+
+// The office says which hires won't get Smolcorp's fence, as hireAs decides it:
+// only a role's Claude Code hire made by the engine (tmux here, the launcher's
+// beta window on Windows) is fenced; every other agent, and a hire with no role, isn't.
+func TestTheOfficeSaysWhichHiresGetNoFence(t *testing.T) {
+	d, _, _ := hiringDeck(t, "/usr/bin/tmux")
+	d.config.Roles = []Role{{ID: "dev", Name: "Dev", Agent: "claude"}, {ID: "rev", Name: "Rev", Agent: "codex"}}
+	state := func() (dev, rev, anyone any) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		s := d.hiringState()
+		roles := s["roles"].([]map[string]any)
+		return roles[0]["unfenced"], roles[1]["unfenced"], s["unfenced"]
+	}
+	d.config.HireInTmux = true
+	dev, rev, anyone := state()
+	if rev != "Codex hires don't get Smolcorp's fence: they run with their own settings." {
+		t.Errorf("a Codex role: %v", rev)
+	}
+	if anyone != "A hire with no role doesn't get Smolcorp's fence: it runs with its own settings." {
+		t.Errorf("a hire with no role: %v", anyone)
+	}
+	if hasTmuxHires && dev != nil {
+		t.Errorf("a Claude role started inside tmux is fenced, but says %v", dev)
+	}
+	// Outside tmux (or on Windows without the beta switch), it isn't.
+	d.config.HireInTmux = false
+	d.config.HireManagedWindows = false
+	if dev, _, _ := state(); dev == nil || !strings.Contains(dev.(string), "Smolcorp's fence") {
+		t.Errorf("a Claude role outside tmux says %v", dev)
+	}
+	// On Windows, the beta switch's managed hires are fenced.
+	if !hasTmuxHires {
+		d.config.HireManagedWindows = true
+		if dev, _, _ := state(); dev != nil {
+			t.Errorf("a Claude role with managed hires on says %v", dev)
+		}
+		d.config.HireManagedWindows = false
+	}
+	// With no terminal window to open, the hire goes into tmux, so it's fenced again where tmux hires are made.
+	installedOpeners = func() []hireOpener { return nil }
+	if dev, _, _ := state(); hasTmuxHires && dev != nil {
+		t.Errorf("a Claude role in tmux for want of a window says %v", dev)
+	}
+	// Another hire agent: Anyone's line names it.
+	d.config.HireAgent = "gemini"
+	if _, _, anyone := state(); anyone != "Gemini CLI hires don't get Smolcorp's fence: they run with their own settings." {
+		t.Errorf("a Gemini CLI hire with no role: %v", anyone)
+	}
+}
+
+// The office's ⧉ window (T796) on every computer, as the Mac answers it: only to the office's own window,
+// never a phone; whether hires run in the background (which needs tmux); a session that's no hire's is a
+// 404, and a hire with no tmux of its own, or off the team, a 409 before any window opens.
+func TestTheOfficesHireWindowIsTheOfficesOwnWindowsOnly(t *testing.T) {
+	d, h, _ := hiringDeck(t, "/usr/bin/tmux")
+	phone := pair(t, d)
+	for _, method := range []string{"GET", "POST"} {
+		if got := serve(t, d, call{method: method, target: "/hire/window?session=s1&t=" + phone, host: deckOnWiFi, from: aPhone}); got.Code != http.StatusForbidden {
+			t.Errorf("%s from a phone: %d, want 403", method, got.Code)
+		}
+	}
+	background := func() any {
+		t.Helper()
+		got := serve(t, d, call{method: "GET", target: "/hire/window?t=" + d.access.WindowKey, host: "localhost:7710", from: thisComputer})
+		var answer map[string]any
+		if got.Code != http.StatusOK || json.Unmarshal(got.Body.Bytes(), &answer) != nil {
+			t.Fatalf("GET from the window: %d %s", got.Code, got.Body)
+		}
+		return answer["background"]
+	}
+	if got := background(); got != false {
+		t.Errorf("hires in front: background %v", got)
+	}
+	d.mu.Lock()
+	d.config.HiresInBackground = true
+	d.mu.Unlock()
+	if got := background(); got != true {
+		t.Errorf("hires in the background, with tmux: background %v", got)
+	}
+	got := serve(t, d, call{method: "POST", target: "/hire/window?session=nobody&t=" + d.access.WindowKey, host: "localhost:7710", from: thisComputer})
+	if got.Code != http.StatusNotFound || got.Body.String() != "This agent wasn't hired by Smolcorp, so it has no window to open." {
+		t.Errorf("a session that's no hire's: %d %q", got.Code, got.Body)
+	}
+	for _, c := range []struct {
+		hire Hire
+		want string
+	}{
+		{Hire{ID: "h1", State: "working"}, "This hire runs in a window of its own, not in tmux."},
+		{Hire{ID: "h2", State: "fired", TmuxSocket: "/x/smolcorp-h2"}, "That hire isn't on the team."},
+	} {
+		if status, problem := d.openHireWindow(c.hire); status != http.StatusConflict || problem != c.want {
+			t.Errorf("%s: %d %q", c.hire.ID, status, problem)
+		}
+	}
+	if len(h.windows) != 0 {
+		t.Errorf("a window opened: %q", h.windows)
+	}
+}
+
+// Hiring off, an empty desk is 403 in the Mac's words, as the Mac's hire checks it first; with hiring on it is still
+// "Unknown desk" (400). The same on every OS, with "computer" for "Mac" off the Mac app.
+func TestHiringAtAnEmptyDeskWithHiringOffIsRefusedAsHiringOff(t *testing.T) {
+	for _, mac := range []bool{false, true} {
+		if mac {
+			withMac(t)
+		}
+		d := newTestDeck(t)
+		key := pair(t, d)
+		hire := func() (int, string) {
+			got := serve(t, d, call{method: "POST", target: "/act?action=hire&desk=&t=" + key, host: deckOnWiFi, from: aPhone})
+			return got.Code, got.Body.String()
+		}
+		want := hiringOff
+		if mac {
+			want = "Hiring and firing are off. Turn them on in setup, on your Mac."
+		}
+		d.mu.Lock()
+		d.config.HiringEnabled = false
+		d.mu.Unlock()
+		if status, said := hire(); status != http.StatusForbidden || said != want {
+			t.Errorf("mac %v, hiring off: %d %q", mac, status, said)
+		}
+		d.mu.Lock()
+		d.config.HiringEnabled = true
+		d.mu.Unlock()
+		if status, said := hire(); status != http.StatusBadRequest || said != "Unknown desk" {
+			t.Errorf("mac %v, hiring on: %d %q", mac, status, said)
+		}
 	}
 }

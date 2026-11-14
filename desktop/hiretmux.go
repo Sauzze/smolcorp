@@ -5,16 +5,21 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // A hire's tmux session on a server of its own, as the Mac app's HireTmux:
-// tmux -S <support folder>/smolcorp-<hire id> (a test copy's:
-// smolcorp-<port>-<hire id>), one session called "hire", started detached in
+// tmux -S <tmux's own folder>/smolcorp-<hire id> (a test copy's:
+// smolcorp-<port>-<hire id>), the socket `tmux -L` would make, one session called "hire", started detached in
 // the hire's folder. Every call names our socket with -S, so the user's own
 // tmux server, the default socket and any socket not made by us are never
 // reached. A session is ended only by its own name on that socket; nothing is
@@ -29,8 +34,6 @@ import (
 const (
 	// hireSession is the one session on a hire's server.
 	hireSession = "hire"
-	// hireSocketPrefix starts every socket we make, and ownsHireSocket checks for it.
-	hireSocketPrefix = "smolcorp-"
 	// hirePane is the exact pane target: "=" matches the name exactly, ":" makes it the session's active pane.
 	hirePane = "=" + hireSession + ":"
 	// A unix socket's path is cut off a little over 100 bytes.
@@ -44,6 +47,9 @@ type tmuxRunner func(args []string) (output string, status int, ran bool)
 type hireTmux struct {
 	socket string
 	run    tmuxRunner
+	// program is the tmux that runs it, when it's the real one: what a hire's row records (TmuxProgram), and
+	// what a window attaches with. "" for a stand-in runner.
+	program string
 }
 
 // hireSocketName is a hire's socket's file name, or "" for an id that
@@ -62,38 +68,80 @@ func testPortPart(testPort int) string {
 	return ""
 }
 
-// newHireTmux is the hire's server, its socket in the support folder, with
-// the real tmux when run is nil; nil when the id can't make a socket's name,
-// the path is too long for one, or there is no tmux.
-func newHireTmux(hireID string, testPort int, run tmuxRunner) *hireTmux {
-	name := hireSocketName(hireID, testPort)
-	if name == "" {
-		return nil
+// hireSocketFolder is where a new hire's socket goes: tmux's own folder, as the Mac's HireTmux (`tmux -L`)
+// puts it, so both engines' hires are in one place and a long support folder (a long user name, a test
+// copy deep in a worktree) never makes the path too long for a socket. Tests point it elsewhere.
+var hireSocketFolder = tmuxSocketFolder
+
+// tmuxSocketFolder is tmux's own folder for this user: $TMUX_TMPDIR (or /tmp)/tmux-<uid>, as tmux works it
+// out for -L. The hire's tmux is given the same environment (hireEnvironment), so it would pick the same.
+func tmuxSocketFolder() string {
+	base := os.Getenv("TMUX_TMPDIR")
+	if !filepath.IsAbs(base) { // unset, or relative (it would mean the core's own folder)
+		base = "/tmp"
 	}
-	return hireTmuxAt(filepath.Join(supportDir, name), testPort, run)
+	return filepath.Join(base, "tmux-"+strconv.Itoa(os.Getuid()))
 }
 
-// hireTmuxAt is the server on socket, when it is one of ours: in the support
-// folder, named like a hire's (a test copy owns only its own port's), never the default.
+// hireSocketFolders are where a hire's socket may be: the folder new ones go in, then the support folder,
+// where the Go core put them before 1.25 (a hire made then is still its own, to fire or clean up).
+func hireSocketFolders() []string {
+	return []string{filepath.Clean(hireSocketFolder()), filepath.Clean(supportDir)}
+}
+
+// ownSocketFolder makes folder if it isn't there (0700, as tmux makes it) and says whether it is safe to put
+// a socket in: a real folder, not a link, this user's, that nobody else can open (tmux's own check).
+func ownSocketFolder(folder string) bool {
+	_ = os.Mkdir(folder, 0o700)
+	info, err := os.Lstat(folder)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+		return false
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && int(stat.Uid) == os.Getuid()
+}
+
+// newHireTmux is the hire's server, its socket in hireSocketFolder, with
+// the real tmux when run is nil; nil when the id can't make a socket's name,
+// the folder isn't safe, the path is too long for one, or there is no tmux.
+func newHireTmux(hireID string, testPort int, run tmuxRunner) *hireTmux {
+	name := hireSocketName(hireID, testPort)
+	folder := hireSocketFolder()
+	if name == "" || !ownSocketFolder(folder) {
+		return nil
+	}
+	// A server to be started: the tmux this system picks now, whatever an older row for this hire says.
+	return hireTmuxUsing(filepath.Join(folder, name), testPort, run, func(string) string { return tmuxPath() })
+}
+
+// hireTmuxAt is the server on socket, when it is one of ours: in a hire
+// socket folder, named like a hire's (a test copy owns only its own port's), never the default.
 func hireTmuxAt(socket string, testPort int, run tmuxRunner) *hireTmux {
+	return hireTmuxUsing(socket, testPort, run, tmuxDriving)
+}
+
+// hireTmuxUsing is hireTmuxAt with pick, which says what real tmux to run for a socket.
+func hireTmuxUsing(socket string, testPort int, run tmuxRunner, pick func(socket string) string) *hireTmux {
 	if !ownsHireSocket(socket, testPort) || len(socket) > maxSocketPath {
 		return nil
 	}
+	program := ""
 	if run == nil {
-		path := tmuxPath()
-		if path == "" {
+		program = pick(socket)
+		if program == "" {
 			return nil
 		}
-		run = realTmux(path)
+		run = withoutStartFile(realTmux(program))
+		program = recordableTmux(program)
 	}
-	return &hireTmux{socket: filepath.Clean(socket), run: run}
+	return &hireTmux{socket: filepath.Clean(socket), run: run, program: program}
 }
 
-// ownsHireSocket says whether socket is one of ours: a hire's, in the support
+// ownsHireSocket says whether socket is one of ours: a hire's, in a hire socket
 // folder, with a name of only a-z, 0-9 and -, not the user's default.
 func ownsHireSocket(socket string, testPort int) bool {
 	socket = filepath.Clean(socket)
-	if socket == "" || filepath.Dir(socket) != filepath.Clean(supportDir) {
+	if socket == "" || !inHireSocketFolder(socket) {
 		return false
 	}
 	name := filepath.Base(socket)
@@ -111,7 +159,7 @@ func realTmux(path string) tmuxRunner {
 	return func(args []string) (string, int, bool) {
 		ctx, cancel := context.WithTimeout(context.Background(), tmuxCallWait)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, path, args...)
+		cmd := disclaim.Cmd(exec.CommandContext(ctx, path, args...))
 		cmd.Env = hireEnvironment()
 		out, err := cmd.Output()
 		if err == nil {
@@ -124,6 +172,13 @@ func realTmux(path string) tmuxRunner {
 	}
 }
 
+// withoutStartFile runs tmux as run does, with no start file: a hire's server reads none of the owner's
+// (~/.tmux.conf, ~/.config/tmux), whose commands would run at each desk's start (RT126SG2 B1, §4 g6). -f is read only
+// by the call that starts the server; every other call ignores it.
+func withoutStartFile(run tmuxRunner) tmuxRunner {
+	return func(args []string) (string, int, bool) { return run(append([]string{"-f", os.DevNull}, args...)) }
+}
+
 // command is tmux's arguments for args on our server.
 func (h *hireTmux) command(args ...string) []string { return append([]string{"-S", h.socket}, args...) }
 
@@ -132,20 +187,34 @@ func (h *hireTmux) ok(args ...string) bool {
 	return ran && status == 0
 }
 
-// start starts the session in folder, command run by shell as a login shell.
-// It gives the pane and the socket's path (as the deck addresses a tab:
-// tmux:<pane>@<socket>), or false if tmux didn't start it.
-func (h *hireTmux) start(folder, shell, command string) (pane, socket string, ok bool) {
-	out, status, ran := h.run(h.command("new-session", "-d", "-P", "-F", "#{pane_id} #{socket_path}",
-		"-s", hireSession, "-c", folder, shell, "-lic", "exec "+shellQuoted(command)))
+// start starts the session in folder running command, two or more words, which tmux runs as they are: no shell,
+// so no shell's start files (SANDBOX-PLAN §3.4, SG2). It gives the pane, the pid of the process tmux started for
+// command, and the socket's path (as the deck addresses a tab: tmux:<pane>@<socket>), or false if tmux didn't
+// start it. The pid is said by the same call that started the process, so no other call on the server comes in
+// between: it is the process the desk's start ticket is for (deskstart.go), whatever the pane runs later.
+func (h *hireTmux) start(folder string, command []string) (pane, socket string, pid int, ok bool) {
+	if len(command) < 2 {
+		return "", "", 0, false // one word would be run by a shell
+	}
+	out, status, ran := h.run(h.command(append([]string{"new-session", "-d", "-P", "-F", "#{pane_id} #{pane_pid} #{socket_path}",
+		"-s", hireSession, "-c", folder}, command...)...))
 	if !ran || status != 0 {
-		return "", "", false
+		return "", "", 0, false
 	}
-	pane, socket, found := strings.Cut(out, " ")
-	if !found || !strings.HasPrefix(pane, "%") || socket == "" {
-		return "", "", false
+	pane, rest, _ := strings.Cut(out, " ")
+	said, socket, found := strings.Cut(rest, " ")
+	pid, err := strconv.Atoi(said)
+	if !found || !strings.HasPrefix(pane, "%") || socket == "" || err != nil || pid <= 1 {
+		return "", "", 0, false
 	}
-	return pane, socket, true
+	return pane, socket, pid, true
+}
+
+// panePID is the pid of the process the session's pane runs, as the hire's own server says it.
+func (h *hireTmux) panePID() (int, bool) {
+	out, status, ran := h.run(h.command("display-message", "-p", "-t", hirePane, "#{pane_pid}"))
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	return pid, ran && status == 0 && err == nil && pid > 1
 }
 
 // alive says whether the session is there; known is false when tmux couldn't
@@ -172,9 +241,34 @@ func (h *hireTmux) paneState() PaneState {
 	return ReadPaneState(screen)
 }
 
+// viewers is how many terminal windows are attached to the session; -1 when tmux couldn't say.
+func (h *hireTmux) viewers() int {
+	out, status, ran := h.run(h.command("list-clients", "-t", "="+hireSession, "-F", "#{client_tty}"))
+	if !ran || status != 0 {
+		return -1
+	}
+	return len(strings.Fields(out))
+}
+
+// clientTTYs are the ttys of the terminal windows attached to the session; false when tmux couldn't say.
+func (h *hireTmux) clientTTYs() ([]string, bool) {
+	out, status, ran := h.run(h.command("list-clients", "-t", "="+hireSession, "-F", "#{client_tty}"))
+	if !ran || status != 0 {
+		return nil, false
+	}
+	return slices.DeleteFunc(strings.Fields(out), func(tty string) bool { return !isTTYPath(tty) }), true
+}
+
+// detachViewers detaches the windows attached to the session, on this socket
+// alone: the hire carries on with no window (agent windows in the background).
+func (h *hireTmux) detachViewers() bool { return h.ok("detach-client", "-s", "="+hireSession) }
+
 // end ends the hire's session by its own name, on this socket only. With no
 // other session the server ends with it.
 func (h *hireTmux) end() bool { return h.ok("kill-session", "-t", "="+hireSession) }
+
+// endServer ends the hire's server, and so its session, as the Mac's HireTmux.kill: this socket's only.
+func (h *hireTmux) endServer() bool { return h.ok("kill-server") }
 
 // waitForStart waits for the hire to be alive and heard from. Dead at any
 // look is a failure at once; not heard from by within is one too. The clock

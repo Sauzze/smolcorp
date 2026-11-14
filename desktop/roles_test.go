@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Sauzze/smolcorp/internal/guard"
 )
 
 func TestRolesCometWithTheAppUntilYouChangeThem(t *testing.T) {
@@ -87,7 +89,8 @@ func TestARoleOnlyAsksBeforeItStarts(t *testing.T) {
 		"work until I've answered them.\n\n" +
 		"1. You've started in " + filepath.Join("~", "work", "api") + ". Is that the one to work on?\n" +
 		"2. Which tests should you run: all of them, a folder, or a single file?\n" +
-		"3. Is there anything to set up or start first, such as a database, a server or environment variables?\n\n" +
+		"3. What's the main thing someone must be able to do, for you to try by hand too?\n" +
+		"4. What must be set up or started first, such as a database or a server? Say what's needed; don't send keys or passwords.\n\n" +
 		"Once I've answered, as my Tester: Run the tests I point you to."
 	if !strings.HasPrefix(message, want) {
 		t.Errorf("the tester is first told\n%s\nwant it to start\n%s", message, want)
@@ -121,12 +124,17 @@ func TestRolesAsShippedIn171AreBroughtUpToDate(t *testing.T) {
 func TestARoleIsStartedFromSetupsRoles(t *testing.T) {
 	isolate(t)
 	writeFile(t, configFile, `{"roles": [{"id": "tester", "name": "Tester", "agent": "codex", "instructions": "Run the tests."}]}`)
-	args, err := roleArguments("tester", "/work", startedHere)
+	args, err := roleArguments("tester", "/work", startedHere, "")
 	if err != nil || len(args) != 3 || args[0] != "codex" || args[1] != "--" || !strings.HasSuffix(args[2], "Once I've answered, as my Tester: Run the tests.") {
 		t.Errorf("the tester starts as %q, %v", args, err)
 	}
-	if _, err := roleArguments("nobody", "/work", startedHere); err == nil || !strings.Contains(err.Error(), "Yours are: tester") {
+	if _, err := roleArguments("nobody", "/work", startedHere, ""); err == nil || !strings.Contains(err.Error(), "Yours are: tester") {
 		t.Errorf("an unknown role gave %v, want the ones there are", err)
+	}
+	// An engine hire's launcher is handed the message the app made with its brief.
+	if args, err := roleArguments("tester", "/work", hiredIntoGeneralFolder, "Read `~/BRIEF.md` and follow it."); err != nil ||
+		args[len(args)-1] != "Read `~/BRIEF.md` and follow it." {
+		t.Errorf("with the brief's message the tester starts as %q, %v", args, err)
 	}
 }
 
@@ -478,5 +486,250 @@ func TestEveryRoleTheMacShipsShipsHere(t *testing.T) {
 	}
 	if here := shippedRoleIDs(); !slices.Equal(here, mac) {
 		t.Errorf("Windows and Linux ship %v, the Mac %v", here, mac)
+	}
+}
+
+// The Builder and the Designer are the shipped roles that make things, so
+// they are held to the same fence as the rest: Claude Code (the only agent
+// Smolcorp fences), they ask before they start, and their instructions have
+// them wait for an OK before they change anything and never push, merge,
+// publish or deploy by themselves.
+func TestTheMakersAreFencedLikeTheOthers(t *testing.T) {
+	for _, want := range []struct{ id, name string }{{"builder", "Builder"}, {"designer", "Designer"}} {
+		i := slices.IndexFunc(shippedRoles, func(r Role) bool { return r.ID == want.id })
+		if i < 0 {
+			t.Fatalf("no %s ships", want.name)
+		}
+		role := shippedRoles[i]
+		if role.Name != want.name || role.Agent != "claude" {
+			t.Errorf("the %s is %q on %q, want %s on Claude Code, the agent Smolcorp fences", want.name, role.Name, role.Agent, want.name)
+		}
+		if len(role.Questions) == 0 {
+			t.Errorf("the %s asks nothing before it starts", want.name)
+		}
+		for _, fence := range []string{"wait for my OK", "Never push, merge, publish or deploy unless I tell you to"} {
+			if !strings.Contains(role.Instructions, fence) {
+				t.Errorf("the %s's instructions don't say %q: %q", want.name, fence, role.Instructions)
+			}
+		}
+		if role.Brief != nil || role.defaultBrief().Kind != "library" || role.defaultBrief().ID != want.id {
+			t.Errorf("the %s's brief comes as %+v, want the library's %s", want.name, role.defaultBrief(), want.id)
+		}
+	}
+	// Like the others, they come last, in that order, before the Mini Manager, and a config from before them is given
+	// them once.
+	if ids := shippedRoleIDs(); !slices.Equal(ids[len(ids)-3:], []string{"builder", "designer", "minimanager"}) {
+		t.Errorf("the roles end with %v, want the Builder, the Designer, then the Mini Manager", ids[len(ids)-3:])
+	}
+	isolate(t)
+	writeFile(t, configFile, `{"roles": [{"id": "tester", "name": "Tester"}], "rolesOffered": `+
+		`["reviewer","tester","bughunter","docs","refactorer","artdirector","lawyer","therapist","plumber","gm","janitor","firefighter",`+
+		`"pilot","postman","accountant","marketer","securityguard","chef","thinker"]}`)
+	roles := loadConfig().Roles
+	if len(roles) != 4 || roles[1].ID != "builder" || roles[2].ID != "designer" || !roles[2].sameAs(shippedRoles[len(shippedRoles)-2]) ||
+		roles[3].ID != "minimanager" {
+		t.Errorf("a config from before the Builder loads %+v, want its tester, then the Builder, the Designer and the Mini Manager", roles)
+	}
+	writeFile(t, configFile, `{"roles": [{"id": "tester", "name": "Tester"}], "rolesOffered": `+
+		`["reviewer","tester","bughunter","docs","refactorer","artdirector","lawyer","therapist","plumber","gm","janitor","firefighter",`+
+		`"pilot","postman","accountant","marketer","securityguard","chef","thinker","builder"]}`)
+	if roles := loadConfig().Roles; len(roles) != 3 || roles[1].ID != "designer" || roles[2].ID != "minimanager" {
+		t.Errorf("a config from 1.26's Builder loads %+v, want its tester, then the Designer and the Mini Manager", roles)
+	}
+}
+
+// The Mini Manager runs one project and hires no one itself: Claude Code (the
+// agent Smolcorp fences), it asks before it starts, waits for an OK on its
+// plan, asks for each hire, and never pushes, merges, publishes or deploys.
+// Its brief is read-only and ends on a done line of its own; the guard refuses
+// it, as any hire, the General Manager's own hiring and firing. A config from
+// before it is given it once, at the end.
+func TestTheMiniManagerHiresNoOneAndIsFenced(t *testing.T) {
+	i := slices.IndexFunc(shippedRoles, func(r Role) bool { return r.ID == "minimanager" })
+	if i != len(shippedRoles)-1 {
+		t.Fatalf("the Mini Manager is shipped at %d of %d, want last", i, len(shippedRoles))
+	}
+	role := shippedRoles[i]
+	if role.Name != "Mini Manager" || role.Agent != "claude" || role.Badge != "flag" || len(role.Questions) != 3 {
+		t.Errorf("the Mini Manager ships as %+v", role)
+	}
+	for _, fence := range []string{"wait for my OK", "you don't hire anyone", "ask the General Manager, or me, for each hire",
+		"have a second agent review it", "Never push, merge, publish or deploy"} {
+		if !strings.Contains(role.Instructions, fence) {
+			t.Errorf("the Mini Manager's instructions don't say %q: %q", fence, role.Instructions)
+		}
+	}
+	if brief := role.defaultBrief(); brief.Kind != "library" || brief.ID != "minimanager" {
+		t.Errorf("the Mini Manager's brief comes as %+v, want the library's minimanager", brief)
+	}
+	text, ok := briefLibrary{files: bundledBriefs()}.source("minimanager")
+	if !ok {
+		t.Fatal("the Mini Manager's brief isn't in the library")
+	}
+	values := parseBriefFrontMatter(text).values
+	if values["read_only"] != "true" || values["done_signal"] != "PROJECT DONE" || values["report"] != "PROJECT-BOARD" {
+		t.Errorf("the Mini Manager's brief says %v", values)
+	}
+	for _, rule := range []string{"you hire no one yourself", "**wait for the user's OK** before you ask for a single hire",
+		"Hire, fire or start anyone yourself", "never the user's approval"} {
+		if !strings.Contains(text, rule) {
+			t.Errorf("the Mini Manager's brief doesn't say %q", rule)
+		}
+	}
+	for _, line := range []string{"smolcorp gm hire --role builder", "smolcorp gm fire builder-1", "smolcorp hire builder"} {
+		if guard.Check(line, guard.DefaultGroups()) == nil {
+			t.Errorf("a hire may run %q", line)
+		}
+	}
+	isolate(t)
+	writeFile(t, configFile, `{"roles": [{"id": "tester", "name": "Tester"}], "rolesOffered": `+mustJSON(t, shippedRoleIDs()[:len(shippedRoleIDs())-1])+`}`)
+	if roles := loadConfig().Roles; len(roles) != 2 || !roles[1].sameAs(role) {
+		t.Errorf("a config from 1.26's Designer loads %+v, want its tester and then the Mini Manager", roles)
+	}
+}
+
+// The Bug hunter, the Tester, the Docs writer and the Firefighter as they came
+// before 1.26 sharpened them, on their own brief or none, ask the new
+// questions as they load; one you changed, or put on a brief of your own, is
+// left as you have it. Their old questions are the Mac app's too.
+func TestShippedRolesFromBefore126AskTheNewQuestions(t *testing.T) {
+	old := shippedBefore126()
+	if len(old) != 4 {
+		t.Fatalf("%d roles from before 1.26, want 4", len(old))
+	}
+	text := macRoles(t)
+	for _, role := range old {
+		now := shippedRoles[slices.IndexFunc(shippedRoles, func(r Role) bool { return r.ID == role.ID })]
+		if slices.Equal(role.Questions, now.Questions) || len(now.Questions) <= len(role.Questions) {
+			t.Errorf("%s asks %v before 1.26 and %v now, want more now", role.ID, role.Questions, now.Questions)
+		}
+		for _, brief := range []*RoleBrief{nil, {Kind: "library", ID: role.ID}} {
+			saved := role
+			saved.Brief = brief
+			if got := checkedRoles([]Role{saved})[0]; !got.sameAs(now) || got.Brief == nil || *got.Brief != (RoleBrief{Kind: "library", ID: role.ID}) {
+				t.Errorf("%s from before 1.26, brief %+v, loads as %+v, want today's on its library brief", role.ID, brief, got)
+			}
+		}
+		edited := role
+		edited.Questions = append(slices.Clone(role.Questions), "And mine?")
+		if got := checkedRoles([]Role{edited})[0]; !slices.Equal(got.Questions, edited.Questions) {
+			t.Errorf("%s with a question of yours loads asking %v", role.ID, got.Questions)
+		}
+		own := role
+		own.Brief = &RoleBrief{Kind: "text", Text: role.Instructions}
+		if got := checkedRoles([]Role{own})[0]; !slices.Equal(got.Questions, role.Questions) || got.Brief.Kind != "text" {
+			t.Errorf("%s on a brief of your own loads as %+v, want it as you had it", role.ID, got)
+		}
+		for _, question := range role.Questions {
+			if !strings.Contains(text, fmt.Sprintf("%q", question)) {
+				t.Errorf("%s asked %q before 1.26, which the Mac app's doesn't say", role.ID, question)
+			}
+		}
+	}
+	// One from before outfits too: it asked the old questions, and gets its outfit and the new ones.
+	for _, role := range shippedBeforeOutfits() {
+		if questions, ok := questionsBefore126[role.ID]; ok && !slices.Equal(role.Questions, questions) {
+			t.Errorf("%s before outfits asks %v, want %v", role.ID, role.Questions, questions)
+		}
+		for _, question := range questionsBeforeOutfits[role.ID] {
+			if !strings.Contains(text, fmt.Sprintf("%q", question)) {
+				t.Errorf("%s asked %q before outfits, which the Mac app's doesn't say", role.ID, question)
+			}
+		}
+		now := shippedRoles[slices.IndexFunc(shippedRoles, func(r Role) bool { return r.ID == role.ID })]
+		if slices.Equal(role.Questions, now.Questions) {
+			t.Errorf("%s before outfits asks today's questions, want the ones it asked then", role.ID)
+		}
+		if got := checkedRoles([]Role{role})[0]; !got.sameAs(now) {
+			t.Errorf("%s from before outfits loads as %+v, want today's", role.ID, got)
+		}
+	}
+}
+
+// Every brief in the library ends on a done line of its own, so a watcher or a
+// reader never takes one role's for another's: the Firefighter's is one line
+// at the very end, never a second one after triage.
+func TestEveryLibraryBriefHasADoneSignalOfItsOwn(t *testing.T) {
+	library := briefLibrary{files: bundledBriefs()}
+	seen := map[string]string{}
+	for _, id := range briefLibraryIDs {
+		text, ok := library.source(id)
+		if !ok {
+			t.Fatalf("%s isn't in the library", id)
+		}
+		done := parseBriefFrontMatter(text).values["done_signal"]
+		if done == "" || strings.ToUpper(done) != done {
+			t.Errorf("%s's done signal is %q, want one in capitals", id, done)
+		}
+		if other, ok := seen[done]; ok {
+			t.Errorf("%s and %s both end on %q", other, id, done)
+		}
+		seen[done] = id
+	}
+	for _, gone := range []string{"FIRE OUT", "TRIAGE DONE", "HUNT DONE"} {
+		if id, ok := seen[gone]; ok {
+			t.Errorf("%s still ends on %q", id, gone)
+		}
+	}
+	if seen["INCIDENT DONE"] != "firefighter" || seen["ISSUES SORTED"] != "issue-sorter" || seen["BUGS DONE"] != "bughunter" ||
+		seen["PROJECT DONE"] != "minimanager" || seen["GOAL DONE"] != "gm" {
+		t.Errorf("the Firefighter, the Issue sorter, the Bug hunter, the Mini Manager and the General Manager end on %v", seen)
+	}
+}
+
+// Each company template is a General Manager and shipped roles only, so the
+// hire queue (K2) and setup (K3) can hire it as it stands, and each is the
+// owner's list.
+func TestEveryCompanyTemplateHiresRolesThatExist(t *testing.T) {
+	if len(companyTemplates) != 3 {
+		t.Fatalf("%d templates ship, want 3", len(companyTemplates))
+	}
+	ids := map[string]bool{}
+	for _, template := range companyTemplates {
+		if template.ID == "" || ids[template.ID] || strings.TrimSpace(template.Name) == "" || strings.TrimSpace(template.Blurb) == "" {
+			t.Errorf("template %+v needs a name, a blurb and an id of its own", template)
+		}
+		ids[template.ID] = true
+		if template.GM != "gm" || !slices.Contains(shippedRoleIDs(), template.GM) {
+			t.Errorf("%s's General Manager is %q, want the shipped gm", template.Name, template.GM)
+		}
+		if len(template.Roles) == 0 {
+			t.Errorf("%s hires no roles besides the General Manager", template.Name)
+		}
+		for _, id := range template.Roles {
+			if id == "gm" || !slices.Contains(shippedRoleIDs(), id) {
+				t.Errorf("%s hires %q, which isn't a shipped role besides the General Manager", template.Name, id)
+			}
+		}
+		// What setup sends and a hire reads must be a role as it comes: checked leaves it as it is.
+		for _, id := range append([]string{template.GM}, template.Roles...) {
+			role := shippedRoles[slices.IndexFunc(shippedRoles, func(r Role) bool { return r.ID == id })]
+			if checked, ok := role.checked(); !ok || !checked.sameAs(role) {
+				t.Errorf("%s's %s isn't kept as it comes", template.Name, id)
+			}
+		}
+	}
+	for _, want := range []struct {
+		id    string
+		name  string
+		roles []string
+	}{
+		{"solo-builder", "Solo builder", []string{"builder", "reviewer", "tester"}},
+		{"small-agency", "Small agency", []string{"builder", "builder", "designer", "reviewer", "docs"}},
+		{"bug-squash", "Bug squash", []string{"bughunter", "tester", "reviewer"}},
+	} {
+		template, ok := companyTemplate(want.id)
+		if !ok || template.Name != want.name || !slices.Equal(template.Roles, want.roles) {
+			t.Errorf("%s is %+v, want %s with %v", want.id, template, want.name, want.roles)
+		}
+	}
+	if _, ok := companyTemplate("nobody"); ok {
+		t.Error("a template that doesn't exist was found")
+	}
+	// What the lookup gives is a copy: changing it leaves the templates alone.
+	template, _ := companyTemplate("solo-builder")
+	template.Roles[0] = "changed"
+	if again, _ := companyTemplate("solo-builder"); again.Roles[0] != "builder" {
+		t.Errorf("changing a looked-up template changed the shipped one: %v", again.Roles)
 	}
 }

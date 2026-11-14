@@ -41,7 +41,7 @@ func approvalLabel(tool, input string) string {
 	} else {
 		for _, field := range []string{"file_path", "notebook_path"} {
 			if s := str(object[field]); s != "" {
-				what = filepath.Base(s)
+				what = hidePhotos(filepath.Base(s))
 				break
 			}
 		}
@@ -58,6 +58,16 @@ func approvalLabel(tool, input string) string {
 		return string([]rune(line)[:approvalLabelLimit-1]) + "…"
 	}
 	return line
+}
+
+// GET /approvals (phoneroutes.go): who waits for you, read only, to a paired phone over Tailscale, never over the
+// Wi-Fi nor to the office's window. Answering is /act and /choose.
+func init() {
+	registerPhoneRoute(phoneRoute{method: http.MethodGet, path: "/approvals", access: accessPhoneSecure,
+		refusal: says("The approvals show only over Tailscale's HTTPS address."),
+		serve: func(d *Deck, w http.ResponseWriter, _ *request, _ string) {
+			writeJSON(w, http.StatusOK, d.approvalsWithAsks(nowMillis()))
+		}})
 }
 
 // approvalsAnswer is what GET /setup/gm/approvals answers, the longest waiting
@@ -149,5 +159,14 @@ func (rt *router) approvals(w http.ResponseWriter, r *request) {
 		writeStatus(w)(http.StatusMethodNotAllowed, "The approvals only show. A prompt is answered by your tap alone.")
 		return
 	}
-	writeJSON(w, http.StatusOK, approvalsAnswer(rt.deck.approvalItems(), float64(time.Now().UnixMilli())))
+	writeJSON(w, http.StatusOK, rt.deck.approvalsWithAsks(float64(time.Now().UnixMilli())))
+}
+
+// approvalsWithAsks is approvalsAnswer and, beside the sessions asking, "asks": what a GM, an MCP key, a night job or
+// a hire waits to be allowed, for the owner to answer (grants.go). The Mac's wire format has no such key, which its
+// reader leaves alone.
+func (d *Deck) approvalsWithAsks(now float64) map[string]any {
+	answer := approvalsAnswer(d.approvalItems(), now)
+	answer["asks"] = d.grants.asksAnswer(now)
+	return answer
 }

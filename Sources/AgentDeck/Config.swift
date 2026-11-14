@@ -30,6 +30,18 @@ final class Config: Codable {
     /// agent runs in a tmux session of its own there.
     var hireTerminal = "terminal"
     var hireInTmux = false
+    /// Agent windows (T796): off, a window for each hire, as before; on, hires
+    /// run in tmux only, with no window, and a desk's "Open a window" shows one.
+    /// Only with tmux on this Mac (see `Choices.background`).
+    var hiresInBackground = false
+    /// T3 Code (T796): whether its features show, in the office and Setup, and
+    /// whether Smolcorp looks for it at all. Off until you turn it on; the T3
+    /// Code code asks `Choices.t3Code` first.
+    var t3CodeEnabled = false
+    /// Whether first setup has asked the two choices above. A new Mac's file:
+    /// not yet. A file from before them: as asked, so an existing user keeps
+    /// what they had and isn't asked.
+    var choicesAsked = false
     /// Where hires' git worktrees go; empty puts them beside the repo (see `HireDesk`).
     var hireWorktrees = ""
     /// Dictation for agents with no voice mode of their own (see `Dictation`):
@@ -40,7 +52,7 @@ final class Config: Codable {
     /// Claude Code desks dictate through Smolcorp rather than their own
     /// `/voice`, always: your choice, kept as you left it.
     var dictationForClaude = false
-    /// Personal build, a test: whether dictation's text is cleaned up by
+    /// A test: whether dictation's text is cleaned up by
     /// Claude before it's typed (see `DictationCleanup`), and the names it
     /// knows. While it's on, Claude Code desks dictate through Smolcorp too, so
     /// their text can be cleaned (see `Deck.dictates`); off, everything is as
@@ -69,7 +81,7 @@ final class Config: Codable {
     /// ✨ Summary: whether a held desk offers a summary of its agent's
     /// transcript, written by Claude with your own API key. Off until you turn
     /// it on in setup and confirm what it sends where; and only with a key.
-    /// Saved under its own name: a personal build's "summariesEnabled" never
+    /// Saved under its own name: an older "summariesEnabled" never
     /// turns it on.
     var summaryOptIn = false
     /// What makes summaries: a coding agent's id ("claude", "codex", …) or
@@ -79,11 +91,10 @@ final class Config: Codable {
     /// The portable office's viewer: its address and options. Never its id,
     /// key or write secret, which are in the Keychain.
     var viewer = ViewerSettings()
-    /// Phone microphone (personal build): on a deck opened over HTTPS (through
+    /// Phone microphone: on a deck opened over HTTPS (through
     /// `tailscale serve`), the mic listens on the phone with its own speech
-    /// recognition and sends the text here to be typed. On by default in this
-    /// build; off, the mic is the Mac's again and Tailscale names are refused,
-    /// exactly as before.
+    /// recognition and sends the text here to be typed. On by default; off,
+    /// the mic is the Mac's again and Tailscale names are refused.
     var phoneMicEnabled = true
     /// Whether phone dictation skips the phone's confirm box and goes as it
     /// was heard: sent with Return once it's 3 words or more, as Claude
@@ -91,6 +102,10 @@ final class Config: Codable {
     /// default: the box shows what was heard, to send, type or cancel.
     var phoneMicAutoSend = false
     var hasCompletedSetup = false
+    /// Whether the first-run guide, the arrows in setup that point at the next thing to do, is over:
+    /// finished or skipped. "Show Me Around Again" in the Help menu turns it back off. A file from
+    /// before it, of someone who had set up already (setup opened, a hires folder or a GM, by hand too), counts as done.
+    var guideDone = false
     /// You disconnected the agents on purpose, so `--setup` leaves them be.
     /// Connecting, in Settings or Start here, clears it.
     var hooksDisconnected = false
@@ -101,7 +116,7 @@ final class Config: Codable {
     /// Manager or switch it on in setup, so 1.23's behaviour is what an existing user
     /// keeps. Off, the GM's routes say so; events are still logged. Turning it off never fires anyone.
     var managerEnabled = false
-    /// "Allow a GM started by hand": also keep the GM's token in a file (`Paths.gmToken`) for a
+    /// "Allow a GM started by hand": also keep the GM's token in a file (the core's) for a
     /// General Manager you start yourself. Off, the token is in memory and the Keychain only, and
     /// reaches the GM Smolcorp starts through its environment.
     var gmByHand = false
@@ -132,6 +147,9 @@ final class Config: Codable {
     /// until it's settled once at launch: off on a new Mac, and on one that
     /// had it before as it was.
     var officeOnTop: Bool?
+    /// The keys that show and hide the office's window from anywhere, as the
+    /// setup page records them (see `OfficeKey`): none for ⌥⌘O, "off" for none.
+    var officeKey: String?
     /// Bots that work in a cloud, not in a terminal here, each at a desk of
     /// its own (see `CloudBot`). None until you set some.
     var cloudBots: [CloudBot] = []
@@ -152,6 +170,10 @@ final class Config: Codable {
     var floors = Floor.standard
     /// The folders whose sessions sit on a floor of their own (see `FloorRule`).
     var floorRules: [FloorRule] = []
+    /// The engine an earlier version ran ("swift" or "go"): ignored since
+    /// 1.25.0, which runs the Go core alone (`Engine`), and kept in the file
+    /// as written. Never saved unless it was set.
+    var engine: String?
     /// Some of the file couldn't be read as this version reads it, and is
     /// left out: a copy of the file is kept before it's saved over.
     private(set) var lostOnLoad = false
@@ -163,11 +185,13 @@ final class Config: Codable {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case pins, colours, layout, profiles, activeProfile, logo, scrollEnabled, hiringEnabled, hireFolder, hireAgent, roles, rolesOffered
-        case hireTerminal, hireInTmux, hireWorktrees, recentHireFolders, dictationEnabled, dictationLanguage, dictationForClaude
+        case hireTerminal, hireInTmux, hiresInBackground, t3CodeEnabled, choicesAsked, hireWorktrees, recentHireFolders, dictationEnabled, dictationLanguage, dictationForClaude
         case dictationCleanup, dictationGlossary
         case musicEnabled, maxConfirm, webhook, summaryOptIn, summaryProvider, viewer, hasCompletedSetup, hooksDisconnected, claudeProfiles, managerEnabled, gmByHand
+        case guideDone
         case mailMaxBytes, mailPerHour, mailWaitHours, mailInboxSocket, builtinWatches, teamScreen, keystrokesAllowed, keystrokeApps
         case phoneMicEnabled, showInDock, cloudBots, floors, floorRules, botsAutoDetect, hiddenBots, botFloor
+        case engine, officeKey
         // Under a name of its own since the confirm box: the old one, saved as
         // true by every earlier build, meant no box had been offered yet.
         case phoneMicAutoSend = "phoneMicSkipsConfirm"
@@ -207,6 +231,9 @@ final class Config: Codable {
         hireAgent = field(String.self, .hireAgent).flatMap { Agent(rawValue: $0)?.rawValue } ?? hireAgent
         hireTerminal = field(String.self, .hireTerminal).flatMap { id in Openers.choices.contains { $0.id == id } ? id : nil } ?? hireTerminal
         hireInTmux = field(Bool.self, .hireInTmux) ?? false
+        hiresInBackground = field(Bool.self, .hiresInBackground) ?? false
+        t3CodeEnabled = field(Bool.self, .t3CodeEnabled) ?? false
+        choicesAsked = field(Bool.self, .choicesAsked) ?? true
         hireWorktrees = field(String.self, .hireWorktrees).flatMap { $0.hasPrefix("/") ? $0 : nil } ?? ""
         recentHireFolders = Array((field([String].self, .recentHireFolders) ?? []).filter { $0.hasPrefix("/") }.prefix(Config.recentHireFoldersMost))
         dictationEnabled = field(Bool.self, .dictationEnabled) ?? false
@@ -237,6 +264,8 @@ final class Config: Codable {
         }
         managerEnabled = field(Bool.self, .managerEnabled) ?? false
         gmByHand = field(Bool.self, .gmByHand) ?? false
+        // Someone who had set up before the guide came never sees it unless they ask.
+        guideDone = field(Bool.self, .guideDone) ?? (hasCompletedSetup || !hireFolder.isEmpty || managerEnabled || gmByHand)
         // At least 1, so a bad value can't shut the mail off without saying so.
         mailMaxBytes = max(1, field(Int.self, .mailMaxBytes) ?? MailRouter.defaultMaxBytes)
         mailPerHour = max(1, field(Int.self, .mailPerHour) ?? MailRouter.defaultPerHour)
@@ -251,6 +280,7 @@ final class Config: Codable {
         phoneMicAutoSend = field(Bool.self, .phoneMicAutoSend) ?? false
         showInDock = field(Bool.self, .showInDock) ?? true
         officeOnTop = field(Bool.self, .officeOnTop)
+        officeKey = field(String.self, .officeKey)
         cloudBots = CloudBot.checked(field([Lossy<CloudBot>].self, .cloudBots)?.compactMap(\.value) ?? [])
         // A file from before it: where the bots are, and again once those that were upstairs are settled.
         let keptFloor = field(Int.self, .botFloor).flatMap { (0..<Floor.count).contains($0) ? $0 : nil }
@@ -261,6 +291,8 @@ final class Config: Codable {
         // Checked as they load: their names are drawn in the office.
         floors = Floor.checked(field([Lossy<Floor>].self, .floors)?.map(\.value) ?? [])
         floorRules = FloorRule.checked(field([Lossy<FloorRule>].self, .floorRules)?.compactMap(\.value) ?? [])
+        // Kept as written, even a name this version doesn't know: the app logs it, and runs the Go engine.
+        engine = field(String.self, .engine)
         lostOnLoad = lost
     }
 
@@ -536,9 +568,4 @@ enum Logo: String, Codable, CaseIterable {
     init?(stored: String) {
         self.init(rawValue: stored == "sauzze" ? "smolcorp" : stored)
     }
-
-    var icon: URL { Paths.web.appendingPathComponent("icon-\(rawValue).png") }
-    /// Personal build: the same with a TAIL badge, for the deck served at the Tailscale address, so the two Home
-    /// Screen icons can be told apart.
-    var tailIcon: URL { Paths.web.appendingPathComponent("icon-\(rawValue)-tail.png") }
 }

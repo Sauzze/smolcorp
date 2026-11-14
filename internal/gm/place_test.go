@@ -68,6 +68,35 @@ func TestPinSendsTheDeskAndTheFolderWithTheGMsToken(t *testing.T) {
 	if r.Header.Get("X-AgentDeck-Setup") != "1" || r.Header.Get(tokenHeader) != fakeToken {
 		t.Errorf("headers = %v", r.Header)
 	}
+	// The ground floor goes without a floor, as the app before floors had pins reads it.
+	if q.Has("floor") {
+		t.Errorf("a pin downstairs names no floor: %v", q)
+	}
+}
+
+// A desk upstairs: --floor as the office names floors (2 for 2F), sent counted from 0, with the same token.
+func TestPinAndUnpinOnAFloorUpstairs(t *testing.T) {
+	app := placeApp(t, 204, "", nil)
+	code, out, errOut := runGM(app.env(t, withToken()), "pin", "--desk", "5", "--floor", "3", "--folder", "/work/app")
+	if code != 0 || !strings.Contains(out, "to desk 5 on 3F.") {
+		t.Fatalf("exit %d %q %q", code, out, errOut)
+	}
+	if q, _ := url.ParseQuery(app.reqs[0].RawQuery); app.reqs[0].Path != "/setup/pin" || q.Get("key") != "4" || q.Get("floor") != "2" ||
+		app.reqs[0].Header.Get(tokenHeader) != fakeToken {
+		t.Errorf("request = %+v", app.reqs[0])
+	}
+	app = placeApp(t, 204, "", nil)
+	code, out, _ = runGM(app.env(t, withToken()), "unpin", "--desk", "5", "--floor", "3")
+	if q, _ := url.ParseQuery(app.reqs[0].RawQuery); code != 0 || app.reqs[0].Path != "/setup/unpin" || q.Get("key") != "4" || q.Get("floor") != "2" ||
+		!strings.Contains(out, "desk 5 on 3F") {
+		t.Errorf("exit %d %q, request %+v", code, out, app.reqs[0])
+	}
+	// --floor 1 is the ground floor, sent as before.
+	app = placeApp(t, 204, "", nil)
+	runGM(app.env(t, withToken()), "unpin", "--desk", "5", "--floor", "1")
+	if q, _ := url.ParseQuery(app.reqs[0].RawQuery); q.Has("floor") {
+		t.Errorf("1F is the ground floor: %v", q)
+	}
 }
 
 func TestPinWithoutADeskUsesTheDeskItsSessionSitsAt(t *testing.T) {
@@ -108,7 +137,9 @@ func TestPinDefaultsToTheCurrentFolderMadeAbsolute(t *testing.T) {
 
 func TestPinAndUnpinRefuseABadDeskBeforeAskingTheApp(t *testing.T) {
 	for _, args := range [][]string{{"pin", "--desk", "0"}, {"pin", "--desk", "10"}, {"unpin", "--desk", "0"}, {"unpin"}, {"unpin", "--desk", "10"},
-		{"pin", "--desk", "1", "extra"}, {"unpin", "--desk", "1", "--folder", "/x"}} {
+		{"pin", "--desk", "1", "extra"}, {"unpin", "--desk", "1", "--folder", "/x"},
+		{"pin", "--desk", "1", "--floor", "0"}, {"pin", "--desk", "1", "--floor", "7"}, {"unpin", "--desk", "1", "--floor", "7"},
+		{"pin", "--floor", "2", "--folder", "/x"}} {
 		app := placeApp(t, 204, "", nil)
 		if code, _, _ := runGM(app.env(t, withToken()), args...); code != exitUsage || len(app.reqs) != 0 {
 			t.Errorf("%v: exit %d, requests %+v", args, code, app.reqs)
@@ -221,7 +252,7 @@ func TestAHireCantPinOrNameAnyone(t *testing.T) {
 
 func TestTheHelpListsThePlaceCommands(t *testing.T) {
 	_, out, _ := runGM(Env{Getenv: func(string) string { return "" }}, "help")
-	for _, want := range []string{"pin [--desk N] [--folder F]", "unpin --desk N", "nickname <name> [--folder F]"} {
+	for _, want := range []string{"pin [--desk N [--floor N]] [--folder F]", "unpin --desk N [--floor N]", "nickname <name> [--folder F]"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help lacks %q", want)
 		}
@@ -249,10 +280,45 @@ func TestTheCLIShowsDesksFromOne(t *testing.T) {
 	}
 }
 
+// HIREUX: `gm hire` says where the hire works, so a worktree beside the folder isn't taken for the folder.
+func TestHireSaysWhereTheHireWorks(t *testing.T) {
+	app := placeApp(t, 200, `{"ok":true,"desk":2,"session":null,"worksIn":"/work/app-hires/ada-1a2b3c","branch":"hire/ada-1a2b3c"}`, nil)
+	code, out, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor", "--folder", "/work/app")
+	want := "Hired a janitor. At desk 3. Works in /work/app-hires/ada-1a2b3c (a worktree of its own on branch hire/ada-1a2b3c, not the project folder itself).\n"
+	if code != 0 || errOut != "" || out != want {
+		t.Errorf("exit %d out %q err %q, want %q", code, out, errOut, want)
+	}
+	if got := worksNote([]byte(`{"worksIn":"/work/app"}`)); got != " Works in /work/app." {
+		t.Errorf("no branch: worksNote = %q", got)
+	}
+	if got := worksNote([]byte(`{"desk":0}`)); got != "" {
+		t.Errorf("an answer without it: worksNote = %q", got)
+	}
+}
+
 func TestNicknameNameAfterTheFlagsSaysPutTheNameFirst(t *testing.T) {
 	app := placeApp(t, 200, `{}`, nil)
 	code, _, errOut := runGM(app.env(t, withToken()), "nickname", "--folder", "/work/app", "Ada")
 	if code != exitUsage || !strings.Contains(errOut, "name first") || len(app.reqs) != 0 {
 		t.Errorf("exit %d %q, requests %+v", code, errOut, app.reqs)
+	}
+}
+
+// Without --desk, the desk its session sits at now, upstairs too: pinned on that floor.
+func TestPinWithoutADeskFindsItsSessionUpstairs(t *testing.T) {
+	team, _ := json.Marshal(map[string]any{"team": []map[string]any{{"folder": workApp(t), "live": true, "floor": 2, "desk": 4}}})
+	app := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/setup/gm/team" {
+			w.Write(team)
+			return
+		}
+		serve(nil, 204)(w, r)
+	})
+	code, out, errOut := runGM(app.env(t, withToken()), "pin", "--folder", "/work/app")
+	if code != 0 || !strings.Contains(out, "to desk 5 on 3F.") || len(app.reqs) != 2 {
+		t.Fatalf("exit %d %q %q, requests %+v", code, out, errOut, app.reqs)
+	}
+	if q, _ := url.ParseQuery(app.reqs[1].RawQuery); q.Get("key") != "4" || q.Get("floor") != "2" {
+		t.Errorf("query = %v", q)
 	}
 }

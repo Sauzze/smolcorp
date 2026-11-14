@@ -178,7 +178,7 @@ func TestMCPHasNoAnswerTool(t *testing.T) {
 // T735: the tools the Go app doesn't serve yet say so in their description.
 func TestMCPToolsNameWhatLinuxAndWindowsLack(t *testing.T) {
 	for _, tool := range mcpTools() {
-		want := tool.Name == "hire" || tool.Name == "brief" || tool.Name == "fire" || tool.Name == "accounts"
+		want := tool.Name == "accounts"
 		if got := strings.Contains(tool.Description, "Not served on Linux and Windows yet."); got != want {
 			t.Errorf("%s: note = %v, want %v", tool.Name, got, want)
 		}
@@ -201,7 +201,7 @@ func TestMCPPlaceToolsSchemasAndRequests(t *testing.T) {
 	got := session(t, env,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"pin","arguments":{"desk":3,"folder":"/work/app"}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"unpin","arguments":{"desk":3}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"unpin","arguments":{"desk":3,"floor":2}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"nickname","arguments":{"name":"Ada","folder":"/work/app"}}}`,
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"nickname","arguments":{"name":""}}}`,
 		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"unpin","arguments":{}}}`,
@@ -215,8 +215,8 @@ func TestMCPPlaceToolsSchemasAndRequests(t *testing.T) {
 		schemas[m["name"].(string)] = string(b)
 	}
 	for name, want := range map[string]string{
-		"pin":      `{"properties":{"desk":{"description":"the desk, counted from 1 as the office shows","type":"integer"},"folder":{"description":"the project's folder","type":"string"}},"type":"object"}`,
-		"unpin":    `{"properties":{"desk":{"description":"the desk, counted from 1 as the office shows","type":"integer"}},"required":["desk"],"type":"object"}`,
+		"pin":      `{"properties":{"desk":{"description":"the desk, counted from 1 as the office shows","type":"integer"},"floor":{"description":"the floor, 1 for 1F (the ground floor) to 6 for 6F","type":"integer"},"folder":{"description":"the project's folder","type":"string"}},"type":"object"}`,
+		"unpin":    `{"properties":{"desk":{"description":"the desk, counted from 1 as the office shows","type":"integer"},"floor":{"description":"the floor, 1 for 1F (the ground floor) to 6 for 6F","type":"integer"}},"required":["desk"],"type":"object"}`,
 		"nickname": `{"properties":{"folder":{"description":"the project's folder; the server's own if left out","type":"string"},"name":{"description":"the nickname, or empty for none","type":"string"}},"required":["name"],"type":"object"}`,
 	} {
 		if schemas[name] != want {
@@ -234,7 +234,7 @@ func TestMCPPlaceToolsSchemasAndRequests(t *testing.T) {
 	if q, _ := url.ParseQuery(app.reqs[0].RawQuery); app.reqs[0].Path != "/setup/pin" || q.Get("key") != "2" || q.Get("folder") != workApp(t) {
 		t.Errorf("pin = %+v", app.reqs[0])
 	}
-	if q, _ := url.ParseQuery(app.reqs[1].RawQuery); app.reqs[1].Path != "/setup/unpin" || q.Get("key") != "2" {
+	if q, _ := url.ParseQuery(app.reqs[1].RawQuery); app.reqs[1].Path != "/setup/unpin" || q.Get("key") != "2" || q.Get("floor") != "1" {
 		t.Errorf("unpin = %+v", app.reqs[1])
 	}
 	if app.reqs[2].Path != "/setup/gm/nickname" || bodies[2] != `{"folder":`+workAppJSON(t)+`,"name":"Ada"}` {

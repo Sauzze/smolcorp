@@ -34,7 +34,7 @@ func TestTheGeodePackIsInEveryList(t *testing.T) {
 			known[c] = true
 		}
 	}
-	web, viewer := officeSources(t)
+	web := officeSource(t)
 	ids := append([]string{"geode"}, geodePieces...)
 	for _, gem := range geodeGems {
 		ids = append(ids, "geode"+gem)
@@ -50,14 +50,14 @@ func TestTheGeodePackIsInEveryList(t *testing.T) {
 			t.Errorf("%s is nowhere in office.js", id)
 		}
 	}
-	if strings.Contains(string(web), "add-piece: TODO") || strings.Contains(string(viewer), "add-piece: TODO") {
+	if strings.Contains(string(web), "add-piece: TODO") {
 		t.Error("a placeholder is still in office.js")
 	}
 }
 
 // Each gem outfit is drawn from its gem's row: the table has a row for every gem the lists know, and none they don't.
 func TestEveryGeodeGemOutfitIsARowOfTheTable(t *testing.T) {
-	web, _ := officeSources(t)
+	web := officeSource(t)
 	src := string(web)
 	at := strings.Index(src, "const GEODE_GEMS = {")
 	if at < 0 {

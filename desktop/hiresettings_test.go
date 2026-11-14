@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Sauzze/smolcorp/internal/guard"
 )
 
 // The Go port of HireSettingsTests.swift: temporary support, worktree and Claude folders only,
@@ -55,17 +57,14 @@ func (r *hireSettingsRig) write(id string, mutate func(*hireSettingsOptions)) (s
 	if mutate != nil {
 		mutate(&o)
 	}
-	return writeHireSettings(o)
+	return hireSettingsLine(o)
 }
 
-func (r *hireSettingsRig) json(path string) map[string]any {
+// json is the settings a hire's command line carries, read.
+func (r *hireSettingsRig) json(line string) map[string]any {
 	r.t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		r.t.Fatal(err)
-	}
 	var object map[string]any
-	if err := json.Unmarshal(data, &object); err != nil {
+	if err := json.Unmarshal([]byte(line), &object); err != nil {
 		r.t.Fatal(err)
 	}
 	return object
@@ -80,13 +79,41 @@ func (r *hireSettingsRig) deny(path string) []string {
 	return out
 }
 
-func (r *hireSettingsRig) hook(path string) string {
+// hook is the guard's PreToolUse hook: its program and arguments, as Claude Code runs it without a shell.
+func (r *hireSettingsRig) hook(line string) []string {
 	r.t.Helper()
-	hooks := r.json(path)["hooks"].(map[string]any)["PreToolUse"].([]any)
+	hooks := r.json(line)["hooks"].(map[string]any)["PreToolUse"].([]any)
 	if len(hooks) != 1 || hooks[0].(map[string]any)["matcher"] != "*" {
 		r.t.Fatalf("hooks = %v", hooks)
 	}
-	return hooks[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	hook := hooks[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)
+	if hook["onFailure"] != "block" || hook["type"] != "command" || hook["timeout"] != 10.0 {
+		r.t.Fatalf("the guard's hook doesn't block when it fails: %v", hook)
+	}
+	words := []string{hook["command"].(string)}
+	for _, arg := range hook["args"].([]any) {
+		words = append(words, arg.(string))
+	}
+	return words
+}
+
+// heldArgument is what --groups carries when the core holds no guard file of its own: the default groups.
+func heldArgument() string { return guard.GroupsArgument(guard.DefaultGroups()) }
+
+// fixtureShell is the shell the fixtures' desks are pinned to.
+const fixtureShell = "/bin/zsh"
+
+// fixtureHeld is the core's copy of the groups in a fixture's case: the groups its guard printed, as --groups
+// gives them, so a fixture doesn't change with the default groups.
+func fixtureHeld(t *testing.T, printed string) string {
+	t.Helper()
+	var answer struct {
+		Groups []guard.Group `json:"groups"`
+	}
+	if err := json.Unmarshal([]byte(printed), &answer); err != nil {
+		t.Fatal(err)
+	}
+	return guard.GroupsArgument(answer.Groups)
 }
 
 // hireGlob is just enough of gitignore's globbing for the rules: ** crosses folders, * doesn't.
@@ -141,8 +168,9 @@ func TestHireSettingsHoldTheDenyRulesTheGuardAndAutoMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(r.support, "hires", "abc123", "settings.json"); path != want {
-		t.Fatalf("path = %s, want %s", path, want)
+	// In the command line only: no settings file a hire could change (SANDBOX-PLAN §3.4, g2).
+	if _, err := os.Stat(filepath.Join(r.support, "hires", "abc123", "settings.json")); err == nil {
+		t.Fatal("a settings file was written")
 	}
 	settings := r.json(path)
 	if settings["permissions"].(map[string]any)["defaultMode"] != "auto" {
@@ -174,9 +202,9 @@ func TestHireSettingsHoldTheDenyRulesTheGuardAndAutoMode(t *testing.T) {
 			t.Errorf("Write rule %s", rule)
 		}
 	}
-	// The guard runs before every tool, reading the app's hire-guard.json.
-	if got, want := r.hook(path), shellPath(r.cli)+" guard --rules "+shellPath(filepath.Join(r.support, "hire-guard.json")); got != want {
-		t.Errorf("hook = %s, want %s", got, want)
+	// The guard runs before every tool, without a shell, with the core's groups and the app's hire-guard.json.
+	if got, want := r.hook(path), []string{r.cli, "guard", "--groups", heldArgument(), "--rules", filepath.Join(r.support, "hire-guard.json")}; !slices.Equal(got, want) {
+		t.Errorf("hook = %q, want %q", got, want)
 	}
 	if v, ok := settings["disableAllHooks"].(bool); !ok || v {
 		t.Errorf("disableAllHooks = %v, want false", settings["disableAllHooks"])
@@ -192,7 +220,7 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 		work = `C:\work\`
 	}
 	got := hireDenyRules("abc123", groups, "/s", []claudeProfile{{Name: "work", Dir: work}, {Name: "bad", Dir: "rel"}},
-		[]string{"abc123", "other11", ".hid"}, []string{"events", "hires", ".x", "briefs"})
+		[]string{"abc123", "other11", ".hid"}, []string{"events", "hires", ".x", "briefs"}, "darwin")
 	var want []string
 	both := func(p string) { want = append(want, "Edit("+p+")") }
 	want = append(want, "Bash(git push:*)", "Bash(npx git push:*)", "Bash(git send-pack:*)", "Bash(npx git send-pack:*)",
@@ -203,22 +231,135 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 	want = append(want, "Read(~/.claude*/projects/**)")
 	both("//c/work/settings*.json")
 	want = append(want, "Read(//c/work/projects/**)")
-	for _, p := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "setup-key", "hook-header", "hook-key", "window-key", "token"} {
+	for _, p := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "grants-key", "grants.jsonl.tmp", "phones-seal", "claude-install", "claude-install.tmp"} {
 		both("//s/" + p)
 	}
+	both("//s/events")
 	both("//s/events/**")
+	both("//s/briefs")
 	both("//s/briefs/**")
 	both("//s/recaps/**")
+	both("//s/claude-install/**")
+	both("//s/claude-install.tmp/**")
 	both("//s/hires/*.sh")
 	for _, p := range []string{"*.json", "*.sh", "*.jsonl", "*.log", "settings*"} {
 		both("//s/hires/*/" + p)
 	}
 	both("//s/hires/other11/**")
-	for _, n := range []string{"gm-token", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json"} {
+	for _, n := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json", "grants-key", "grants.jsonl", "grants.jsonl.tmp", "phones-seal", "claude-install", "claude-install.tmp"} {
 		want = append(want, "Read(//s/"+n+")")
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("rules differ:\n got %q\nwant %q", got, want)
+	}
+}
+
+// RT126FS2 B1: a hire can neither read nor write the owner's grant record, the file it is written through or its
+// key's name, on every system; and a file the support folder holds is denied as a file, not only as a folder's /**
+// (which doesn't match it), once, even when a pattern names it too.
+func TestAHireCantTouchTheGrantRecord(t *testing.T) {
+	for _, system := range []string{"darwin", "linux", "windows"} {
+		rules := hireDenyRules("abc123", nil, "/s", nil, nil, []string{"grants.jsonl", "grants-key", "some-file", "hook-key"}, system)
+		for _, rule := range []string{
+			"Read(//s/grants-key)", "Edit(//s/grants-key)", "Read(//s/grants.jsonl)", "Edit(//s/*.jsonl)",
+			"Read(//s/grants.jsonl.tmp)", "Edit(//s/grants.jsonl.tmp)", "Edit(//s/some-file)", "Edit(//s/grants.jsonl)",
+		} {
+			if !slices.Contains(rules, rule) {
+				t.Errorf("%s: no %s", system, rule)
+			}
+		}
+		for _, rule := range []string{"Edit(//s/grants-key)", "Edit(//s/hook-key)"} {
+			if n := len(slices.DeleteFunc(slices.Clone(rules), func(r string) bool { return r != rule })); n != 1 {
+				t.Errorf("%s: %s %d times", system, rule, n)
+			}
+		}
+	}
+}
+
+// RMSY126k nit 1: a hire can neither write nor read which Claude Code the owner has (claude-install, agentcheck.go),
+// on every system, whether the file is there yet or not: "npm" written there would let an unsigned Claude Code start
+// after a signed one, at the next start. Nor can it write the file it is written through, or leave a folder in the
+// place of either, which would stop "signed" from ever reaching the disk (RT126SG2F B1). Only the rules are checked:
+// nothing is written there.
+func TestAHireCantWriteWhichClaudeCodeTheOwnerHas(t *testing.T) {
+	for _, system := range []string{"darwin", "linux", "windows"} {
+		for _, entries := range [][]string{nil, {claudeInstallName}, {claudeInstallName, claudeInstallTemp}} {
+			rules := hireDenyRules("abc123", nil, "/s", nil, nil, entries, system)
+			for _, path := range []string{"/s/claude-install", "/s/claude-install.tmp"} {
+				for _, tool := range []string{"Edit", "Write", "Read"} {
+					if !hireDenied(rules, path, tool) {
+						t.Errorf("%s, entries %v: %s of %s isn't denied", system, entries, tool, path)
+					}
+				}
+			}
+			for _, path := range []string{"/s/claude-install/x", "/s/claude-install.tmp/x"} {
+				for _, tool := range []string{"Edit", "Write"} {
+					if !hireDenied(rules, path, tool) {
+						t.Errorf("%s, entries %v: %s of %s isn't denied", system, entries, tool, path)
+					}
+				}
+			}
+			for _, rule := range []string{"Edit(//s/claude-install)", "Edit(//s/claude-install.tmp)", "Edit(//s/claude-install/**)", "Edit(//s/claude-install.tmp/**)"} {
+				if n := len(slices.DeleteFunc(slices.Clone(rules), func(r string) bool { return r != rule })); n != 1 {
+					t.Errorf("%s, entries %v: %s %d times", system, entries, rule, n)
+				}
+			}
+		}
+	}
+	// Through the settings a hire really gets, with the file absent: nothing it can do with its tools reaches it.
+	r := newHireSettingsRig(t)
+	path, err := r.write("abc123", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(r.support, claudeInstallName)); err == nil {
+		t.Fatal("the rig has a claude-install")
+	}
+	deny := r.deny(path)
+	for _, tool := range []string{"Edit", "Write", "Read"} {
+		for _, name := range []string{claudeInstallName, claudeInstallTemp} {
+			if !hireDenied(deny, filepath.Join(r.support, name), tool) {
+				t.Errorf("a hire's %s of %s isn't denied", tool, name)
+			}
+		}
+	}
+	for _, name := range []string{claudeInstallName, claudeInstallTemp} {
+		if !hireDenied(deny, filepath.Join(r.support, name, "x"), "Write") {
+			t.Errorf("a hire's Write in a folder named %s isn't denied", name)
+		}
+	}
+}
+
+// RT126SG2F: a folder left where claude-install is written through stops the write; that is said, never silent, and
+// the kind still holds while Smolcorp runs.
+func TestAClaudeInstallThatCantBeWrittenIsSaid(t *testing.T) {
+	var said []string
+	saved := sayClaudeInstall
+	sayClaudeInstall = func(text string) { said = append(said, text) }
+	t.Cleanup(func() { sayClaudeInstall = saved })
+	support := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(support, claudeInstallTemp, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	m := &claudeInstallMemory{path: filepath.Join(support, claudeInstallName)}
+	m.keep(claudeSigned)
+	if m.kind != claudeSigned {
+		t.Errorf("in memory: %q", m.kind)
+	}
+	if _, err := os.Stat(m.path); err == nil {
+		t.Error("written after all")
+	}
+	if len(said) != 1 || !strings.Contains(said[0], "couldn't be written down") || !strings.Contains(said[0], claudeInstallTemp) {
+		t.Errorf("said: %q", said)
+	}
+	// Kept as it was, nothing more is said; a write that works says nothing.
+	m.keep(claudeSigned)
+	if err := os.RemoveAll(filepath.Join(support, claudeInstallTemp)); err != nil {
+		t.Fatal(err)
+	}
+	m.keep(claudeUnsigned)
+	if data, err := os.ReadFile(m.path); err != nil || string(data) != claudeUnsigned+"\n" || len(said) != 1 {
+		t.Errorf("after the folder is gone: %q %v, said %q", data, err, said)
 	}
 }
 
@@ -242,17 +383,17 @@ func TestHireGuardHookUsesTheGMProfileAndAHiresDoesNot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := r.hook(gm), shellPath(r.cli)+" guard --profile gm --rules "+shellPath(rules); got != want {
-		t.Errorf("gm hook = %s, want %s", got, want)
+	if got, want := r.hook(gm), []string{r.cli, "guard", "--profile", "gm", "--groups", heldArgument(), "--rules", rules}; !slices.Equal(got, want) {
+		t.Errorf("gm hook = %q, want %q", got, want)
 	}
-	if want := []string{r.cli, "guard", "--print", "--profile", "gm", "--rules", rules}; !slices.Equal(r.asked[0], want) {
+	if want := []string{r.cli, "guard", "--print", "--profile", "gm", "--groups", heldArgument(), "--rules", rules}; !slices.Equal(r.asked[0], want) {
 		t.Errorf("asked %q, want %q", r.asked[0], want)
 	}
 	hire, err := r.write("hire01", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hook := r.hook(hire); strings.Contains(hook, "--profile") {
+	if hook := r.hook(hire); slices.Contains(hook, "--profile") {
 		t.Errorf("a hire's hook has a profile: %s", hook)
 	}
 }
@@ -280,35 +421,31 @@ func TestHireGMKeepsTheDenyRulesAndMayReadTheTeamsStatusFiles(t *testing.T) {
 	}
 }
 
-func TestHireSettingsLeaveAutoModeOutWhenNotWanted(t *testing.T) {
+// Without auto mode the default mode is still pinned, to the default: a project's settings can't choose another
+// (SANDBOX-PLAN §3.4).
+func TestHireSettingsPinTheDefaultModeWhenAutoModeIsNotWanted(t *testing.T) {
 	r := newHireSettingsRig(t)
 	path, err := r.write("abc123", func(o *hireSettingsOptions) { o.Auto = false })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := r.json(path)["permissions"].(map[string]any)["defaultMode"]; ok {
-		t.Fatal("defaultMode present")
+	if mode := r.json(path)["permissions"].(map[string]any)["defaultMode"]; mode != "default" {
+		t.Fatalf("defaultMode = %v", mode)
 	}
 }
 
-func TestHireSettingsFileIsPrivateAndReplacedWhole(t *testing.T) {
+// Nothing is written for a hire's settings: not in its folder, not anywhere in the support folder.
+func TestHireSettingsWriteNoFile(t *testing.T) {
 	r := newHireSettingsRig(t)
-	path, err := r.write("abc123", nil)
-	if err != nil {
+	before, _ := filepath.Glob(filepath.Join(r.support, "*", "*"))
+	if _, err := r.write("abc123", nil); err != nil {
 		t.Fatal(err)
 	}
-	if runtime.GOOS != "windows" {
-		file, _ := os.Stat(path)
-		folder, _ := os.Stat(filepath.Dir(path))
-		if file.Mode().Perm() != 0o600 || folder.Mode().Perm() != 0o700 {
-			t.Errorf("modes: file %v, folder %v", file.Mode().Perm(), folder.Mode().Perm())
-		}
+	if after, _ := filepath.Glob(filepath.Join(r.support, "*", "*")); !slices.Equal(before, after) {
+		t.Errorf("files made: %q, before %q", after, before)
 	}
-	if _, err := r.write("abc123", func(o *hireSettingsOptions) { o.Auto = false }); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := r.json(path)["permissions"].(map[string]any)["defaultMode"]; ok {
-		t.Fatal("not replaced whole")
+	if _, err := os.Stat(hireFolder(r.support, "abc123")); err == nil {
+		t.Error("the hire's folder was made for its settings")
 	}
 }
 
@@ -332,7 +469,7 @@ func TestHireOwnStatusFileIsNotDeniedButItsSettingsAndTheRestAre(t *testing.T) {
 			t.Errorf("%s: a later hire's status file is covered", tool)
 		}
 	}
-	for _, name := range []string{"gm-token", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json"} {
+	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "phones-seal", "sessions.json", "config.json", "registry.json"} {
 		if !hireDenied(deny, base+"/"+name, "Read") {
 			t.Errorf("%s can be read", name)
 		}
@@ -397,7 +534,7 @@ func TestHireGuardIsAskedAboutTheAppsOwnRulesFile(t *testing.T) {
 	if _, err := r.write("abc123", nil); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{r.cli, "guard", "--print", "--rules", filepath.Join(r.support, "hire-guard.json")}; !slices.Equal(r.asked[0], want) {
+	if want := []string{r.cli, "guard", "--print", "--groups", heldArgument(), "--rules", filepath.Join(r.support, "hire-guard.json")}; !slices.Equal(r.asked[0], want) {
 		t.Fatalf("asked %q, want %q", r.asked[0], want)
 	}
 }
@@ -423,7 +560,7 @@ func TestHireGuardRunnerRunsAFakeProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", dir)
-	path, err := writeHireSettings(hireSettingsOptions{HireID: "abc123", CLI: fake, Support: filepath.Join(dir, "support")})
+	path, err := hireSettingsLine(hireSettingsOptions{HireID: "abc123", CLI: fake, Support: filepath.Join(dir, "support")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +570,7 @@ func TestHireGuardRunnerRunsAFakeProgram(t *testing.T) {
 	if _, _, ok := runGuardTool(filepath.Join(dir, "missing"), nil); ok {
 		t.Fatal("a missing program reported as run")
 	}
-	if _, err := writeHireSettings(hireSettingsOptions{HireID: "abc123", CLI: filepath.Join(dir, "missing"), Support: dir}); err != errGuardMissing {
+	if _, err := hireSettingsLine(hireSettingsOptions{HireID: "abc123", CLI: filepath.Join(dir, "missing"), Support: dir}); err != errGuardMissing {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -465,7 +602,7 @@ func TestATestCopysHireSettingsReportToTheCopysPortAfterTheGuard(t *testing.T) {
 	object := r.json(path)
 	hooks, _ := object["hooks"].(map[string]any)
 	events := entriesFor(Claude).events
-	if len(hooks) != len(events) {
+	if len(hooks) != len(events)+1 || hooks["ConfigChange"] == nil {
 		t.Fatalf("hook events = %d, want %d: %v", len(hooks), len(events), hooks)
 	}
 	for _, event := range events {
@@ -474,14 +611,14 @@ func TestATestCopysHireSettingsReportToTheCopysPortAfterTheGuard(t *testing.T) {
 			t.Fatalf("no hook for %s", event)
 		}
 		text, _ := json.Marshal(groups[len(groups)-1])
-		if !strings.Contains(string(text), " hook --port 7799") || strings.Contains(string(text), "7710") {
+		if !strings.Contains(string(text), `"args":["hook","--port","7799"]`) || strings.Contains(string(text), "7710") {
 			t.Errorf("%s reports to %s", event, text)
 		}
 	}
 	// The guard stays first on PreToolUse, and the file still keeps hooks on.
 	pre, _ := hooks["PreToolUse"].([]any)
 	first, _ := json.Marshal(pre[0])
-	if len(pre) != 2 || !strings.Contains(string(first), " guard ") {
+	if len(pre) != 2 || !strings.Contains(string(first), `"args":["guard",`) {
 		t.Errorf("PreToolUse = %d groups, first %s", len(pre), first)
 	}
 	if object["disableAllHooks"] != false {
@@ -497,7 +634,7 @@ func TestARealInstallsHireSettingsHoldTheGuardAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	hooks, _ := r.json(path)["hooks"].(map[string]any)
-	if len(hooks) != 1 || hooks["PreToolUse"] == nil || len(hooks["PreToolUse"].([]any)) != 1 {
+	if len(hooks) != 2 || hooks["PreToolUse"] == nil || len(hooks["PreToolUse"].([]any)) != 1 || len(hooks["ConfigChange"].([]any)) != 1 {
 		t.Errorf("a real install's hire has hooks of its own: %v", hooks)
 	}
 }

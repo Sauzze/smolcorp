@@ -15,8 +15,8 @@ final class SharedPageFixesTests: XCTestCase {
         XCTAssertTrue(page.contains("state.platform === 'windows'"))
         XCTAssertTrue(page.contains("return '/home/you/project'"))
         XCTAssertFalse(page.contains("'Add a project folder, as /Users/you/project'"))
-        // The Mac says so in its own setup state
-        XCTAssertTrue(try read("Sources/AgentDeck/DeckRouter.swift").contains(#""platform": "darwin""#))
+        // The Go core says so in its setup state, "darwin" on a Mac
+        XCTAssertTrue(try read("desktop/server.go").contains(#""platform": runtime.GOOS,"#))
     }
 
     func testTheRolesUnderAHeldDeskHaveArrows() throws {
@@ -26,7 +26,6 @@ final class SharedPageFixesTests: XCTestCase {
         XCTAssertTrue(web.contains("target.step && rolesAt"))
         XCTAssertTrue(web.contains("e.key === 'ArrowRight' ? 1 : -1"), "the keyboard slides the roles too")
         XCTAssertTrue(web.contains("const stepRoles = (dir)"), "the arrows and keys share one step")
-        XCTAssertEqual(web, try read("viewer/public/office.js"), "the viewer's copy of the office is the same file")
     }
 
     /// T739: the Office pane opens cheap, for a person and for a screen reader (Accessibility), and a refresh with

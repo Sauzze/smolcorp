@@ -14,6 +14,12 @@ enum TestCopySecrets {
     /// The viewer's id, key and write secret, as a test copy keeps them: one file each, this name and a dash before the account.
     static let viewerName = "test-viewer-key"
 
+    /// The Macs this one joined, keys and all, as a test copy keeps them (`PeerKeys`): the core's one line.
+    static let peerKeysName = "test-peer-keys"
+
+    /// The VAPID key notifications are signed with, as a test copy keeps it (PushKey.swift).
+    static let pushKeyName = "test-push-key"
+
     /// Reads the file's one line. A file put there by hand may be too open (a `>` makes it 0644, in a folder
     /// that was made 0755), so it and its folder are tightened to 0600 and 0700 before it is read.
     static func read(_ file: URL) -> String? {
@@ -78,9 +84,11 @@ extension ViewerStore {
     }
 
     /// The Keychain, or in a test copy files in its own support folder (the Keychain is never asked there).
-    static func defaultStore(testCopy: Bool = TestCopy.isOn, support: URL? = TestCopy.support,
+    static func defaultStore(testCopy: Bool = TestCopy.isOn, support: URL? = TestCopy.support, underTest: Bool = Paths.underTest,
                              keychain: ViewerStore = .keychain) -> ViewerStore {
         if testCopy, let support { return .file(in: support) }
+        // The test suite never reads or replaces the owner's own items.
+        if underTest { return .file(in: Paths.testSupport) }
         return keychain
     }
 }

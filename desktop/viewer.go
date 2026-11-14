@@ -29,7 +29,7 @@ import (
 
 // ViewerSettings are the viewer's settings in config.json: its address and
 // the options. No secret is ever kept here: the id, the key and the write
-// secret are in the system's secret store.
+// secret are in the system's secret store (under the Mac app, its Keychain).
 type ViewerSettings struct {
 	// The viewer's address, as Vercel gives it: https://office-viewer-xxxx.vercel.app.
 	BaseURL string `json:"baseURL"`
@@ -101,7 +101,6 @@ const (
 	viewerIDAccount        = "id"
 	viewerKeyAccount       = "key"
 	viewerSecretAccount    = "write-secret"
-	viewerKeychainProblem  = "Can't read the viewer's key from your computer's secret store"
 	viewerNotSetUpProblem  = "Not set up yet"
 	viewerNoStoreProblem   = "There's no secret store on this computer to keep the viewer's keys in."
 	viewerQuitWait         = 5 * time.Second
@@ -110,6 +109,8 @@ const (
 	viewerHeartbeat        = 60 * time.Second
 	viewerReturnGrace      = 2 * time.Minute
 	viewerPresenceInterval = 5 * time.Second
+	// How long after the Mac or its screens wake to watch for you being at it (macReturn).
+	viewerWakeWatch = 10 * time.Minute
 	// Away for this long with no keyboard or mouse, and the next use is coming back.
 	viewerAwayAfter = 10 * time.Minute
 )
@@ -125,6 +126,27 @@ type viewerSecrets struct {
 	delete func(account string)
 	// notFound is whether an error from get says there's surely none.
 	notFound func(error) bool
+	// keychain is the Mac app's Keychain, through the bridge: its problems are said in the Mac's words.
+	keychain bool
+}
+
+// place is where the keys are kept, as a problem says it.
+func (s viewerSecrets) place() string {
+	if s.keychain {
+		return "the Keychain"
+	}
+	return "your computer's secret store"
+}
+
+// unreadable is the problem of a key that's there but can't be read.
+func (s viewerSecrets) unreadable() string { return "Can't read the viewer's key from " + s.place() }
+
+// notKept is the setup page's refusal when a new write secret can't be kept.
+func (s viewerSecrets) notKept() string {
+	if s.keychain {
+		return "Couldn't keep the write secret in the Keychain."
+	}
+	return viewerNoStoreProblem
 }
 
 // MARK: Crypto
@@ -445,6 +467,8 @@ type portableOffice struct {
 	onChange func()
 	client   *http.Client
 	presence func() (idle time.Duration, locked, ok bool)
+	// Under the Mac app, what it tells of you being back (hostPresence), in place of presence; nil elsewhere.
+	mac func() (macPresence, bool)
 
 	on                         bool
 	since, lastSent, lastTried time.Time
@@ -520,10 +544,15 @@ func (p *portableOffice) setSettings(settings ViewerSettings) {
 
 func (p *portableOffice) origin() (string, bool) { return viewerOrigin(p.settings.BaseURL) }
 
-// hasWriteSecret, with the lock held.
+// hasWriteSecret, with the lock held. Only a sure answer is kept; a failed or late one is asked again.
 func (p *portableOffice) hasWriteSecret() bool {
 	if p.secretKnown == nil {
 		_, err := p.secrets.get(viewerSecretAccount)
+		if err != nil && !p.secrets.notFound(err) {
+			// Not an answer: the app said no or took too long. A link that works must not vanish for that,
+			// so it's taken as there (as the Mac engine did) and asked again next time.
+			return true
+		}
 		known := err == nil
 		p.secretKnown = &known
 	}
@@ -653,8 +682,8 @@ func (p *portableOffice) Start() {
 	id, key, ok := p.identity()
 	if !ok {
 		// identity says why when the key is there but unreadable
-		if p.problem != viewerKeychainProblem {
-			p.problem = "Couldn't keep the viewer's key in your computer's secret store"
+		if p.problem != p.secrets.unreadable() {
+			p.problem = "Couldn't keep the viewer's key in " + p.secrets.place()
 		}
 		p.changedNow()
 		return
@@ -908,12 +937,16 @@ func (p *portableOffice) failed(words string) {
 
 // MARK: When you're back
 
-// watchForReturn turns it off when you're back at the computer, as the Mac
-// app does on an unlock, or on the keyboard or mouse used after a wake.
-// Here, where the system says: the screen unlocked after it was locked, or
-// the keyboard or mouse used after viewerAwayAfter without, on an unlocked
-// screen. See presence.
+// watchForReturn turns it off when you're back at the computer. Under the
+// Mac app, as the Swift engine did: on an unlock, or on the keyboard or mouse
+// used after a wake (watchMac). Elsewhere, where the system says: the screen
+// unlocked after it was locked, or the keyboard or mouse used after
+// viewerAwayAfter without, on an unlocked screen. See presence.
 func (p *portableOffice) watchForReturn(stop <-chan struct{}, started time.Time) {
+	if p.mac != nil {
+		p.watchMac(stop, started)
+		return
+	}
 	ticker := time.NewTicker(viewerPresenceInterval)
 	defer ticker.Stop()
 	away := false
@@ -922,6 +955,10 @@ func (p *portableOffice) watchForReturn(stop <-chan struct{}, started time.Time)
 		case <-stop:
 			return
 		case <-ticker.C:
+		}
+		if !p.stopsOnReturn() {
+			away = false
+			continue
 		}
 		idle, locked, ok := p.presence()
 		if !ok {
@@ -934,6 +971,13 @@ func (p *portableOffice) watchForReturn(stop <-chan struct{}, started time.Time)
 			p.cameBack(started, time.Now())
 		}
 	}
+}
+
+// stopsOnReturn is whether "Stop when I'm back" is on.
+func (p *portableOffice) stopsOnReturn() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.settings.StopOnReturn
 }
 
 // cameBack: back this soon after it was turned on may be launch, then lock,
@@ -955,12 +999,76 @@ func (p *portableOffice) cameBack(started, back time.Time) {
 		p.grace.Stop()
 	}
 	p.grace = time.AfterFunc(early, func() {
-		idle, locked, ok := p.presence()
+		idle, locked, ok := p.presenceNow()
 		if ok && !locked && idle < time.Since(back) && p.IsOn() {
 			p.Stop(0)
 		}
 	})
 	p.mu.Unlock()
+}
+
+// presenceNow is how long the keyboard and mouse have gone unused and whether the screen is locked: the
+// Mac app's answer under it, this system's elsewhere.
+func (p *portableOffice) presenceNow() (idle time.Duration, locked, ok bool) {
+	if p.mac != nil {
+		now, ok := p.mac()
+		return now.idle, now.locked, ok
+	}
+	return p.presence()
+}
+
+// watchMac is watchForReturn under the Mac app: it asks the app every few seconds what it has seen since
+// this start (macReturn).
+func (p *portableOffice) watchMac(stop <-chan struct{}, started time.Time) {
+	var watch macReturn
+	if p.stopsOnReturn() {
+		if now, ok := p.mac(); ok {
+			watch.see(now, time.Now())
+		}
+	}
+	ticker := time.NewTicker(viewerPresenceInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+		}
+		if !p.stopsOnReturn() {
+			// Nothing is asked while it's off; what happens meanwhile isn't counted when it's turned on.
+			watch = macReturn{}
+			continue
+		}
+		if now, ok := p.mac(); ok && watch.see(now, time.Now()) {
+			p.cameBack(started, time.Now())
+		}
+	}
+}
+
+// macReturn is when you're back at the Mac, as the Swift engine's portable office had it: the screen
+// unlocked, or within viewerWakeWatch of a wake (the Mac's or its screens'), the keyboard or mouse used in
+// the last few seconds on an unlocked screen. A locked one waits for its unlock instead. What came before
+// this start, the first answer seen, doesn't count.
+type macReturn struct {
+	seen *macPresence
+	woke time.Time
+}
+
+// see takes the app's answer at now, and says whether you're back.
+func (w *macReturn) see(now macPresence, at time.Time) bool {
+	last := w.seen
+	w.seen = &now
+	// The first answer, or an app whose counts started again: from here on.
+	if last == nil || now.unlocks < last.unlocks || now.wakes < last.wakes {
+		return false
+	}
+	if now.wakes > last.wakes {
+		w.woke = at
+	}
+	if now.unlocks > last.unlocks {
+		return true
+	}
+	return !w.woke.IsZero() && at.Sub(w.woke) < viewerWakeWatch && now.idle < viewerPresenceInterval && !now.locked
 }
 
 // MARK: Setup
@@ -975,7 +1083,7 @@ func (p *portableOffice) identity() (string, []byte, bool) {
 		return id, viewerKeyOf(text), true
 	}
 	if !p.secrets.notFound(errID) || !p.secrets.notFound(errKey) {
-		p.problem = viewerKeychainProblem
+		p.problem = p.secrets.unreadable()
 		return "", nil, false
 	}
 	return p.newIdentity()
@@ -1038,7 +1146,7 @@ func (p *portableOffice) RotateKey() {
 	}
 	id, key, ok := p.newIdentity()
 	if !ok {
-		p.problem = "Couldn't make a new key in your computer's secret store"
+		p.problem = "Couldn't make a new key in " + p.secrets.place()
 		p.changedNow()
 		p.mu.Unlock()
 		return

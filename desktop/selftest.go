@@ -40,6 +40,8 @@ const (
 	fixHomeWiFi  = "homewifi"  // phones on the home network too, not only Tailscale
 	fixTailscale = "tailscale" // Tailscale's download page
 	fixLogin     = "login"     // Smolcorp opens at login
+	// Under the Mac app only (hostshell.go).
+	fixAccessibility = "accessibility" // macOS asked to let Smolcorp use the keyboard
 )
 
 // selfTest is the checklist, in the order it's done in. Without the lock.
@@ -48,20 +50,47 @@ func (d *Deck) selfTest() []check {
 	if restart := restartCheck(); restart != nil {
 		checks = append(checks, *restart)
 	}
-	if install := installCheck(); install != nil {
+	if h := d.macHost(); h != nil {
+		// Under the Mac app, where the app is, as the Mac's own self-test says it (hostshell.go). Without
+		// the app's answer there's no line, rather than a made-up one.
+		if install, err := hostInstallCheck(h); err == nil {
+			checks = append(checks, install)
+		}
+	} else if install := installCheck(); install != nil {
 		checks = append(checks, *install)
 	}
-	checks = append(checks, hooksCheck(foundAgents(), isConnected, hooksPointHere))
-	d.mu.Lock()
-	scope := scopeOf(d.config)
-	phones := phonesOnly(d.access.Phones)
-	d.mu.Unlock()
-	checks = append(checks, networkCheck(scope, tailscaleAddresses()))
-	if firewall := firewallCheck(scope); firewall != nil {
-		checks = append(checks, *firewall)
+	if leavesAgentsAlone() {
+		checks = append(checks, testCopyHooksCheck())
+	} else {
+		checks = append(checks, hooksCheck(foundAgents(), isConnected, hooksPointHere))
 	}
-	checks = append(checks, phoneCheck(phones), loginCheck(isOpenAtLogin(), hasTray()))
+	d.mu.Lock()
+	scope := effectiveScope(d.config)
+	phones, waiting := phonesOnly(d.access.Phones), recordsText(recordsState(), recordsStale())
+	d.mu.Unlock()
+	// Under the Mac app, the rest is the Mac's (hostshell.go).
+	if d.macHost() != nil {
+		return append(checks, d.macChecks(phones, waiting)...)
+	}
+	checks = append(checks, networkCheck(scope, tailscaleAddresses()))
+	if scope != listenThisComputer {
+		if firewall := firewallCheck(scope); firewall != nil {
+			checks = append(checks, *firewall)
+		}
+	}
+	checks = append(checks, phoneCheck(phones, waiting), loginCheck(isOpenAtLogin(), hasTray()), limitsCheck())
 	return checks
+}
+
+// limitsCheck is what Smolcorp can't keep from a program of yours on this computer, said where you set it up
+// (SANDBOX-PLAN §5, owner's Q7): worth knowing, and nothing to do. Off a Mac nothing seals the records or the guard's
+// file, and the secret store and a desk's environment are open to every program you run.
+func limitsCheck() check {
+	return check{ID: "limits", Status: checkInfo, Title: "What another program of yours can still do",
+		Detail: "While Smolcorp is stopped, a program running as you can change its files: add a phone, or loosen the " +
+			"guard for hires started later. Smolcorp takes the change at its next start, and a program can make that " +
+			"start happen by stopping it. Programs of yours can also read the API key from this computer's secret store, " +
+			"and a desk's keys from its environment. See Keys, records and the guard in Smolcorp's docs."}
 }
 
 // ready is whether nothing in checks is in the way: a step still to take
@@ -70,12 +99,35 @@ func ready(checks []check) bool {
 	return !slices.ContainsFunc(checks, func(c check) bool { return c.Status == checkFix })
 }
 
+// testCopyHooksCheck is a test copy's hooks line, as the Mac's (SelfTest.hooksCheck): ticked, with no Connect, as
+// a test copy never writes your agents' settings (errTestCopyAgents) and its hires report through a hook of their own.
+//
+// A copy that is on a port of its own but isn't marked a test copy (no SMOLCORP_TEST_SUPPORT_DIR beside the port:
+// a real install on SMOLCORP_PORT, say) leaves your agents alone just the same, but says so: not connected, and why,
+// where it used to tick a line that was never true (RFXC1a N1).
+func testCopyHooksCheck() check {
+	if !testCopyMarked() {
+		return check{ID: "hooks", Status: checkTodo, Title: "Your agents report to Smolcorp", Detail: notConnectedOnPort()}
+	}
+	return check{ID: "hooks", Status: checkOK, Title: "Your agents report to Smolcorp", Detail: testCopyHires + " Sessions you start yourself report to the Smolcorp you use."}
+}
+
+// testCopyHires is the Mac's SelfTest.testCopyHires, word for word.
+const testCopyHires = "Your hires report to this test copy through its own hook."
+
+// notConnectedOnPort is what a copy on a port of its own, not marked a test copy, says of your agents: they aren't
+// connected, because only a copy on the office's own port connects them.
+func notConnectedOnPort() string {
+	return fmt.Sprintf("Not connected: Smolcorp is on port %d, not %d, so it leaves your agents' settings alone. "+
+		"To connect them, run Smolcorp on port %d.", Port, portFromEnvironment(""), portFromEnvironment(""))
+}
+
 // hooksCheck is whether every agent found reports to this Smolcorp: hooked
 // up, and naming this copy, not one in Downloads or one since removed.
 func hooksCheck(found []Agent, connected func(Agent) bool, here func(Agent) (bool, string)) check {
 	c := check{ID: "hooks", Title: "Your agents report to Smolcorp"}
 	if len(found) == 0 {
-		c.Status, c.Detail = checkFix, errNoAgents.Error()
+		c.Status, c.Detail = checkFix, noAgentsFound().Error()
 		return c
 	}
 	var good, wrong []string
@@ -90,7 +142,7 @@ func hooksCheck(found []Agent, connected func(Agent) bool, here func(Agent) (boo
 		}
 	}
 	if len(wrong) > 0 {
-		c.Status, c.Fix, c.Label = checkFix, fixRepair, "Connect them"
+		c.Status, c.Fix, c.Label = checkFix, fixRepair, "Connect"
 		c.Detail = strings.Join(wrong, "; ") + "."
 		return c
 	}
@@ -133,6 +185,10 @@ func hooksPointHere(agent Agent) (bool, string) {
 func networkCheck(scope string, tailscale []string) check {
 	c := check{ID: "network", Title: "Your phone can reach this computer"}
 	switch {
+	case scope == listenThisComputer:
+		// A test copy: nothing on the network reaches it, and nothing here offers to change that (RTCH N2).
+		c.Status = checkInfo
+		c.Detail = "This test copy listens on this computer only, so no phone reaches it. Open it from a browser on this computer."
 	case len(tailscale) > 0 && scope == listenTailscale:
 		c.Status = checkOK
 		c.Detail = fmt.Sprintf("Through Tailscale, at %s, from anywhere your phone is signed in to it. Not on the Wi-Fi itself: "+
@@ -154,14 +210,20 @@ func networkCheck(scope string, tailscale []string) check {
 	return c
 }
 
-// phoneCheck is whether a phone is paired, the office window not counted.
-func phoneCheck(phones int) check {
+// phoneCheck is whether a phone is paired, the office window not counted. records is what Setup says of the
+// records' key when its check failed (records.go's recordsText), "" when it didn't: then no phone counts until
+// the owner resets them in Setup.
+func phoneCheck(phones int, records string) check {
 	c := check{ID: "phone", Title: "A phone is paired"}
+	if records != "" {
+		c.Status, c.Detail = checkTodo, records+" Reset them under Phone and voice."
+		return c
+	}
 	if phones > 0 {
 		c.Status, c.Detail = checkOK, fmt.Sprintf("%d paired. Pair another from Phone and voice.", phones)
 		return c
 	}
-	c.Status, c.Detail = checkTodo, "Scan the code under Pair a phone with your phone's camera, then type the 6 digits it shows."
+	c.Status, c.Detail = checkTodo, "Open Pair a phone, then scan its QR code with your phone's camera, or type its 6-digit code on your phone."
 	return c
 }
 
@@ -206,6 +268,22 @@ var errUnknownFix = errors.New("There's no fix by that name.")
 // fix runs the fix named name, and says how it went: a message for the page
 // where it couldn't. Without the lock.
 func (d *Deck) fix(name string) (int, string) {
+	// A test copy runs none that opens another app, a download page, System Settings or a system prompt (RTCH N1).
+	// Accessibility is the Mac's alone: elsewhere it's no fix at all, test copy or not (RWTC N5).
+	switch name {
+	case fixAccessibility:
+		if why := testCopyKeepsAway(testCopyKeepsAccessibility); why != "" && d.macHost() != nil {
+			return http.StatusConflict, why
+		}
+	case fixTailscale, fixFirewall, fixHomeWiFi:
+		if why := testCopyKeepsAway(testCopyKeepsFixes); why != "" {
+			return http.StatusConflict, why
+		}
+	}
+	// Under the Mac app, Accessibility and the login item are the app's (hostshell.go).
+	if status, message, done := d.macFix(name); done {
+		return status, message
+	}
 	switch name {
 	case fixRepair:
 		// Repair connects what was connected; it never turns voice on, so there's nothing to tell
@@ -214,6 +292,10 @@ func (d *Deck) fix(name string) (int, string) {
 		}
 		d.setHooksDisconnected(false)
 	case fixInstall:
+		// A test copy never installs itself over the Smolcorp in use (RWTC N3), as the Mac's.
+		if why := testCopyKeepsAway(testCopyKeepsInstall); why != "" {
+			return http.StatusConflict, why
+		}
 		if err := installNow(); err != nil {
 			return http.StatusConflict, err.Error()
 		}
@@ -238,6 +320,11 @@ func (d *Deck) fix(name string) (int, string) {
 	case fixTailscale:
 		openURL("https://tailscale.com/download")
 	case fixLogin:
+		// Opening at login is the Smolcorp in use's: a test copy's entry would start the copy in its place (RWTC N3).
+		// Under the Mac app the app says so itself (macFix).
+		if why := testCopyKeepsAway(testCopyKeepsLogin); why != "" {
+			return http.StatusConflict, why
+		}
 		setOpenAtLogin(true)
 	default:
 		return http.StatusBadRequest, errUnknownFix.Error()
