@@ -14,17 +14,121 @@
 # that scripts/mkwinres writes beside the code just before each build. It is
 # never committed (it is ignored), and it is deleted when the script ends,
 # done or failed.
+#
+# Since 1.26, a release goes out as one commit, and this script builds only
+# from that commit:
+#
+#   1. It is one squashed commit of the final files, signed (the -S below;
+#      this script doesn't check the signature), made straight onto main as
+#      GitHub has it (origin/main). The branches the work was done on (a
+#      feature branch, release/<version>) never go out, and neither does
+#      their history.
+#   2. HEAD is that commit: it has one parent, and that parent is origin/main.
+#      Anything else (a branch with its own commits, a merge, a commit on an
+#      older main) stops the script before it builds anything. HEAD is read
+#      as a push sends it, so replace refs and a grafts file can't make it
+#      look like another commit. There is no way around it: this script
+#      always builds the downloads for real.
+#   3. scripts/check-public.sh checks exactly the files that go out: HEAD's,
+#      with nothing changed or added beside them, before and after it runs.
+#      A checkout with files git is told not to look at (assume-unchanged,
+#      skip-worktree, a sparse checkout, untracked files status is set not
+#      to list) or with Go code git ignores beside the code stops the script
+#      too.
+#
+# To make that commit from the branch you finished on, and build from it:
+#
+#   git fetch origin main
+#   git checkout --detach "$(git commit-tree -S -p origin/main -m 'Smolcorp <version>' 'HEAD^{tree}')"
+#   scripts/release-desktop.sh
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# git looks at this folder, the one check-public.sh and the build read, and
+# at its own index: not at another one a caller's environment or the repo's
+# config (core.worktree) names.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ "$top" != "$(pwd -P)" ]; then
+  echo "Stopped: git here looks at another folder (${top:-none}), not this one ($(pwd -P))."
+  echo "Unset core.worktree (git config --unset core.worktree), then run this again."
+  exit 1
+fi
 
+# HEAD as a push sends it (point 2 above): the parent and tree lines of its
+# own commit object, which a grafts file (info/grafts) doesn't change, read
+# with no replace refs (refs/replace). Every git command below sees the real
+# objects too.
+export GIT_NO_REPLACE_OBJECTS=1
+head_header() { git cat-file commit HEAD 2>/dev/null | sed '/^$/,$d'; }
+head_parents() { head_header | sed -n 's/^parent //p'; }
+head_tree() { head_header | sed -n 's/^tree //p'; }
+
+# One commit straight onto origin/main, and nothing else (point 2 above).
+# HEAD's parents, one per line: exactly origin/main means one parent, and the
+# right one.
+BASE="$(git rev-parse --verify --quiet 'refs/remotes/origin/main^{commit}' || true)"
+if [ -z "$BASE" ]; then
+  echo "Stopped: origin/main isn't here, so the release commit can't be checked."
+  echo "Run git fetch origin main, make the release commit (see the top of this script), then this again."
+  exit 1
+fi
+parents="$(head_parents || true)"
+if [ "$parents" != "$BASE" ]; then
+  echo "Stopped: a release is built from one commit straight onto origin/main, and HEAD isn't one."
+  echo "HEAD's parents:"
+  echo "${parents:-none}" | sed 's/^/  /'
+  echo "origin/main:"
+  echo "  $BASE"
+  echo "Make the release commit from your branch's files, then run this again:"
+  echo "  git fetch origin main"
+  echo "  git checkout --detach \"\$(git commit-tree -S -p origin/main -m 'Smolcorp <version>' 'HEAD^{tree}')\""
+  exit 1
+fi
+TREE="$(head_tree || true)"
+if [ -z "$TREE" ]; then
+  echo "Stopped: HEAD's files can't be read here."
+  exit 1
+fi
+
+# Nothing differs from HEAD, untracked files included even when
+# status.showUntrackedFiles says not to list them, and git could tell: a git
+# status that fails says nothing either.
+clean() {
+  local changes
+  changes="$(git status --porcelain --untracked-files=all)" && [ -z "$changes" ]
+}
 # A release is built from what's committed, and nothing else: no changes
 # waiting, and no stray files, ignored or not, beside the pages it seals in.
-if [ -n "$(git status --porcelain)" ] || [ -n "$(git ls-files --others --ignored --exclude-standard Resources/web)" ]; then
+if ! clean || [ -n "$(git ls-files --others --ignored --exclude-standard Resources/web)" ]; then
   echo "Commit or set aside these first: a release is built from what's committed."
-  git status --short
+  git status --short --untracked-files=all || true
   git ls-files --others --ignored --exclude-standard Resources/web
+  exit 1
+fi
+# Files git is told not to look at: git status and git write-tree pass over
+# their changes on disk, and check-public.sh reads the disk. git ls-files -v
+# tags every ordinary file H; assume-unchanged ones are lowercase, and
+# skip-worktree ones (which a sparse checkout makes) S.
+unseen() { git ls-files -v | grep -v '^H ' || true; }
+sparse() { [ "$(git config --bool core.sparseCheckout || true)" = true ]; }
+# So the files here are HEAD's tree, exactly (point 3 above): the index makes
+# that tree, HEAD still has it, nothing differs from it, and git looks at
+# every file.
+heads_tree() {
+  [ "$(git write-tree)" = "$TREE" ] && [ "$(head_tree)" = "$TREE" ] && clean &&
+    [ -z "$(unseen)" ] && ! sparse
+}
+if ! heads_tree; then
+  echo "Stopped: the files here aren't HEAD's tree ($TREE), the one that goes out."
+  if sparse; then
+    echo "This is a sparse checkout. Run git sparse-checkout disable, then this again."
+  elif [ -n "$(unseen)" ]; then
+    echo "git is told not to look at these files (assume-unchanged or skip-worktree):"
+    unseen | sed 's/^/  /'
+    echo "Run git update-index --no-assume-unchanged --no-skip-worktree on each, then git status, then this again."
+  fi
   exit 1
 fi
 # A .syso beside the code is linked into the Windows programs, and git ignores
@@ -36,8 +140,24 @@ if [ -n "$stray" ]; then
   echo "$stray"
   exit 1
 fi
+# Go code git ignores: go build compiles every .go file in each package
+# folder it builds, ignored or not, so one there would be built in unseen.
+# Ignored .go files elsewhere (a folder of notes, sandbox/) aren't built.
+go_dirs() { git -c core.quotePath=false ls-files -- "$@" | sed -e 's,/[^/]*$,,' -e t -e 's,.*,.,' | sort -u; }
+ignored_go="$(awk 'FILENAME == ARGV[1] { pkg[$0]; next } { d = $0; if (!sub(/\/[^\/]*$/, "", d)) d = "." } d in pkg' \
+  <(go_dirs '*.go') <(git -c core.quotePath=false ls-files --others --ignored --exclude-standard -- '*.go' '*.s'))"
+if [ -n "$ignored_go" ]; then
+  echo "Remove these first: git ignores them, but Go compiles them into the programs."
+  echo "$ignored_go"
+  exit 1
+fi
 # Nothing of the maintainer's own goes out in a download.
 scripts/check-public.sh
+# What it checked is still HEAD's tree: nothing changed while it ran.
+if ! heads_tree; then
+  echo "Stopped: the files changed while scripts/check-public.sh ran, so it didn't check HEAD's tree ($TREE). Run this again."
+  exit 1
+fi
 # The office the programs build in is exactly the build of its sources.
 go run ./scripts/buildoffice -check
 VERSION="$(sed -n '/CFBundleShortVersionString/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist)"
