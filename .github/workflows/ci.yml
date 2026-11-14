@@ -285,3 +285,58 @@ jobs:
           for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
             GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/smolcorp
           done
+
+  # SA-L0 (SANDBOX-PLAN §A3.2, PL126A §4): what each Linux runner lets a sandbox use, recorded, never assumed, before
+  # any Linux sandbox code relies on it. On ubuntu-22.04, on 24.04 (whose AppArmor rule is said to let only the
+  # packaged /usr/bin/bwrap make user namespaces) and on an arm64 runner: does the packaged bwrap make user, pid, mount
+  # and network namespaces, does a filter handed to its --seccomp refuse TIOCSTI and TIOCLINUX, and which Landlock ABI
+  # the kernel has. A copy of bwrap outside /usr/bin and a plain program making its own user namespace are the controls
+  # that show whether the AppArmor rule is at work. The probes run as the runner's own user and change no setting.
+  # The table goes to the log and to the run's summary. A "no" in it is a fact, not a failure: the step fails only
+  # when the rows didn't run.
+  linuxcaps:
+    name: Linux sandbox capabilities, on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # The distribution's own package: the plan uses the system's bwrap, never a copy of its own.
+      - name: Install bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      # Run by name, as the GM's launcher tests are above: each must say PASS, so a probe that's skipped (no bwrap)
+      # or left out fails the step instead of passing unseen.
+      - name: Record what the kernel, AppArmor and bwrap allow
+        shell: bash
+        env:
+          SMOLCORP_LINUXCAPS_REQUIRED: "1"
+          RUNNER_LABEL: ${{ matrix.os }}
+        run: |
+          table="$RUNNER_TEMP/linuxcaps.md"
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          SMOLCORP_LINUXCAPS_TABLE="$table" go test -count=1 -v ./internal/sandbox/ 2>&1 | tee "$RUNNER_TEMP/linuxcaps.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in TestLinuxSandboxCapabilitiesAreRecorded TestTheProbeFilterUsesTheKernelsNumbers TestTheProbeFilterRefusesOnlyTheTwoIoctls; do
+            if ! grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/linuxcaps.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          if [ -s "$table" ]; then
+            echo "SA-L0 on $RUNNER_LABEL:"
+            cat "$table"
+            { echo "### SA-L0 on $RUNNER_LABEL"; echo; cat "$table"; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::no capability table was written on $RUNNER_LABEL"
+            missing=1
+          fi
+          [ "$status" -eq 0 ] && [ "$missing" -eq 0 ]
