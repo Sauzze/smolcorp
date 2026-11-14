@@ -341,7 +341,7 @@ func TestT3TheHireGoesWorktreeFenceExcludeBriefProjectThreadInThatOrder(t *testi
 		}
 	}
 	hook := object["hooks"].(map[string]any)["PreToolUse"].([]any)[0].(map[string]any)
-	if command := hook["hooks"].([]any)[0].(map[string]any)["command"].(string); hook["matcher"] != "*" || !strings.Contains(command, " guard --rules ") {
+	if guard := hook["hooks"].([]any)[0].(map[string]any); hook["matcher"] != "*" || guard["args"].([]any)[0] != "guard" || guard["onFailure"] != "block" {
 		t.Errorf("the guard before every tool: %v", hook)
 	}
 	if object["disableAllHooks"] != false {
@@ -1239,13 +1239,14 @@ func TestT3TheFenceIsTheMacsByteForByte(t *testing.T) {
 		t.Skip("Windows writes its paths as //c/…, so the fixture's aren't its")
 	}
 	for _, c := range fixture.Cases {
-		rules := filepath.Join(c.Support, hireGuardFile)
-		groups := guardGroups(fixture.CLI, rules, guardHire, func(string, []string) (int, string, bool) { return 0, c.Printed, true })
+		rules, held := filepath.Join(c.Support, hireGuardFile), fixtureHeld(t, c.Printed)
+		groups := guardGroups(fixture.CLI, rules, held, guardHire, func(string, []string) (int, string, bool) { return 0, c.Printed, true })
 		var profiles []claudeProfile
 		for _, p := range c.Profiles {
 			profiles = append(profiles, claudeProfile{Name: p["name"], Dir: p["dir"]})
 		}
-		settings := hireSettingsValue(hireDenyRules(c.HireID, groups, c.Support, profiles, c.Others, c.Entries, "darwin"), guardHookCommand(fixture.CLI, rules, guardHire), c.Auto, nil)
+		settings := t3Fence(hireSettingsValue(hireDenyRules(c.HireID, groups, c.Support, profiles, c.Others, c.Entries, "darwin"), guardHook(fixture.CLI, rules, held, guardHire),
+			configHook(fixture.CLI), fixtureShell, c.Auto, nil))
 		fence := filepath.Join(t.TempDir(), filepath.FromSlash(t3FenceName))
 		if !t3WriteFence(settings, fence) {
 			t.Fatalf("%s: not written", c.Name)
@@ -1264,6 +1265,61 @@ func TestT3TheFenceIsTheMacsByteForByte(t *testing.T) {
 	// The fence a Go hire gets is that: auto mode as the Mac's, on a Mac only.
 	if !t3FenceAuto("darwin") || t3FenceAuto("linux") || t3FenceAuto("windows") {
 		t.Error("auto mode")
+	}
+}
+
+// RT126SG1 B1: a T3 desk's fence never switches off the bypass mode T3 Code starts its agent in, and names no
+// default mode but auto, as before 1.26, so its normal work doesn't change. Everything else is a hire's settings:
+// the deny rules, the guard before every tool and every reload, the pinned shell, hooks on. A desk Smolcorp starts
+// keeps both keys.
+func TestT3TheFenceLeavesT3CodesModeAlone(t *testing.T) {
+	kept := t3Stand
+	t.Cleanup(func() { t3Stand = kept })
+	t3Stand.CLI = "/opt/smolcorp/bin/smolcorp"
+	t3Stand.IsExec = func(string) bool { return true }
+	t3Stand.Guard = func(string, []string) (int, string, bool) { return 0, t3TestPrinted, true }
+	options := func(auto bool) hireSettingsOptions {
+		return hireSettingsOptions{HireID: "abc123", Auto: auto, Profile: guardHire, CLI: t3Stand.CLI, Support: supportDir,
+			Run: t3Stand.Guard, IsExec: t3Stand.IsExec, Shell: fixtureShell}
+	}
+	for _, auto := range []bool{false, true} {
+		hire, err := hireSettingsObject(options(auto))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fenced, _ := hireSettingsObject(options(auto))
+		fence := t3Fence(fenced)
+		want := map[string]any{"deny": hire["permissions"].(map[string]any)["deny"]}
+		if auto {
+			want["defaultMode"] = "auto"
+		}
+		if !reflect.DeepEqual(fence["permissions"], want) {
+			t.Errorf("auto %v: the fence's permissions are %v", auto, fence["permissions"])
+		}
+		// Only the permissions differ from a hire's settings.
+		delete(fence, "permissions")
+		delete(hire, "permissions")
+		if !reflect.DeepEqual(fence, hire) || len(fence) != 3 || fence["disableAllHooks"] != false || fence["env"] == nil {
+			t.Errorf("auto %v: the fence is %v", auto, fence)
+		}
+		hooks, _ := fence["hooks"].(map[string]any)
+		if len(hooks) != 2 || hooks["PreToolUse"] == nil || hooks["ConfigChange"] == nil {
+			t.Errorf("auto %v: the fence's hooks are %v", auto, hooks)
+		}
+		// A desk Smolcorp starts keeps bypass switched off and its mode pinned.
+		line, err := hireSettingsLine(options(auto))
+		if err != nil || !strings.Contains(line, `"disableBypassPermissionsMode":"disable"`) || !strings.Contains(line, `"defaultMode":"`) {
+			t.Errorf("auto %v: a desk's settings %v %s", auto, err, line)
+		}
+	}
+	// What a T3 hire gets is that fence, auto mode as the Mac's.
+	fence, err := t3FenceSettings("abc123", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permissions := fence["permissions"].(map[string]any)
+	if _, off := permissions["disableBypassPermissionsMode"]; off || len(permissions) != map[bool]int{true: 2, false: 1}[t3FenceAuto(runtime.GOOS)] {
+		t.Errorf("t3FenceSettings: %v", permissions)
 	}
 }
 

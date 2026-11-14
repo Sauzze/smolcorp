@@ -118,18 +118,21 @@ func TestAManagedHireIsMadeInOrderAndRegistered(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(hire.Worktree, "sub", "a.txt")); err != nil {
 		t.Errorf("no worktree checkout: %v", err)
 	}
-	settings, _ := os.ReadFile(filepath.Join(hireFolder(supportDir, hire.ID), hireSettingsFile))
-	if !strings.Contains(string(settings), "PreToolUse") {
+	script := r.script(hire)
+	// Its settings are in its command line, never in a file of its own (SANDBOX-PLAN §3.4).
+	if settings := scriptSettings(script); !strings.Contains(settings, "PreToolUse") || !strings.Contains(settings, `"onFailure":"block"`) {
 		t.Errorf("no guard hook in the hire's settings: %s", settings)
 	}
-	script := r.script(hire)
+	if _, err := os.Stat(filepath.Join(hireFolder(supportDir, hire.ID), hireSettingsFile)); err == nil {
+		t.Error("a settings file was written for the hire")
+	}
 	// Its own send key, in its script, and only the key's hash in the registry, against its row.
 	if key := scriptSendKey(script); key == "" {
 		t.Errorf("start script carries no send key:\n%s", script)
 	} else if h := readRegistry(registryPath(), false).hireForSendKey(key); h == nil || h.ID != hire.ID {
 		t.Errorf("the script's key isn't the hire's in the registry: %+v", h)
 	}
-	for _, want := range []string{"--settings=" + filepath.Join(hireFolder(supportDir, hire.ID), hireSettingsFile), "unset SMOLCORP_GM_TOKEN", "unset CLAUDE_CONFIG_DIR", "SMOLCORP_HIRE_PORTS='4100-4103'"} {
+	for _, want := range []string{"'--settings={", "unset SMOLCORP_GM_TOKEN", "unset CLAUDE_CONFIG_DIR", "SMOLCORP_HIRE_PORTS='4100-4103'"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("start script lacks %q:\n%s", want, script)
 		}
@@ -399,8 +402,8 @@ func TestTheGMRoleThroughTheEngineHasTheGMGuardAndNoSendKey(t *testing.T) {
 	if len(asked) == 0 || !slices.Contains(asked[0], "gm") || !slices.Contains(asked[0], "--profile") {
 		t.Errorf("the guard was asked %q, want the gm profile", asked)
 	}
-	settings, _ := os.ReadFile(filepath.Join(hireFolder(supportDir, gm.ID), hireSettingsFile))
-	if !strings.Contains(string(settings), "guard --profile gm ") {
+	settings := scriptSettings(r.script(gm))
+	if !strings.Contains(settings, `"args":["guard","--profile","gm",`) {
 		t.Errorf("the gm's settings hook has no gm profile: %s", settings)
 	}
 	if script := r.script(gm); strings.Contains(script, hireKeyEnvironment) {
@@ -411,8 +414,8 @@ func TestTheGMRoleThroughTheEngineHasTheGMGuardAndNoSendKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	settings, _ = os.ReadFile(filepath.Join(hireFolder(supportDir, other.ID), hireSettingsFile))
-	if strings.Contains(string(settings), "--profile") || scriptSendKey(r.script(other)) == "" {
+	settings = scriptSettings(r.script(other))
+	if settings == "" || strings.Contains(settings, "--profile") || scriptSendKey(r.script(other)) == "" {
 		t.Errorf("a hire's settings took the gm's profile, or its script has no send key: %s", settings)
 	}
 }
@@ -1028,4 +1031,27 @@ func TestTheCoreWaitsABoundedWhileForHiresBeingWatched(t *testing.T) {
 		t.Errorf("the wait wasn't bounded: %v", took)
 	}
 	d.watching.Done()
+}
+
+// A Claude Code too old to take onFailure, or one whose version can't be told, gets no desk: refused with
+// nothing left behind (no row, no worktree, no tmux), in words that say to update it.
+func TestNoDeskStartsOnAClaudeCodeThatCantBlockWhenItsGuardFails(t *testing.T) {
+	saved := claudeVersion
+	t.Cleanup(func() { claudeVersion = saved })
+	for _, answer := range []struct {
+		text string
+		ok   bool
+	}{{"2.1.200 (Claude Code)", true}, {"", false}} {
+		claudeVersion = func() (string, bool) { return answer.text, answer.ok }
+		r := newEngineRig(t)
+		_, err := runManagedHire(r.request("janitor"), r.o)
+		refusal, is := err.(*hireRefusal)
+		if !is || refusal.Status != 409 || !strings.HasPrefix(refusal.Message, "Update Claude Code") {
+			t.Errorf("%q: %v", answer.text, err)
+		}
+		worktrees, _ := os.ReadDir(r.o.Worktrees)
+		if got := registered(t); len(got) != 0 || len(r.tmux.asked) != 0 || len(worktrees) != 0 {
+			t.Errorf("%q: something was left: registry %+v, tmux %q, worktrees %v", answer.text, got, r.tmux.asked, worktrees)
+		}
+	}
 }

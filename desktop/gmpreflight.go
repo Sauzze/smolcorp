@@ -281,7 +281,7 @@ func (d *Deck) gmPreflightOn(account string) preflightReport {
 				Fix: "You can hire anyway: if your General Manager asks you to sign in, type /login in its window."})
 		}
 		// Another account reports through its own settings.json, which the Mac connects too; a test copy's hire
-		// through its own settings file, whatever the account's hold (the Mac's SelfTest.testCopyHires).
+		// through its own settings, in its command line, whatever the account's hold (the Mac's SelfTest.testCopyHires).
 		connected := hooksNotConnected(Claude) == ""
 		if other {
 			connected = testCopy || claudeConnectedIn(profile)

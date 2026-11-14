@@ -9,8 +9,10 @@ import (
 )
 
 // File is hire-guard.json, in the app's support folder: the groups every
-// hire is refused, yours to edit. The guard reads it at each command, and
-// the app builds each hire's deny rules from it.
+// hire is refused. Since 1.26 the app holds its own copy and writes the file
+// from it (Settings); a desk's guard gets that copy in its command line, and
+// the file, read at each command, only adds to it (Held). An edit by hand
+// then only adds, and the next Settings save drops it.
 type File struct {
 	Groups []Group `json:"groups"`
 }
@@ -25,7 +27,7 @@ func Load(path string) (groups []Group, problem string) {
 	if path == "" {
 		return DefaultGroups(), ""
 	}
-	data, err := ReadFile(path)
+	data, err := readGuardFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return DefaultGroups(), ""

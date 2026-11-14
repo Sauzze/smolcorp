@@ -395,10 +395,10 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 		if status/100 != 2 || len(hires) != 1 || !r.tmux.ran("new-session") {
 			t.Fatalf("%s hire of %s: %d %q, registry %+v", map[bool]string{false: "desk", true: "route"}[route], role, status, text, hires)
 		}
-		data, _ := os.ReadFile(filepath.Join(hireFolder(supportDir, hires[0].ID), hireSettingsFile))
-		deniesTheAccounts(t, map[bool]string{false: "desk", true: "route"}[route]+" hire of "+role, string(data), work)
+		data := startedSettings(t, hires[0].ID)
+		deniesTheAccounts(t, map[bool]string{false: "desk", true: "route"}[route]+" hire of "+role, data, work)
 		plain := strings.NewReplacer(hires[0].ID, "<hire>", work, "<work>", hires[0].Worktree, "<worktree>", d.config.HireFolder, "<repo>", supportDir, "<support>", homeDir, "<home>")
-		return plain.Replace(string(data)), guard
+		return plain.Replace(data), guard
 	}
 	for _, role := range []string{"janitor", "gm"} {
 		var first string
@@ -408,7 +408,7 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 			if deskSettings != routeSettings || !slices.Equal(deskGuard, routeGuard) || len(routeGuard) == 0 {
 				t.Errorf("%s, case %d: settings or guard differ:\ndesk:  %s %q\nroute: %s %q", role, i, deskSettings, deskGuard, routeSettings, routeGuard)
 			}
-			if !strings.Contains(routeSettings, "PreToolUse") || (role == "gm") != strings.Contains(routeSettings, "--profile gm") || i > 0 && routeSettings == first {
+			if !strings.Contains(routeSettings, "PreToolUse") || (role == "gm") != strings.Contains(routeSettings, `"--profile","gm"`) || i > 0 && routeSettings == first {
 				t.Errorf("%s, case %d: no guard hook, the wrong profile, or a group turned the other way changed nothing: %s", role, i, routeSettings)
 			}
 			if i == 0 {

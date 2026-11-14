@@ -53,13 +53,32 @@ func t3Leaver() t3Leaving {
 	return defaultT3Leaving()
 }
 
-// t3FenceSettings are hire hireID's fence: its settings as a hire's own file has them. T3 Code's agent works on
-// the default Claude account (~/.claude), but profiles, every saved account's (claudeDenyProfiles), are denied to
-// it as to any hire, as the Mac's HireSettings.forHire does. With none saved, that's the default account alone.
+// t3FenceSettings are hire hireID's fence: its settings as a hire's own have them, less what would change how T3
+// Code runs it (t3Fence). T3 Code's agent works on the default Claude account (~/.claude), but profiles, every
+// saved account's (claudeDenyProfiles), are denied to it as to any hire, as the Mac's HireSettings.forHire does.
+// With none saved, that's the default account alone.
 func t3FenceSettings(hireID string, profiles []claudeProfile) (map[string]any, error) {
-	return hireSettingsObject(hireSettingsOptions{HireID: hireID, Auto: t3FenceAuto(runtime.GOOS), Profile: guardHire,
+	settings, err := hireSettingsObject(hireSettingsOptions{HireID: hireID, Auto: t3FenceAuto(runtime.GOOS), Profile: guardHire,
 		CLI: cmpOr(t3Stand.CLI, commandLineProgram()), Support: supportDir, Run: t3Stand.Guard, IsExec: t3Stand.IsExec,
 		Profiles: profiles})
+	if err != nil {
+		return nil, err
+	}
+	return t3Fence(settings), nil
+}
+
+// t3Fence is a hire's settings as its T3 fence holds them: bypass mode isn't switched off, and the default mode is
+// left out unless it is auto, as before 1.26. T3 Code starts its agent with its permissions bypassed (T797a), and
+// with bypass switched off every command would wait for a click while T3 Code shows Full access (RT126SG1 B1).
+// The deny rules and the guard's hooks hold in bypass mode too, and a T3 desk isn't one Smolcorp starts (SG1).
+func t3Fence(settings map[string]any) map[string]any {
+	if permissions, ok := settings["permissions"].(map[string]any); ok {
+		delete(permissions, "disableBypassPermissionsMode")
+		if permissions["defaultMode"] != "auto" {
+			delete(permissions, "defaultMode")
+		}
+	}
+	return settings
 }
 
 // t3FenceAuto is whether a hire's fence carries auto mode: as the Mac's, on a Mac. T3 Code runs its agent with

@@ -90,8 +90,12 @@ func TestT3TheFenceHoldsOnARealT3Thread(t *testing.T) {
 	var said []string
 	ways := t3Ways{Machine: machine,
 		Settings: func() (map[string]any, error) {
-			return hireSettingsObject(hireSettingsOptions{HireID: hireID, Auto: t3FenceAuto("linux"), Profile: guardHire, CLI: cli, Support: supportDir,
+			settings, err := hireSettingsObject(hireSettingsOptions{HireID: hireID, Auto: t3FenceAuto("linux"), Profile: guardHire, CLI: cli, Support: supportDir,
 				Profiles: []claudeProfile{{Name: "default", Dir: filepath.Join(home, ".claude")}}})
+			if err != nil {
+				return nil, err
+			}
+			return t3Fence(settings), nil
 		},
 		Brief:        func(hirePlace) (t3Brief, error) { return t3Brief{Message: message}, nil },
 		DiscardBrief: func() {},

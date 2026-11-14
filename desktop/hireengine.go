@@ -78,6 +78,10 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if err := testCopyRefusal(r.TestPort, string(Claude), r.ConfigDir); err != nil {
 		return Hire{}, err
 	}
+	// A Claude Code that can't make a stopped guard refuse gets no desk (SANDBOX-PLAN §3.4).
+	if refusal := claudeVersionRefusal(); refusal != nil {
+		return Hire{}, refusal
+	}
 	id := strings.ToLower(newID())[:12]
 	tmux := newHireTmux(id, r.TestPort, o.Tmux)
 	if tmux == nil {
@@ -111,7 +115,7 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if r.Role.ID == "gm" {
 		profile = guardGM
 	}
-	settings, err := writeHireSettings(hireSettingsOptions{HireID: id, Auto: engineAutoMode, Profile: profile, CLI: o.CLI, Support: supportDir,
+	settings, err := hireSettingsLine(hireSettingsOptions{HireID: id, Auto: engineAutoMode, Profile: profile, CLI: o.CLI, Support: supportDir,
 		ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec})
 	if err != nil {
 		undo()

@@ -61,6 +61,7 @@ type winRig struct {
 	opened    [][]string
 	launchers map[string]*stubLauncher // by hire id
 	shows     PaneState                // what a window opened from now on shows
+	settings  map[string]string        // the settings each hire's start environment held, by hire id
 }
 
 func swap[T any](t *testing.T, target *T, with T) {
@@ -130,7 +131,12 @@ func after(command []string, flag string) string {
 func (w *winRig) open(command []string, folder string) error {
 	token, id := after(command, "--hire"), after(command, "--hire-id")
 	s := &stubLauncher{shows: w.shows}
+	settings := launcherSettings(w.d, id)
 	w.mu.Lock()
+	if w.settings == nil {
+		w.settings = map[string]string{}
+	}
+	w.settings[id] = settings
 	w.opened = append(w.opened, slices.Clone(command))
 	w.launchers[id] = s
 	w.mu.Unlock()
@@ -246,16 +252,18 @@ func TestTheGMHireOnTheLauncherStartsItsWindowWithTheGuardOfAHireFromTheOffice(t
 		}
 		w.d.watching.Wait()
 		rows := winRegistry(t)
-		if len(rows) != before+1 || len(w.opened) != before+1 || !slices.ContainsFunc(w.opened[before], func(a string) bool { return strings.HasPrefix(a, "--settings=") }) {
+		if len(rows) != before+1 || len(w.opened) != before+1 || slices.ContainsFunc(w.opened[before], func(a string) bool { return strings.HasPrefix(a, "--settings") }) {
 			t.Fatalf("%s: opened %q, registry %+v", role, w.opened, rows)
 		}
 		id := rows[before].ID
-		data, _ := os.ReadFile(filepath.Join(hireFolder(supportDir, id), hireSettingsFile))
+		w.mu.Lock()
+		data := w.settings[id]
+		w.mu.Unlock()
 		os.RemoveAll(hireFolder(supportDir, id)) // a hire's settings deny the folders of the hires beside it: the next one finds none
 		for i := range guard {
 			guard[i] = strings.ReplaceAll(guard[i], id, "<hire>")
 		}
-		return strings.ReplaceAll(string(data), id, "<hire>"), guard
+		return strings.ReplaceAll(data, id, "<hire>"), guard
 	}
 	for _, role := range []string{"janitor", "gm"} {
 		var first string
@@ -275,7 +283,7 @@ func TestTheGMHireOnTheLauncherStartsItsWindowWithTheGuardOfAHireFromTheOffice(t
 			if deskSettings != routeSettings || !slices.Equal(deskGuard, routeGuard) || len(routeGuard) == 0 {
 				t.Errorf("%s, case %d: settings or guard differ:\ndesk:  %s %q\nroute: %s %q", role, i, deskSettings, deskGuard, routeSettings, routeGuard)
 			}
-			if !strings.Contains(routeSettings, "PreToolUse") || (role == "gm") != strings.Contains(routeSettings, "--profile gm") || i > 0 && routeSettings == first {
+			if !strings.Contains(routeSettings, "PreToolUse") || (role == "gm") != strings.Contains(routeSettings, `"--profile","gm"`) || i > 0 && routeSettings == first {
 				t.Errorf("%s, case %d: no guard hook, the wrong profile, or a group turned the other way changed nothing: %s", role, i, routeSettings)
 			}
 			if i == 0 {
@@ -557,14 +565,16 @@ func TestEverySavedAccountsFolderIsDeniedToALauncherHire(t *testing.T) {
 		if len(rows) != before+1 || !rows[before].ViaLauncher {
 			t.Fatalf("%s: registry %+v", where, rows)
 		}
-		settings, err := os.ReadFile(filepath.Join(hireFolder(supportDir, rows[before].ID), hireSettingsFile))
-		if err != nil {
-			t.Fatalf("%s: %v", where, err)
+		w.mu.Lock()
+		settings := w.settings[rows[before].ID]
+		w.mu.Unlock()
+		if settings == "" {
+			t.Fatalf("%s: no settings with the start environment", where)
 		}
 		if route {
-			deniesTheAccounts(t, where, string(settings), work, outside)
+			deniesTheAccounts(t, where, settings, work, outside)
 		} else {
-			deniesTheAccounts(t, where, string(settings), outside)
+			deniesTheAccounts(t, where, settings, outside)
 		}
 	}
 }

@@ -305,7 +305,7 @@ func TestTheSwitchOnMakesTheHireWithTheEngineAndNoSecretIsInTheOpenersArgumentsO
 	args := commandWords(h.windows[0])
 	token := flagAfter(args, "--hire")
 	if !hireToken.MatchString(token) || flagAfter(args, "--hire-id") != hires[0].ID || flagAfter(args, "--role") != "janitor" ||
-		!slices.Contains(args, "--settings="+filepath.Join(hireFolder(supportDir, hires[0].ID), hireSettingsFile)) {
+		slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "--settings") }) {
 		t.Errorf("command: %q", args)
 	}
 	// The launcher asks for its environment: the secrets are there, and only there.
@@ -317,6 +317,10 @@ func TestTheSwitchOnMakesTheHireWithTheEngineAndNoSecretIsInTheOpenersArgumentsO
 	if key == "" || got.Set["SMOLCORP_HIRE_PORTS"] != hires[0].Ports || got.Set["SMOLCORP_GM_TOKEN"] != "" ||
 		!slices.Contains(got.Unset, "SMOLCORP_GM_TOKEN") || !slices.Contains(got.Unset, "CLAUDE_CONFIG_DIR") {
 		t.Errorf("environment: %+v", got)
+	}
+	// Its settings come with it, for the launcher to put in the agent's command line (SANDBOX-PLAN §3.4).
+	if !strings.Contains(got.Settings, `"PreToolUse"`) || !strings.Contains(got.Settings, `"onFailure":"block"`) {
+		t.Errorf("settings: %s", got.Settings)
 	}
 	if found := readRegistry(registryPath(), false).hireForSendKey(key); found == nil || found.ID != hires[0].ID {
 		t.Errorf("the key isn't the hire's: %+v", found)
@@ -361,8 +365,8 @@ func TestAStartIsMadeInOrderEachReadyBeforeTheNext(t *testing.T) {
 		if len(hires.hires) != 1 || hires.hires[0].State != "starting" || hires.hires[0].TmuxSocket != "" || hires.keys[hires.hires[0].ID] == "" {
 			t.Errorf("at the window's opening the row or its key wasn't ready: %+v %v", hires.hires, hires.keys)
 		}
-		if _, err := os.Stat(filepath.Join(hireFolder(supportDir, hires.hires[0].ID), hireSettingsFile)); err != nil {
-			t.Errorf("no settings when the window opened: %v", err)
+		if launcherSettings(r.d, hires.hires[0].ID) == "" {
+			t.Error("no settings when the window opened")
 		}
 		if len(strings.Split(r.worktrees(), "\n")) != 2 {
 			t.Errorf("no worktree when the window opened: %s", r.worktrees())
@@ -990,17 +994,19 @@ func TestSetupStateShowsTheBetaSwitchAndTheSettingsRouteSetsIt(t *testing.T) {
 
 func TestTheLauncherTakesOnlyTheArgumentsOfAnEngineHire(t *testing.T) {
 	token, id := strings.Repeat("A", 32), "abcdef123456"
-	good := []string{"--hire", token, "--hire-id", id, "--agent", "claude", "--role", "janitor", "--settings=" + filepath.Join(t.TempDir(), "s.json")}
+	good := []string{"--hire", token, "--hire-id", id, "--agent", "claude", "--role", "janitor"}
 	run, err := parseRun(good)
-	if err != nil || run.hireID != id || run.role != "janitor" || run.settings != good[8] {
+	if err != nil || run.hireID != id || run.role != "janitor" {
 		t.Fatalf("%+v %v", run, err)
 	}
+	// The settings come with the start environment, never on the command line or from a file (SANDBOX-PLAN §3.4).
+	settings := "--settings=" + filepath.Join(t.TempDir(), "s.json")
 	for name, args := range map[string][]string{
 		"id without a role":           {"--hire", token, "--hire-id", id, "claude"},
 		"bad id":                      {"--hire", token, "--hire-id", "../x", "--role", "janitor"},
-		"settings without an id":      {"--hire", token, "--role", "janitor", good[8]},
-		"relative settings":           {"--hire", token, "--hire-id", id, "--role", "janitor", "--settings=s.json"},
-		"another argument":            {"--hire", token, "--hire-id", id, "--role", "janitor", good[8], "--dangerous"},
+		"a settings file":             {"--hire", token, "--hire-id", id, "--role", "janitor", settings},
+		"settings without an id":      {"--hire", token, "--role", "janitor", settings},
+		"inline settings":             {"--hire", token, "--hire-id", id, "--role", "janitor", `--settings={"disableAllHooks":true}`},
 		"another argument for a role": {"--hire", token, "--hire-id", id, "--role", "janitor", "--model=x"},
 	} {
 		if run, err := parseRun(args); err == nil {

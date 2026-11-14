@@ -26,7 +26,7 @@ import (
 // T3 Code's is left that could open the session again); then the hard check, read from the system and nothing
 // run: no process names the session or works in the worktree, and its transcript isn't being written. Only then
 // does the fence come off the worktree, and the hire's Claude Code is resumed, `claude --resume <session>`, in its
-// own tmux session with its own settings file (its fence). Any check that fails refuses, and says why.
+// own tmux session with its own settings (its fence) in its command line. Any check that fails refuses, and says why.
 //
 // Two writers lose turns silently (S794), so each side starts only once the other is seen gone: Take over stops
 // the hire before T3 Code is told, Hand back looks before it resumes. A step that fails after the hire was
@@ -139,8 +139,8 @@ type t3Handing struct {
 	Fence func() (map[string]any, error)
 	// Stop ends the hire's Claude Code (session) in its own tmux, as a fire would without force: an error says why not.
 	Stop func(h Hire, session string) error
-	// Resume starts `claude --resume <session>` in the hire's own tmux, with its own settings file: its tmux socket
-	// as tmux spells it, for the registry.
+	// Resume starts `claude --resume <session>` in the hire's own tmux, with its own settings in its command line:
+	// its tmux socket as tmux spells it, for the registry.
 	Resume func(h Hire, session string) (string, error)
 	// Save changes hire id's row in the registry: an error when it couldn't be written, or the row is gone or no
 	// longer open (fired or failed meanwhile).
@@ -164,11 +164,11 @@ func t3SaveTries(ways t3Handing, save func() error) bool {
 }
 
 // t3UnsavedAfterStop is what to do when hire h was stopped but the registry couldn't be written, so Hand back
-// isn't offered: resume it on its own settings file, its fence, never a bare claude --resume (RM5b S2).
-func t3UnsavedAfterStop(h Hire, session string) string {
-	settings := filepath.Join(hireFolder(supportDir, h.ID), hireSettingsFile)
-	return calledHire(h) + " was stopped, but the registry couldn't be written, so nothing went to T3 Code. Resume it fenced, from its folder: claude --settings=" +
-		shellQuoted(settings) + " --resume " + session + " (or fire it and hire again)."
+// isn't offered: fire it and hire again. Never a bare claude --resume (RM5b S2), and never a start from a settings
+// file: since 1.26 a desk's settings are in its command line alone, and a file in its folder is one a hire could
+// have written (SANDBOX-PLAN g2, RT126SG1 B3).
+func t3UnsavedAfterStop(h Hire) string {
+	return calledHire(h) + " was stopped, but the registry couldn't be written, so nothing went to T3 Code. Fire it and hire again."
 }
 
 func t3CantLook(name string) string {
@@ -246,7 +246,7 @@ func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
 	if !t3SaveTries(ways, func() error {
 		return ways.Save(h.ID, func(r *Hire) { r.T3Session, r.T3Transcript = session.ID, session.Transcript })
 	}) {
-		return "", t3Refused(http.StatusInternalServerError, t3UnsavedAfterStop(h, session.ID))
+		return "", t3Refused(http.StatusInternalServerError, t3UnsavedAfterStop(h))
 	}
 	giveBack := func(status int, why string) (string, error) {
 		h.Engine = ""

@@ -834,7 +834,8 @@ func TestAHireCantFindAPhotosPathInAnyPromptStore(t *testing.T) {
 	d, f := windowDeck(t)
 	home := t.TempDir()
 	profile := claudeProfile{Name: "work", Dir: filepath.Join(home, "accounts", "work")}
-	settings, err := writeHireSettings(hireSettingsOptions{HireID: "hire1", Auto: true, CLI: "/app/smolcorp", Support: supportDir,
+	// The hire's settings as its command line carries them (hireSettingsLine, SG1): never a file a hire can write.
+	settings, err := hireSettingsLine(hireSettingsOptions{HireID: "hire1", Auto: true, CLI: "/app/smolcorp", Support: supportDir,
 		Profiles: []claudeProfile{profile}, Run: func(string, []string) (int, string, bool) { return 0, hireGuardPrinted, true },
 		IsExec: func(string) bool { return true }})
 	if err != nil {
@@ -845,7 +846,7 @@ func TestAHireCantFindAPhotosPathInAnyPromptStore(t *testing.T) {
 			Deny []string `json:"deny"`
 		} `json:"permissions"`
 	}
-	if data, err := os.ReadFile(settings); err != nil || json.Unmarshal(data, &file) != nil {
+	if err := json.Unmarshal([]byte(settings), &file); err != nil {
 		t.Fatalf("%s: %v", settings, err)
 	}
 	deny := file.Permissions.Deny

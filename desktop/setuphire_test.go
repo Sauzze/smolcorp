@@ -67,11 +67,11 @@ func TestSetupsHireSheetHiresWithWhatItSaid(t *testing.T) {
 	if !strings.Contains(string(brief), "Fix the login page's tab order.") {
 		t.Errorf("the task isn't in the brief:\n%s", brief)
 	}
-	settings, _ := os.ReadFile(filepath.Join(hireFolder(supportDir, got[0].ID), hireSettingsFile))
-	if strings.Contains(string(settings), `"defaultMode" : "auto"`) != (runtime.GOOS == "darwin") {
+	settings := startedSettings(t, got[0].ID)
+	if strings.Contains(settings, `"defaultMode":"auto"`) != (runtime.GOOS == "darwin") {
 		t.Errorf("auto mode on a Mac only, as the Mac's HireSettings: %s", settings)
 	}
-	if !strings.Contains(string(settings), absoluteRulePath(filepath.Join(homeDir, ".claude"))+"/settings*.json") {
+	if !strings.Contains(settings, absoluteRulePath(filepath.Join(homeDir, ".claude"))+"/settings*.json") {
 		t.Error("the default account's settings aren't denied by name")
 	}
 	// As the Mac's: the registry's folder is the project, the folder it started in (its worktree) is first among the
@@ -134,9 +134,9 @@ func TestAHireWorksOnAnAccountSavedInConfigJSON(t *testing.T) {
 	if len(got) != 1 || got[0].Account != "work" {
 		t.Fatalf("registry %+v", got)
 	}
-	settings, _ := os.ReadFile(filepath.Join(hireFolder(supportDir, got[0].ID), hireSettingsFile))
+	settings := startedSettings(t, got[0].ID)
 	for _, rule := range []string{"Edit(" + absoluteRulePath(work) + "/settings*.json)", "Read(" + absoluteRulePath(work) + "/projects/**)"} {
-		if !strings.Contains(string(settings), rule) {
+		if !strings.Contains(settings, rule) {
 			t.Errorf("the saved account's %s isn't denied:\n%s", rule, settings)
 		}
 	}
@@ -180,14 +180,14 @@ func TestEverySavedAccountsFolderIsDeniedToAHire(t *testing.T) {
 	if len(got) != 1 || got[0].Account != "" && got[0].Account != claudeDefaultName {
 		t.Fatalf("registry %+v", got)
 	}
-	settings, _ := os.ReadFile(filepath.Join(hireFolder(supportDir, got[0].ID), hireSettingsFile))
+	settings := startedSettings(t, got[0].ID)
 	for _, rule := range []string{"Edit(" + absoluteRulePath(outside) + "/settings*.json)", "Read(" + absoluteRulePath(outside) + "/projects/**)"} {
-		if !strings.Contains(string(settings), rule) {
+		if !strings.Contains(settings, rule) {
 			t.Errorf("the outside account's %s isn't denied:\n%s", rule, settings)
 		}
 	}
 	for _, part := range []string{"server/share", ".claude-s", ".claude-r", ".claude-n"} {
-		if strings.Contains(string(settings), part) {
+		if strings.Contains(settings, part) {
 			t.Errorf("a rule for a badly formed folder (%s):\n%s", part, settings)
 		}
 	}

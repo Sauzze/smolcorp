@@ -61,5 +61,7 @@ func runWithTempSupport(m *testing.M) int {
 	// tailnetCandidates at its own stand-in (withStandInTailscale).
 	tailnetLookPath = func(string) (string, error) { return "", exec.ErrNotFound }
 	tailnetCandidates = nil
+	// No test runs the claude installed here to learn its version: a stand-in new enough (claudeversion.go).
+	claudeVersion = func() (string, bool) { return "2.1.323 (Claude Code)", true }
 	return m.Run()
 }

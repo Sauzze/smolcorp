@@ -619,9 +619,10 @@ func TestT3HandBackFallsBackToRemovingTheProjectThenTheHardCheck(t *testing.T) {
 	}
 }
 
-// RM5b S2: the registry tried again right after the stop; if it still can't be written, the advice resumes the hire
-// on its own settings file (its fence), never a bare claude --resume, and nothing goes to T3 Code.
-func TestT3TakeOverWhoseRegistryCantBeWrittenAfterTheStopAdvisesAFencedResume(t *testing.T) {
+// RM5b S2: the registry tried again right after the stop; if it still can't be written, the advice is to fire it
+// and hire again, nothing goes to T3 Code, and nothing is resumed: never a bare claude --resume, and never a start
+// from a settings file (RT126SG1 B3).
+func TestT3TakeOverWhoseRegistryCantBeWrittenAfterTheStopAdvisesAFireAndAHire(t *testing.T) {
 	k := newT3TakeOverRig(t)
 	ways := k.ways()
 	save, failing := ways.Save, 2
@@ -640,11 +641,13 @@ func TestT3TakeOverWhoseRegistryCantBeWrittenAfterTheStopAdvisesAFencedResume(t 
 	tries := 0
 	ways.Save = func(string, func(*Hire)) error { tries++; return errors.New("disk full") }
 	_, err := t3TakeOver(k.hire, k.session, ways)
-	settings := filepath.Join(hireFolder(supportDir, k.hire.ID), hireSettingsFile)
-	want := "Ada was stopped, but the registry couldn't be written, so nothing went to T3 Code. Resume it fenced, from its folder: claude --settings=" +
-		shellQuoted(settings) + " --resume " + t3TakeOverSession + " (or fire it and hire again)."
-	if refused := refusalOf(t, err); refused.Message != want || tries != t3SaveMost {
+	want := "Ada was stopped, but the registry couldn't be written, so nothing went to T3 Code. Fire it and hire again."
+	refused := refusalOf(t, err)
+	if refused.Message != want || tries != t3SaveMost {
 		t.Errorf("%d tries: %q", tries, refused.Message)
+	}
+	if strings.Contains(refused.Message, "--settings") || strings.Contains(refused.Message, "--resume") || strings.Contains(refused.Message, t3TakeOverSession) {
+		t.Errorf("the advice starts a desk by hand: %q", refused.Message)
 	}
 	if len(k.runs()) != 0 || len(k.srv.made()) != 0 {
 		t.Errorf("T3 Code heard of it: %q %q", k.runs(), k.srv.made())

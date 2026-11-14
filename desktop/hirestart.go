@@ -45,7 +45,7 @@ type hireStart struct {
 	// the terminal; with neither, no account was named and the script says nothing.
 	ConfigDir      string
 	DefaultAccount bool
-	Settings       string // the hire's own Claude Code settings file, for Claude Code only
+	Settings       string // the hire's own Claude Code settings, their JSON (hireSettingsLine), for Claude Code only
 	CLIDir         string // the folder holding the app's own `smolcorp`, put on this agent's PATH
 	Ports          string // "4100-4103"; "" for an unmanaged hire
 	SendKey        string // the hire's own send key
