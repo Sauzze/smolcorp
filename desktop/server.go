@@ -682,7 +682,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		if page == "pair.html" && d.macHost() != nil {
 			worded = macPairing
 		}
-		servePageWithIcon(w, "Resources/web/"+page, "Resources/web/icon-"+logo+".png", worded)
+		servePageWithIcon(w, "Resources/web/"+page, "Resources/web/icon-"+logo+".png", worded, pageFrames(r, phoneID))
 		return
 	}
 	if refused != "" {
@@ -2611,8 +2611,9 @@ func serveFile(w http.ResponseWriter, name string) {
 }
 
 // servePageWithIcon serves a page as serveFile does, with its Home Screen
-// icon in it (see withIcon), and in other words with worded, if any.
-func servePageWithIcon(w http.ResponseWriter, name, icon string, worded func([]byte) []byte) {
+// icon in it (see withIcon), and in other words with worded, if any. What it
+// may show in a frame is frames, a CSP source list (pageFrames).
+func servePageWithIcon(w http.ResponseWriter, name, icon string, worded func([]byte) []byte, frames string) {
 	data, err := fs.ReadFile(agentdeck.Files, name)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
@@ -2624,8 +2625,24 @@ func servePageWithIcon(w http.ResponseWriter, name, icon string, worded func([]b
 	png, _ := fs.ReadFile(agentdeck.Files, icon)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+	w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'; frame-src "+frames)
 	_, _ = w.Write(withIcon(data, png))
+}
+
+// previewFrames is where the office's own window may show a desk's app in a frame, for the TV: a preview is always
+// http://localhost:<its port> (preview.go keeps a declared 127.0.0.1 as localhost). Never 127.0.0.1, where Setup
+// and its cookie live alone (FXV1R1): a frame there would be Setup's own site.
+const previewFrames = "http://localhost:*"
+
+// pageFrames is what the office's page may show in a frame, decided as it's served, by who asked for it: the class
+// that lets in the window's routes (accessWindow, as GET /desk/preview's) gets a desk's preview; a paired phone, the
+// Windows window's paired device, the page alone (?deck) and the pairing page get no frame at all. The portable
+// office's viewer isn't served here: its own CSP (viewer/vercel.json) has default-src 'none' and no frame-src.
+func pageFrames(r *request, phoneID string) string {
+	if accessWindow.lets(r, phoneID) {
+		return previewFrames
+	}
+	return "'none'"
 }
 
 // withIcon puts the page's Home Screen icon in it, as a data: URL of the
@@ -2641,7 +2658,8 @@ func withIcon(page, png []byte) []byte {
 }
 
 // serveFramedBy serves a page with who may frame it, as X-Frame-Options and
-// as the Content-Security-Policy's frame-ancestors.
+// as the Content-Security-Policy's frame-ancestors. Such a page shows no frame
+// itself: only the office window's page does (pageFrames).
 func serveFramedBy(w http.ResponseWriter, name, frameOptions, frameAncestors string) {
 	data, err := fs.ReadFile(agentdeck.Files, name)
 	if err != nil {
@@ -2660,7 +2678,7 @@ func serveFramedBy(w http.ResponseWriter, name, frameOptions, frameAncestors str
 	default:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("X-Frame-Options", frameOptions)
-		w.Header().Set("Content-Security-Policy", "frame-ancestors "+frameAncestors)
+		w.Header().Set("Content-Security-Policy", "frame-ancestors "+frameAncestors+"; frame-src 'none'")
 	}
 	_, _ = w.Write(data)
 }

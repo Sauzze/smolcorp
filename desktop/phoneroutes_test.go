@@ -88,6 +88,13 @@ var everyPhoneRoute = [][2]string{
 // probeRoute asks one route as one caller, through the whole router, and says the status and the text.
 func probeRoute(t *testing.T, d *Deck, method, target, phoneKey string, c routeCaller) (int, string) {
 	t.Helper()
+	w := probeAnswer(t, d, method, target, phoneKey, c)
+	return w.Code, strings.TrimSpace(w.Body.String())
+}
+
+// probeAnswer is probeRoute's whole answer, its headers too.
+func probeAnswer(t *testing.T, d *Deck, method, target, phoneKey string, c routeCaller) *httptest.ResponseRecorder {
+	t.Helper()
 	sep := "?"
 	if strings.Contains(target, "?") {
 		sep = "&"
@@ -143,7 +150,7 @@ func probeRoute(t *testing.T, d *Deck, method, target, phoneKey string, c routeC
 	servedUnrecorded = func(*http.Request) bool { return c.tailscale }
 	w := httptest.NewRecorder()
 	(&router{deck: d}).ServeHTTP(w, r)
-	return w.Code, strings.TrimSpace(w.Body.String())
+	return w
 }
 
 // probeDeck is a deck with a paired phone, where nothing reaches a terminal or a browser, and Tailscale's address is
