@@ -361,6 +361,25 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 		if w, found := d.watchers.get(id); found && w.By != "gm" {
 			return refuse("takes away only its own watches.")
 		}
+	case post && path == nightProposePath:
+		// Read as the route reads it (decodedNight: strictly, each key spelled as nightAsk's), and the route is given
+		// what was read, so "Kind" or a second "KIND" can't make a hire of what was checked as a task (RT126N1 B2).
+		// A night job's hire only into the project or the top of one of its worktrees, as the folder checked; a task
+		// for the GM is the GM's own, held to its scope when it runs. Anything but a task for the GM is held to the
+		// folder, so a kind the route would refuse anyway gets no further here.
+		var ask nightAsk
+		if !decodedNight(bytes.NewReader(raw), &ask) {
+			return http.StatusBadRequest, "That isn't a night job's proposal: only its words, each key spelled once and as the page spells it.", nil
+		}
+		body = ask
+		if ask.Kind != nightGM {
+			real, held := s.place(ask.Folder)
+			if !held {
+				return refuse("proposes night jobs only in " + root + " or the top of one of its worktrees, a folder that is there.")
+			}
+			ask.Folder = real
+			body = ask
+		}
 	case post && (path == "/setup/gm/tile" || path == "/setup/gm/screen"):
 		return refuse("works only" + where + ": it doesn't move the office's windows.")
 	default:

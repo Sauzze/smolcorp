@@ -992,6 +992,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	if d.demoRoute(w, r) {
 		return
 	}
+	// The night shift's jobs (nightshift.go; goOnlyRoutes lists who may use each).
+	if d.nightRoute(w, r) {
+		return
+	}
 
 	// Phone over HTTPS on every system, and its tap (phonehttps.go): the page alone.
 	if d.tailnetRoute(w, r) {

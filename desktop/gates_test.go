@@ -56,8 +56,12 @@ func TestEveryRouteIsDecidedAsTheGatesItWrapsDecideIt(t *testing.T) {
 					}
 					checked++
 				}
-				// An MCP key and a night job have the GM's powers, never the page's.
+				// An MCP key and a night job have the GM's powers, never the page's; the night shift's jobs, which the
+				// GM itself lists and proposes, are refused them (nightshift.go).
 				gm := d.decide(actorGM, action{route: &routeAsk{method: method, path: path}})
+				if isNightRoute(path) && gm.allowed() {
+					gm = refuse(http.StatusForbidden, nightRefusal)
+				}
 				for _, a := range []actor{mcpActor("claude-desktop"), nightActor("nightly-tests")} {
 					if got := d.decide(a, action{route: &routeAsk{method: method, path: path}}); got != gm {
 						t.Errorf("%s %s by %s: got %+v, the GM gets %+v", method, path, a, got, gm)

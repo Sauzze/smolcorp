@@ -94,7 +94,9 @@ var routeTable = []routeRow{
 
 // goOnlyRoutes are setup routes only this app serves (INVENTORY.md's "Served by the Go app only"), so they aren't
 // in the Mac's fixture: Take over in T3 Code and Hand back (t3takeover.go), the page alone; a hire's git state (gitstate.go), a read;
-// and Phone over HTTPS (phonehttps.go), all of it the page's alone, the tap that runs `tailscale serve` included.
+// Phone over HTTPS (phonehttps.go), all of it the page's alone, the tap that runs `tailscale serve` included; and the
+// night shift's jobs (nightshift.go): listed by the page, the GM and a tool, proposed by the GM (or the page), made,
+// changed, approved, paused and deleted by the page alone. An MCP key and a night job are refused them all (gates.go).
 // The sign-in status (signinstatus.go) is the page's alone too.
 // Signing in to an agent (signinrun.go) is the page's alone too.
 // Floors from other Macs (peers_mac_join.go) are the page's alone too.
@@ -133,6 +135,12 @@ var goOnlyRoutes = []routeRow{
 	{"POST", "/setup/grants/answer", []string{"page"}},
 	// A phone phones.json lists that this app can't vouch for, let in by the owner (access.go's Confirm): the page alone.
 	{"POST", "/setup/phones/confirm", []string{"page"}},
+	{"GET", nightListPath, []string{"gm", "page", "tool"}},
+	{"POST", nightProposePath, []string{"gm", "page"}},
+	{"POST", nightSavePath, []string{"page"}},
+	{"POST", nightApprovePath, []string{"page"}},
+	{"POST", nightPausePath, []string{"page"}},
+	{"POST", nightDeletePath, []string{"page"}},
 }
 
 // name is how the table spells a caller.
