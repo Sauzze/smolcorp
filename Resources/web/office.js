@@ -8,7 +8,8 @@
  * whole number of the screen's pixels so every edge stays sharp.
  *
  *   AgentOffice.create(canvas, on) → { show(snapshot), close(), select(id), setVisible(shown), setFramed(framed), moved(),
- *                                      setSaving(on), setLite(on), setPR(found), expand(id), onElevator(clientX, clientY), ride() }
+ *                                      setSaving(on), setLite(on), setPR(found), setPreview(shown), expand(id),
+ *                                      onElevator(clientX, clientY), ride() }
  *
  * `show` takes what the deck streams; `close` empties the office when the
  * stream drops, and whoever is there when it's back is already at work.
@@ -62,6 +63,12 @@
  * the desk, and a click or tap on it into `on.pr(id)` for session `id`; the page gives the pull requests to show with
  * `setPR` ({ <session id>: { number, state, reviewDecision } }). Without `on.pr`, nothing is drawn or tapped, whatever
  * setPR was given.
+ *
+ * `on.tv(id, url)` (1.26 TV1, the office's own window only) turns the room's TVs, the wall's and the lounge's, into
+ * something to click: a click or tap on one is `on.tv(id, url)`, for the picked desk's session `id` (null with none
+ * picked) and the address its TV shows (null with none). The page gives the picked desk's preview with `setPreview`
+ * ({ id, url }, or null), and one TV on each floor shows it, "LIVE" and its port on the screen and the address on a tag
+ * under it, while that desk is picked; every other TV plays as before. Without `on.tv`, nothing is shown or tapped.
  *
  * The snapshot's `floors` (before them, its `upstairs`) are the floors over
  * this one, up to six in all, each with its name, its style and the desks on
@@ -2386,6 +2393,30 @@
 
   /** The pieces added to the lounge in the room's shape now. */
   const addedOf = (room) => (room && room.plan && room.plan.added && room.plan.added[shape === TALL ? 'tall' : 'wide']) || [];
+
+  /**
+   * The TVs (1.26 TV1): the pieces that can show what a desk is building, on the wall and in the lounge. In the
+   * computer's own window each is something to click (`on.tv`), and one on each floor, the first of `tvsOf`, shows the
+   * picked desk's preview, as the page gave it (setPreview); the others, and every TV elsewhere, play as they always have.
+   */
+  const TV_KINDS = { wall: ['tv'], lounge: ['simpsonstv'] };
+  /** The room's TVs, by their part: those hung on the wall first, in turn, then the lounge's; those put away left out. */
+  const tvsOf = (room = decor) => [
+    ...hungOf(room).flatMap((piece, i) => (!piece.away && TV_KINDS.wall.includes(piece.kind) ? [`hung:${i}`] : [])),
+    ...loungePieces(room).filter(({ kind }) => TV_KINDS.lounge.includes(kind)).map(({ part }) => part),
+  ];
+  /**
+   * A desk's preview as a TV shows it, from what the page gave, { id, url }: its session's id, its address, the address
+   * without its http:// for the tag under the TV, and its port for the screen. Anything but a loopback http address at
+   * localhost (as the computer keeps every preview, 127.0.0.1 being Setup's alone), with a path or none, is null.
+   */
+  function onAirOf(shown) {
+    if (!shown || typeof shown !== 'object' || typeof shown.id !== 'string' || !shown.id || typeof shown.url !== 'string') return null;
+    const { id, url } = shown;
+    const found = /^http:\/\/localhost:([1-9][0-9]{0,4})(\/[\x21-\x7e]*)?$/.exec(url);
+    if (!found || Number(found[1]) > 65535 || url.length > 2048 || /[?#\\]/.test(url)) return null;
+    return { id, url, label: url.slice('http://'.length), port: found[1] };
+  }
 
   /** Where each desk is, as the room's shape now and its arrangement put them, and whether it's been put away: upstairs as downstairs, each floor as it's arranged. */
   const desksOf = (room) => STANDARD_DESKS.map((desk, i) => {
@@ -9964,7 +9995,7 @@
    * agent, or fire one. A first finger landing on them for a two-finger
    * scroll sends nothing.
    */
-  const SENT_ON_LIFT = ['key', 'choice', 'chip', 'button', 'fired', 'maxed', 'talk', 'pr'];
+  const SENT_ON_LIFT = ['key', 'choice', 'chip', 'button', 'fired', 'maxed', 'talk', 'pr', 'tv'];
   /** How long the question before firing, or max effort, ignores taps, in seconds: a double tap that opened it doesn't answer it too. */
   const FIRE_QUESTION_SETTLES = 0.5;
   /** Return again this soon, by accept or send, is one tap landing twice, in seconds. */
@@ -11250,6 +11281,10 @@
     const room = fitRoom(width, height, inset);
     // The scale and the origin change for a while as a piece grown bigger is drawn: see `moved`.
     let { scale, ox, oy } = room;
+    // The floor's TV on air, by its part, with the preview the frame has (frame.tv): see drawOnAir. Where it's drawn, in
+    // the room's art pixels, for the tag under it.
+    const onAir = frame.tv ? tvsOf()[0] || null : null;
+    let onAirAt = null;
 
     // The room shakes for a moment when the button goes down.
     const blast = office.detonation;
@@ -11870,6 +11905,8 @@
       ctx.clearRect(0, 0, seen.width, seen.height);
       ({ ox, oy, scale } = { ox: -seen.left, oy: -seen.top, scale: 1 });
     }
+    // Where the room's art pixels start, as it's drawn: what's drawn round a piece moved finds itself in the room from here.
+    const artBase = { ox, oy, scale };
 
     /* The room */
 
@@ -29309,10 +29346,44 @@
       if (instead) instead.instead(x);
       else drawWallPieceItself(piece, x);
       for (const touch of touches) if (touch.over) touch.over(x);
+      if (onAir !== null && hung !== null && onAir === `hung:${hung}`) drawOnAir(x - 13, 8, 26, 15);
       const pane = STORM_PANES[piece];
       const watched = hung !== null && pane && office.people.some((p) => !p.isWalking && p.place.startsWith('storm:')
         && stormSpots[numberAfter('storm:', p.place)] && stormSpots[numberAfter('storm:', p.place)].hung === hung);
       if (watched) drawStorm(x + pane[0], pane[1], pane[2], pane[3]);
+    }
+
+    /**
+     * A TV on air (TV1), over its own screen, `w` × `h` from `l`, `t`: LIVE by a blinking red dot, and under it the
+     * port of the picked desk's preview, as frame.tv has it. The whole address goes on a tag under the TV, in the
+     * page's own letters, once the room's art is done (drawOnAirTag): it's kept where this TV is, in the room.
+     */
+    function drawOnAir(l, t, w, h) {
+      fill(l, t, w, h, 0x0e1622);
+      fill(l, t + (Math.floor(now * 6) % h), w, 1, WHITE, 0.05);
+      fill(l + 2, t + 3, 2, 2, 0xe8402e, Math.floor(now * 1.5) % 2 ? 0.35 : 1);
+      pixelText('LIVE', l + 6, t + 2, WHITE, false);
+      const port = `:${frame.tv.port}`;
+      pixelText(port, l + Math.round((w - pixelWidth(port)) / 2), t + 9, 0x7fe0a0, false);
+      onAirAt = { x: (ox - artBase.ox + (l + w / 2) * scale) / artBase.scale, y: (oy - artBase.oy + (t + h + 2) * scale) / artBase.scale };
+    }
+
+    /** The address of the TV on air, on a tag just under it, at the screen's own resolution. */
+    function drawOnAirTag({ x, y }) {
+      const size = Math.max(LABEL_SIZE * 0.75 * scale, LABEL_SMALLEST * 0.85 * ratio);
+      ctx.save();
+      ctx.font = `600 ${size}px ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif`;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+      const shown = fitText(ctx, `LIVE ${frame.tv.label}`, 72 * scale);
+      const w = ctx.measureText(shown).width + size, h = size * 1.5;
+      const top = screen(x, y);
+      ctx.fillStyle = 'rgba(150,32,24,0.9)';
+      roundedRect(ctx, top.x - w / 2, top.y, w, h, h / 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.fillText(shown, top.x, top.y + h / 2);
+      ctx.restore();
     }
 
     /** A storm through a pane: dark clouds, rain, and lightning now and then. */
@@ -43419,6 +43490,8 @@
 
     // Where the spots round the piece being drawn start, among the room's spots: set as each is drawn.
     let cornerBase = LOUNGE_SPOTS.length;
+    // And which piece it is, by its part: the TV on air is one of them (see drawOnAir).
+    let cornerPart = null;
     /** Someone at the nth spot round the piece being drawn. */
     const atCorner = (i) => office.people.some((p) => p.place === spotPlace(cornerBase + i) && !p.isWalking && !p.isLeaving);
 
@@ -50659,6 +50732,7 @@
         for (const [dx, dy, c] of [[0, 0, 0x4a8ae8], [1, 0, 0x4a8ae8], [1, -1, 0x4a8ae8], [2, -1, 0x4a8ae8], [0, 1, 0x4a8ae8], [3, -1, 0xd8302a], [-1, 0, 0x4a8ae8]]) if (clip(cx + dx)) dot(cx + dx, 71 + dy, c);
         if (someone) fill(262, 60, 26, 16, WHITE, 0.08);
       }
+      if (onAir !== null && onAir === cornerPart) drawOnAir(262, 60, 26, 16);
       fill(290, 60, 6, 16, woodDark); disc(293, 63, 1.4, 0xc8c8c8); disc(293, 68, 1.4, 0xc8c8c8); for (let k = 72; k < 76; k++) dot(292, k, 0x2a2a30);
       glowAt(275, 68, 16, 10, 0x8ac8ff, isNight ? 0.1 : 0.04);
       if (isNight) glowLate(() => { glowAt(275, 70, 22, 16, 0x8ac8ff, 0.18); fill(262, 60, 26, 16, 0x8ac8ff, 0.15); });
@@ -67642,6 +67716,7 @@
       // The corner's piece and each added one, each told where the spots round it start
       ...loungePieces().flatMap(({ part, kind }) => CORNER_PARTS[kind].map(([depth, draw]) => lounge(part, depth, () => {
         cornerBase = spotsFrom(part);
+        cornerPart = part;
         draw();
       }))),
     ];
@@ -67836,6 +67911,7 @@
       drawPixelKey(left, top, w, h, on ? 0x2f8f5b : 0x5c5c66, label);
     }
     if (frame.voiceNotes) frame.voiceNotes.forEach(drawVoiceNote);
+    if (onAirAt) drawOnAirTag(onAirAt);
     if (frame.choices) drawChoices();
     if (frame.arranging) drawArrangement(frame.arranging);
     if (frame.musicTap) drawMusicTap(frame.musicTap);
@@ -69405,6 +69481,10 @@
     // The pull requests the page gave (setPR), by session id: drawn and tapped only where the page took `on.pr`, which
     // is the computer's own window alone, never a phone's page or the viewer's.
     let gitPRs = new Map();
+    // The picked desk's preview the page gave (setPreview, onAirOf): on a TV only while that desk is picked, and only
+    // where the page took `on.tv`, the computer's own window alone.
+    let tvShown = null;
+    const onAirNow = () => (on.tv && tvShown && tvShown.id === selected ? tvShown : null);
     const office = new Office();
     const clock = () => performance.now() / 1000;
     let visible = true;
@@ -70298,6 +70378,8 @@
         now, hour: date.getHours(), minute: date.getMinutes(), month: date.getMonth(),
         width: canvas.width, height: canvas.height, ratio: host.window.devicePixelRatio || 1, framed, floating, direct: drawsDirect,
         pr: on.pr ? gitPRs : null,
+        // On each floor's TV, the floor in view or the ride's
+        tv: onAirNow(),
       };
       // Upstairs, nothing is picked, held or waiting on a key. Only the floors being drawn: the one in view, and those
       // the ride is between.
@@ -70524,6 +70606,8 @@
         for (const { id, box } of upstairs(prBoxes) || []) consider({ kind: 'pr', id }, box, 1);
         // An empty desk here, held, hires someone into it, by role, as downstairs.
         for (const { desk, box } of upstairsEmptyBoxes()) consider({ kind: 'empty', desk, floor: floorShown }, box, 4);
+        // A TV here too, behind whatever is in front of it
+        if (on.tv) upstairs(() => { for (const part of tvsOf()) consider({ kind: 'tv', part }, pieceBox(part), 5); });
         // The settings' cog, in the corner here too
         if (styleKey() && styleKeyAt) {
           const { x: kx, y: ky, w: kw, h: kh } = styleKeyAt;
@@ -70547,6 +70631,8 @@
       if (music && on.music) {
         for (const { part, kind } of loungePieces()) if (MUSIC_KINDS.includes(kind)) consider({ kind: 'music', part }, pieceBox(part), 1);
       }
+      // A TV, on the wall or in the lounge, in the computer's own window: behind whoever and whatever is in front of it
+      if (on.tv) for (const part of tvsOf()) consider({ kind: 'tv', part }, pieceBox(part), 5);
       if (styleKey() && styleKeyAt) {
         const { x: kx, y: ky, w: kw, h: kh } = styleKeyAt;
         consider({ kind: 'styles' }, { left: kx, right: kx + kw, top: ky, bottom: ky + kh }, -1);
@@ -70836,6 +70922,8 @@
       if (target.kind === 'session') return on.select?.(target.id);
       // A pull request's tag opens that pull request, through the page: the computer says what it opens, not the room
       if (target.kind === 'pr') return on.pr?.(target.id);
+      // A TV is the page's to open, for the picked desk, with the address it shows (null if none, or none picked)
+      if (target.kind === 'tv') return on.tv?.(selected || null, onAirNow()?.url || null);
       const session = pickedHere();
       if (!session) {
         wobbling = { what: target.kind, at: clock() };
@@ -71581,6 +71669,12 @@
        * /desk/git gave them, for the computer's own window only: a page that took no `on.pr` shows and taps nothing.
        * Anything that isn't a pull request the badge knows is left out.
        */
+      /**
+       * The picked desk's preview (TV1), as the computer's /desk/preview gave it, { id, url } for session `id`, or null:
+       * the floor's TV shows it while that desk is picked. For the computer's own window only: a page that took no
+       * `on.tv` shows and taps nothing. Anything but a localhost http address is no preview (onAirOf).
+       */
+      setPreview(shown) { tvShown = onAirOf(shown); },
       setPR(found) {
         const entries = found instanceof Map ? [...found] : Object.entries(found || {});
         gitPRs = new Map(entries.filter(([id, pr]) => typeof id === 'string' && prKindOf(pr)).map(([id, pr]) => [id, { number: pr.number, state: pr.state, reviewDecision: pr.reviewDecision || '' }]));

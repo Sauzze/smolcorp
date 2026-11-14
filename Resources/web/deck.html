@@ -379,9 +379,12 @@
   // The pull request badge on each desk (1.26 R2): the computer's own office window only, whose key is the one the
   // computer answers /desk/git and /desk/pr/open to. A phone's page, the preview and the screen saver have none of it.
   const gitHere = whole && !preview && !saver;
-  const office = !window.AgentOffice ? { show() {}, close() {}, select() {}, setVisible() {}, setFramed() {}, setFloating() {}, setSaving() {}, setLite() {}, setPR() {}, moved() {}, openStyles() {} } : AgentOffice.create($('office-canvas'), {
+  const office = !window.AgentOffice ? { show() {}, close() {}, select() {}, setVisible() {}, setFramed() {}, setFloating() {}, setSaving() {}, setLite() {}, setPR() {}, setPreview() {}, moved() {}, openStyles() {} } : AgentOffice.create($('office-canvas'), {
     // A desk's pull request tag tapped: the computer opens it (it looks up the address itself, and checks it).
     ...(gitHere ? { pr(id) { tick(); send('/desk/pr/open', { session: id }); } } : {}),
+    // A TV clicked (1.26 TV1), in the same window, the one the computer answers /desk/preview to: what the picked desk
+    // is building, said on the status line. Nothing opens it in a browser: a desk's page never gets the top of one.
+    ...(gitHere ? { tv(id, url) { tick(); flash(tvLine(id, url)); } } : {}),
     // Open in Terminal, in the Pixel Terminal's menu: a window on the hire's own tmux session, as ⧉ window, behind the
     // same setting (Settings' hires in the background, on a Mac)
     ...(talkHere ? { talk: { get, post, flash, tick, openInTerminal: { shown: () => windowKey, open: (id) => openHireWindow(id) } } } : {}),
@@ -1668,6 +1671,8 @@
       selected = (keyed.find((s) => s.state === 'asking') || keyed.find((s) => !s.t3) || keyed[0]).id;
     }
     office.select(selected);
+    // The TV follows the desk picked
+    if (gitHere && selected !== previewFor) askPreview();
     // An agent gone: its conversation and its card go with it.
     if (board && !sessions.some((s) => s.id === board.session)) closeBoard();
     if (info && !sessions.some((s) => s.id === info.session)) closeInfo();
@@ -1731,6 +1736,40 @@
     }
   }
   if (gitHere) setInterval(askGit, GIT_EVERY);
+
+  /*
+   * The TV's preview (1.26 TV1): the picked desk's /desk/preview, as it's picked and every PREVIEW_EVERY ms while the
+   * window is in sight, for the office's TV to show. An answer that says no, as any page but the computer's own
+   * window gets, ends the asking for good, as for the badges.
+   */
+  const PREVIEW_EVERY = 10000;
+  let previewAsking = false, previewOff = false, previewFor = null;
+  async function askPreview() {
+    if (!gitHere || previewOff || previewAsking || document.hidden) return;
+    const id = selected;
+    previewFor = id;
+    if (!id) return office.setPreview(null);
+    previewAsking = true;
+    try {
+      const res = await get('/desk/preview', { session: id });
+      if (res && (res.status === 401 || res.status === 403)) {
+        previewOff = true;
+        office.setPreview(null);
+        return;
+      }
+      const answer = res && res.ok ? await res.json().catch(() => null) : null;
+      office.setPreview(answer && typeof answer.url === 'string' && answer.url ? { id, url: answer.url } : null);
+    } finally {
+      previewAsking = false;
+    }
+  }
+  if (gitHere) setInterval(askPreview, PREVIEW_EVERY);
+  /** What a TV clicked says: the picked desk's address, or why there's none. */
+  function tvLine(id, url) {
+    if (!id) return 'Pick a desk first: the TV shows what it is building';
+    const desk = sessions.find((s) => s.id === id), name = desk ? desk.project || desk.name : 'This desk';
+    return url ? `LIVE ${url.replace(/^http:\/\//, '')}: ${name}` : `${name} isn't serving anything on localhost yet`;
+  }
 
   /** What the computer streams: the sessions at their desks and the layout. */
   function receive(data) {
