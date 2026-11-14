@@ -398,6 +398,30 @@ func TestACloudBotSitsUpstairsFirstOrAtAFreeKey(t *testing.T) {
 	}
 }
 
+// A bot's green ends by itself on a timer the deck plans (cloudGreenFor); a test's deck stops it as it stops, so it
+// never goes off in a later test and reads the folders that test put in (it did, 10 minutes on, in -count=3).
+func TestACloudBotsGreenTimerStopsWithItsTestsDeck(t *testing.T) {
+	var d *Deck
+	t.Run("green", func(t *testing.T) {
+		d = newTestDeck(t)
+		withCloudBots(d, standardCloudBotNamed("mini", "Smolcorp mini"))
+		reported(d, "mini", nil)
+		d.mu.Lock()
+		planned := d.cloud.expiry != nil
+		d.mu.Unlock()
+		if !planned {
+			t.Fatal("a report planned no end to its green")
+		}
+	})
+	d.mu.Lock()
+	left := d.cloud.expiry
+	d.mu.Unlock()
+	if left != nil {
+		left.Stop() // not left for a later test
+		t.Error("the green's timer is still planned after its test's deck stopped")
+	}
+}
+
 // floorDesks is the desks the phone is told of on floor n, 0 for the ground floor.
 func floorDesks(t *testing.T, d *Deck, n int) []map[string]any {
 	t.Helper()

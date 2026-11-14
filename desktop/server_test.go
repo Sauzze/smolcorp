@@ -99,7 +99,61 @@ func startDeck(t *testing.T) *Deck {
 		d.saveMu.Unlock() // only waiting for a save that is under way
 	})
 	t.Cleanup(d.stopWatchers)
+	// A cloud bot's desk plans its next change on a timer of its own (cloudDesks.update), which stopWatchers doesn't
+	// end: it is stopped with the deck, so it never fires in a later test and reads the folders that test put in
+	// (it did). One already gone off and waiting for the lock finds it isn't the one planned, and does nothing.
+	t.Cleanup(func() {
+		d.mu.Lock()
+		if d.cloud.expiry != nil {
+			d.cloud.expiry.Stop()
+			d.cloud.expiry = nil
+		}
+		d.mu.Unlock()
+	})
+	// A hire still being watched as the test ends would go on reading and writing the folders isolate puts back
+	// (STUDIO23: a launcher hire's watch, on its real 45 s wait, wrote the registry in a later test's folder). So
+	// every test ends the watches it starts and waits for them; one left running fails the test that left it, here,
+	// before its deck stops.
+	t.Cleanup(func() { watchesEnded(t, d, watchLeftWait) })
 	return d
+}
+
+// watchLeftWait is how long a test's end waits for the watches of the hires it started (startDeck).
+const watchLeftWait = 10 * time.Second
+
+// watchesEnded fails t when the deck is still watching a hire within of being asked.
+func watchesEnded(t testing.TB, d *Deck, within time.Duration) {
+	t.Helper()
+	if !d.waitForHires(within) {
+		t.Errorf("a hire is still being watched %v after the test: end its watch and wait for it (d.watching)", within)
+	}
+}
+
+// errorsKept is a test's t that keeps the errors it is given instead of failing the test.
+type errorsKept struct {
+	testing.TB
+	errors []string
+}
+
+func (e *errorsKept) Errorf(format string, args ...any) {
+	e.errors = append(e.errors, fmt.Sprintf(format, args...))
+}
+
+// A watch still running as a test ends fails that test (STUDIO23), and one that has ended doesn't.
+func TestAWatchLeftRunningAsATestEndsFailsThatTest(t *testing.T) {
+	d := newTestDeck(t)
+	d.watching.Add(1) // a hire's watch that hasn't ended
+	left := &errorsKept{TB: t}
+	watchesEnded(left, d, 50*time.Millisecond)
+	if len(left.errors) != 1 || !strings.Contains(left.errors[0], "still being watched") {
+		t.Errorf("a watch left running: %q", left.errors)
+	}
+	ended := &errorsKept{TB: t}
+	go d.watching.Done() // ends while the test's end waits: waited for
+	watchesEnded(ended, d, 5*time.Second)
+	if len(ended.errors) != 0 {
+		t.Errorf("a watch that ended: %q", ended.errors)
+	}
 }
 
 // pair asks for a code on this computer and pairs a phone on the Wi-Fi with

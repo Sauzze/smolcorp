@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -278,31 +279,169 @@ func TestTheStatusRouteIsThePagesAlone(t *testing.T) {
 
 func TestAStatusCommandThatHangsIsEndedWithAnythingItStarted(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "child")
-	signInPlace(t, map[string]string{"claude": "sleep 30 & echo $! > " + pidFile + "; wait"})
+	// Each run notes its child: one that ran out of time is run once more, and both are ended.
+	signInPlace(t, map[string]string{"claude": "sleep 30 & echo $! >> " + pidFile + "; wait"})
 	saved := signInDeadline
 	t.Cleanup(func() { signInDeadline = saved })
-	child := func() int {
+	children := func() []int {
 		text, _ := os.ReadFile(pidFile)
-		pid, _ := strconv.Atoi(strings.TrimSpace(string(text)))
-		return pid
+		var pids []int
+		for _, line := range strings.Fields(string(text)) {
+			if pid, _ := strconv.Atoi(line); pid != 0 {
+				pids = append(pids, pid)
+			}
+		}
+		return pids
 	}
 	// As the summary's test does: longer on a busy computer, until the stand-in has started its child.
 	for _, deadline := range []time.Duration{time.Second, 4 * time.Second, 16 * time.Second} {
-		if child() != 0 {
+		if len(children()) != 0 {
 			break
 		}
 		signInDeadline = deadline
 		started := time.Now()
 		row := probeAgentSignIn("claude", signInFind("claude"), summaryEnvironment(os.Environ()))
-		if row.State != accountUnknown || !row.Installed || time.Since(started) > deadline+5*time.Second {
+		if row.State != accountUnknown || !row.Installed || time.Since(started) > 2*deadline+signInRetryPause+5*time.Second {
 			t.Fatalf("%+v after %v", row, time.Since(started))
 		}
 	}
-	pid := child()
-	if pid == 0 {
+	pids := children()
+	if len(pids) == 0 {
 		t.Fatal("it never started its child")
 	}
-	eventually(t, "stopped what it started", func() bool { return processGone(pid) })
+	for _, pid := range pids {
+		eventually(t, "stopped what it started", func() bool { return processGone(pid) })
+	}
+}
+
+// signInCounted is a stand-in's body that notes each run on a line of the file runs, then does the rest. Run
+// with "warm" it only exits: signInWarm runs it so, and the system's check of a program just written (T126FLK1)
+// is then behind it, so a short deadline times only what the body does.
+func signInCounted(runs, rest string) string {
+	return `if [ "$1" = warm ]; then exit 0; fi; echo run >> ` + runs + "; " + rest
+}
+
+// signInHangsFirst is signInCounted's body that hangs on its first run, as a first run waiting for the system's
+// check can, and does the rest on the next.
+func signInHangsFirst(runs, rest string) string {
+	return signInCounted(runs, "n=$(wc -l < "+runs+"); if [ $n -eq 1 ]; then sleep 30; fi; "+rest)
+}
+
+func signInWarm(t *testing.T, dir string, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		if err := exec.Command(filepath.Join(dir, name), "warm").Run(); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
+// signInRuns is how many times a signInCounted stand-in ran.
+func signInRuns(runs string) int {
+	text, _ := os.ReadFile(runs)
+	return strings.Count(string(text), "\n")
+}
+
+// The short deadline the retry's tests set (signInPlace puts the real one back): a warmed stand-in starts in
+// milliseconds, so only a hang runs past it.
+const signInRetryDeadline = 2 * time.Second
+
+const (
+	claudeSaysSignedIn = `echo '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max","email":"ann@example.com"}'`
+	codexSaysSignedIn  = "echo 'Logged in using ChatGPT'"
+)
+
+func TestASignInCheckThatRanOutOfTimeIsRunOnceMore(t *testing.T) {
+	folder := t.TempDir()
+	claudeRuns, codexRuns := filepath.Join(folder, "claude-runs"), filepath.Join(folder, "codex-runs")
+	dir := signInPlace(t, map[string]string{
+		"claude": signInHangsFirst(claudeRuns, claudeSaysSignedIn),
+		"codex":  signInHangsFirst(codexRuns, codexSaysSignedIn),
+	})
+	signInWarm(t, dir, "claude", "codex")
+	signInDeadline = signInRetryDeadline
+	rows := signInRows(t)
+	if want := (agentSignIn{Agent: "claude", Installed: true, State: accountSignedIn, Account: "ann@example.com"}); rows["claude"] != want {
+		t.Errorf("claude: %+v, want %+v", rows["claude"], want)
+	}
+	if want := (agentSignIn{Agent: "codex", Installed: true, State: accountSignedIn}); rows["codex"] != want {
+		t.Errorf("codex: %+v, want %+v", rows["codex"], want)
+	}
+	if claude, codex := signInRuns(claudeRuns), signInRuns(codexRuns); claude != 2 || codex != 2 {
+		t.Errorf("runs: claude %d, codex %d, want 2 each", claude, codex)
+	}
+}
+
+func TestASignInCheckThatAlwaysRunsOutOfTimeIsRunTwiceThenCantBeTold(t *testing.T) {
+	runs := filepath.Join(t.TempDir(), "runs")
+	dir := signInPlace(t, map[string]string{"claude": signInCounted(runs, "sleep 30; "+claudeSaysSignedIn)})
+	signInWarm(t, dir, "claude")
+	signInDeadline = signInRetryDeadline
+	started := time.Now()
+	rows := signInRows(t)
+	took := time.Since(started)
+	if want := (agentSignIn{Agent: "claude", Installed: true, State: accountUnknown}); rows["claude"] != want {
+		t.Errorf("claude: %+v, want %+v", rows["claude"], want)
+	}
+	if n := signInRuns(runs); n != 2 {
+		t.Errorf("run %d times, want 2", n)
+	}
+	// The whole ask is bounded: two deadlines and the pause between them, and not much more.
+	if least := 2*signInDeadline + signInRetryPause; took < least || took > least+5*time.Second {
+		t.Errorf("took %v, want %v and a little", took, least)
+	}
+}
+
+func TestASignInCantTellThatIsntATimeoutIsRunOnce(t *testing.T) {
+	for name, rest := range map[string]string{
+		"something else":          "echo 'Welcome back!'",
+		"a failure it can't read": "echo 'Something went wrong' >&2; exit 3",
+		"ended by a signal":       "kill -9 $$",
+	} {
+		t.Run(name, func(t *testing.T) {
+			folder := t.TempDir()
+			claudeRuns, codexRuns := filepath.Join(folder, "claude-runs"), filepath.Join(folder, "codex-runs")
+			signInPlace(t, map[string]string{"claude": signInCounted(claudeRuns, rest), "codex": signInCounted(codexRuns, rest)})
+			rows := signInRows(t)
+			for _, agent := range []string{"claude", "codex"} {
+				if want := (agentSignIn{Agent: agent, Installed: true, State: accountUnknown}); rows[agent] != want {
+					t.Errorf("%s: %+v, want %+v", agent, rows[agent], want)
+				}
+			}
+			if claude, codex := signInRuns(claudeRuns), signInRuns(codexRuns); claude != 1 || codex != 1 {
+				t.Errorf("runs: claude %d, codex %d, want 1 each", claude, codex)
+			}
+		})
+	}
+}
+
+// The page's refresh, with the real commands and a retry: callers asking at once wait for the one that runs
+// (its retry and all), and a refresh right after it runs nothing.
+func TestSignInCallersAskingAtOnceWaitForOneRunAndItsRetry(t *testing.T) {
+	runs := filepath.Join(t.TempDir(), "runs")
+	dir := signInPlace(t, map[string]string{"claude": signInHangsFirst(runs, claudeSaysSignedIn)})
+	signInWarm(t, dir, "claude")
+	signInDeadline = signInRetryDeadline
+	var s signInStatus
+	answers := make([][]agentSignIn, 5)
+	var wg sync.WaitGroup
+	for i := range answers {
+		wg.Add(1)
+		go func() { defer wg.Done(); answers[i] = s.get(true) }()
+	}
+	wg.Wait()
+	for i, answer := range answers {
+		if len(answer) != 3 || answer[0].State != accountSignedIn {
+			t.Errorf("caller %d: %+v", i, answer)
+		}
+	}
+	if n := signInRuns(runs); n != 2 {
+		t.Errorf("run %d times, want 2 (one caller, one retry)", n)
+	}
+	before := signInRuns(runs)
+	if s.get(true); signInRuns(runs) != before {
+		t.Errorf("a refresh within signInLeastApart ran again: %d runs, then %d", before, signInRuns(runs))
+	}
 }
 
 func TestAStatusCommandsOutputIsCut(t *testing.T) {

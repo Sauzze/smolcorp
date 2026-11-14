@@ -39,8 +39,8 @@ type agentSignIn struct {
 	Account string `json:"account,omitempty"`
 }
 
-// A status command is a quick one: past this it's ended with all it started, and the answer is "can't tell"
-// (a variable, for the tests).
+// A status command is a quick one: past this it's ended with all it started, and run once more after
+// signInRetryPause; a second time past it, the answer is "can't tell" (a variable, for the tests).
 var signInDeadline = 5 * time.Second
 
 const (
@@ -50,6 +50,8 @@ const (
 	// How long an answer is kept, and the least time between two runs the page's own refresh can ask for.
 	signInKeep       = 30 * time.Second
 	signInLeastApart = 2 * time.Second
+	// The pause before a status command that ran out of time is run again.
+	signInRetryPause = 500 * time.Millisecond
 	// The longest account name or email passed on.
 	signInAccountMost = 120
 )
@@ -120,8 +122,16 @@ func probeAgentSignIn(agent, program string, env []string) agentSignIn {
 	if program == "" || checkAgentProgram(agent, program) != nil {
 		return row
 	}
+	// A command that ran out of time is run once more, after a short pause: the first run of a program just
+	// installed or updated can wait seconds for the system's check of it (macOS, T126FLK1). Nothing else is
+	// asked again, since anything else would say the same. At worst: two deadlines and the pause.
 	run := func(args ...string) summaryRan {
-		return spawnCapped(program, args, nil, env, os.TempDir(), signInDeadline, signInOutputMost, signInErrorMost)
+		ran := spawnCapped(program, args, nil, env, os.TempDir(), signInDeadline, signInOutputMost, signInErrorMost)
+		if ran.timedOut {
+			time.Sleep(signInRetryPause)
+			ran = spawnCapped(program, args, nil, env, os.TempDir(), signInDeadline, signInOutputMost, signInErrorMost)
+		}
+		return ran
 	}
 	switch agent {
 	case "claude":

@@ -70,6 +70,19 @@ func TestTheGMsStartMessageIsNeverTheOwners(t *testing.T) {
 		r := newLRig(t)
 		// The launcher is handed a start message only with a brief written (hirelauncher.go).
 		r.d.config.Roles[1].Brief = &RoleBrief{Kind: "library", ID: gmRole}
+		// The GM is heard from only once the test is done: its watch ends then, in this test, and never writes the
+		// registry in a later test's folder (STUDIO23: left on the real 45 s wait, it did).
+		done := make(chan struct{})
+		r.o.HeardFrom = func(Hire) bool {
+			select {
+			case <-done:
+				return true
+			default:
+				return false
+			}
+		}
+		r.o.Every = 5 * time.Millisecond
+		t.Cleanup(func() { close(done); r.d.watching.Wait() })
 		if status, message, _ := r.manage("gm"); status >= 300 {
 			t.Fatalf("hire: %d %s", status, message)
 		}
