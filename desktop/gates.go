@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/Sauzze/smolcorp/internal/guard"
@@ -19,8 +20,9 @@ import (
 // The owner's own (the page, a tool with the setup key) passes what the route table lets it; their terminal has
 // no guard. An MCP key and a night job are held as the GM is: its routes, its scope, its guard profile, its fence.
 // A gate that needs the owner says askOwner; decide then keeps the ask in the grant record (grants.go, FS2), where
-// only the owner's tap grants it, and a later identical action by the same actor finds its grant, once. The merge
-// and spend groups (FS3) come later, through shellGates.
+// only the owner's tap grants it, and a later identical action by the same actor finds its grant, once. The guard's
+// merge and spend groups (FS3, internal/guard/merge.go) hold every actor but the owner's own: a merge onto a base
+// branch is refused, and a line only the spend group refuses asks the owner.
 
 // actor is who asks: "gm", "hire" or "hire:<id>", "mcp:<key>", "night:<job>", or the owner's own, "page" and
 // "tool". Anyone else is "nobody".
@@ -97,9 +99,10 @@ type routeAsk struct {
 }
 
 // shellAsk is a command line, checked with the guard file at rules ("" for the guard's own groups, as Load
-// reads it).
+// reads it), run in the folder cwd (an absolute path; "" when it isn't known, and the merge group then refuses
+// what it can't place).
 type shellAsk struct {
-	line, rules string
+	line, rules, cwd string
 }
 
 // fenceAsk is a hire the GM route makes: fenceRefusal's words.
@@ -155,10 +158,12 @@ const nightRefusal = "Only the setup page or the GM itself can see or propose ni
 
 func (v verdict) allowed() bool { return v.kind == verdictAllow }
 
-// shellGates are more checks of a shell line, after the guard's, for an actor the guard holds. None yet: FS3's
-// merge group (onto a base branch: main, master, release/* and the repo's default branch) and spend group go
-// here once the owner says yes (Q10).
+// shellGates are more checks of a shell line, after the guard's, for an actor the guard holds. None: FS3's merge
+// and spend groups are the guard's own (decideShell asks the owner for spend).
 var shellGates []func(a actor, line string) verdict
+
+// spendAsk is what the owner is asked to allow for a line the spend group refuses.
+const spendAsk = "run a command that spends money: "
 
 // decide is whether a may do what, as each gate it wraps decides it today. A route's decision takes the deck's
 // lock and reads the registry: call it with the lock let go. A line or a hire needs neither. A gate that says
@@ -236,8 +241,21 @@ func decideShell(a actor, s shellAsk) verdict {
 		return refuse(0, "Refused by Smolcorp's hire guard: it couldn't tell who asked.")
 	}
 	groups, problem := guard.Profiled(s.rules, profile)
-	if why := guard.Refused(s.line, groups, problem); why != "" {
-		return refuse(0, why)
+	if problem != "" {
+		return refuse(0, guard.Refused(s.line, groups, problem))
+	}
+	groups = guard.At(groups, guard.PlaceOf(s.cwd))
+	if r := guard.Check(s.line, groups); r != nil {
+		if r.Group != guard.SpendGroup {
+			return refuse(0, r.Error())
+		}
+		// Spend's real gate is the owner's OK (Q10), when nothing else in the line is refused: a grant is for that
+		// whole line, so a push beside the spend is refused as it is.
+		others := slices.DeleteFunc(slices.Clone(groups), func(g guard.Group) bool { return g.Name == guard.SpendGroup })
+		if other := guard.Check(s.line, others); other != nil {
+			return refuse(0, other.Error())
+		}
+		return askOwner(spendAsk + s.line)
 	}
 	for _, gate := range shellGates {
 		if v := gate(a, s.line); !v.allowed() {

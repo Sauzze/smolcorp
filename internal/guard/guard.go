@@ -30,13 +30,24 @@
 //     x.sh, powershell -File x.ps1, ./ship), because it reads one line,
 //     never the files;
 //   - a command spelled through a variable or a substitution ($v deploy,
-//     $(echo git) push, git ${EMPTY}push, "$(which git)" push, iex 'g'+'it
-//     push');
+//     $(echo git) push, "$(which git)" push, iex 'g'+'it push'). git's
+//     subcommand spelled so (git ${EMPTY}push, git $cmd) is refused while
+//     the push, merge or deploy group is on, as one it doesn't know;
 //   - another language running it (python -c, node -e, perl -e, ruby -e,
 //     awk's system()), and xargs -I{} {} or bash -c "$(printf …)", where
 //     the command comes from input;
-//   - a git or gh alias set in config (git -c alias.p=push p, git config
-//     alias.p push && git p, gh alias set p 'pr create' && gh p);
+//   - a command git runs, stored in config before the line (a
+//     core.fsmonitor or core.pager already set, then git status), and a gh
+//     alias (gh alias set p 'pr create' && gh p). A git alias, an extension
+//     and any subcommand the guard doesn't know (git p after an earlier git
+//     config alias.p push) is refused while the push, merge or deploy group
+//     is on (gitKnown). What the line itself gives git is read
+//     (gitruns.go): -c, --config-env and GIT_CONFIG_… only for keys that run
+//     nothing, git's editor, pager and ssh variables only as true, : or cat,
+//     and the options that take a command; a git config that writes a key
+//     git or its helpers run is refused by a list of such keys, not an
+//     allow-list, and so is any value starting with ! or holding a shell
+//     sign;
 //   - a here-string or a <( ) given to a sourcing dot (. /dev/stdin <<< 'git push',
 //     source <(echo git push));
 //   - aws-vault exec p -- aws …, and any wrapper program not listed in rules.go
@@ -57,6 +68,24 @@
 //     Edit, Write and Read;
 //   - text the lexer can't place: an arithmetic or expansion unit it
 //     mistakes, followed by a real here document with a quote in it.
+//   - a merge onto a base branch raced against a checkout in another call
+//     run at the same moment (merge.go reads the branch just before each
+//     call), or done by git config already stored that moves a branch (a
+//     remote's fetch refspec into refs/heads, an alias, autocorrect, a
+//     sequence editor), or by a rebase's todo list written by hand;
+//   - a file written under .git/ (refs, packed-refs, HEAD, config, hooks)
+//     by the Write and Edit tools (the deny rules' layer) or by a script the
+//     hire writes and runs: this hook reads Bash lines only. With the merge
+//     group on, a line that names a path in a git folder is refused unless
+//     it only reads (merge.go, N3), but a hire's own script and Write/Edit
+//     can still write there. Design A's sandbox closes it (a planned row in
+//     SA-X1's Policy);
+//   - a path into .git/ the line doesn't spell out (RT126NS0aR3 B3): one
+//     reached through xargs (echo .git/refs/heads/x | xargs cp), find
+//     -exec, a substitution ($(git rev-parse --git-dir)/refs/heads/main), a
+//     variable (d=.gi; cp ${d}t/…) or an archive's rename (tar -s) isn't
+//     read by this hook, the same as a hire's own script. Design A's
+//     sandbox closes it too.
 //
 // THE CLOSED LISTS (RWIN9, WIN125k; RWIN10, WIN125l). The guard closes these
 // lists, each in full:
@@ -152,6 +181,8 @@ type Group struct {
 	// gm is set by ForGM on the groups of the General Manager's profile. It is
 	// not in the guard file or in --print: it only picks the words of a refusal.
 	gm bool
+	// place is where the line runs (At), for the merge group's @base rules; nil is a place unknown (merge.go).
+	place *Place
 }
 
 // Refusal says why a command is refused, or is nil.
@@ -321,12 +352,31 @@ func check(line string, groups []Group) *Refusal {
 	if needsPessimist(line) {
 		pessimist = append(pessimist, true)
 	}
+	type reading struct {
+		pess, ps bool
+		cmds     []simple
+	}
+	var readings []reading
+	var all [][]simple
 	for _, pess := range pessimist {
 		for _, ps := range []bool{false, true} {
-			for _, cmd := range commandsAs(line, 0, ps, pess) {
-				if r := checkCommand(cmd, groups, 0, pess, ps); r != nil {
-					return r
-				}
+			cmds := commandsAs(line, 0, ps, pess)
+			readings, all = append(readings, reading{pess, ps, cmds}), append(all, cmds)
+		}
+	}
+	// The merge group's place, for this line: whether it is one command alone, whether it moves, and whether it sets
+	// git's config (merge.go). Groups never placed are at a place unknown, for this line all the same.
+	if i := slices.IndexFunc(groups, func(g Group) bool { return g.place != nil }); i >= 0 {
+		groups = At(groups, placeLine(all, *groups[i].place))
+	} else if slices.ContainsFunc(groups, func(g Group) bool {
+		return slices.ContainsFunc(g.Commands, func(r Rule) bool { return slices.Contains(ruleWords(r), baseRule) })
+	}) {
+		groups = At(groups, placeLine(all, Place{}))
+	}
+	for _, r := range readings {
+		for _, cmd := range r.cmds {
+			if refusal := checkCommand(cmd, groups, 0, r.pess, r.ps); refusal != nil {
+				return refusal
 			}
 		}
 	}
@@ -368,6 +418,9 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 		if namesFence(words[:1]) {
 			return &Refusal{Group: "guard", Rule: fenceRule, Command: strings.TrimPrefix(words[0], unreadable)}
 		}
+		if r := gitFolderRefusal(groups, "=", words[:1]); r != nil {
+			return r
+		}
 		words = words[1:]
 	}
 	if len(words) == 0 {
@@ -399,6 +452,10 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 			if namesSetupKey(simple{w}) {
 				return &Refusal{Group: "guard", Rule: setupKeyFile, Command: "> " + strings.TrimPrefix(w, unreadable)}
 			}
+		}
+		if r := gitFolderRefusal(groups, "", words[1:]); r != nil {
+			r.Command = "> " + r.Command
+			return r
 		}
 		return nil
 	}
@@ -436,6 +493,23 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 	if why := setsVarByName(name, args); why != "" {
 		return &Refusal{Group: "guard", Rule: notPlainRule, Command: strings.Join(unmark(words), " "), Why: why}
 	}
+	if why := setsGitVar(name, unmark(args)); why != "" {
+		return &Refusal{Group: "guard", Rule: notPlainRule, Command: strings.Join(unmark(words), " "), Why: why}
+	}
+	// What git runs from the line (gitruns.go), for every group.
+	if name == "git" {
+		if why, _ := gitRuns(rawArgs); why != "" {
+			return &Refusal{Group: "guard", Rule: gitTextRule, Command: strings.Join(unmark(words), " "), Why: why}
+		}
+		// One it can't tell what it runs fails closed for the push, merge and deploy groups (RT126NS0aR3 B1).
+		if sub, _ := gitSubcommand(unmark(args)); sub != "" && !gitKnown(sub) && guardsGit(groups) {
+			return &Refusal{Group: "guard", Rule: gitUnknownRule, Command: strings.Join(unmark(words), " "), Why: gitUnknownWhy}
+		}
+	}
+	// A path in a git folder, while the merge group is on (merge.go, N3).
+	if r := gitFolderRefusal(groups, name, words); r != nil {
+		return r
+	}
 	// find's and git's own patterns (RWIN9 B6).
 	if rule := keptByMatch(name, rawArgs); rule != "" {
 		return &Refusal{Group: "guard", Rule: keptMatchRule, Command: strings.Join(unmark(words), " "), Why: keptMatchWhy}
@@ -472,9 +546,17 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 			continue
 		}
 		for _, rule := range g.Commands {
-			if matches(rule, name, plain) {
-				return &Refusal{Group: g.Name, Rule: string(rule), Command: strings.Join(words, " ")}
+			if !matches(rule, name, plain) {
+				continue
 			}
+			refusal := &Refusal{Group: g.Name, Rule: string(rule), Command: strings.Join(words, " ")}
+			if slices.Contains(ruleWords(rule), baseRule) {
+				// Only what lands on a base branch, at the line's place (merge.go).
+				if refusal.Why = onBase(g.place, plain, depth); refusal.Why == "" {
+					continue
+				}
+			}
+			return refusal
 		}
 	}
 	// What a wrapper runs: a line to parse again, or the words after it.

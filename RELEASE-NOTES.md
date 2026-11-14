@@ -9,6 +9,12 @@
 - **On Linux, the one line, with sudo.** Changing what Tailscale serves takes root there, so setup shows the exact `sudo tailscale serve …` line Smolcorp needs, in full: if **Turn it on…** says Tailscale didn't do it, run that line in a terminal. It does that one thing and nothing else. Setup also offers to make you Tailscale's operator (`sudo tailscale set --operator=$USER`) so **Turn it on…** works without sudo, but only as an option, and says what it means: every program you run could then change Tailscale's settings (serve, funnel and the rest), not only Smolcorp.
 - **On Windows,** setup shows where Tailscale stands too, but Smolcorp still refuses a phone handed on by `tailscale serve`, as in 1.25, so there's no **Turn it on**. Open the deck at this computer's own Tailscale address instead. It opens there in a later version, once Smolcorp can tell for certain which program hands a request on.
 
+## Nothing lands on main, and nothing is bought, without you
+- **Merges onto a base branch are refused** for hires, the General Manager, an outside app's MCP key and night-shift jobs: a `git merge`, `pull` or `rebase` on `main`, `master`, `release/*` or the repository's default branch, a rebase that moves one, and a base branch made, moved or deleted by name (`branch -f`, `branch -D`, `checkout -b`, `update-ref`, a mirror remote and the like), or by writing its file under `.git`. On a base branch, a git command the guard doesn't know is refused too. Merging `main` into a feature branch still runs, and so does rebasing onto `main` or `origin/main`. Your own terminal is untouched.
+- **The guard reads what git would run from a command,** for every hire and the GM: config set in the command (`git -c core.fsmonitor=…`), an editor or pager variable other than `true`, `:` or `cat`, and options that take a command (`git grep -O`, `--upload-pack`, `difftool -x`). `git -c core.editor=true` and `GIT_EDITOR=true` still run.
+- **Commands that spend money are refused** (Stripe in live mode, creating a server at DigitalOcean, Hetzner, Linode, Vultr or Scaleway, `openai api`). Their real gate is your OK, which Smolcorp asks for where a request reaches it.
+- **A guard file from before 1.26 gets both groups.** To switch one off, name it in the file with `"on": false`.
+
 ## tmux comes with Smolcorp
 - **Open-source notices.** The Mac app now includes tmux 3.8 (ISC licence), with libevent, ncurses, utf8proc and jemalloc built into it. Their licence notices are in the app, and setup links to them (**Open-source notices**).
 

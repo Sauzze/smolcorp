@@ -234,8 +234,9 @@ func (f demoFence) check(c demoCall) string {
 // It's read as bash would read it too: Claude Code's Bash runs bash, Git Bash on Windows.
 func (f demoFence) command(line, cwd string) string {
 	// The GM's profile, on the guard's own groups (no rules file): the GM hires and fires; a hire's own office
-	// fence refuses it that (gates.go).
-	if v := decideShell(actorGM, shellAsk{line: line}); !v.allowed() {
+	// fence refuses it that (gates.go). At the call's folder, as the hook places it: the merge group reads the
+	// branch there.
+	if v := decideShell(actorGM, shellAsk{line: line, cwd: cwd}); !v.allowed() {
 		return demoFenceRefusal + v.why
 	}
 	// A backslash before a line end joins the lines (bash): `gm hi\⏎re` is gm hire, and a hire

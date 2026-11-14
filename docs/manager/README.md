@@ -27,7 +27,7 @@ Tell it the goal. It answers with a plan and waits for your OK. After that it ch
 
 ## What the GM can't do
 
-The GM can't push, publish, deploy or use cloud tools: the same guard as hires (with its own `smolcorp gm` actions allowed). It never answers a permission prompt (no route does).
+The GM can't push, publish, deploy, use cloud tools, merge onto a base branch or spend money: the same guard as hires (with its own `smolcorp gm` actions allowed). It never answers a permission prompt (no route does).
 
 **Never, by the app:**
 - **Answer a permission prompt.** No tool, command or route does this, for the GM or for anyone it hires. Only you, in the window that asks. If a hire is stuck on a prompt, the GM tells you.

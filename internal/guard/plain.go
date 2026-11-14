@@ -220,6 +220,8 @@ func expansionAssigns(s string) string {
 					return plainStart
 				case promptVar(name) || zshTables[name]:
 					return plainCode
+				case gitVarName(name):
+					return plainGitVar
 				}
 			}
 		}
@@ -287,6 +289,11 @@ func (l *lexer) judge(word []byte, unq []bool, ps bool) {
 			l.flag(plainLetter, s)
 			return
 		}
+	}
+	// git's variables (gitruns.go): NAME=… in bash, $env:NAME=… in PowerShell, set NAME=… in cmd.
+	if why := gitVarWhy(s); why != "" {
+		l.flag(why, s)
+		return
 	}
 	if ps {
 		return

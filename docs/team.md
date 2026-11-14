@@ -150,7 +150,9 @@ Add `--json` to get the answers as Smolcorp serves them, and `smolcorp status
 
 The General Manager and the Claude Code hires it manages start with a fence:
 Claude Code deny rules and a guard that refuse `git push`, deploy, publish and
-cloud commands, and keep out of your `.env` files and keys. That is a fence
+cloud commands, merges onto `main`, `master`, `release/*` or the repository's
+default branch, and commands that spend money, and keep out of your `.env`
+files and keys. That is a fence
 against mistakes, not a wall: a script a hire writes and runs can get past it,
 and everyone still runs as you. On the Mac, you can see and extend the list in
 setup, under Advanced → **Guard**; [docs/manager](manager/README.md) says more.

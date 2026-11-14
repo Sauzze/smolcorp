@@ -88,10 +88,22 @@ func Hook(stdin io.Reader, stdout io.Writer, groups []Group, problem string) int
 	if problem == "" && KeptCwd(call.Cwd) {
 		return deny(stdout, "Refused by Smolcorp's hire guard ("+keptDirRule+"): this call runs in "+call.Cwd+". "+keptDirWhy)
 	}
-	if why := Refused(*command, groups, problem); why != "" {
+	if why := Refused(*command, At(groups, hookPlace(call.Cwd)), problem); why != "" {
 		return deny(stdout, why)
 	}
 	return exitOK
+}
+
+// hookPlace is the repository a call runs in, for the merge group: the call's folder, unless the desk's environment
+// (the hook's own, from Claude Code) names another git folder, work tree or object folder, which the guard doesn't
+// follow.
+func hookPlace(cwd string) Place {
+	for _, name := range []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_NAMESPACE", "GIT_OBJECT_DIRECTORY"} {
+		if os.Getenv(name) != "" {
+			return Place{}
+		}
+	}
+	return PlaceOf(cwd)
 }
 
 // Refused is why the hook refuses a command line with groups, "" to let it run. While the guard file is
@@ -108,9 +120,13 @@ func Refused(command string, groups []Group, problem string) string {
 }
 
 // Profiled is the groups from the rules file at path for profile (ProfileHire, or ProfileGM for the
-// General Manager's), and what's wrong with the file, as `smolcorp guard --profile` reads them.
+// General Manager's), and what's wrong with the file, as `smolcorp guard --profile` reads them: with the merge and
+// spend groups when the file doesn't name them (WithGates).
 func Profiled(path, profile string) (groups []Group, problem string) {
 	groups, problem = Load(path)
+	if problem == "" { // a broken file's default groups refuse every line anyway
+		groups = WithGates(groups)
+	}
 	if profile == ProfileGM {
 		groups = ForGM(groups)
 	}

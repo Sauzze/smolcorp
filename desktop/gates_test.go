@@ -191,30 +191,30 @@ func TestAFencedHireIsDecidedAsFenceRefusalDecidesIt(t *testing.T) {
 	}
 }
 
-// FS3's merge and spend groups go after the guard, for an actor it holds; what they hand back, an ask
-// included, is the verdict. None is there today.
+// A shell gate goes after the guard, for an actor it holds; what it hands back, an ask included, is the verdict.
+// None is there today: FS3's merge and spend groups are the guard's own (merge_test.go, gates_fs3_test.go).
 func TestAShellGateComesAfterTheGuardAndMayAskTheOwner(t *testing.T) {
 	if len(shellGates) != 0 {
-		t.Fatalf("FS1 adds no gate of its own: %d", len(shellGates))
+		t.Fatalf("no gate of its own: %d", len(shellGates))
 	}
 	asked := 0
 	shellGates = []func(actor, string) verdict{func(a actor, line string) verdict {
 		asked++
-		if strings.Contains(line, "merge") {
-			return askOwner("a merge onto main")
+		if strings.Contains(line, "release") {
+			return askOwner("a release")
 		}
 		return allow()
 	}}
 	t.Cleanup(func() { shellGates = nil })
 	rules := guardFile(t)
-	if v := decideShell(nightActor("j"), shellAsk{line: "git merge feature", rules: rules}); v.kind != verdictAskOwner ||
-		v.what != "a merge onto main" || v.allowed() || v.status != http.StatusForbidden || v.why != askOwnerAnswer+"a merge onto main" {
-		t.Errorf("a merge: %+v", v)
+	if v := decideShell(nightActor("j"), shellAsk{line: "make release", rules: rules}); v.kind != verdictAskOwner ||
+		v.what != "a release" || v.allowed() || v.status != http.StatusForbidden || v.why != askOwnerAnswer+"a release" {
+		t.Errorf("a release: %+v", v)
 	}
 	if v := decideShell(actorGM, shellAsk{line: "git push origin main", rules: rules}); v.kind != verdictRefuse || asked != 1 {
 		t.Errorf("a push: %+v, the gate asked %d times", v, asked)
 	}
-	if v := decideShell(actorPage, shellAsk{line: "git merge feature", rules: rules}); !v.allowed() || asked != 1 {
+	if v := decideShell(actorPage, shellAsk{line: "make release", rules: rules}); !v.allowed() || asked != 1 {
 		t.Errorf("the owner's own: %+v, the gate asked %d times", v, asked)
 	}
 }

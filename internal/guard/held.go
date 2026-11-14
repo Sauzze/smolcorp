@@ -69,7 +69,7 @@ func Over(held, adds []Group) []Group {
 }
 
 // Held is the groups in force for profile: held, as `--groups` gave them (a guard file's text), with what the
-// file at path adds, and what's wrong with either. Groups that can't be read are a problem, as a broken file is:
+// file at path adds, and the merge and spend groups where neither names them (WithGates), and what's wrong with either. Groups that can't be read are a problem, as a broken file is:
 // every command is refused.
 func Held(held, path, profile string) (groups []Group, problem string) {
 	core, why := Parse([]byte(held))
@@ -77,7 +77,7 @@ func Held(held, path, profile string) (groups []Group, problem string) {
 		return DefaultGroups(), "the groups in its own command line can't be read: " + why
 	}
 	adds, problem := LoadAdds(path)
-	groups = Over(core, adds)
+	groups = WithGates(Over(core, adds))
 	if profile == ProfileGM {
 		groups = ForGM(groups)
 	}

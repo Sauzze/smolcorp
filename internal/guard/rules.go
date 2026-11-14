@@ -90,6 +90,8 @@ func matches(rule Rule, name string, args []string) bool {
 			anywhere = true
 		case p == "@remote":
 			remote = true
+		case p == baseRule:
+			// the merge group's: what the command moves is checked apart (onBase), at the line's place
 		case strings.HasPrefix(p, "-"):
 			flags = append(flags, strings.Split(p, "|")...)
 		default:
@@ -263,6 +265,33 @@ type inner struct {
 	ps    bool // the line is PowerShell or cmd, not bash
 }
 
+// lineOf is the line a wrapper runs when it hands the shell its first word as a line and the others as that line's
+// words (`first "$@"`: git's bisect run and submodule foreach, env -S's split string and the words after it): each of
+// the others quoted, so that it is read back whole (RT126NS0aR4 N4). A word keeps the guard's marks inside its quotes.
+func lineOf(first string, more []string) string {
+	var b strings.Builder
+	b.WriteString(first)
+	for _, w := range more {
+		b.WriteString(" '")
+		b.WriteString(strings.ReplaceAll(w, "'", `'\''`))
+		b.WriteByte('\'')
+	}
+	return b.String()
+}
+
+// cmdQuoted is words as Git Bash and PowerShell hand them to cmd.exe in its command line: a word with a blank in it
+// (or none at all) in double quotes.
+func cmdQuoted(words []string) string {
+	out := make([]string, len(words))
+	for i, w := range words {
+		if w == "" || strings.ContainsAny(w, " \t") {
+			w = `"` + w + `"`
+		}
+		out[i] = w
+	}
+	return strings.Join(out, " ")
+}
+
 var shells = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "fish": true, "csh": true, "tcsh": true}
 
 // wrapped is what a command runs in its turn: sh -c's line, eval's words,
@@ -375,6 +404,10 @@ func wrapped(name string, args []string) []inner {
 			}
 		}
 		return out
+	case name == "git":
+		// What git runs from its options: a line, or one program's name (gitruns.go).
+		_, out := gitRuns(args)
+		return out
 	case name == "eval":
 		// eval -- 'git push' is eval 'git push' (RWIN8 B4).
 		if len(args) > 0 && args[0] == "--" {
@@ -404,14 +437,14 @@ func wrapped(name string, args []string) []inner {
 			case a == "--" || !strings.HasPrefix(a, "-") && !isAssignment(a):
 				break scan
 			case strings.HasPrefix(a, "--split-string="):
-				out = append(out, inner{line: strings.TrimPrefix(a, "--split-string=") + " " + strings.Join(args[i+1:], " ")})
+				out = append(out, inner{line: lineOf(strings.TrimPrefix(a, "--split-string="), args[i+1:])})
 			case a == "--split-string" && i+1 < len(args):
-				out = append(out, inner{line: strings.Join(args[i+1:], " ")})
+				out = append(out, inner{line: lineOf(args[i+1], args[i+2:])})
 			case strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "S"):
 				if v := a[strings.Index(a, "S")+1:]; v != "" {
-					out = append(out, inner{line: v + " " + strings.Join(args[i+1:], " ")})
+					out = append(out, inner{line: lineOf(v, args[i+1:])})
 				} else if i+1 < len(args) {
-					out = append(out, inner{line: strings.Join(args[i+1:], " ")})
+					out = append(out, inner{line: lineOf(args[i+1], args[i+2:])})
 				}
 			}
 		}
@@ -701,6 +734,7 @@ func wrapped(name string, args []string) []inner {
 // word. Every such word gives a line, not only the first, so that no reading of cmd's is left out.
 func cmdLines(args []string) []inner {
 	var out []inner
+	switches := 0
 	for i, a := range args {
 		w := strings.TrimPrefix(a, "/")
 		if !strings.HasPrefix(a, "/") {
@@ -716,9 +750,15 @@ func cmdLines(args []string) []inner {
 			}
 			text := strings.Join(append([]string{p[1:]}, parts[k+1:]...), "/")
 			out = append(out, inner{line: strings.TrimSpace(text + " " + strings.Join(args[i+1:], " ")), ps: true})
+			// cmd reads its command line, where a word with a blank came quoted (RT126NS0aR4 N4): cmd //c sh -c "git
+			// push origin x" runs sh -c with the whole line.
+			if quoted := strings.TrimSpace(text + " " + cmdQuoted(args[i+1:])); quoted != out[len(out)-1].line {
+				out = append(out, inner{line: quoted, ps: true})
+			}
+			switches++
 			break
 		}
-		if len(out) >= 8 {
+		if switches >= 8 {
 			break
 		}
 	}
