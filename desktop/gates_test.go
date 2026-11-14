@@ -29,6 +29,8 @@ func oldSetupGate(who caller, method, path string, managerOn bool) (int, string)
 
 func TestEveryRouteIsDecidedAsTheGatesItWrapsDecideIt(t *testing.T) {
 	d := newTestDeck(t)
+	// The night job asking is an approved one of the page's own: held to no GM's scope (nightstart_test.go).
+	keepNightJob(t, d, NightJob{ID: "nightly-tests", Status: nightApproved, ProposedBy: "page"})
 	paths := []string{"/setup", "/setup/state", "/setup/unknown", "/setup/gm/anything", "/setup/gm/", "/bots/x"}
 	for _, rows := range [][]routeRow{routeTable, goOnlyRoutes} {
 		for _, row := range rows {

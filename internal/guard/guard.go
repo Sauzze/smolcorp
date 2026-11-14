@@ -86,6 +86,7 @@
 //     variable (d=.gi; cp ${d}t/…) or an archive's rename (tar -s) isn't
 //     read by this hook, the same as a hire's own script. Design A's
 //     sandbox closes it too.
+//   - (closed, RT126NS1R2 B1, RT126NS1R3 B1) git log, show, diff or blame writing the guard file or the night shift's jobs through --output: such a call is no reader (gitWritesOutput), with the option written out, built from a pattern (--outpu?=, ?-output=), or given through a variable or a substitution ($o, "$1", $(printf -- --output)). The name of the file a variable holds is still the open class "words built at run time" below.
 //
 // THE CLOSED LISTS (RWIN9, WIN125k; RWIN10, WIN125l). The guard closes these
 // lists, each in full:
@@ -250,7 +251,8 @@ var fullFolds = strings.NewReplacer(
 // (push-key-kept: desktop/pushkey.go); and the GM's memory (gm-memory:
 // desktop/memory.go), which only the core writes, and the GM reads only
 // through the core's routes. A pattern that fills in a file's name (gm-t*)
-// comes out of the lexer as the name itself.
+// comes out of the lexer as the name itself. The night shift's jobs
+// are kept as the guard file is (nightFile).
 var always = []string{"gm-token", "SMOLCORP_GM_TOKEN", "disableAllHooks", "grants-key", "grants.jsonl",
 	"phones.json", "phones-seal", "claude-install", "push-key-kept", "gm-memory"}
 
@@ -328,6 +330,12 @@ var (
 // must also cover Edit and Write of that file and of the hire's own
 // .claude/settings.json.
 const guardFile = "hire-guard"
+
+// nightFile is the night shift's jobs (desktop/nightshift.go), whose approvals start hires overnight: off a Mac the
+// guard is all that stands between a hire and a job it approved itself (RT126NS1 B1). It is kept as the guard file
+// is: a command that names it, by any spelling or a pattern that fills it in (night?hift.json, n*), is refused
+// unless it only reads (readsNightFile). It holds no secret, so cat package*.json, which fills it in, still runs.
+const nightFile = "nightshift.json"
 
 // Check is the first refusal for line under groups, or nil.
 func Check(line string, groups []Group) *Refusal {
@@ -419,6 +427,9 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 		if namesGuardFile(words[:1]) {
 			return &Refusal{Group: "guard", Rule: guardFile, Command: strings.TrimPrefix(words[0], unreadable)}
 		}
+		if namesNightFile(words[:1]) {
+			return &Refusal{Group: "guard", Rule: nightFile, Command: strings.TrimPrefix(words[0], unreadable)}
+		}
 		if namesFence(words[:1]) {
 			return &Refusal{Group: "guard", Rule: fenceRule, Command: strings.TrimPrefix(words[0], unreadable)}
 		}
@@ -450,6 +461,9 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 			if strings.Contains(Fold(w), guardFile) {
 				return &Refusal{Group: "guard", Rule: guardFile, Command: "> " + strings.TrimPrefix(w, unreadable)}
 			}
+			if namesNightFile(simple{w}) {
+				return &Refusal{Group: "guard", Rule: nightFile, Command: "> " + strings.TrimPrefix(w, unreadable)}
+			}
 			if namesFence(simple{w}) {
 				return &Refusal{Group: "guard", Rule: fenceRule, Command: "> " + strings.TrimPrefix(w, unreadable)}
 			}
@@ -480,11 +494,14 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 	if namesSetupKey(words) {
 		return &Refusal{Group: "guard", Rule: setupKeyFile, Command: strings.Join(unmark(words), " ")}
 	}
-	if namesGuardFile(words) && !readsGuardFile(name, args) {
+	if namesGuardFile(words) && !readsKept(name, args, rawArgs) {
 		return &Refusal{Group: "guard", Rule: guardFile, Command: strings.Join(words, " ")}
 	}
+	if namesNightFile(words) && !readsNightFile(name, args, rawArgs) {
+		return &Refusal{Group: "guard", Rule: nightFile, Command: strings.Join(words, " ")}
+	}
 	// Claude Code's settings, the same way: the fence of a hire in T3 Code is its worktree's own.
-	if namesFence(words) && !readsGuardFile(name, args) {
+	if namesFence(words) && !readsKept(name, args, rawArgs) {
 		return &Refusal{Group: "guard", Rule: fenceRule, Command: strings.Join(words, " ")}
 	}
 	if rule := clearsIgnored(name, args); rule != "" {
@@ -614,6 +631,16 @@ var aliases = map[string]string{
 func namesGuardFile(words simple) bool {
 	for _, w := range words {
 		if strings.Contains(Fold(w), guardFile) {
+			return true
+		}
+	}
+	return false
+}
+
+// namesNightFile is whether any word of the command names the night shift's jobs (folded, as namesGuardFile).
+func namesNightFile(words simple) bool {
+	for _, w := range words {
+		if strings.Contains(Fold(w), nightFile) {
 			return true
 		}
 	}
@@ -866,13 +893,47 @@ func readsGuardFile(name string, args []string) bool {
 	switch name {
 	case "git":
 		pos := positional("git", unmark(args))
-		return len(pos) > 0 && gitReaders[strings.ToLower(pos[0])]
+		return len(pos) > 0 && gitReaders[strings.ToLower(pos[0])] && !gitWritesOutput(args)
 	case "smolcorp":
 		pos := positional("smolcorp", unmark(args))
 		return len(pos) > 0 && pos[0] == "guard"
 	}
 	return guardReaders[name]
 }
+
+// gitWritesOutput is whether a git call is given --output, alone or as --output=<file> (RT126NS1R2 B1): log, show,
+// diff and blame write to that file what they would print, text of the caller's choosing with --format included.
+// git takes the option whole, never abbreviated, and --output-indicator-new= and its kin write nothing. A word the
+// shell may turn into --output is taken as it (RT126NS1R3 B1): one whose letters before its first expansion,
+// substitution, pattern or brace could start --output. That is --outpu?=, --outp{u,}t= and --outp$x, and any word
+// that starts with one: $o, "$1", ${o}=…, $(printf -- --output)=…, `echo --output`, ?-output=…, [-]-output=…,
+// *output=…. args are the words with their subMarks (a $( ) or a backtick's place) where the caller has them; a
+// splice the lexer joins (--outp""ut) reaches here whole. A word that starts with ~ or $HOME/ is a path in the home
+// folder, never an option, so git log -1 ~/.config/…/night?hift.json still reads. No other subcommand in gitReaders
+// writes a file it's given: commit, status, add and grep refuse --output, and none takes -o for one.
+func gitWritesOutput(args []string) bool {
+	for _, a := range unmark(args) {
+		if a == "--output" || strings.HasPrefix(a, "--output=") {
+			return true
+		}
+		if strings.HasPrefix(a, "~") || strings.HasPrefix(a, "$HOME/") {
+			continue
+		}
+		if i := strings.IndexAny(a, "*?[{(<^#~$"+string(subMark)); i >= 0 && strings.HasPrefix("--output", a[:i]) {
+			return true
+		}
+	}
+	return false
+}
+
+// readsKept is readsGuardFile for a command that names a kept file, with git's --output also looked for in raw, its
+// words with their subMarks (RT126NS1R3 B1): a $( ) or a backtick that could print --output leaves no text in args.
+func readsKept(name string, args, raw []string) bool {
+	return readsGuardFile(name, args) && !(name == "git" && gitWritesOutput(raw))
+}
+
+// readsNightFile is whether a command that names the night shift's jobs only reads: the guard file's readers.
+func readsNightFile(name string, args, raw []string) bool { return readsKept(name, args, raw) }
 
 // stripSubs is words without their subMarks (withoutSubs).
 func stripSubs(words []string) []string {

@@ -505,6 +505,8 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		acpTranscriptFolder: notSecret,
 		// MEM1: the GM's memory (memory.go), its manifest sealed, each note's file counted by its hash in it.
 		memoryFolder: sealed,
+		// NS1: the night shift's jobs, whose approvals start hires overnight.
+		nightFileName: sealed,
 	}
 	d, mac, phoneKey, _ := macDeck(t)
 	sendKey := withAHire(t)
@@ -514,6 +516,7 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 	d.mu.Unlock()
 	token := d.newGMToken()
 	d.gmKept.flush(time.Minute)
+	keepNightJob(t, d, NightJob{ID: "nightly", Status: nightApproved, ProposedBy: "page"})
 	if err := holdGuard(filepath.Join(supportDir, hireGuardFile), []byte(`{"version":1}`)); err != nil {
 		t.Fatal(err)
 	}

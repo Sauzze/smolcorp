@@ -15,10 +15,13 @@ import (
 
 // The hire queue (1.26's K2): a list of hires made one at a time, after the owner has approved them. It is what
 // "Pick your company" hires a template with (the GM plans, hirequeue's plan; the owner approves, from the page),
-// and what the night shift (N2) reuses: a list of hire steps, and who approved them.
+// and what the night shift's runner (nightstart.go) reuses: a list of hire steps, and who approved them.
 //
 //   - Nothing is hired before an approval, and an approval comes from the page alone (approvedBy is an actor,
-//     and only the page's counts): never the GM's token, an MCP key, a night job or a hire.
+//     and only the page's counts): never the GM's token, an MCP key, a night job's own say or a hire. One
+//     exception (Q-F1 (a)): the owner's approval of a night job covers that job's one hire, so the job, as
+//     night:<id>, starts a queue of exactly that hire while the store holds it approved (startRefusal). Its run
+//     never waits for a resume: it ends at a refusal (hqEnded), and a restart lets it go, as nobody is there.
 //   - The GM first (Start here's own hire, with gmRefusal), then each role through hireWith as the GM route
 //     makes it, fenced, in its folder, with the hire cooldown between them.
 //   - It stops at the first refusal, and says that refusal's own sentence. The owner may resume it (the same
@@ -51,6 +54,7 @@ const (
 	hqDone      = "done"
 	hqCancelled = "cancelled"
 	hqAbandoned = "abandoned"
+	hqEnded     = "ended" // a night job's run stopped at a refusal: its next run tries again
 
 	hqWaiting = "waiting"
 	hqHiring  = "hiring"
@@ -98,6 +102,8 @@ type hireQueueRun struct {
 	State    string       `json:"state"`
 	Word     string       `json:"word,omitempty"`
 	Saved    int64        `json:"saved"` // when it was last written, in milliseconds
+	// Night is the night job whose hire this is, "" for the page's own queue.
+	Night string `json:"night,omitempty"`
 }
 
 // hireQueueFile is what is kept between runs: the queue, and the plan waiting for approval (hireplan.go).
@@ -119,6 +125,10 @@ type hireQueueDeps struct {
 	// sleep waits, and says false if the queue was stopped meanwhile; now is the clock.
 	sleep func(time.Duration, <-chan struct{}) bool
 	now   func() time.Time
+	// nightApproves is whether the night job an actor is approves steps, as its one hire (nightShift.approvesHire);
+	// nightEnded is told a night job's run as it ends, on a goroutine of its own. nil: no night job starts one.
+	nightApproves func(by actor, steps []hireStep) bool
+	nightEnded    func(run hireQueueRun)
 }
 
 type hireQueue struct {
@@ -173,6 +183,9 @@ func (q *hireQueue) settle() {
 	}
 	age := q.now().Sub(time.UnixMilli(run.Saved))
 	switch {
+	case run.Night != "":
+		// Nobody is there to resume it: let go, so it doesn't hold the queue. Its next run tries again.
+		q.end(hqAbandoned, "Let go: Smolcorp restarted while "+run.Label+" was being hired ("+q.progress()+"). Check the office for it.")
 	case age > hireQueueStale:
 		q.end(hqAbandoned, "Left alone: "+run.Label+" waited more than "+strconv.Itoa(int(hireQueueStale.Hours()))+" hours, so nothing more is hired for it. Pick your company again if you still want it.")
 	case run.State == hqRunning:
@@ -224,6 +237,10 @@ func (q *hireQueue) end(state, word string) {
 	}
 	q.keep()
 	q.say(word)
+	if q.active && run.Night != "" && q.nightEnded != nil {
+		// Its worker's end (never a start's settling): told off the queue's lock, which the runner's next start takes.
+		go q.nightEnded(*run)
+	}
 }
 
 // approvalRefusal is why an approval doesn't count, or nil: only the page's does. The GM's token, an MCP key, a
@@ -235,10 +252,19 @@ func approvalRefusal(by actor) error {
 	return &hireRefusal{Status: http.StatusForbidden, Message: "Only you can approve a hire plan, from the setup page: the General Manager, a tool, an MCP key or a hire can't."}
 }
 
+// startRefusal is why by can't start a queue of steps, or nil: the page can, and a night job whose owner-approved
+// job is exactly those steps (Q-F1 (a)). Only the store's word counts: a night actor alone is refused.
+func (q *hireQueue) startRefusal(by actor, steps []hireStep) error {
+	if by.kind() == "night" && q.nightApproves != nil && q.nightApproves(by, steps) {
+		return nil
+	}
+	return approvalRefusal(by)
+}
+
 // start approves steps for label and begins hiring them, or says why not. Nothing is made, or kept, unless the
-// approval is the page's and every step is one that can be hired.
+// approval is the page's (or an approved night job's, for its one hire) and every step is one that can be hired.
 func (q *hireQueue) start(steps []hireStep, label string, by actor) (string, error) {
-	if err := approvalRefusal(by); err != nil {
+	if err := q.startRefusal(by, steps); err != nil {
 		return "", err
 	}
 	if len(steps) == 0 || len(steps) > hireQueueMost {
@@ -267,6 +293,9 @@ func (q *hireQueue) start(steps []hireStep, label string, by actor) (string, err
 	}
 	now := q.now()
 	q.run = &hireQueueRun{ID: newID(), Label: label, Approval: hireApproval{By: string(by), At: now.UnixMilli()}, Steps: kept, State: hqRunning}
+	if by.kind() == "night" {
+		q.run.Night = strings.TrimPrefix(string(by), "night:")
+	}
 	q.keep()
 	q.say("Approved: " + label + ", " + strconv.Itoa(len(kept)) + " to hire, one at a time.")
 	q.launch()
@@ -408,7 +437,11 @@ func (q *hireQueue) work(id string, stop chan struct{}) {
 			continue
 		}
 		step.State, step.Why = hqRefused, text
-		q.end(hqStopped, "Stopped at "+step.shown()+" ("+strconv.Itoa(next+1)+" of "+strconv.Itoa(len(run.Steps))+"): "+text)
+		state := hqStopped
+		if run.Night != "" {
+			state = hqEnded // nobody is there to resume it
+		}
+		q.end(state, "Stopped at "+step.shown()+" ("+strconv.Itoa(next+1)+" of "+strconv.Itoa(len(run.Steps))+"): "+text)
 		q.active = false
 		q.mu.Unlock()
 		return
@@ -463,6 +496,8 @@ func (d *Deck) newHireQueue() *hireQueue {
 		say: func(text string) {
 			d.events.append(eventEntry{At: time.Now().UnixMilli(), Kind: eventKindHireQueue, Detail: cutEventDetail(text)})
 		},
+		nightApproves: func(by actor, steps []hireStep) bool { return d.night != nil && d.night.approvesHire(by, steps) },
+		nightEnded:    d.nightEnded,
 	})
 }
 

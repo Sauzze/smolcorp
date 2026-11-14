@@ -43,6 +43,8 @@ func TestNoHireTakesAwayOrRewritesClaudeCodesSettings(t *testing.T) {
 		"echo '{}' > .claude/\u017fettings.json", "rm .claude/\u017fettings.json", "mv x .CLAUDE/SETTINGS.LOCAL.JSON",
 		"echo x > ~/.config/sauzzedeck-pro/hire-guard.json", "rm \u017fmolcorp_gm_token", "cat gm-token-kept",
 		"cat push-key-kept", "cat ~/.config/sauzzedeck-pro/PUSH-KEY-KEPT",
+		// NS1: the night shift's jobs, whose approvals grant (TestNoHireWritesTheNightShiftsJobs).
+		"echo '{}' > ~/.config/sauzzedeck-pro/nightshift.json", "cp x NIGHTSHIFT.JSON", "cp x ~/.config/sauzzedeck-pro/nightſhift.json",
 		"\u017fsh host", "\u212aubectl apply -f x.yaml", "/usr/bin/\u017f\u017fh host", "git pu\u017fh",
 	}
 	for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
@@ -78,6 +80,134 @@ func TestNoHireTakesAwayOrRewritesClaudeCodesSettings(t *testing.T) {
 	} {
 		if r := Check(line, DefaultGroups()); r == nil || r.Group != "guard" || r.Rule != rule {
 			t.Errorf("%q: %+v, want guard: %s", line, r, rule)
+		}
+	}
+}
+
+// NS1, RT126NS1 B1: the night shift's jobs are kept as the guard file is. A hire or the GM writes them by no
+// spelling, and by no pattern that fills them in, else one could switch off the owner's approvals or, off a Mac,
+// approve a job of its own. They hold no secret: a command that only reads them runs, as cat package*.json does.
+func TestNoHireWritesTheNightShiftsJobs(t *testing.T) {
+	const dir = "~/.config/sauzzedeck-pro/"
+	refused := []string{
+		"cp x " + dir + "night?hift.json", "echo '{}' > " + dir + "nightsh?ft.json", "cp x " + dir + "nightsh*.json",
+		"cp x " + dir + "n*", `echo x > ` + dir + `night"shift".json`, `echo x > ` + dir + `night\shift.json`,
+		"f=night; cp x " + dir + "${f}shift.json", "cp x " + dir + "night[s]hift.json", "echo '{}' > " + dir + "*shift.json",
+		"rm " + dir + "nightshift.json", "mv x " + dir + "nightshift.json", "tee " + dir + "nightshift.js*",
+		"sed -i s/proposed/approved/ " + dir + "nightshift.json", "f=" + dir + "nightshift.json", "echo '{}' > " + dir + "NIGHTSHIFT.JSON",
+		"echo '{}' > " + dir + "nightshift.json.tmp", "sh -c 'cp x " + dir + "night?hift.json'",
+		`python3 -c "open('nightshift.json','w').write('{}')"`, "cat <<EOF > " + dir + "night?hift.json\n{}\nEOF",
+	}
+	for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
+		for _, line := range refused {
+			if r := Check(line, groups); r == nil {
+				t.Errorf("let through: %s", line)
+			}
+		}
+		for _, line := range []string{
+			"cat " + dir + "nightshift.json", "cat " + dir + "NIGHTSHIFT.JSON", "jq .jobs " + dir + "night?hift.json",
+			"grep -n approved " + dir + "nightshift.json", "ls " + dir + "nightsh*.json", "cat package*.json", "git add desktop/nightshift.go",
+			"sed -i s/a/b/ desktop/nightshift.go", "cp desktop/nightshift_test.go x",
+		} {
+			if r := Check(line, groups); r != nil {
+				t.Errorf("refused %q: %v", line, r)
+			}
+		}
+	}
+	if r := Check("cp x "+dir+"night?hift.json", DefaultGroups()); r == nil || r.Rule != nightFile {
+		t.Errorf("night?hift.json: %+v, want guard: %s", r, nightFile)
+	}
+}
+
+// RT126NS1R2 B1: git log, show, diff and blame write what they'd print to the file --output names, text of the
+// caller's choosing with --format. Such a call is no reader, for the night shift's jobs and the guard file alike.
+// --output-indicator-new= and its kin write nothing, and git takes no abbreviation of --output.
+func TestGitWritesNoKeptFileThroughOutput(t *testing.T) {
+	const dir = "~/.config/sauzzedeck-pro/"
+	for _, f := range []struct{ name, pattern string }{{"nightshift.json", "night?hift.json"}, {"hire-guard.json", "hire-g?ard.json"}} {
+		refused := []string{
+			"git log -1 --format=x --output=" + dir + f.name, "git diff --output " + dir + f.name,
+			"git show --format=x --output=" + dir + f.pattern, "git blame --output=" + dir + f.name + " x.go",
+			"git -C " + dir + " log --output=" + f.name, "git log --outp''ut=" + dir + f.name, "git log --outp$(true)ut=" + dir + f.name,
+			"git log --outpu?=" + dir + f.name, "git log --outp{u,}t=" + dir + f.name,
+		}
+		runs := []string{
+			"git log -1 " + dir + f.name, "git log --output-indicator-new=+ -1 -- " + dir + f.name,
+			"git diff --output-indicator-old=- --output-indicator-context=' ' -- " + dir + f.name,
+		}
+		for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
+			for _, line := range refused {
+				if r := Check(line, groups); r == nil {
+					t.Errorf("let through: %s", line)
+				}
+			}
+			for _, line := range runs {
+				if r := Check(line, groups); r != nil {
+					t.Errorf("refused %q: %v", line, r)
+				}
+			}
+		}
+	}
+	for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
+		for _, line := range []string{"git diff desktop/nightshift.go", "git log --output-indicator-new=+ -1", "git diff --output=x.patch"} {
+			if r := Check(line, groups); r != nil {
+				t.Errorf("refused %q: %v", line, r)
+			}
+		}
+	}
+}
+
+// RT126NS1R3 B1: a word the shell turns into --output (a variable, a substitution, a pattern that starts the word) makes
+// a git reader a writer too, for the hire and the GM, for the night shift's jobs and the guard file alike. The cost is
+// only a git call that names a kept file and has such a word; one that names no kept file runs.
+func TestGitWritesNoKeptFileThroughAHiddenOutput(t *testing.T) {
+	const dir = "~/.config/sauzzedeck-pro/"
+	for _, f := range []struct{ name, pattern string }{{"nightshift.json", "night?hift.json"}, {"hire-guard.json", "hire-g?ard.json"}} {
+		refused := []string{
+			// The reviewer's eleven.
+			"o=--output; git diff $o " + dir + f.name, "o=--output; git log -1 --format=x $o=" + dir + f.name,
+			`o=--output; git log -1 --format=x "$o" ` + dir + f.name, "o=--output; git show -s --format=x $o=" + dir + f.name,
+			"o=--output; git blame $o " + dir + f.name + " x.go", "printf -v o -- --output; git diff $o " + dir + f.name,
+			"read o <<< --output; git diff $o " + dir + f.name, `set -- --output; git log -1 --format=x "$1" ` + dir + f.name,
+			"git log -1 --format=x $(printf -- --output)=" + dir + f.name, `git log -1 --format=x "$(echo --output)" ` + dir + f.name,
+			"git log -1 --format=x `echo --output` " + dir + f.name,
+			// A pattern that starts the word, which bash fills in from the current folder.
+			"git log -1 --format=x ?-output=d/" + f.name, "git log -1 --format=x [-]-output=d/" + f.name,
+			"git log -1 --format=x *output=d/" + f.name,
+			// More of the same: ${ }, an expansion after the dashes, a home spelling with no / after it, and a move
+			// into the folder.
+			"o=--output; git log -1 --format=x ${o}=" + dir + f.name, "git log -1 --format=x --$(echo output)=" + dir + f.name,
+			"git log -1 --format=x $HOME--output=" + dir + f.name, "git -C " + dir + " log -1 --format=x $(echo --output) " + f.name,
+		}
+		runs := []string{
+			"git log -1 " + dir + f.name, "git log --output-indicator-new=+ -1 -- " + dir + f.name,
+			"git diff --output-indicator-old=- --output-indicator-context=' ' -- " + dir + f.name,
+			"git log -1 --format=%H -- " + dir + f.pattern, "git log -1 $HOME/.config/sauzzedeck-pro/" + f.name,
+		}
+		for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
+			for _, line := range refused {
+				if r := Check(line, groups); r == nil {
+					t.Errorf("let through: %s", line)
+				}
+			}
+			for _, line := range runs {
+				if r := Check(line, groups); r != nil {
+					t.Errorf("refused %q: %v", line, r)
+				}
+			}
+		}
+	}
+	for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
+		if r := Check("o=--output; git log -1 --format=x $o .claude/settings.json", groups); r == nil {
+			t.Errorf("let through: o=--output; git log -1 --format=x $o .claude/settings.json")
+		}
+		for _, line := range []string{
+			"git diff desktop/nightshift.go", "git log --output-indicator-new=+ -1", "git diff --output=x.patch",
+			`git log -1 "$REV"`, "git diff $(git merge-base HEAD main)", "git log -1 ${HOME}/x.json", "o=--output; git log -1 --format=x $o x.patch",
+		} {
+			if r := Check(line, groups); r != nil {
+				t.Errorf("refused %q: %v", line, r)
+			}
 		}
 	}
 }

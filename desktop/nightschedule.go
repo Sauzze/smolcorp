@@ -10,7 +10,7 @@ import (
 )
 
 // The night shift's scheduler (1.26 N1): when each approved job is next due, by the computer's clock and time
-// zone as they are at each look, and a "due" told to the runner N2 gives it, one job at a time.
+// zone as they are at each look, and a "due" told to the runner (nightstart.go), one job at a time.
 //
 //   - A slot is a date at the job's time, where the computer is now. A date runs once (LastSlot), so a clock put
 //     back, an hour that comes twice in the autumn, or a move west never runs a date's job again; a time the
@@ -55,23 +55,31 @@ func newNightScheduler(store *nightShift, now func() time.Time) *nightScheduler 
 	return &nightScheduler{store: store, now: func() time.Time { return now().Round(0) }, zone: systemZone}
 }
 
-// start looks every nightEvery, and once now, until stop is closed, telling due what falls due. N2 calls it.
+// start looks every nightEvery, and once now, until stop is closed, telling due what falls due.
 func (s *nightScheduler) start(due func(nightDue, func()), stop <-chan struct{}) {
+	s.begin(due)
+	go s.loop(stop)
+}
+
+// begin is the runner's: from now on, due is told what falls due.
+func (s *nightScheduler) begin(due func(nightDue, func())) {
 	s.mu.Lock()
 	s.due = due
 	s.mu.Unlock()
-	go func() {
-		ticker := time.NewTicker(nightEvery)
-		defer ticker.Stop()
-		for {
-			s.tick()
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-			}
+}
+
+// loop looks once now and every nightEvery, until stop is closed. The deck runs it with its rounds (nightstart.go).
+func (s *nightScheduler) loop(stop <-chan struct{}) {
+	ticker := time.NewTicker(nightEvery)
+	defer ticker.Stop()
+	for {
+		s.tick()
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
 		}
-	}()
+	}
 }
 
 // runningID is the job running now, "" for none.
@@ -115,7 +123,7 @@ func (s *nightScheduler) tick() {
 	if len(fresh) > 0 {
 		// Kept even if the file can't be written: a job is never run again at each look for want of a save.
 		n.jobs = jobs
-		_ = n.saveLocked()
+		_ = n.saveLocked(false)
 	}
 	n.mu.Unlock()
 	s.mu.Lock()

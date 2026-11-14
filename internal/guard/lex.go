@@ -1008,7 +1008,7 @@ func (l *lexer) value(s string, q []bool) {
 		return
 	}
 	if len(names) > 0 || keptDirMarked(strings.ReplaceAll(s, `\`, "/"), pattern) ||
-		namesFence(simple{plain}) || namesGuardFile(simple{plain}) || namesSetupKey(simple{plain}) {
+		namesFence(simple{plain}) || namesGuardFile(simple{plain}) || namesNightFile(simple{plain}) || namesSetupKey(simple{plain}) {
 		l.flag(plainValue, withoutSubs(plain))
 	}
 }
@@ -1159,10 +1159,11 @@ func valuePattern(value string, unq []bool) []bool {
 // protectedNames are the files and variable a hire may not name by any
 // spelling (the GM token, in its file or where a computer with no secret
 // store keeps it, the guard file, the app's setup key, the owner's grant record, the paired phones' seal's
-// key, which Claude Code the owner has, the push key, where a computer with no secret store keeps it, and the GM's memory's folder). protectedByPattern says which a pattern word (gm-t*, hire-g?ard.json) could fill in, read as its skeleton
-// (skeleton.go).
+// key, which Claude Code the owner has, the push key, where a computer with no secret store keeps it, the GM's memory's
+// folder, and the night shift's jobs). protectedByPattern says which a pattern word (gm-t*, hire-g?ard.json) could fill
+// in, read as its skeleton (skeleton.go).
 var protectedNames = []string{"gm-token", "gm-token-kept", "smolcorp_gm_token", "hire-guard.json", "hire-guard", setupKeyFile,
-	"grants.jsonl", "phones-seal", "claude-install", "push-key-kept", "gm-memory"}
+	"grants.jsonl", "phones-seal", "claude-install", "push-key-kept", "gm-memory", nightFile}
 
 // supportWords are the words of the app's support folder on each system (appdirs: AgentDeck, sauzzedeck-pro,
 // SauzzeDeck Pro), and Smolcorp's: a path before a pattern that could hold one may be that folder.

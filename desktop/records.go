@@ -280,9 +280,9 @@ func interruptedRotation(items []bridgeRecordKey) bool {
 }
 
 // sealedRecordNames are the files that carry a seal of their own, in the support folder: the GM's memory's manifest
-// in its own folder (memory.go).
+// in its own folder (memory.go), and the night shift's jobs (nightshift.go).
 func sealedRecordNames() []string {
-	return []string{"phones.json", "mac-peers.json", "registry.json", "config.json", memoryManifestName}
+	return []string{"phones.json", "mac-peers.json", "registry.json", "config.json", memoryManifestName, nightFileName}
 }
 
 // sealedOnDisk is whether any record in the support folder carries a seal, or the guard's seal is there.
@@ -796,6 +796,10 @@ func (d *Deck) settleRecords() {
 	keepWriter("config.json", d.config.writer())
 	if _, err := os.Lstat(filepath.Join(d.memory.dir, memoryManifestFile)); err == nil {
 		keepWriter(memoryManifestName, d.memory.writer())
+	}
+	// The night shift's jobs (their approvals grant), once the file is there.
+	if _, err := os.Lstat(d.night.file); err == nil {
+		keepWriter(nightFileName, d.night.writer())
 	}
 	frontDeskMu.Lock()
 	// A file that couldn't be read is never written over by a rotation (RT126SK1R3 N4): the core holds an empty

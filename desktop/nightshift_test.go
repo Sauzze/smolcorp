@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -77,7 +78,7 @@ func TestThePageMakesApprovesPausesAndDeletesANightJob(t *testing.T) {
 		t.Fatalf("listed: %v", listed)
 	}
 	for _, step := range []struct{ path, status string }{{nightPausePath, nightPaused}, {nightApprovePath, nightApproved}} {
-		if w := m.call(t, asPage, "POST", step.path+"?id="+id, ""); w.Code != http.StatusOK || decoded(t, w)["status"] != step.status {
+		if w := m.call(t, asPage, "POST", step.path+"?id="+id+"&shown="+shownOf(t, m, id), ""); w.Code != http.StatusOK || decoded(t, w)["status"] != step.status {
 			t.Fatalf("%s: %d %s", step.path, w.Code, w.Body)
 		}
 	}
@@ -159,7 +160,7 @@ func TestTheGMProposesAndListsButNeverApprovesEditsOrDeletes(t *testing.T) {
 		t.Fatalf("one proposal too many: %d %s", w.Code, w.Body)
 	}
 	// The page approves what the GM proposed.
-	if w := m.call(t, asPage, "POST", nightApprovePath+"?id="+id, ""); w.Code != http.StatusOK || decoded(t, w)["status"] != nightApproved {
+	if w := m.call(t, asPage, "POST", nightApprovePath+"?id="+id+"&shown="+shownOf(t, m, id), ""); w.Code != http.StatusOK || decoded(t, w)["status"] != nightApproved {
 		t.Fatalf("the page's approval: %d %s", w.Code, w.Body)
 	}
 }
@@ -266,7 +267,7 @@ func TestAProposedJobNeverFalls(t *testing.T) {
 	if len(told) != 0 {
 		t.Fatalf("a proposal fell due: %+v", told)
 	}
-	m.call(t, asPage, "POST", nightApprovePath+"?id="+id, "")
+	m.call(t, asPage, "POST", nightApprovePath+"?id="+id+"&shown="+shownOf(t, m, id), "")
 	m.d.night.sched.tick()
 	*clock = time.Date(2026, 11, 13, 2, 0, 30, 0, clock.Location())
 	m.d.night.sched.tick()
@@ -577,4 +578,51 @@ func TestANightBodySpellsEachKeyOnce(t *testing.T) {
 	if jobs := nightJobs(t, m, asPage); len(jobs) != 0 {
 		t.Fatalf("kept: %v", jobs)
 	}
+}
+
+// keepNightJob keeps j in d's store, as its file would hold it (a hire's job by default, a task for the GM when it
+// names no role), written as the store writes.
+func keepNightJob(t *testing.T, d *Deck, j NightJob) NightJob {
+	t.Helper()
+	if j.Name == "" {
+		j.Name, j.Brief = j.ID, "Run the tests."
+	}
+	if j.Kind == "" {
+		j.Kind = nightGM
+		if j.Role != "" {
+			j.Kind = nightHire
+		}
+	}
+	if j.When.Every == "" {
+		j.When = NightWhen{Every: nightDaily, At: "02:00"}
+	}
+	if j.Limits.WallMinutes == 0 {
+		j.Limits.WallMinutes = 30
+	}
+	if j.Created.IsZero() {
+		j.Created = d.night.sched.now()
+	}
+	if why := j.checkedShape(); why != "" {
+		t.Fatal(why)
+	}
+	n := d.night
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if status, answer := n.keepLocked(append(slices.Clone(n.jobs), j), j, false); status != http.StatusOK {
+		t.Fatal(answer)
+	}
+	return j
+}
+
+// shownOf is the hash the page's list gives for the job with id, as the page sends it back to approve.
+func shownOf(t *testing.T, m *mailDeck, id string) string {
+	t.Helper()
+	for _, j := range nightJobs(t, m, asPage) {
+		if j["id"] == id {
+			shown, _ := j["shown"].(string)
+			return shown
+		}
+	}
+	t.Fatalf("no job %s listed", id)
+	return ""
 }

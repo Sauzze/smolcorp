@@ -2,6 +2,8 @@ package desktop
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,8 +28,15 @@ import (
 //   - the GM lists jobs and proposes one, which never runs until the page approves it;
 //   - a tool with the setup key lists; an MCP key, a night job, a hire and a phone can do none of it.
 //
-// Nothing here runs a job: the scheduler (nightschedule.go) says when one is due, and N2 runs it as the actor
-// night:<job>, through the gate service (gates.go).
+// Nothing here runs a job: the scheduler (nightschedule.go) says when one is due, and the runner (nightstart.go)
+// starts it as the actor night:<job>, through the gate service (gates.go) and the hire queue (hirequeue.go).
+//
+// An approval grants, so the file is a sealed record (records.go, RT126N1 C1): sealed whole under the record key,
+// held in memory from the start, never read again while the core runs. An approved job in a file whose seal
+// doesn't fit (another program wrote it, or an old copy was put back after a pause or a delete, which rotate the
+// key) goes back to proposed, with a word, and never runs before the page approves it again. The page approves a
+// job only with the hash of what it showed (shown, RT126N1 C2), and a GM's proposal keeps the scope the GM was
+// held to, which its runs are held to (RT126N1 C3). Off a Mac nothing is sealed, as every record there (§3.8).
 
 const (
 	nightFileName    = "nightshift.json"
@@ -119,6 +128,36 @@ type NightJob struct {
 	Created    time.Time   `json:"created"`
 	Since      time.Time   `json:"since,omitzero"`
 	LastSlot   string      `json:"lastSlot,omitempty"`
+	// What the GM that proposed it was held to, as its hire carries it (RT126N1 C3): a project (Scope), a demo's
+	// roles (ScopeRoles), and the Claude account it was hired on. Empty for the page's own, and an unscoped GM's.
+	// The job's runs are held to them, and the owner approves them with the rest.
+	Scope      string `json:"scope,omitempty"`
+	ScopeRoles string `json:"scopeRoles,omitempty"`
+	Account    string `json:"account,omitempty"`
+	// Last is how its last start went, for the morning report: never part of what the owner approves.
+	Last *NightRun `json:"last,omitempty"`
+}
+
+// NightRun is how a job's start went: when, the slot it was due at, whether it was a missed run, whether its hire
+// was made, and the sentence that says so, or why not (a refusal of SG2's among them).
+type NightRun struct {
+	At     time.Time `json:"at"`
+	Slot   time.Time `json:"slot"`
+	Missed bool      `json:"missed,omitempty"`
+	Hired  bool      `json:"hired,omitempty"`
+	Word   string    `json:"word"`
+}
+
+// nightRunWordMost is how many characters of a start's sentence are kept.
+const nightRunWordMost = 600
+
+// shown is the hash of what the owner approves a job from (RT126N1 C2): its id, words, kind, role, folder, when
+// and limits, who proposed it and what they were held to. The page sends back the hash of the job it showed, and
+// an approval of a job that has changed since is refused. Its status and the scheduler's fields aren't in it.
+func (j NightJob) shown() string {
+	data, _ := json.Marshal([]any{j.ID, j.Name, j.Kind, j.Role, j.Brief, j.Folder, j.When, j.Limits, j.ProposedBy, j.Scope, j.ScopeRoles, j.Account})
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // actor is who the job acts as, for the gate service: night:<id>.
@@ -156,11 +195,21 @@ func (j NightJob) checkedShape() string {
 		return "It says neither the GM nor the page made it."
 	case j.LastSlot != "" && !validDate(j.LastSlot):
 		return "Its last run's date can't be read."
+	case j.Scope != "" && (!filepath.IsAbs(j.Scope) || !shownWhole(j.Scope)) || !shownWhole(j.ScopeRoles) || !shownWhole(j.Account):
+		return "What its proposer was held to can't be read."
+	case j.Last != nil && (utf8.RuneCountInString(j.Last.Word) > nightRunWordMost || !shownWhole(j.Last.Word)):
+		return "Its last run's word can't be read."
 	}
 	return nightAsk{Name: j.Name, Kind: j.Kind, Role: j.Role, Brief: j.Brief, Folder: j.Folder, When: j.When, Limits: j.Limits}.checkedWords()
 }
 
 func validDate(text string) bool { _, err := time.Parse(time.DateOnly, text); return err == nil }
+
+// shownWhole is whether text is one line of text the owner sees as it is, of nightFolderMost bytes at most.
+func shownWhole(text string) bool {
+	return len(text) <= nightFolderMost && utf8.ValidString(text) && !strings.ContainsAny(text, "\r\n\x00") &&
+		!strings.ContainsFunc(text, hidesText)
+}
 
 // nightBlankLinesMost is how many blank lines (empty, or spaces and tabs only) a brief may have in a row: one, as
 // between paragraphs, never a column of them that pushes what follows out of the page's view (RT126N1 B1).
@@ -261,12 +310,21 @@ type nightShift struct {
 	// before anything is written over it.
 	unreadable bool
 	sched      *nightScheduler
+	// starting is held while a job's hire is put to the queue, and pending is the done of each run the queue
+	// works on, by the queue's run id (nightstart.go).
+	starting sync.Mutex
+	pending  map[string]func()
 }
 
 // newNightShift reads the jobs kept in file, skipping what can't be a job with a word.
 func newNightShift(file string, now func() time.Time) *nightShift {
-	n := &nightShift{file: file}
-	n.jobs, n.skipped = readNightJobs(file)
+	n := &nightShift{file: file, pending: map[string]func(){}}
+	var unsealed bool
+	n.jobs, n.skipped, unsealed = loadNightJobs(file)
+	if unsealed && !recordsHeldOnly() {
+		// The records rotate as the start ends, so no copy of the file from before fits again (records.go).
+		recordDropped(nightFileName, "")
+	}
 	n.unreadable = len(n.skipped) > 0
 	n.sched = newNightScheduler(n, now)
 	return n
@@ -274,23 +332,43 @@ func newNightShift(file string, now func() time.Time) *nightShift {
 
 // readNightJobs is the jobs file holds, and a word for each entry skipped. No file is no jobs and no word.
 func readNightJobs(file string) ([]NightJob, []string) {
-	f, err := os.Open(file)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+	jobs, skipped, _ := loadNightJobs(file)
+	return jobs, skipped
+}
+
+// loadNightJobs is readNightJobs, and whether the file's seal didn't fit (RT126N1 C1). Then its approved jobs are
+// read as proposed, with a word: the owner approves each again from the page. While the record key can't be read
+// (recordsHeldOnly) that is for this run only, as nothing is written: the file keeps its approvals, sealed.
+func loadNightJobs(file string) ([]NightJob, []string, bool) {
+	// Lstat first: a FIFO in the file's place is never opened, so it can't hold the start (RT126N1 nit 1).
+	if info, err := os.Lstat(file); errors.Is(err, os.ErrNotExist) {
+		return nil, nil, false
+	} else if err == nil && !info.Mode().IsRegular() {
+		return nil, []string{fmt.Sprintf("The night shift's jobs weren't read: %s isn't a file of %d KB at most.", nightFileName, nightFileMost>>10)}, false
 	}
+	f, err := os.Open(file)
 	if err != nil {
-		return nil, []string{"The night shift's jobs couldn't be read: " + nightFileName + " can't be opened."}
+		return nil, []string{"The night shift's jobs couldn't be read: " + nightFileName + " can't be opened."}, false
 	}
 	defer f.Close()
 	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() || info.Size() > nightFileMost {
-		return nil, []string{fmt.Sprintf("The night shift's jobs weren't read: %s isn't a file of %d KB at most.", nightFileName, nightFileMost>>10)}
+		return nil, []string{fmt.Sprintf("The night shift's jobs weren't read: %s isn't a file of %d KB at most.", nightFileName, nightFileMost>>10)}, false
 	}
 	data, _ := io.ReadAll(io.LimitReader(f, nightFileMost+1))
+	body, counts := openBody(nightFileName, data)
+	sealed := true
+	if !counts {
+		body = data
+		var seal recordSeal
+		if seal, sealed = sealOfFile(nightFileName, data); sealed {
+			body = seal.body
+		}
+	}
 	var kept struct {
 		Jobs []json.RawMessage `json:"jobs"`
 	}
-	if len(data) > nightFileMost || json.Unmarshal(data, &kept) != nil {
-		return nil, []string{"The night shift's jobs weren't read: " + nightFileName + " isn't the list Smolcorp writes."}
+	if len(data) > nightFileMost || json.Unmarshal(body, &kept) != nil {
+		return nil, []string{"The night shift's jobs weren't read: " + nightFileName + " isn't the list Smolcorp writes."}, !counts
 	}
 	var jobs []NightJob
 	var skipped []string
@@ -315,7 +393,23 @@ func readNightJobs(file string) ([]NightJob, []string) {
 		}
 		jobs = append(jobs, j)
 	}
-	return jobs, skipped
+	demoted := 0
+	for i := range jobs {
+		if !counts && jobs[i].Status == nightApproved {
+			jobs[i].Status = nightProposed
+			demoted++
+		}
+	}
+	switch {
+	case demoted > 0 && recordsHeldOnly():
+		skipped = append(skipped, "No night job runs for now: Smolcorp can't read the key that seals their approvals from your login keychain. Unlock it and restart Smolcorp.")
+	case demoted > 0 && !sealed:
+		// One from before approvals were sealed (NS1) has none either (RT126NS1 N2).
+		skipped = append(skipped, fmt.Sprintf("%s has no seal (it was written before approvals were sealed, or by another program): %d approved job(s) wait for your approval again.", nightFileName, demoted))
+	case demoted > 0:
+		skipped = append(skipped, fmt.Sprintf("%s was changed by another program, or its seal doesn't fit: %d approved job(s) wait for your approval again.", nightFileName, demoted))
+	}
+	return jobs, skipped, !counts
 }
 
 func lowerFirst(s string) string {
@@ -325,17 +419,19 @@ func lowerFirst(s string) string {
 	return strings.ToLower(s[:1]) + s[1:]
 }
 
-// saveLocked writes the jobs whole: to a new temp file beside it, readable by you alone, then put in its place.
-// A file read with entries skipped is first set aside as nightshift.json.bad, so nothing of it is lost unseen.
-// With n.mu held.
-func (n *nightShift) saveLocked() error {
-	data, err := json.MarshalIndent(struct {
-		Jobs []NightJob `json:"jobs"`
-	}{Jobs: n.jobs}, "", "  ")
-	if err != nil {
-		return err
+// saveLocked writes the jobs whole, sealed under the record key of the moment (keepRecord): to a temp file beside
+// it, readable by you alone, then put in its place. A change that takes an approval away (tighten: a pause, a
+// delete, an edit of an approved job) is written under a new key, so a copy of the file from before no longer
+// fits. A file read with entries skipped is first set aside as nightshift.json.bad, so nothing of it is lost
+// unseen. Nothing is written while the records can't be kept (recordsHeldOnly, or a failed check). With n.mu held.
+func (n *nightShift) saveLocked(tighten bool) error {
+	if !keepable() || recordsHeldOnly() {
+		return nil
 	}
-	if len(data) > nightFileMost {
+	if data, err := n.marshalLocked(); err != nil {
+		return err
+	} else if len(data) > nightFileMost*3/4 {
+		// Room for the seal, and the body's indent inside it.
 		return errors.New("the night shift's jobs are over the size kept")
 	}
 	if n.unreadable {
@@ -344,32 +440,42 @@ func (n *nightShift) saveLocked() error {
 		}
 		n.unreadable = false
 	}
-	temp, err := os.CreateTemp(filepath.Dir(n.file), filepath.Base(n.file)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	name := temp.Name()
-	err = temp.Chmod(0o600)
-	if err == nil {
-		_, err = temp.Write(data)
-	}
-	if closed := temp.Close(); err == nil {
-		err = closed
-	}
-	if err == nil {
-		err = os.Rename(name, n.file)
-	}
-	if err != nil {
-		_ = os.Remove(name)
-	}
-	return err
+	return keepRecord(nightFileName, n.writerLocked(), tighten)
 }
 
-// nightJobView is a job as the list shows it: with its actor, and when it's next due (approved, by the clock).
+func (n *nightShift) marshalLocked() ([]byte, error) {
+	return json.MarshalIndent(struct {
+		Jobs []NightJob `json:"jobs"`
+	}{Jobs: n.jobs}, "", "  ")
+}
+
+// writerLocked writes the jobs as they are now, sealed under the key given (records.go's recordWriter), for this
+// save and the rotations to come. With n.mu held; the writer takes no lock.
+func (n *nightShift) writerLocked() recordWriter {
+	data, err := n.marshalLocked()
+	file := n.file
+	return func(key []byte, prev string) error {
+		if err != nil {
+			return err
+		}
+		return writePrivate(file, sealBody(key, prev, nightFileName, data))
+	}
+}
+
+// writer is writerLocked for the start's records (settleRecords).
+func (n *nightShift) writer() recordWriter {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.writerLocked()
+}
+
+// nightJobView is a job as the list shows it: with its actor, when it's next due (approved, by the clock), and
+// the hash of what it shows, which the page's approval sends back (shown).
 type nightJobView struct {
 	NightJob
 	Actor string     `json:"actor"`
 	Next  *time.Time `json:"next,omitempty"`
+	Shown string     `json:"shown"`
 }
 
 // list is every job, the words for what was skipped, and the job running, if any.
@@ -381,7 +487,7 @@ func (n *nightShift) list() map[string]any {
 	loc := n.sched.zone()
 	views := make([]nightJobView, 0, len(jobs))
 	for _, j := range jobs {
-		v := nightJobView{NightJob: j, Actor: string(j.actor())}
+		v := nightJobView{NightJob: j, Actor: string(j.actor()), Shown: j.shown()}
 		if j.Status == nightApproved && j.When.Every != nightTrigger {
 			if next, ok := nextNightSlot(j, loc); ok {
 				v.Next = &next
@@ -525,6 +631,13 @@ func (d *Deck) nightRoute(w http.ResponseWriter, r *request) bool {
 		return page
 	}
 	id := r.URL.Query().Get("id")
+	// Nothing is changed that the records can't keep: it would seem to apply, then be gone at the next start.
+	if r.Method == http.MethodPost {
+		if why := recordsRefusal(); why != "" {
+			writeStatus(w)(http.StatusConflict, why)
+			return true
+		}
+	}
 	switch {
 	case r.Method == http.MethodGet && path == nightListPath:
 		if !page && r.caller != callerGM && r.caller != callerTool {
@@ -555,7 +668,7 @@ func (d *Deck) nightRoute(w http.ResponseWriter, r *request) bool {
 		writeAnswer(w)(d.saveNight(save))
 	case r.Method == http.MethodPost && path == nightApprovePath:
 		if pageOnly() {
-			writeAnswer(w)(n.setStatus(id, nightApproved))
+			writeAnswer(w)(n.approve(id, r.URL.Query().Get("shown")))
 		}
 	case r.Method == http.MethodPost && path == nightPausePath:
 		if pageOnly() {
@@ -577,6 +690,11 @@ func (d *Deck) proposeNight(ask nightAsk, by string) (int, any) {
 	if status != 0 {
 		return status, why
 	}
+	// What the GM was held to, kept on the job and held to at its runs (RT126N1 C3).
+	var proposer Hire
+	if by == "gm" {
+		proposer = gmNow()
+	}
 	n := d.night
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -593,7 +711,11 @@ func (d *Deck) proposeNight(ask nightAsk, by string) (int, any) {
 		return http.StatusConflict, fmt.Sprintf("%d proposals already wait for the owner.", nightProposeMost)
 	}
 	j := ask.job(n.newNightID(), nightProposed, by, n.sched.now())
-	return n.keepLocked(append(slices.Clone(n.jobs), j), j)
+	j.Scope, j.ScopeRoles, j.Account = proposer.Scope, proposer.ScopeRoles, proposer.Account
+	if why := j.checkedShape(); why != "" {
+		return http.StatusBadRequest, why
+	}
+	return n.keepLocked(append(slices.Clone(n.jobs), j), j, false)
 }
 
 // saveNight is the page's create or edit. A create is approved unless it says paused. An edit keeps the job's
@@ -619,7 +741,7 @@ func (d *Deck) saveNight(save nightSave) (int, any) {
 			return http.StatusConflict, fmt.Sprintf("The night shift keeps %d jobs at most: delete one first.", nightJobsMost)
 		}
 		j := ask.job(n.newNightID(), save.Status, "page", now)
-		return n.keepLocked(append(slices.Clone(n.jobs), j), j)
+		return n.keepLocked(append(slices.Clone(n.jobs), j), j, false)
 	}
 	i := n.index(save.ID)
 	if i < 0 {
@@ -631,12 +753,14 @@ func (d *Deck) saveNight(save nightSave) (int, any) {
 	old := n.jobs[i]
 	j := ask.job(old.ID, old.Status, old.ProposedBy, old.Created)
 	j.Since, j.LastSlot = old.Since, old.LastSlot
+	j.Scope, j.ScopeRoles, j.Account, j.Last = old.Scope, old.ScopeRoles, old.Account, old.Last
 	if j.When != old.When {
 		j.Since = now
 	}
 	jobs := slices.Clone(n.jobs)
 	jobs[i] = j
-	return n.keepLocked(jobs, j)
+	// An approved job changed: its copy from before mustn't fit any more.
+	return n.keepLocked(jobs, j, old.Status == nightApproved && j.shown() != old.shown())
 }
 
 // job is the ask as a new job, looked for from at.
@@ -645,8 +769,24 @@ func (a nightAsk) job(id, status, by string, at time.Time) NightJob {
 		Limits: a.Limits, Status: status, ProposedBy: by, Created: at, Since: at}
 }
 
-// setStatus approves or pauses a job. An approval looks for the next run from now: what fell due while the job
-// waited or was paused was never its run.
+// approve is the page's approval of a job as it showed it: shown is the hash of what it showed (NightJob.shown),
+// and a job that has changed since is refused (RT126N1 C2).
+func (n *nightShift) approve(id, shown string) (int, any) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	i := n.index(id)
+	switch {
+	case i < 0:
+		return http.StatusNotFound, "There's no such night job."
+	case shown == "":
+		return http.StatusBadRequest, "Approve a night job as the page shows it: the approval carries what you saw."
+	case shown != n.jobs[i].shown():
+		return http.StatusConflict, "This night job changed since the page showed it: look at it again before you approve it."
+	}
+	return n.setStatusLocked(i, nightApproved)
+}
+
+// setStatus pauses (or, for the scheduler's tests, approves) a job.
 func (n *nightShift) setStatus(id, status string) (int, any) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -654,14 +794,22 @@ func (n *nightShift) setStatus(id, status string) (int, any) {
 	if i < 0 {
 		return http.StatusNotFound, "There's no such night job."
 	}
+	return n.setStatusLocked(i, status)
+}
+
+// setStatusLocked approves or pauses the job at i, with n.mu held. An approval looks for the next run from now:
+// what fell due while the job waited or was paused was never its run. A pause takes the approval away, so the
+// file is written under a new key.
+func (n *nightShift) setStatusLocked(i int, status string) (int, any) {
 	jobs := slices.Clone(n.jobs)
-	if jobs[i].Status != status {
+	was := jobs[i].Status
+	if was != status {
 		jobs[i].Status = status
 		if status == nightApproved {
 			jobs[i].Since = n.sched.now()
 		}
 	}
-	return n.keepLocked(jobs, jobs[i])
+	return n.keepLocked(jobs, jobs[i], was == nightApproved && status != nightApproved)
 }
 
 // remove deletes a job, and its run waiting in line, if any.
@@ -672,20 +820,69 @@ func (n *nightShift) remove(id string) (int, any) {
 	if i < 0 {
 		return http.StatusNotFound, "There's no such night job."
 	}
-	if status, answer := n.keepLocked(slices.Delete(slices.Clone(n.jobs), i, i+1), nil); status != http.StatusOK {
+	if status, answer := n.keepLocked(slices.Delete(slices.Clone(n.jobs), i, i+1), nil, n.jobs[i].Status == nightApproved); status != http.StatusOK {
 		return status, answer
 	}
 	return http.StatusOK, map[string]any{"deleted": id}
 }
 
 // keepLocked writes jobs and takes them as the store's, answering with j; with n.mu held. Nothing changes if the
-// write fails.
-func (n *nightShift) keepLocked(jobs []NightJob, j any) (int, any) {
+// write fails. tighten: an approval goes (saveLocked).
+func (n *nightShift) keepLocked(jobs []NightJob, j any, tighten bool) (int, any) {
 	before := n.jobs
 	n.jobs = jobs
-	if err := n.saveLocked(); err != nil {
+	if err := n.saveLocked(tighten); err != nil {
 		n.jobs = before
 		return http.StatusInternalServerError, "The night shift's jobs couldn't be saved."
 	}
 	return http.StatusOK, j
+}
+
+// heldAs is the GM a night job's actor is held as at the gate service (RT126N1 C3): the scope its proposer was held
+// to, and its account; false for no such job, or one not approved.
+func (n *nightShift) heldAs(a actor) (Hire, bool) {
+	id, ok := strings.CutPrefix(string(a), "night:")
+	j, found := n.get(id)
+	if !ok || !found || j.Status != nightApproved {
+		return Hire{}, false
+	}
+	return Hire{Role: gmRole, Scope: j.Scope, ScopeRoles: j.ScopeRoles, Account: j.Account}, true
+}
+
+// nightStep is the one hire a hire's job makes: its role, in its folder, with its brief, on its proposer's account.
+func (j NightJob) nightStep() hireStep {
+	return hireStep{Role: j.Role, Folder: j.Folder, Brief: j.Brief, Account: j.Account}
+}
+
+// approvesHire is whether the job a acts as approves steps (Q-F1 (a): the owner's approval of the job covers its
+// hire): an approved hire's job, held in memory as its seal let it in or the page approved it in this run, and
+// steps exactly its one hire.
+func (n *nightShift) approvesHire(a actor, steps []hireStep) bool {
+	id, ok := strings.CutPrefix(string(a), "night:")
+	j, found := n.get(id)
+	return ok && found && j.Status == nightApproved && j.Kind == nightHire && len(steps) == 1 && steps[0] == j.nightStep()
+}
+
+// ran keeps how a job's start went on the job, for the morning report; nothing if the job is gone. A long sentence
+// is cut to nightRunWordMost characters and nightFolderMost bytes, the most shownWhole lets through (RT126NS1 N4).
+func (n *nightShift) ran(id string, run NightRun) {
+	if utf8.RuneCountInString(run.Word) > nightRunWordMost || len(run.Word) > nightFolderMost {
+		cut, kept := 0, 0
+		for i := range run.Word {
+			if kept > nightRunWordMost-1 || i+len("…") > nightFolderMost {
+				break
+			}
+			cut, kept = i, kept+1
+		}
+		run.Word = run.Word[:cut] + "…"
+	}
+	if !shownWhole(run.Word) {
+		run.Word = "Its start said something that can't be shown as it is."
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if i := n.index(id); i >= 0 {
+		n.jobs[i].Last = &run
+		_ = n.saveLocked(false)
+	}
 }

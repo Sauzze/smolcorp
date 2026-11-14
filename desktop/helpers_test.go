@@ -47,6 +47,10 @@ func isolate(t *testing.T) string {
 		return recordsBeside{h, keychain}
 	}
 	t.Cleanup(func() { noRecordKey(); recordsVia = via })
+	// No night shift's scheduler with a test's decks (nightstart.go): a test starts one itself.
+	starts := nightShiftStarts
+	nightShiftStarts = false
+	t.Cleanup(func() { nightShiftStarts = starts })
 	return homeDir
 }
 

@@ -10,10 +10,13 @@ import (
 	"testing"
 )
 
-// A GM held to one project (gmscope.go) through the gate service: the GM, an MCP key and a night job are held
-// to its scope; the owner's own and a hire aren't; what the route is given is the request as checked.
+// A GM held to one project (gmscope.go) through the gate service: the GM, an MCP key and a night job that GM
+// proposed are held to its scope; the owner's own and a hire aren't; what the route is given is the request as
+// checked.
 func TestTheGMsScopeHoldsTheGMAnMCPKeyAndANightJobAlike(t *testing.T) {
 	d, _, _, _, project := scopedGM(t)
+	gm := gmNow()
+	keepNightJob(t, d, NightJob{ID: "nightly", Status: nightApproved, ProposedBy: "gm", Scope: gm.Scope, Account: gm.Account})
 	held := []actor{actorGM, mcpActor("claude-desktop"), nightActor("nightly")}
 	ask := func(method, path, body string) action {
 		return action{route: &routeAsk{method: method, path: path, body: strings.NewReader(body)}}

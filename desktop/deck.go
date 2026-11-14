@@ -266,11 +266,12 @@ func NewDeck() *Deck {
 	// Floors from other Macs: those paired here, from the support folder; those joined, in the secret store.
 	d.macPeers = loadMacPeers(macPeersFile())
 	d.memory = loadMemory(filepath.Join(supportDir, memoryFolder))
+	// The night shift's jobs, a sealed record: read before the start's records settle, so a file whose seal didn't
+	// fit rotates them (nightshift.go). Its scheduler starts at the end, with the deck's rounds.
+	d.night = newNightShift(filepath.Join(support, nightFileName), nil)
 	d.settleRecords()
 	d.peerKeys = peerKeyStoreFor(d.mac.host)
 	d.pushKeys = newPushKeys(pushKeyStoreFor(d.mac.host))
-	// The night shift's jobs, read now. Its scheduler is started by the runner (N2): until then nothing falls due.
-	d.night = newNightShift(filepath.Join(support, nightFileName), nil)
 	// Under the Mac app, a pasted key is kept in its Keychain (hostshell.go).
 	d.summaryKeys = newSummaryKeys(summaryStore(d.mac.host), os.Getenv)
 	d.summaries = newSummaries(d.summaryKeys.Read)
@@ -331,6 +332,10 @@ func NewDeck() *Deck {
 	}
 	// The hires in T3 Code, followed with the deck's rounds, so they stop with it.
 	d.startT3Follow()
+	// The night shift: an approved job falls due from now on, and starts its hire (nightstart.go).
+	if nightShiftStarts {
+		d.startNight()
+	}
 	return d
 }
 

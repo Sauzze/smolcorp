@@ -555,6 +555,10 @@ func build(pl Places) (*Policy, error) {
 	}
 	support, opens := pl.Support, []string{rowSupport}
 	b.add(Rule{Row: "the guard file: the guard reads it", Path: join(support, "hire-guard.json"), Read: Allow, Opens: opens})
+	// The night shift's jobs (NS1), kept as the guard file is: a hire or the GM may read them (they hold no secret, and
+	// the guard lets its readers name the file), only the core writes them, and an approval a desk wrote would start
+	// hires overnight. The copy the core sets aside unread (nightshift.json.bad) has no exception.
+	b.add(Rule{Row: "the night shift's jobs: read only, as the guard file", Path: join(support, "nightshift.json"), Read: Allow, Opens: opens})
 	own := join(support, "hires", pl.OwnID)
 	b.add(Rule{Row: "its status and report", Path: own, Tail: "*.md", Read: Allow, Write: Allow, Opens: opens})
 	for _, tail := range []string{"BRIEF*.md", "settings.json", "sandbox.sb"} {
@@ -741,7 +745,8 @@ var supportFiles = func() map[string]string {
 	for why, names := range map[string][]string{
 		"denied: a sealed record":                                                   {"phones.json", "mac-peers.json", "registry.json", "config.json"},
 		"read only: the guard reads it, nothing in a desk writes":                   {"hire-guard.json"},
-		"denied: the records' and the core's own state":                             {"hire-guard.seal", "keys-changed-1.26", "instance.lock", "smolcorp.pid", "claude-install", "voice-set-by-smolcorp", "WebView2"},
+		"read only: the night shift's jobs, which only the core writes (NS1)":       {"nightshift.json"},
+		"denied: the records' and the core's own state":                             {"hire-guard.seal", "keys-changed-1.26", "nightshift.json.bad", "instance.lock", "smolcorp.pid", "claude-install", "voice-set-by-smolcorp", "WebView2"},
 		"denied: what desks did, said and were sent":                                {"sessions.json", "events.jsonl", "events.1.jsonl", "grants.jsonl", "saved.json", "hire-queue.json", "outbox.json", "acp-transcripts", "recaps", "briefs", "checkpoints", "photos"},
 		"denied, but the desk's own brief, status, report, fence and Claude folder": {"hires"},
 		"denied: the hook's key, the owner's sessions' (§5.10)":                     {"hook-key", "hook-header", "report.sh"},

@@ -35,14 +35,7 @@ func writeProfile(t *testing.T, p *Policy, folder string) string {
 		if r.Path == "" || !strings.HasPrefix(r.Path, folder+"/") {
 			continue // the rows for anywhere are M1's; the stand-ins write nothing they hold
 		}
-		quoted, _ := json.Marshal(r.Path) // a Seatbelt string reads as a JSON one for these paths
-		filter := fmt.Sprintf("(literal %s)", quoted)
-		if r.Below {
-			filter = fmt.Sprintf("(subpath %s)", quoted)
-		}
-		if r.Tail != "" {
-			filter = tailFilter(t, r)
-		}
+		filter := rowFilter(t, r)
 		switch {
 		case r.Write == Allow && p.Exception(r):
 			exceptions = append(exceptions, "(allow file-write* "+filter+")")
@@ -61,6 +54,42 @@ func writeProfile(t *testing.T, p *Policy, folder string) string {
 		}
 	}
 	return "(version 1)\n(allow default)\n" + strings.Join(slices.Concat(plain, wide, exceptions, final), "\n") + "\n"
+}
+
+// rowFilter is the paths r holds as a Seatbelt filter.
+func rowFilter(t *testing.T, r Rule) string {
+	t.Helper()
+	if r.Tail != "" {
+		return tailFilter(t, r)
+	}
+	quoted, _ := json.Marshal(r.Path) // a Seatbelt string reads as a JSON one for these paths
+	if r.Below {
+		return fmt.Sprintf("(subpath %s)", quoted)
+	}
+	return fmt.Sprintf("(literal %s)", quoted)
+}
+
+// readProfile is p's read rows inside folder, in writeProfile's order, to put after its rows: Seatbelt's reads and
+// writes are separate operations, so neither half's order touches the other's.
+func readProfile(t *testing.T, p *Policy, folder string) string {
+	t.Helper()
+	var plain, wide, exceptions, final []string
+	for _, r := range p.Rules() {
+		if r.Path == "" || !strings.HasPrefix(r.Path, folder+"/") {
+			continue
+		}
+		switch filter := rowFilter(t, r); {
+		case r.Read == Allow && p.Exception(r):
+			exceptions = append(exceptions, "(allow file-read* "+filter+")")
+		case r.Read == Allow:
+			plain = append(plain, "(allow file-read* "+filter+")")
+		case r.Read == Deny && r.Wide:
+			wide = append(wide, "(deny file-read* "+filter+")")
+		case r.Read == Deny:
+			final = append(final, "(deny file-read* "+filter+")")
+		}
+	}
+	return strings.Join(slices.Concat(plain, wide, exceptions, final), "\n") + "\n"
 }
 
 // tailFilter is a row with a Tail as a Seatbelt regex, the way RT126SAX1R3's stand-in wrote the pattern rows: `**`
@@ -882,5 +911,122 @@ print(json.dumps(said))`
 	own := filepath.Join(repo, "main.go")
 	if out, err := sandboxed(nil, python, "-I", "-c", "import sys; open(sys.argv[1], 'w').write('standin\\n')", own); err != nil || !exists(own) {
 		t.Errorf("a desk at the project can't write its own file: %v %s (the stand-in must still work)", err, out)
+	}
+}
+
+// The night shift's jobs (NS1, STUDIO27), on this Mac with stand-ins only (owner Q5): a hire's and the GM's python
+// reads nightshift.json, as the guard's readers may, and can't write it, append to it, remove it or rename a file onto
+// it, nor through the Write tool's temp file and rename. The copy set aside unread is denied, read too. The Policy's
+// read and write rows for the test's folder are the profile; a denied record read and a file in the desk's own place
+// read and written show the stand-in really runs under it.
+func TestOnAMacAHireAndTheGMReadTheNightShiftsJobsButCantWriteThem(t *testing.T) {
+	sandboxExec, python := "/usr/bin/sandbox-exec", python3(t)
+	if _, err := os.Stat(sandboxExec); err != nil || python == "" {
+		if os.Getenv("SMOLCORP_SANDBOX_REQUIRED") == "1" {
+			t.Fatalf("sandbox-exec (%v) or python3 (%q) missing", err, python)
+		}
+		t.Skip("no sandbox-exec or python3 here")
+	}
+	folder, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(folder, "home")
+	support := filepath.Join(home, "Library", "Application Support", "AgentDeck")
+	hires, gmFolder := filepath.Join(home, "Projects", "app-hires"), filepath.Join(home, "Projects", "app-gm")
+	night := filepath.Join(support, "nightshift.json")
+	const jobs = `{"jobs": [{"id": "nightly", "status": "proposed"}]}` + "\n"
+	files := map[string]string{night: jobs, night + ".bad": jobs, filepath.Join(support, "hire-guard.json"): "{}\n",
+		filepath.Join(support, "phones.json"): "{}\n"}
+	for _, desk := range []string{filepath.Join(hires, "h1"), gmFolder} {
+		files[filepath.Join(desk, "main.go")], files[filepath.Join(desk, "planted.json")] = "package main\n", `{"jobs": []}`
+	}
+	for at, text := range files {
+		if err := os.MkdirAll(filepath.Dir(at), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(at, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// standIn does each op:path in its arguments and says, per argument, "ok" or why not.
+	const standIn = `import sys, json, os
+said = {}
+for arg in sys.argv[1:]:
+    op, _, p = arg.partition(":")
+    try:
+        if op == "read":
+            open(p).read()
+        elif op == "write":
+            open(p, "w").write('{"jobs": [{"id": "x", "status": "approved"}]}')
+        elif op == "append":
+            open(p, "a").write(" ")
+        elif op == "remove":
+            os.remove(p)
+        elif op == "rename":
+            src, _, dst = p.partition("|")
+            os.rename(src, dst)
+        said[arg] = "ok"
+    except OSError as e:
+        said[arg] = type(e).__name__
+print(json.dumps(said))`
+	for _, subject := range []struct {
+		name string
+		pl   Places
+	}{
+		{"hire", Places{GOOS: "darwin", Subject: Hire, Home: home, Support: support, OwnID: "h1", Root: filepath.Join(hires, "h1"),
+			HiresFolder: hires, GMFolder: gmFolder}},
+		{"GM", Places{GOOS: "darwin", Subject: GM, Home: home, Support: support, OwnID: "gm1", Root: gmFolder, HiresFolder: hires,
+			GMFolder: gmFolder}},
+	} {
+		p := mustNew(t, subject.pl)
+		for op, want := range map[Op]Verdict{Read: Allow, Write: Deny, Connect: Deny, Move: Deny, Link: Deny} {
+			if got, by := p.Decide(night, op); got != want {
+				t.Errorf("%s: the Policy says %v to %v nightshift.json (%q), want %v", subject.name, got, op, by.Row, want)
+			}
+		}
+		root := subject.pl.Root
+		profile := writeProfile(t, p, folder) + readProfile(t, p, folder)
+		want := map[string]string{
+			"read:" + night: "ok", "read:" + filepath.Join(support, "hire-guard.json"): "ok", "read:" + filepath.Join(root, "main.go"): "ok",
+			"write:" + filepath.Join(root, "main.go"): "ok", "read:" + filepath.Join(support, "phones.json"): "PermissionError",
+			"read:" + night + ".bad": "PermissionError", "write:" + night: "PermissionError", "append:" + night: "PermissionError",
+			"remove:" + night: "PermissionError", "rename:" + filepath.Join(root, "planted.json") + "|" + night: "PermissionError",
+			"write:" + night + ".tmp": "PermissionError", "write:" + night + ".bad": "PermissionError",
+		}
+		args := []string{"-p", profile, python, "-I", "-c", standIn}
+		for arg := range want {
+			args = append(args, arg)
+		}
+		cmd := disclaim.Cmd(exec.Command(sandboxExec, args...))
+		cmd.Dir, cmd.Env = folder, []string{"HOME=" + home, "PATH=/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1"}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: the stand-in didn't run: %v %s", subject.name, err, out)
+		}
+		var said map[string]string
+		if err := json.Unmarshal(out, &said); err != nil {
+			t.Fatalf("%s: %v %s", subject.name, err, out)
+		}
+		for arg, w := range want {
+			if said[arg] != w {
+				t.Errorf("%s: %s: %q, want %s", subject.name, arg, said[arg], w)
+			}
+		}
+		// The Write tool's way: a temp file beside it, then a rename.
+		event, _ := json.Marshal(map[string]any{"tool_name": "Write", "tool_input": map[string]string{"file_path": night, "content": "{}\n"}})
+		cmd = disclaim.Cmd(exec.Command(sandboxExec, "-p", profile, python, "-I", "-c", writeTool))
+		cmd.Dir, cmd.Env, cmd.Stdin = folder, []string{"HOME=" + home, "PATH=/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1"}, bytes.NewReader(event)
+		if out, err := cmd.CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != "PermissionError" {
+			t.Errorf("%s: the Write tool: %v %q, want PermissionError", subject.name, err, out)
+		}
+	}
+	for _, at := range []string{night, night + ".bad"} {
+		if data, err := os.ReadFile(at); err != nil || string(data) != jobs {
+			t.Errorf("%s changed: %q %v", at, data, err)
+		}
+	}
+	if _, err := os.Lstat(night + ".tmp"); err == nil {
+		t.Error("a temp file was made beside the night shift's jobs")
 	}
 }

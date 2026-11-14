@@ -211,6 +211,18 @@ func (d *Deck) decideRoute(a actor, r routeAsk) verdict {
 		return allow()
 	}
 	gm := gmNow()
+	if a.kind() == "night" {
+		// A night job is held to what the GM that proposed it was held to, never the GM's of the moment (RT126N1
+		// C3); one that isn't approved has nothing to be held as.
+		held, approved := Hire{}, false
+		if d.night != nil {
+			held, approved = d.night.heldAs(a)
+		}
+		if !approved {
+			return refuse(http.StatusForbidden, "That night job isn't approved.")
+		}
+		gm = held
+	}
 	if !gmScopeHolds(gm, r.method) {
 		return allow()
 	}

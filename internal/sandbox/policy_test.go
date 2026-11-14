@@ -97,6 +97,13 @@ var rows = []row{
 	{"$R/hires/$ID/STATUS.md", Write, A, A, D}, {"$R/desk-start", Connect, A, A, D},
 	// …except the guard file, read only.
 	all("$S/hire-guard.json", Read, A), all("$S/hire-guard.json", Write, D),
+	// …and the night shift's jobs, read only as the guard file (NS1, STUDIO27): no write, by any spelling, nor a link
+	// or a rename onto it; the copy set aside unread and a temp file beside it are denied whole.
+	all("$S/nightshift.json", Read, A), all("$S/nightshift.json", Write, D), all("$S/nightshift.json", Connect, D),
+	all("$S/nightshift.json", Link, D), all("$S/nightshift.json", Move, D), all("$S/NightShift.JSON", Write, D),
+	all("$S/hires/$ID/../../nightshift.json", Write, D), all("$S/nightshift.json.bad", Read, D),
+	all("$S/nightshift.json.tmp", Write, D), all("$S/.nightshift.json.tmp-write", Write, D), all("$S/nightshift.json/x", Read, D),
+	{"$R/nightshift.json", Read, A, A, D}, {"$R/nightshift.json", Write, D, D, D},
 	// …its fence and brief: read only.
 	all("$S/hires/$ID/settings.json", Read, A), all("$S/hires/$ID/settings.json", Write, D),
 	all("$S/hires/$ID/sandbox.sb", Read, A), all("$S/hires/$ID/sandbox.sb", Write, D),
@@ -383,7 +390,7 @@ func TestEverySupportFileHasARowAndOnlyTheListedOnesOpen(t *testing.T) {
 		connect, _ := p.Decide(realSupport+"/"+name, Connect)
 		want := [3]Verdict{Deny, Deny, Deny}
 		switch name {
-		case "hire-guard.json":
+		case "hire-guard.json", "nightshift.json":
 			want[0] = Allow
 		case "desk-start":
 			want[2] = Allow
@@ -392,7 +399,7 @@ func TestEverySupportFileHasARowAndOnlyTheListedOnesOpen(t *testing.T) {
 			t.Errorf("%s: read, write, connect %v, want %v", name, got, want)
 		}
 	}
-	for _, name := range []string{"sandbox-canary-1", "serve.sock", "gm-memory", "hires"} {
+	for _, name := range []string{"sandbox-canary-1", "serve.sock", "gm-memory", "hires", "nightshift.json", "nightshift.json.bad"} {
 		if why, ok := SupportRow(name); !ok || why == "" {
 			t.Errorf("%s has no row", name)
 		}
