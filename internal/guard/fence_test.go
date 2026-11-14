@@ -42,6 +42,7 @@ func TestNoHireTakesAwayOrRewritesClaudeCodesSettings(t *testing.T) {
 		"echo '{}' > .claude/\u017fettings.local.json", "rm .claude/\u017fettings.local.json", "cp x .claude/\u017fettings.json",
 		"echo '{}' > .claude/\u017fettings.json", "rm .claude/\u017fettings.json", "mv x .CLAUDE/SETTINGS.LOCAL.JSON",
 		"echo x > ~/.config/sauzzedeck-pro/hire-guard.json", "rm \u017fmolcorp_gm_token", "cat gm-token-kept",
+		"cat push-key-kept", "cat ~/.config/sauzzedeck-pro/PUSH-KEY-KEPT",
 		"\u017fsh host", "\u212aubectl apply -f x.yaml", "/usr/bin/\u017f\u017fh host", "git pu\u017fh",
 	}
 	for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {

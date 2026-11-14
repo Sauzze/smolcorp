@@ -86,6 +86,8 @@ var everyPhoneRoute = [][2]string{
 	{"GET", "/nowhere"},
 	// The owner's asks and their answer (grants.go, FS2).
 	{"GET", "/grants"}, {"POST", "/grants/answer"}, {"PUT", "/grants/answer"},
+	// A phone's notifications (pushsubs.go, PUSH1), and their wrong methods.
+	{"GET", "/push"}, {"POST", "/push"}, {"POST", "/push/off"}, {"PUT", "/push"}, {"GET", "/push/off"},
 }
 
 // probeRoute asks one route as one caller, through the whole router, and says the status and the text.
@@ -236,6 +238,14 @@ func dumpPhoneRoutes(t *testing.T) string {
 // caller stay refused. OLD-SERVE1 moves one column, phone-serve-linux, and only to what phone-serve-mac answers: the
 // hand-on is let in on Linux too, 36 cells from 403 to the Mac's 200, 204, 400 or 404; phone-serve-linux-text-off
 // (403 everywhere but the open icons, as phone-serve-mac-text-off) and phone-serve-linux-proto don't move.
+// PUSH1 adds five lines at the end, and moves no cell: a phone's notifications over Tailscale only (GET /push, POST
+// /push and POST /push/off, as /approvals; the Wi-Fi and the window 403), and their wrong methods; phone-serve-linux
+// answers them as phone-serve-mac, as it does every route since OLD-SERVE1.
+// PUSH1's five /push lines (GET, POST, POST /push/off; PUT and GET /push/off 404): phone-serve-linux answers as
+// phone-serve-mac there. PUSH1 was reviewed before OLD-SERVE1, with 403 in that column; SIERRA (GM) ruled 14 Nov
+// that Linux serve, made the Mac's equal by OLD-SERVE1, is let in as the Mac's is (F3: HTTPS, typing on), on two
+// conditions the merge review RMSYPUSH1 checked: no other cell moved, and Linux serve reaches /push only through
+// SN1's verified path (serve.sock, the peer checked, the peer token), never a TCP 127.0.0.1 guess (that gets 403).
 func TestEveryRouteKeepsItsAccessThroughTheMove(t *testing.T) {
 	after := dumpPhoneRoutes(t)
 	if after != phoneRouteAccess {
@@ -267,9 +277,9 @@ func TestEachRowLetsInItsClassOnly(t *testing.T) {
 	// FR1 moved 7; the talk bubble adds GET /talk, GET /talk/asking, POST /talk/say and POST /talk/pick (1.26), and
 	// the dictation service (FD1) POST /talk/listen, and the pull request badge's click POST /desk/pr/open (R2);
 	// floors from other Macs, GET /peer/hello (M1); FS2 adds GET /grants and POST /grants/answer; the TV's preview
-	// GET and POST /desk/preview (V1); PH1 POST /photo and POST /talk/photo.
-	if len(phoneRouteTable) != 21 {
-		t.Errorf("%d rows; want 21", len(phoneRouteTable))
+	// GET and POST /desk/preview (V1); PH1 POST /photo and POST /talk/photo; PUSH1 GET and POST /push, POST /push/off.
+	if len(phoneRouteTable) != 24 {
+		t.Errorf("%d rows; want 24", len(phoneRouteTable))
 	}
 	for key, row := range phoneRouteTable {
 		if !slices.ContainsFunc(everyPhoneRoute, func(route [2]string) bool {
@@ -472,6 +482,11 @@ GET /nowhere: 401 404 404 404 403 404 403 403 404 403 403 401 404 404 401 401 40
 GET /grants: 401 403 200 200 403 200 403 403 403 403 403 401 403 403 401 401 403 401; let in: phone-wireguard, phone-serve-mac, phone-serve-linux
 POST /grants/answer: 401 403 400 400 403 400 403 403 403 403 403 401 403 403 401 401 403 401; let in: phone-wireguard, phone-serve-mac, phone-serve-linux
 PUT /grants/answer: 401 404 404 404 403 404 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, spoof-proto-wifi, phone-here, window, window-device
+GET /push: 401 403 503 503 403 503 403 403 403 403 403 401 403 403 401 401 403 401; let in: phone-wireguard, phone-serve-mac, phone-serve-linux
+POST /push: 401 403 400 400 403 400 403 403 403 403 403 401 403 403 401 401 403 401; let in: phone-wireguard, phone-serve-mac, phone-serve-linux
+POST /push/off: 401 403 204 204 403 204 403 403 403 403 403 401 403 403 401 401 403 401; let in: phone-wireguard, phone-serve-mac, phone-serve-linux
+PUT /push: 401 404 404 404 403 404 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, spoof-proto-wifi, phone-here, window, window-device
+GET /push/off: 401 404 404 404 403 404 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, spoof-proto-wifi, phone-here, window, window-device
 `
 
 // MARK: The switch's route set (FR1's review, N1)

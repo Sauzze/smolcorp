@@ -361,7 +361,9 @@ func TestTheGuardRefusesASearchForTheSetupKeyWord(t *testing.T) {
 			}
 		}
 		for _, line := range refused {
-			if r := Check(line, groups); r == nil || r.Rule != setupKeyFile {
+			// *key* fills in the push key's file too (PUSH1), which the always list names first: refused either way.
+			r := Check(line, groups)
+			if r == nil || r.Rule != setupKeyFile && !(strings.Contains(line, "*key*") && r.Rule == "push-key-kept") {
 				t.Errorf("%q: %v", line, r)
 			}
 		}

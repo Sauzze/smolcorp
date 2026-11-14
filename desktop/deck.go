@@ -40,6 +40,9 @@ type Deck struct {
 	// Macs this one joined are kept, with their keys (the secret store); joinMu, held through a join, never with mu.
 	macPeers *macPeers
 	peerKeys peerKeyStore
+	// The VAPID key notifications are signed with (pushkey.go): under the Mac app its own item, through the bridge.
+	// Its own lock, and it waits on the store: never asked with mu held.
+	pushKeys *pushKeys
 	joinMu   sync.Mutex
 	config   *Config
 	sessions *Sessions
@@ -262,6 +265,7 @@ func NewDeck() *Deck {
 	d.macPeers = loadMacPeers(macPeersFile())
 	d.settleRecords()
 	d.peerKeys = peerKeyStoreFor(d.mac.host)
+	d.pushKeys = newPushKeys(pushKeyStoreFor(d.mac.host))
 	// The night shift's jobs, read now. Its scheduler is started by the runner (N2): until then nothing falls due.
 	d.night = newNightShift(filepath.Join(support, nightFileName), nil)
 	// Under the Mac app, a pasted key is kept in its Keychain (hostshell.go).

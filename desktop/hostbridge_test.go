@@ -302,9 +302,10 @@ func TestStoppingADeckWaitsForTheEffortItQueued(t *testing.T) {
 }
 
 // The items the core asks the Mac app for are bridgeSecrets, every one and no other, as HostBridge.swift's secrets
-// are (HostBridgeTests checks the app's side): the Macs this one joined among them (FL0), or a Mac couldn't join.
+// are (HostBridgeTests checks the app's side): the Macs this one joined among them (FL0), or a Mac couldn't join,
+// and the VAPID key (PUSH1), or a Mac couldn't send a notification.
 func TestTheCoreAsksTheAppForItsOwnItemsOnly(t *testing.T) {
-	asked := []string{summaryKeyItem, gmTokenItem, peerKeysItem}
+	asked := []string{summaryKeyItem, gmTokenItem, peerKeysItem, pushKeyItem}
 	for _, item := range viewerItems {
 		asked = append(asked, item)
 	}

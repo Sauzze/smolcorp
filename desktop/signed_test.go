@@ -558,6 +558,9 @@ var phoneRoutes = map[string]bool{
 	// The owner's asks and his yes or no to one (FS2, grants.go): a paired phone over Tailscale alone, never the
 	// Wi-Fi (accessOwnerTap), with an ask's id and yes or no, never a phone's text.
 	"/grants": false, "/grants/answer": false,
+	// A phone's notifications (PUSH1, pushsubs.go): a paired phone over Tailscale alone (accessPhoneSecure), with a
+	// browser's subscription to a push service, never a phone's text.
+	"/push": false, "/push/off": false,
 }
 
 // phoneRouteCode is one route's code as this test reads it: its paths, its code, and whether only the window reaches it.

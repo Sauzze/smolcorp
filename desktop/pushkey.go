@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+
+	"github.com/zalando/go-keyring"
 )
 
 // The app's VAPID key (RFC 8292), which signs every notification it sends: made the first time one is sent, then
@@ -28,6 +30,13 @@ func keptPushKeyPath() string { return filepath.Join(supportDir, keptPushKeyName
 // errNoPushKeyStore: there's nowhere to keep the key, so none is made (a Mac without the app, where this program
 // only ever runs as tests, and every test).
 var errNoPushKeyStore = errors.New("nowhere to keep the push key")
+
+// pushKeyNone is whether a secret store's error says it keeps no push key: its "not found" alone (RT126W2 N3). Any
+// other (the store locked, its service not running, no session bus this time) may hide the key every phone
+// subscribed with, and a new one kept in its place would break each of those subscriptions for good, unseen: the
+// push service only refuses what is signed with another key. So the key's read fails, and none is made, until the
+// store answers. A computer with no store at all, and no push-key-kept yet, gets no key, and sends nothing.
+func pushKeyNone(err error) bool { return errors.Is(err, keyring.ErrNotFound) }
 
 // noPushKeyStore keeps nothing, and makes no key: one that isn't kept would break every subscription at the next run.
 var noPushKeyStore = gmTokenStore{

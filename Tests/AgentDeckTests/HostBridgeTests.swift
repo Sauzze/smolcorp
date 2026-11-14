@@ -680,11 +680,11 @@ final class HostBridgeTests: XCTestCase {
         let none = ask(["action": "secret-read", "item": "summary-key"])
         XCTAssertTrue(isOK(none))
         XCTAssertEqual(none["found"] as? Bool, false)
-        XCTAssertFalse(isOK(ask(["action": "secret-read", "item": "push-key"])), "not an item the engine may have")
+        XCTAssertFalse(isOK(ask(["action": "secret-read", "item": "record-key"])), "not an item the engine may have")
         XCTAssertFalse(isOK(ask(["action": "secret-write", "item": "viewer-key", "value": "x"])), "not kept")
         XCTAssertFalse(isOK(ask(["action": "secret-write", "item": "summary-key", "value": "a\nb"])))
         XCTAssertFalse(isOK(ask(["action": "secret-delete", "item": "viewer-key"])))
-        XCTAssertEqual(Set(HostBridge.Actions.mac.secrets.keys), ["summary-key", "gm-token", "viewer-id", "viewer-key", "viewer-write-secret", "peer-keys"],
+        XCTAssertEqual(Set(HostBridge.Actions.mac.secrets.keys), ["summary-key", "gm-token", "viewer-id", "viewer-key", "viewer-write-secret", "peer-keys", "push-key"],
                        "as desktop/hostbridge.go's bridgeSecrets")
     }
 
@@ -715,6 +715,42 @@ final class HostBridgeTests: XCTestCase {
         // The Mac's own: none only when there is none, and removable.
         XCTAssertNotNil(HostBridge.Actions.mac.secrets["peer-keys"]?.absent)
         XCTAssertNotNil(HostBridge.Actions.mac.secrets["peer-keys"]?.delete)
+    }
+
+    /// The VAPID key notifications are signed with (PUSH1, desktop/pushkey.go), as the Mac keeps it, in a file of
+    /// this test's own: none is "found": false, so the core makes it; once kept it's read back; one there but
+    /// unreadable is the app's no, never none, so the core never makes a new one over it and every phone's
+    /// subscription keeps working; it's never removed this way.
+    func testThePushKeyIsAnItemTheCoreReachesOnlyHere() throws {
+        let file = folder.appendingPathComponent(TestCopySecrets.pushKeyName)
+        var actions = self.actions
+        actions.secrets["push-key"] = PushKeyStore.file(file).secret
+        let none = ask(["action": "secret-read", "item": "push-key"], actions: actions)
+        XCTAssertTrue(isOK(none))
+        XCTAssertEqual(none["found"] as? Bool, false)
+        XCTAssertTrue(isOK(ask(["action": "secret-write", "item": "push-key", "value": "FAKE-push-key"], actions: actions)))
+        let back = ask(["action": "secret-read", "item": "push-key"], actions: actions)
+        XCTAssertEqual(back["value"] as? String, "FAKE-push-key")
+        XCTAssertEqual(ask(["action": "secret-delete", "item": "push-key"], actions: actions)["error"] as? String,
+                       "That item isn't removed this way.")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "not removed")
+        // There, but not a file that reads: the app's no, with no value.
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+        let unreadable = ask(["action": "secret-read", "item": "push-key"], actions: actions)
+        XCTAssertFalse(isOK(unreadable))
+        XCTAssertEqual(unreadable["error"] as? String, "It couldn't be read.")
+        XCTAssertNil(unreadable["value"])
+        // The Mac's own: the suite's is a file in its own folder, never the Keychain; never removed, and only the
+        // Keychain's "not found" is none.
+        let mac = try XCTUnwrap(HostBridge.Actions.mac.secrets["push-key"])
+        XCTAssertNil(mac.delete)
+        XCTAssertNotNil(mac.absent)
+        XCTAssertEqual(PushKeyStore.defaultStore(testCopy: false, support: nil, underTest: true,
+                                                 keychain: PushKeyStore(read: { XCTFail("the Keychain was read"); return nil },
+                                                                        absent: { XCTFail("the Keychain was asked"); return true },
+                                                                        write: { _ in XCTFail("the Keychain was written"); return false }))
+                        .absent(), !FileManager.default.fileExists(atPath: Paths.testSupport.appendingPathComponent(TestCopySecrets.pushKeyName).path))
     }
 
     /// The portable office's items, as the Swift engine kept them (RM7 B1): none is "found": false, so the core

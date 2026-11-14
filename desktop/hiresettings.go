@@ -368,9 +368,10 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 	}
 	// The GM's token, kept in a file on a computer whose secret store can't keep it (gmtokenstore.go), and the file
 	// it is written through: on Linux and Windows always, whether or not it is there yet, since a GM hired after this
-	// hire makes it. A Mac never keeps it there, so its fence is unchanged.
+	// hire makes it. A Mac never keeps it there, so its fence is unchanged. So is the push key (pushkey.go), which
+	// signs every notification, and the file it is written through.
 	if system != "darwin" {
-		for _, name := range []string{keptGMTokenName, keptGMTokenTemp} {
+		for _, name := range []string{keptGMTokenName, keptGMTokenTemp, keptPushKeyName, keptPushKeyName + ".tmp"} {
 			rules = append(rules, "Edit("+root+"/"+name+")", "Read("+root+"/"+name+")")
 		}
 	}

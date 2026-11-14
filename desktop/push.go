@@ -95,7 +95,8 @@ type pushSubscription struct {
 
 // pushHosts are the push services sent to, by host, and nothing else: Google's (Chrome, Android), Mozilla's
 // (Firefox) and Apple's (Safari on a Mac, an iPhone or an iPad). Microsoft's (Edge) gives each browser an address
-// on one of its servers: any one name under pushWindowsHost, as wns2-par02p.notify.windows.com.
+// on one of its servers: any one name under pushWindowsHost, as wns2-par02p.notify.windows.com. The owner said yes
+// to Microsoft's beside the other three (1.26 F4, 14 Nov), on the same rule: no secrets and no code.
 var pushHosts = []string{"fcm.googleapis.com", "updates.push.services.mozilla.com", "web.push.apple.com"}
 
 const pushWindowsHost = ".notify.windows.com"

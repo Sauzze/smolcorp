@@ -279,6 +279,29 @@ func TestAHireIsFencedFromTheKeptTokensFile(t *testing.T) {
 	}
 }
 
+// The push key, kept in a file on a computer whose secret store can't keep it (pushkey.go), signs every
+// notification: a hire is fenced from it and the file it's written through, as from the GM's token's, on Linux and
+// Windows only (PUSH1). A Mac never keeps it there.
+func TestAHireIsFencedFromTheKeptPushKey(t *testing.T) {
+	support := t.TempDir()
+	root := absoluteRulePath(support)
+	for _, system := range []string{"linux", "windows"} {
+		rules := hireDenyRules("abc123", nil, support, nil, nil, []string{"briefs"}, system)
+		for _, name := range []string{keptPushKeyName, keptPushKeyName + ".tmp"} {
+			for _, want := range []string{"Read(" + root + "/" + name + ")", "Edit(" + root + "/" + name + ")"} {
+				if !slices.Contains(rules, want) {
+					t.Errorf("%s: no %s", system, want)
+				}
+			}
+		}
+	}
+	if mac := hireDenyRules("abc123", nil, support, nil, nil, []string{"briefs"}, "darwin"); slices.ContainsFunc(mac, func(rule string) bool {
+		return strings.Contains(rule, keptPushKeyName)
+	}) {
+		t.Error("the Mac's fence has rules for a file it never has")
+	}
+}
+
 // refuseWrites has the stand-in Mac app refuse to change its items, as a locked Keychain would, or, with why "",
 // change them again.
 func (m *macStandIn) refuseWrites(why string) {

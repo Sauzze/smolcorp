@@ -243,12 +243,14 @@ var fullFolds = strings.NewReplacer(
 // the grant record's file and its key's name (desktop/grants.go), the
 // paired phones whose tap answers it and their seal's key (phones.json,
 // phones-seal: desktop/access.go; the Windows window's key, whose device
-// reads as a phone, is windowKeyFile below), and which Claude Code the
-// owner has (claude-install: desktop/agentcheck.go), whose "npm" would let
-// an unsigned Claude Code start where a signed one ran. A pattern that
-// fills in a file's name (gm-t*) comes out of the lexer as the name itself.
+// reads as a phone, is windowKeyFile below), which Claude Code the owner has
+// (claude-install: desktop/agentcheck.go), whose "npm" would let an unsigned
+// Claude Code start where a signed one ran, and the push key where a computer
+// with no secret store keeps it, which signs what rings those phones
+// (push-key-kept: desktop/pushkey.go). A pattern that fills in a file's name
+// (gm-t*) comes out of the lexer as the name itself.
 var always = []string{"gm-token", "SMOLCORP_GM_TOKEN", "disableAllHooks", "grants-key", "grants.jsonl",
-	"phones.json", "phones-seal", "claude-install"}
+	"phones.json", "phones-seal", "claude-install", "push-key-kept"}
 
 func namesAlways(text string) string {
 	low := Fold(text)

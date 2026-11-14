@@ -76,6 +76,14 @@ func keptGMTokenPath() string { return filepath.Join(supportDir, keptGMTokenName
 // while the last token written couldn't go in the store, so it is read first: a store that came back after it may
 // still hold an older one.
 func storeOrFile(store secretStore, path func() string) gmTokenStore {
+	// None kept, or no store: either way there's nothing to read.
+	return storeOrFileWhere(store, path, func(error) bool { return true })
+}
+
+// storeOrFileWhere is storeOrFile where only a store's error that none says is "none kept" reads as none: any other
+// is the read's error, so nothing new is made and written over what the store may still hold (the push key,
+// pushkey.go's pushKeyNone).
+func storeOrFileWhere(store secretStore, path func() string, none func(error) bool) gmTokenStore {
 	return gmTokenStore{
 		read: func() (string, error) {
 			if data, err := os.ReadFile(path()); err == nil {
@@ -85,8 +93,10 @@ func storeOrFile(store secretStore, path func() string) gmTokenStore {
 			}
 			token, err := store.get()
 			if err != nil {
-				// None kept, or no store: either way there's nothing to read.
-				return "", nil
+				if none(err) {
+					return "", nil
+				}
+				return "", err
 			}
 			return token, nil
 		},

@@ -384,6 +384,10 @@ type PairedPhone struct {
 	// anyone could have read it: its key works only over this computer's
 	// loopback and Tailscale, until it pairs again.
 	Signs bool `json:"signs"`
+	// Push is the subscription this phone's page posted to have notifications (pushsubs.go), nil without: the phone's
+	// own, kept in this sealed record with it, so it goes when the phone is unpaired, and with the whole list when its
+	// seal doesn't fit.
+	Push *pushSubscription `json:"push,omitempty"`
 }
 
 // Phones is every paired phone. Each has its own key, so one can be revoked
@@ -431,6 +435,10 @@ func loadPhones() *Phones {
 			phone.KeyHash = decryptSecret(key, phone.ID, phone.Secret)
 		}
 		phone.Secret = ""
+		if phone.Push != nil && !phone.Push.usable() {
+			// Not a push service's address this app sends to, or not a browser's keys: nothing is rung with it.
+			phone.Push = nil
+		}
 		if isKeyHash(phone.KeyHash) {
 			phones.All = append(phones.All, phone)
 		}

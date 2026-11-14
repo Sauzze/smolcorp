@@ -1511,6 +1511,7 @@ final class HostBridge {
                        absent: { viewer.absent(account) })
             }
             let gm = GMIdentity.defaultStore()
+            let push = PushKeyStore.defaultStore()
             return Actions(
                 press: { keystroke, tab in drive(tab) { $0.press(keystroke, in: tab) } },
                 type: { text, tab in drive(tab) { $0.type(text, in: tab) } },
@@ -1535,6 +1536,8 @@ final class HostBridge {
                     // The Macs this one joined, keys and all (desktop/peers_mac_join.go): one item, read only as the
                     // app added it, and none only when the Keychain says so (`PeerKeys`).
                     "peer-keys": PeerKeys.defaultStore().secret,
+                    // The VAPID key notifications are signed with (desktop/pushkey.go): never removed this way.
+                    "push-key": push.secret,
                 ],
                 loginItem: loginItem,
                 testCopy: testCopy,
