@@ -179,7 +179,7 @@ const keys = () => panel().find('talk-key').filter((k) => !['Expand', 'Esc', 'Se
   same(p.find('board-row').map((r) => r.textContent), ['build it', 'Ran make'], 'its rows, folded');
   same(keys().map((k) => k.textContent), ['1Yes', '2No'], 'Yes and No');
   const input = p.find('talk-input')[0].children[0];
-  same([input.disabled, input.placeholder], [true, 'Answer above first'], 'greyed while it asks');
+  same([input.readOnly, input.attrs['aria-disabled'], input.disabled, input.placeholder], [true, 'true', false, 'Answer above first'], 'greyed while it asks, yet focusable');
   same(focused && focused.textContent, '1Yes', 'focus on the first choice');
 
   // A digit in the input picks nothing; on the bubble, it picks.
@@ -191,7 +191,7 @@ const keys = () => panel().find('talk-key').filter((k) => !['Expand', 'Esc', 'Se
   keys()[1].dispatch('keydown', { key: '2' });
   await settle();
   same(sent.slice(n).find((s) => s[0] === 'post'), ['post', '/talk/pick', { session: 's1', n: '2', since: '1761000541000' }, undefined], 'No by its digit');
-  same([input.disabled, input.placeholder, focused === input], [false, 'Tell Rex what to do', true], 'woken after No, and focused');
+  same([input.readOnly, input.attrs['aria-disabled'], input.placeholder, focused === input], [false, 'false', 'Tell Rex what to do', true], 'woken after No, and focused');
 
   // Send: the words and Return, to /talk/say; the box empties.
   input.value = '  run the tests instead ';

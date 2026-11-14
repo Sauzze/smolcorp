@@ -55,7 +55,8 @@
  * With the page's network in it too, `on.talk.get(path, params)` and `on.talk.post(path, params, signal, json)` (and
  * `flash(text)`, `tick()`), the room opens the bubbles itself (TALK_BUBBLE): the conversation over a head, the
  * small question bubbles of the desks waiting on you, and the Needs you key; and `expand(id)` opens a desk's whole
- * conversation in the Pixel Terminal (PIXEL_TERMINAL), as the ▤ key does there.
+ * conversation in the Pixel Terminal (PIXEL_TERMINAL), as the ▤ key does there. Then, with the room's own focus, Enter
+ * opens the picked desk's bubble (an idle one's too, which draws none) and Tab goes to the small question bubbles.
  *
  * `on.pr(id)` (1.26, the office's own window only; see PR_LOOKS) turns a desk's pull request into a tag on the front of
  * the desk, and a click or tap on it into `on.pr(id)` for session `id`; the page gives the pull requests to show with
@@ -30056,6 +30057,11 @@
       }
 
       if (state === 'idle') {
+        // No bubble over an idle head, but its desk can be talked to: `quiet`, the page opens it by Enter on the
+        // picked desk or from its desk list, never by a click on the empty air over the head
+        if (frame.talk && !person.isStaff && !person.session.t3) {
+          TALK_ANCHORS.record(frame.talk.bubbles, { id: person.session.id, x: Math.round(person.position.x), top, state, since: null, quiet: true });
+        }
         // A nap, after a while on the couch or the beanbag, not at the drums or in the hot tub
         const spot = spotOf(person.place);
         if (person.isWalking || spot === null || spots[spot].pose !== 'sit' || now - person.arrivedAt <= 20) return;
@@ -33904,6 +33910,14 @@
           e.preventDefault();
           return;
         }
+        // With the talk bubbles, from the room itself (never a key or a box that has the focus): Enter opens the picked
+        // desk's bubble, and Tab goes to the waiting desks' small bubbles, longest waiting first
+        const onRoom = !e.target || e.target === canvas || e.target === win.document.body;
+        if (talkPanels && onRoom && !e.altKey && !e.ctrlKey && !e.metaKey && !e.isComposing
+            && ((e.key === 'Enter' && !e.repeat && talkPanels.enter(selected)) || (e.key === 'Tab' && talkPanels.tab(e.shiftKey)))) {
+          e.preventDefault();
+          return;
+        }
         if (e.key === 'Escape' && maxing) maxing = null;
         else if (e.key === 'Escape' && (keysFor || held)) { keysFor = null; held = null; } // as a tap elsewhere puts away the keys and chips
       };
@@ -34556,7 +34570,7 @@
       if (ride) return best && best.target;
 
       // A person's bubble is its own target, ahead of the person under it
-      for (const bubble of bubblesAt) consider({ kind: 'talk', id: bubble.id }, TALK_ANCHORS.hitBox(bubble.x, bubble.top, shape), -1);
+      for (const bubble of bubblesAt) if (!bubble.quiet) consider({ kind: 'talk', id: bubble.id }, TALK_ANCHORS.hitBox(bubble.x, bubble.top, shape), -1);
       for (const person of office.people) {
         if (person.isStaff || person.isLeaving || person.entering) continue;
         const px = Math.round(person.position.x), top = topOf(person, poseOf(person, now));

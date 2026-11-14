@@ -69,7 +69,7 @@ key)`): see the comment at the top of `talk/terminal.js`.
 | File | Const | Where | What it is |
 | --- | --- | --- | --- |
 | `talk/style.js` | `TALK_STYLE` | first in the IIFE | the talk bubbles' CSS, put on the page once as a `<style>`: the pixel edges, keys, the open bubble, the small ones, the tag, Needs you and the Pixel Terminal |
-| `talk/bubble.js` | `TALK_BUBBLE` | after `TALK_STYLE` | the talk bubble: the conversation's rows and page merge (shared with deck.html's ▤ slate), a prompt's choices and what each sends, the input's gate, and `create`, the live bubbles the room opens where the page gives `on.talk` its network |
+| `talk/bubble.js` | `TALK_BUBBLE` | after `TALK_STYLE` | the talk bubble: the conversation's rows and page merge (shared with deck.html's ▤ slate), a prompt's choices and what each sends, the input's gate, and `create`, the live bubbles the room opens where the page gives `on.talk` its network, with their keyboard (Enter and Tab from the room, arrows, digits, Esc giving the focus back), the live region and the hidden desk list for a screen reader |
 | `talk/terminal.js` | `PIXEL_TERMINAL` | after `TALK_BUBBLE` | the Pixel Terminal, Expand's full-size view of one desk: Back, Shrink, Next question, the whole conversation with Older messages (the page merge shared with the slate), the roomy input, the desk list and the office's picture; and `addPanel`, the seam other files add panels by |
 | `talk/anchors.js` | `TALK_ANCHORS` | top of the IIFE, before `poseOf` | where each person's talk bubble is: its box and tail point in art and CSS pixels, the hover's timing, which small question bubbles fit, who has waited longest; plain functions of what they're given, so node tests run them alone |
 

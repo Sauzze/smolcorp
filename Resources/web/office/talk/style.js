@@ -10,21 +10,28 @@
  * shrinks first (to 44 px), then the question (to two lines, scrolling), and only then the choices scroll inside
  * their box; the input stays at the foot. The Pixel Terminal is the ▤ slate's chalkboard in its wood frame, its
  * corners stepped, at the slate's height (z-index 8) over a dimmed room.
+ *
+ * Contrast (WCAG AA, checked by the node tests): reading text at least 4.5:1 on its own background, a focus ring at
+ * least 3:1: orange on the dark parts, the bubble's ink on the cream ones (`--focus`), and over the room, where the
+ * floor can be any colour, yellow round the key's own dark edge. The live region and the desk list are for a screen
+ * reader: out of sight, the list shown in the room's corner while the keyboard is in it. With reduced motion nothing
+ * grows, shrinks or slides; the terminal only fades in.
  */
 const TALK_STYLE = {
   ID: 'talk-bubble-style',
 
   CSS: `
-.talk-bubble, .talk-small, .talk-tag, .talk-needs { --edge: #1b1e2a; --cream: #f4f1ea; --paper: #fffdf8; --screen: #171b26;
-  --chalk: #e6e9df; --dim: #8d95a6; --orange: #ff8a1f; --yellow: #ffd34d; --slate: #3e495b;
+.talk-desks, .talk-bubble, .talk-small, .talk-tag, .talk-needs { --edge: #1b1e2a; --cream: #f4f1ea; --paper: #fffdf8; --screen: #171b26;
+  --chalk: #e6e9df; --dim: #8d95a6; --orange: #ff8a1f; --yellow: #ffd34d; --slate: #3e495b; --focus: var(--orange);
   position: fixed; z-index: 7; box-sizing: border-box; color: var(--edge); font: 13px/1.4 -apple-system, system-ui, sans-serif; }
 .talk-bubble *, .talk-small * { box-sizing: border-box; }
-.talk-bubble[hidden], .talk-small[hidden], .talk-tag[hidden], .talk-needs[hidden], .talk-bubble [hidden] { display: none !important; }
+.talk-bubble[hidden], .talk-small[hidden], .talk-tag[hidden], .talk-needs[hidden], .talk-desks[hidden], .talk-bubble [hidden] { display: none !important; }
 .talk-edge { background: var(--cream);
   box-shadow: 0 -2px 0 var(--edge), 0 2px 0 var(--edge), -2px 0 0 var(--edge), 2px 0 0 var(--edge), 0 6px 0 rgba(12, 15, 22, .35); }
 .talk-bubble { width: 320px; display: flex; flex-direction: column; }
 .talk-bubble > * { flex: none; }
 .talk-bubble:focus { outline: none; }
+.talk-bubble:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px; }
 .talk-bubble.grow { animation: talk-grow 120ms steps(3, end); }
 .talk-bubble.shrink { animation: talk-grow 120ms steps(3, end) reverse; }
 @keyframes talk-grow { from { transform: scale(.4); } to { transform: scale(1); } }
@@ -61,15 +68,20 @@ const TALK_STYLE = {
   box-shadow: 0 -2px 0 var(--edge), 0 2px 0 var(--edge), -2px 0 0 var(--edge), 2px 0 0 var(--edge), inset 0 -2px 0 rgba(0, 0, 0, .18); }
 .talk-key:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 -2px 0 var(--edge), 0 2px 0 var(--edge), -2px 0 0 var(--edge), 2px 0 0 var(--edge); }
 .talk-key:disabled { opacity: .45; cursor: default; }
-.talk-key:focus-visible { outline: 2px solid var(--orange); outline-offset: 3px; }
+.talk-key:focus-visible, .talk-small-q:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.talk-input, .talk-small, .pt-menu, .talk-desks { --focus: var(--edge); }
+.talk-needs:focus-visible { outline-color: var(--yellow); outline-offset: 2px; }
+canvas[data-talk-room]:focus { outline: none; }
+canvas[data-talk-room]:focus-visible { outline: 2px solid #ffd34d; outline-offset: -2px; }
 .talk-key.go { background: var(--orange); }
 .talk-key.dark { background: var(--slate); color: var(--cream); }
 .talk-key i { font-style: normal; padding: 2px 4px; margin: -2px 0; background: var(--edge); color: var(--cream); }
 .talk-input { display: flex; gap: 6px; align-items: center; padding: 7px 8px; }
 .talk-input input { flex: 1; min-width: 0; height: 28px; padding: 3px 7px; border: 0; border-radius: 0; background: var(--paper); color: var(--edge);
   font: inherit; box-shadow: inset 0 0 0 2px var(--edge); }
-.talk-input input:focus { outline: 2px solid var(--orange); outline-offset: 0; }
-.talk-input input:disabled { background: #e3ded2; color: #6b7280; }
+.talk-input input:focus { outline: 3px solid var(--focus); outline-offset: 1px; }
+.talk-input input[readonly], .pt-input textarea[readonly] { background: #e3ded2; color: #4b5263; -webkit-text-fill-color: #4b5263; opacity: 1; }
+.talk-input input::placeholder, .pt-input textarea::placeholder { color: #5b6170; -webkit-text-fill-color: #5b6170; opacity: 1; }
 .talk-why, .talk-problem { margin: 0; padding: 7px 9px; color: #4b5263; }
 .talk-problem { padding-top: 0; color: #a12d2d; }
 .talk-tail { position: absolute; width: 14px; height: 9px; background: var(--edge);
@@ -78,14 +90,25 @@ const TALK_STYLE = {
   clip-path: polygon(0 0, 100% 0, 100% 40%, 70% 40%, 70% 100%, 30% 100%, 30% 40%, 0 40%); }
 .talk-small { display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 2px 5px; cursor: pointer; overflow: hidden;
   font-size: var(--talk-font, 11px); line-height: 1.2; }
-.talk-small-q { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.talk-small-q { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 600;
+  text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .talk-small .talk-keys { flex-wrap: nowrap; gap: 4px; padding: 1px 2px; }
 .talk-small .talk-key { min-height: 0; padding: 1px 4px; margin: 1px; font-size: .85em; }
+.talk-small .talk-small-q:focus-visible { outline-offset: 0; }
 .talk-tag { max-width: 300px; padding: 3px 7px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .talk-needs, .talk-small { z-index: 6; }
 .talk-head .talk-added { display: contents; }
+.talk-live, .talk-desks:not(:focus-within) { position: fixed; left: 0; top: 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+  white-space: nowrap; }
+.talk-desks:focus-within { position: fixed; left: 8px; top: 8px; z-index: 7; display: flex; flex-direction: column; gap: 4px; padding: 8px;
+  max-width: min(320px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow-y: auto; }
+.talk-desk.talk-key { display: block; text-transform: none; letter-spacing: 0; font: 600 12px/1.3 -apple-system, system-ui, sans-serif;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (prefers-reduced-motion: reduce) {
+  .talk-key:active:not(:disabled) { transform: none; }
+}
 .pt, .pt-dim { --edge: #1b1e2a; --cream: #f4f1ea; --paper: #fffdf8; --chalk: #eef0ea; --board: #1f2b26; --wood: #6b4a2b;
-  --dim: #9fb0a6; --orange: #ff8a1f; --yellow: #f2d16b; --slate: #3e495b; position: fixed; z-index: 8; box-sizing: border-box; }
+  --dim: #9fb0a6; --orange: #ff8a1f; --yellow: #f2d16b; --slate: #3e495b; --focus: var(--orange); position: fixed; z-index: 8; box-sizing: border-box; }
 .pt *, .pt *::before { box-sizing: border-box; }
 .pt[hidden], .pt-dim[hidden], .pt [hidden] { display: none !important; }
 .pt-dim { inset: 0; background: rgba(10, 12, 18, .6); }
@@ -118,7 +141,7 @@ const TALK_STYLE = {
 .pt-body .board-row .from { display: block; font: 700 10px/1.2 ui-monospace, Menlo, monospace; text-transform: uppercase; opacity: .85; }
 .pt-body .board-row.tool, .pt-body .board-row.result { font: 11px/1.35 ui-monospace, Menlo, monospace; color: var(--dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pt-body .board-row.result { padding-left: 1.6em; opacity: .75; }
+.pt-body .board-row.result { padding-left: 1.6em; opacity: .9; }
 .pt-body .board-row .more { opacity: .55; }
 .pt .talk-ask { max-height: 40%; overflow-y: auto; }
 .pt-main > .pt-panels { flex: 0 1 auto; min-height: 0; max-height: 40%; overflow-y: auto; }
@@ -128,7 +151,6 @@ const TALK_STYLE = {
 .pt-input textarea { flex: 1; min-width: 0; min-height: 64px; max-height: 40vh; resize: vertical; padding: 6px 8px; border: 0; border-radius: 0;
   background: var(--paper); color: var(--edge); font: inherit; box-shadow: inset 0 0 0 2px var(--edge); }
 .pt-input textarea:focus { outline: 2px solid var(--orange); outline-offset: 0; }
-.pt-input textarea:disabled { background: #e3ded2; color: #6b7280; }
 .pt .talk-why { color: var(--dim); }
 .pt .talk-problem { padding-top: 7px; color: #f2a19b; }
 .pt-side { flex: none; width: 204px; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-left: 2px solid var(--edge); overflow-y: auto; }

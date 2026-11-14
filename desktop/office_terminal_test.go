@@ -147,7 +147,7 @@ func TestTheLivePixelTerminal(t *testing.T) {
 
   // The roomy input: Shift+Enter is a new line; Enter sends every line as one; refused, the words stay with the reason.
   const input = pt.find('pt-input')[0].children[0];
-  same([input.tagName, input.disabled, input.placeholder], ['TEXTAREA', false, 'Tell Rex what to do (Shift+Enter: a new line)'], 'the roomy input');
+  same([input.tagName, input.readOnly, input.placeholder], ['TEXTAREA', false, 'Tell Rex what to do (Shift+Enter: a new line)'], 'the roomy input');
   input.value = 'first line\nsecond line';
   let n = sent.length;
   same(input.dispatch('keydown', { key: 'Enter', shiftKey: true }).defaultPrevented, undefined, 'Shift+Enter left to the box');
@@ -168,7 +168,7 @@ func TestTheLivePixelTerminal(t *testing.T) {
   same(pt.find('talk-name')[0].textContent, 'Rex', 'N typed in the box');
   pt.dispatch('keydown', { key: 'N' });
   await settle();
-  same([pt.find('talk-name')[0].textContent, input.value, input.disabled, input.placeholder], ['Al', '', true, 'Answer above first'], 'Next: Al, its input greyed');
+  same([pt.find('talk-name')[0].textContent, input.value, input.readOnly, input.placeholder], ['Al', '', true, 'Answer above first'], 'Next: Al, its input greyed');
   same(keyNamed(pt, 'Next question 1') !== undefined, true, 'one more waiting');
   same(pt.find('talk-ask')[0].find('talk-key').map((k) => k.textContent), ['1Yes', '2No', '▲', '▼', '✓', '✕'], 'Yes and No, and the four keys');
   // A digit in the box picks nothing; outside it, it picks; No wakes the input.
@@ -180,7 +180,7 @@ func TestTheLivePixelTerminal(t *testing.T) {
   pt.dispatch('keydown', { key: '2' });
   await settle();
   same(sent.slice(n).find((s) => s[0] === 'post'), ['post', '/talk/pick', { session: 's3', n: '2', since: '100' }, undefined], 'No by its digit');
-  same([input.disabled, focused === input], [false, true], 'woken after No');
+  same([input.readOnly, focused === input], [false, true], 'woken after No');
 
   // The desk list: waiting first (Bo), then by name; a click switches, and each desk keeps its own words.
   same(pt.find('pt-list')[0].find('pt-desk-name').map((d) => d.textContent), ['Bo', 'Cy', 'Rex'], 'the other desks, waiting first');

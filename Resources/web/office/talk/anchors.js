@@ -11,7 +11,9 @@
  * { left, right, top, bottom }, its right and bottom edges just past its last
  * pixel; a bubble, as the room records it, is
  * { id, x, top, state, since }: the person's column and top row, their state,
- * and when they started waiting on you (the office's clock, null if unknown).
+ * and when they started waiting on you (the office's clock, null if unknown);
+ * `quiet` too for an idle head, which draws no bubble and so has no hit box:
+ * its desk is still opened by Enter or the hidden desk list.
  */
 const TALK_ANCHORS = {
   /** The bubble `drawBubble` draws is 11 wide and 10 tall, its tail's last pixel included; a target is at least this many each way. */

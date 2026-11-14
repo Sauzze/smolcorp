@@ -32,6 +32,11 @@ const TALK_BUBBLE = {
   /** The four keys, where a prompt's choices can't be offered by label: ✕ says No, as a permission's No does. */
   KEYS: [{ act: 'up', label: '▲', name: 'Up' }, { act: 'down', label: '▼', name: 'Down' },
     { act: 'accept', label: '✓', name: 'Pick' }, { act: 'reject', label: '✕', name: 'No', no: true }],
+  /** Words sent wait this long for the computer, in ms, as the deck's own (INPUT_WAIT): past it, Send works again. */
+  SAY_WAIT: 20000,
+  NO_ANSWER: 'Your computer didn\'t answer in time. Look at the desk before you try again.',
+  /** The live region says at most this many new lines at once, the newest. */
+  SAID_MOST: 3,
   /** The keys other files added (F-O, see PIXEL_TERMINAL): name → { label, title, shown(desk), press(desk) }. */
   added: new Map(),
 
@@ -200,6 +205,25 @@ const TALK_BUBBLE = {
     return { shown: true, disabled: false, placeholder: `Tell ${name} what to do`, line: typing.why || '' };
   },
 
+  /**
+   * The input greyed (`locked`: inputOf's `disabled`) or awake. Greyed, it is read-only, never disabled: it keeps the
+   * focus, so a prompt arriving while you type leaves you in the box, where Enter sends nothing (a disabled box drops
+   * the focus to the page, from where a key could land on Yes); and the words typed stay there for later.
+   */
+  lock(input, locked) {
+    input.readOnly = locked;
+    input.setAttribute('aria-disabled', String(locked));
+  },
+
+  /**
+   * Send about to be greyed: if it has the focus, the focus goes to `to` first (the input). Chromium drops a greyed
+   * key's focus only later, at its next frame, and onto the page, where the room's Enter then lands on the first choice
+   * and a second Enter answers it; moved before, it never depends on when the engine lets go. `how`: focus()'s options.
+   */
+  offSend(doc, send, to, how) {
+    if (doc.activeElement === send) to.focus(how);
+  },
+
   /** The choice a key picks by its digit, 1 to 9: never one typed in a box, nor with a modifier held. */
   digitOf(e) {
     const target = e.target;
@@ -208,17 +232,76 @@ const TALK_BUBBLE = {
     return /^[1-9]$/.test(e.key) ? Number(e.key) : null;
   },
 
-  /** What the computer said to a refusal, short enough to read, or its status. */
+  /** Where an arrow key moves the focus among `count` choice keys from the one at `at`, round at the ends; null for any other key. */
+  stepOf(key, at, count) {
+    const by = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[key];
+    return by && at >= 0 && count ? (at + by + count) % count : null;
+  },
+
+  /** Whether `node` is `box` or inside it. */
+  within(box, node) {
+    for (let n = node; n; n = n.parentNode) if (n === box) return true;
+    return false;
+  },
+
+  /** What the live region says as a desk starts asking. */
+  askingSaid(name, asking) {
+    return `${name} is asking: ${TALK_BUBBLE.cut(TALK_BUBBLE.questionOf(asking), 200)}`;
+  },
+
+  /** A desk in the hidden desk list: its name, its state as a word, and what it asks, if it does. */
+  deskSaid(name, state, asking) {
+    const word = TALK_BUBBLE.STATES[state] || state || '';
+    return `${name}, ${word}${asking ? `: ${TALK_BUBBLE.cut(TALK_BUBBLE.questionOf(asking), 80)}` : ''}`;
+  },
+
+  /**
+   * The prompts of /talk/asking's `rows` not heard of yet, each desk once per prompt (by its `since`); `heard` (id →
+   * since) is kept up, a desk that stopped asking forgotten, so its next prompt is new again.
+   */
+  newlyAsking(heard, rows) {
+    const fresh = rows.filter((r) => heard.get(r.session) !== r.since), now = new Set(rows.map((r) => r.session));
+    for (const id of [...heard.keys()]) if (!now.has(id)) heard.delete(id);
+    for (const r of rows) heard.set(r.session, r.since);
+    return fresh;
+  },
+
+  /**
+   * What the live region says of a conversation's new items (in `items`, not in `before`): the agent's own lines and
+   * other sessions' messages, the newest SAID_MOST; never the owner's own words, a tool, or a question (said as it asks).
+   */
+  linesSaid(name, before, items) {
+    const known = new Set(before.map((i) => i.id)), cut = (t) => TALK_BUBBLE.cut(t, 200);
+    return items.filter((i) => !known.has(i.id) && (i.kind === 'agent' || i.kind === 'peer'))
+      .map((i) => (i.kind === 'peer' ? `${i.from || 'Another session'} to ${name}: ${cut(i.text)}` : `${name}: ${cut(i.text)}`))
+      .slice(-TALK_BUBBLE.SAID_MOST);
+  },
+
+  /** A signal that gives up on words sent after SAY_WAIT, where the browser makes one: a computer that never answers doesn't hold Send for good. */
+  limit(win) {
+    const S = win.AbortSignal;
+    return S && S.timeout ? S.timeout(TALK_BUBBLE.SAY_WAIT) : undefined;
+  },
+
+  /** What the computer said to a refusal, short enough to read, or its status; or that it didn't answer in time. */
   async said(res) {
+    if (res.timedOut) return TALK_BUBBLE.NO_ANSWER;
     const text = (await res.text().catch(() => '')).trim();
     return text && text.length <= 200 ? text : `Your computer answered ${res.status}.`;
   },
 
   /**
    * The live bubbles on `win`'s page. `room`: { canvas, anchor(id), view(), shape(), session(id), name(id) }, from the
-   * room. Gives { open(id, anchor), hover(id, anchor), expand(id), frame(bubbles), close(), remove() }: the room's click
-   * and hover on a bubble, the Pixel Terminal on a desk (Expand, the ▤ key), each frame the room draws (the bubbles it
-   * drew), a click on the floor, and the room leaving the page.
+   * room. Gives { open(id, anchor), hover(id, anchor), expand(id), frame(bubbles), close(back), enter(id), tab(back),
+   * remove() }: the room's click and hover on a bubble, the Pixel Terminal on a desk (Expand, the ▤ key), each frame
+   * the room draws (the bubbles it drew), a click on the floor, Enter and Tab in the room, and the room leaving the page.
+   *
+   * The keyboard (plan §1.6): Enter in the room opens the picked desk's bubble, Tab walks the small question bubbles,
+   * longest waiting first. An open bubble's focus starts on its first choice while it asks, else on its input; ↑ ↓
+   * move between the choices; 1–9 pick one only from the bubble itself, never from its input; Esc closes it and gives
+   * the focus back where it came from (the desk list), else to the room. A screen reader has a polite live region (a
+   * desk starting to ask, the open desk's new lines) and a list of the desks, hidden until it has the focus, that
+   * mirrors the room, each desk's bubble opened from it without the canvas.
    */
   create(win, page, room) {
     const B = TALK_BUBBLE, doc = win.document;
@@ -243,11 +326,27 @@ const TALK_BUBBLE = {
     const smalls = new Map();  // the small question bubbles shown, by id: { el, drawn }
     let open = null;           // the open bubble: { id, card, items, before, size, loaded, timer, parts, at, drawn, fit, place }
     let askingNow = '', smallsAt = '', order = [], tagFor = null;
+    let sending = false;       // words on their way to /talk/say: Enter or Send again sends nothing more till they're back
+    let smallOrder = [];       // the small bubbles' ids, longest waiting first: Tab's order
+    let desksAt = '', heardFrom = false;
+    const heard = new Map();   // the prompts the live region has said, by id: their since
+    const deskKeys = new Map(); // the hidden desk list's keys, by id
     const tag = make('div', 'talk-tag talk-edge');
+    const smallBox = make('div', 'talk-smalls');
     const needs = make('button', 'talk-needs talk-key go');
     needs.type = 'button';
     tag.hidden = needs.hidden = true;
-    doc.body.append(tag, needs);
+    const desks = make('nav', 'talk-desks talk-edge'), live = make('div', 'talk-live');
+    desks.setAttribute('aria-label', 'Desks');
+    desks.hidden = true;
+    live.setAttribute('role', 'status');
+    live.setAttribute('aria-live', 'polite');
+    doc.body.append(tag, smallBox, needs, desks, live);
+    // The room takes the focus back as a bubble closes, so its own keys go on working: focusable, out of Tab's way
+    if (room.canvas.getAttribute && room.canvas.getAttribute('tabindex') === null) room.canvas.tabIndex = -1;
+    room.canvas.setAttribute?.('data-talk-room', '');
+    /** New lines for the live region, in place of what it said before. */
+    const tell = (lines) => lines.length && live.replaceChildren(...lines.map((line) => make('p', '', line)));
     // Expand: the Pixel Terminal, whose Shrink opens the same desk's bubble again
     const terminal = PIXEL_TERMINAL.create(win, page, room, { open: (id) => api.open(id) });
     // Needs you: the next waiting desk after the open one, longest waiting first.
@@ -257,7 +356,7 @@ const TALK_BUBBLE = {
     });
     // Esc closes the open bubble wherever the focus is, but where the bubble said it already.
     const escaped = (e) => {
-      if (open && e.key === 'Escape' && !e.defaultPrevented && !e.isComposing) api.close();
+      if (open && e.key === 'Escape' && !e.defaultPrevented && !e.isComposing) api.close(true);
     };
     doc.addEventListener('keydown', escaped);
     const rect = () => room.canvas.getBoundingClientRect();
@@ -271,13 +370,20 @@ const TALK_BUBBLE = {
       const keys = make('div', 'talk-keys');
       for (const choice of fits ? shown : []) {
         const b = key(choice, small);
+        // A small bubble's key names its desk, so it stands alone in a screen reader's list of keys
+        if (small) b.setAttribute('aria-label', `${choice.name || choice.label}, to ${room.name(id)}`);
         b.addEventListener('click', (e) => {
           e.stopPropagation();
           answer(id, asking, choice);
         });
         keys.append(b);
       }
-      const q = make('div', small ? 'talk-small-q' : 'talk-q', small ? B.cut(B.questionOf(asking), B.TAG_MOST) : B.questionOf(asking));
+      // A small bubble's question is a key of its own (Tab reaches it; Enter opens the bubble), named for its desk
+      const q = make(small ? 'button' : 'div', small ? 'talk-small-q' : 'talk-q', small ? B.cut(B.questionOf(asking), B.TAG_MOST) : B.questionOf(asking));
+      if (small) {
+        q.type = 'button';
+        q.setAttribute('aria-label', B.askingSaid(room.name(id), asking));
+      }
       const hint = choices ? 'Something else? Tap No, then type.' : 'Its menu can\'t be read from here: ▲ ▼ move, ✓ picks, ✕ says No.';
       box.replaceChildren(q, ...(keys.children.length ? [keys] : []), ...(small || !shown.length ? [] : [make('div', 'talk-hint', hint)]));
     }
@@ -312,7 +418,7 @@ const TALK_BUBBLE = {
       const added = make('span', 'talk-added'), expand = make('button', 'talk-key dark', 'Expand'), esc = make('button', 'talk-key dark', 'Esc');
       expand.type = esc.type = 'button';
       expand.addEventListener('click', () => open && api.expand(open.id));
-      esc.addEventListener('click', () => api.close());
+      esc.addEventListener('click', () => api.close(true));
       head.append(dot, name, state, added, expand, esc);
       const form = make('form', 'talk-input'), input = make('input'), send = make('button', 'talk-key go', 'Send');
       input.type = 'text';
@@ -327,11 +433,16 @@ const TALK_BUBBLE = {
         e.preventDefault();
         say();
       });
+      // Esc, a digit (from the bubble, not its input; none for a headless run, which has no keys), an arrow between choices
       el.addEventListener('keydown', (e) => {
-        const n = B.digitOf(e), choice = n && open && (B.choicesOf(open.card && open.card.asking) || []).find((c) => c.n === n);
         if (e.isComposing || e.keyCode === 229) return;
-        if (e.key === 'Escape') api.close();
-        else if (choice) answer(open.id, open.card.asking, choice);
+        const asking = open && open.card && open.card.asking, headless = open && (room.session(open.id) || {}).headless === true;
+        const n = B.digitOf(e), choice = n && asking && !headless && (B.choicesOf(asking) || []).find((c) => c.n === n);
+        const keys = /^Arrow/.test(e.key) && B.within(parts.ask, e.target) ? [...parts.ask.querySelectorAll('.talk-key')] : [];
+        const to = B.stepOf(e.key, keys.indexOf(e.target), keys.length);
+        if (e.key === 'Escape') api.close(true);
+        else if (choice) answer(open.id, asking, choice);
+        else if (to !== null) keys[to].focus();
         else return;
         e.preventDefault();
         e.stopPropagation();
@@ -345,6 +456,7 @@ const TALK_BUBBLE = {
     function render() {
       if (!open) return;
       const { parts, card } = open, session = room.session(open.id) || {}, name = room.name(open.id);
+      const active = doc.activeElement, had = B.within(parts.el, active), typed = B.within(parts.form, active);
       const state = card ? card.state : session.state;
       let grew = false;   // whether anything that changes the bubble's height was drawn, for place() to measure it again
       parts.el.setAttribute('aria-label', `${name}: conversation`);
@@ -391,7 +503,9 @@ const TALK_BUBBLE = {
       }
       const input = B.inputOf(card, name);
       parts.form.hidden = !input.shown;
-      parts.input.disabled = parts.send.disabled = input.disabled;
+      B.lock(parts.input, input.disabled);
+      if (input.disabled || sending) B.offSend(doc, parts.send, parts.form.hidden ? parts.el : parts.input);
+      parts.send.disabled = input.disabled || sending;
       parts.input.placeholder = input.placeholder;
       parts.why.textContent = input.line;
       parts.why.hidden = !input.line;
@@ -402,6 +516,26 @@ const TALK_BUBBLE = {
         open.fit += 1;
         place();
       }
+      // A key that had the focus drawn again (a new prompt, the choices gone): the focus where the bubble starts it. From
+      // the input or Send, back in the input, never on a choice: a prompt arriving as you type must not put you where
+      // your next Enter answers it
+      if (had && !B.within(parts.el, doc.activeElement)) {
+        if (typed) (parts.form.hidden ? parts.el : parts.input).focus();
+        else focusFirst(open);
+      }
+    }
+
+    /** The first choice while it asks, else the input, else the bubble. */
+    function focusFirst(shown) {
+      const first = shown.parts.ask.querySelector('.talk-key');
+      (first || (shown.parts.input.readOnly ? shown.parts.el : shown.parts.input)).focus();
+    }
+
+    /** The focus after a bubble closes: back on the desk list's key if it was opened from there, else where it was if still there, else the room. */
+    function giveBack(shown) {
+      const from = shown.from, listed = from && B.within(desks, from) ? deskKeys.get(shown.id) : null;
+      const kept = from && from.isConnected && from !== doc.body && !B.within(shown.parts.el, from) ? from : null;
+      (listed || kept || room.canvas).focus?.({ preventScroll: true });
     }
 
     function problem(text) {
@@ -411,17 +545,27 @@ const TALK_BUBBLE = {
       open.fit += 1;
     }
 
-    /** The input's words to the desk, with Return; refused, they stay in the box with the reason under it. */
+    /**
+     * The input's words to the desk, with Return, once however often Enter is pressed while they're on their way (a
+     * refresh meanwhile doesn't wake Send); refused, or unanswered in SAY_WAIT, they stay in the box with the reason under it.
+     */
     async function say() {
       const shown = open;
-      if (!shown || shown.parts.input.disabled) return;
+      if (!shown || sending || shown.parts.input.readOnly) return;
       const text = shown.parts.input.value.trim();
       if (!text) return;
       page.tick?.();
-      shown.parts.send.disabled = true;
-      const res = await page.post('/talk/say', { session: shown.id }, undefined, { text, send: true });
+      // Send clicked has the focus (in Chromium): into the input before it's greyed
+      B.offSend(doc, shown.parts.send, shown.parts.input);
+      sending = shown.parts.send.disabled = true;
+      let res;
+      try {
+        res = await page.post('/talk/say', { session: shown.id }, B.limit(win), { text, send: true });
+      } finally {
+        sending = false;
+      }
       if (open !== shown) return;
-      shown.parts.send.disabled = false;
+      shown.parts.send.disabled = shown.parts.input.readOnly;
       if (res && res.ok) {
         shown.parts.input.value = '';
         problem('');
@@ -447,8 +591,7 @@ const TALK_BUBBLE = {
       render();
       if (!shown.focused) {
         shown.focused = true;
-        const first = shown.parts.ask.querySelector('.talk-key');
-        (first || (shown.parts.input.disabled ? shown.parts.el : shown.parts.input)).focus();
+        focusFirst(shown);
       }
       shown.timer = win.setTimeout(() => look(shown), shown.card && shown.card.asking ? B.ASKING_EVERY : B.EVERY);
     }
@@ -460,7 +603,10 @@ const TALK_BUBBLE = {
       const got = res && res.status === 200 ? await res.json().catch(() => null) : null;
       if (!got || open !== shown) return;
       const merged = B.merge(shown, got);
+      // New lines said aloud once it has shown some: not what was there as it opened
+      const said = shown.loaded ? B.linesSaid(room.name(shown.id), shown.items, merged.items) : [];
       Object.assign(shown, { items: merged.items, before: merged.before, size: got.size });
+      tell(said);
     }
 
     /**
@@ -513,13 +659,40 @@ const TALK_BUBBLE = {
       }
     }
 
-    /** Every waiting desk's prompt, when who is waiting changed. */
-    async function askAll() {
+    /** Every waiting desk's prompt, when who is waiting changed; the new ones said aloud, but for those there as the room first came. */
+    async function askAll(saying) {
       const res = await page.get('/talk/asking');
       const got = res && res.ok ? await res.json().catch(() => null) : null;
       if (!got) return;
       asked = new Map(got.asking.map((row) => [row.session, row]));
-      smallsAt = '';
+      smallsAt = desksAt = '';
+      const fresh = B.newlyAsking(heard, got.asking);
+      if (saying) tell(fresh.map((row) => B.askingSaid(room.name(row.session), row)));
+    }
+
+    /** The hidden list of desks, as the room has them, waiting ones first: each a key that opens its bubble. */
+    function drawDesks(bubbles) {
+      const rows = PIXEL_TERMINAL.listOf(bubbles.filter((b) => room.session(b.id)), null, room.name);
+      const said = rows.map((r) => B.deskSaid(r.name, r.state, r.state === 'asking' ? asked.get(r.id) : null));
+      const at = said.join('|') + rows.map((r) => r.id).join();
+      if (at === desksAt) return;
+      desksAt = at;
+      const had = doc.activeElement;
+      const keys = rows.map((r, i) => {
+        let b = deskKeys.get(r.id);
+        if (!b) {
+          deskKeys.set(r.id, b = make('button', 'talk-desk talk-key'));
+          b.type = 'button';
+          // The open desk's key gives its bubble the focus rather than closing it
+          b.addEventListener('click', () => (open && open.id === r.id ? focusFirst(open) : api.open(r.id)));
+        }
+        if (b.textContent !== said[i]) b.textContent = said[i];
+        return b;
+      });
+      for (const id of [...deskKeys.keys()]) if (!rows.some((r) => r.id === id)) deskKeys.delete(id);
+      desks.replaceChildren(...keys);
+      desks.hidden = !keys.length;
+      if (had && keys.includes(had) && doc.activeElement !== had) had.focus({ preventScroll: true });
     }
 
     /** The small question bubbles that fit, the rest left to the room's "?", and the Needs you key's count. */
@@ -549,7 +722,6 @@ const TALK_BUBBLE = {
         if (!s) {
           s = { el: make('div', 'talk-small talk-edge'), drawn: '' };
           s.el.addEventListener('click', () => api.open(id));
-          doc.body.append(s.el);
           smalls.set(id, s);
         }
         const from = css(box.left, box.top), asking = asked.get(id);
@@ -561,6 +733,14 @@ const TALK_BUBBLE = {
           drawAsk(s.el, id, asking, true, wide);
         }
       }
+      // On the page in Tab's order, longest waiting first, the focus kept where it was
+      const now = small.map((s) => s.id);
+      if (now.join() !== smallOrder.join() || smallBox.children.length !== now.length) {
+        const had = doc.activeElement;
+        smallBox.replaceChildren(...now.map((id) => smalls.get(id).el));
+        if (had && B.within(smallBox, had) && doc.activeElement !== had) had.focus({ preventScroll: true });
+      }
+      smallOrder = now;
     }
 
     function showTag(id, anchor) {
@@ -579,19 +759,22 @@ const TALK_BUBBLE = {
     function under() {
       for (const s of smalls.values()) s.el.remove();
       smalls.clear();
-      smallsAt = '';
-      tag.hidden = needs.hidden = true;
+      smallsAt = desksAt = '';
+      smallOrder = [];
+      tag.hidden = needs.hidden = desks.hidden = true;
     }
 
     const api = {
       /** The bubble over `id`'s head opened, or, open already, closed (a click on the same bubble). */
       open(id) {
-        if (open && open.id === id) return api.close();
-        api.close();
+        if (open && open.id === id) return api.close(true);
+        // Where the focus goes back to: from one bubble to the next (Needs you, a choice), still where the first came from
+        const from = open && B.within(open.parts.el, doc.activeElement) ? open.from : doc.activeElement;
+        api.close(false);
         terminal.close();
         page.tick?.();
         api.hover(null);
-        open = { id, card: cards.get(id) || null, items: [], before: null, size: null, loaded: false, timer: 0, fit: 0 };
+        open = { id, card: cards.get(id) || null, items: [], before: null, size: null, loaded: false, timer: 0, fit: 0, from };
         open.parts = build();
         problem('');
         smallsAt = '';
@@ -619,7 +802,7 @@ const TALK_BUBBLE = {
       expand(id) {
         const from = open && open.id === id ? { card: open.card, items: open.items, before: open.before, size: open.size } : { card: cards.get(id) || null };
         if (!terminal.open(id, from)) return false;
-        api.close();
+        api.close(false);
         api.hover(null);
         under();
         return true;
@@ -634,19 +817,40 @@ const TALK_BUBBLE = {
         const now = waiting.map((b) => b.id).sort().join(' ');
         if (now !== askingNow) {
           askingNow = now;
-          if (waiting.length) askAll();
+          if (waiting.length) askAll(heardFrom);
           else asked = new Map();
         }
+        heardFrom = true;
         layout(waiting);
+        drawDesks(bubbles);
       },
-      close() {
+      /**
+       * The open bubble closed. `back` true (Esc, its Esc key, a second click): the focus goes back where it came from,
+       * else to the room; false (another bubble, Expand): it stays for what opens next; left out, back only if the bubble had it.
+       */
+      close(back) {
         if (!open) return;
-        const shown = open;
+        const shown = open, had = B.within(shown.parts.el, doc.activeElement);
         open = null;
         smallsAt = '';
         win.clearTimeout(shown.timer);
         shown.parts.el.classList.add('shrink');
         win.setTimeout(() => shown.parts.el.remove(), 120);
+        if (back || (back === undefined && had)) giveBack(shown);
+      },
+      /** Enter in the room on the picked desk `id`: its bubble opened, or, open, given the focus; false where it has none. */
+      enter(id) {
+        if (!id || terminal.shown() || !room.anchor(id)) return false;
+        if (open && open.id === id) focusFirst(open);
+        else api.open(id);
+        return true;
+      },
+      /** Tab in the room: the focus to the first small question bubble (Shift+Tab, the last); false with none shown. */
+      tab(back) {
+        const list = smallOrder.map((id) => smalls.get(id) && smalls.get(id).el.querySelector('.talk-small-q')).filter(Boolean);
+        if (!list.length || terminal.shown()) return false;
+        list[back ? list.length - 1 : 0].focus();
+        return true;
       },
       /** The room closed (its stream broke): nothing of the talk layers stays over the page. The next frame draws them again. */
       away() {
@@ -655,17 +859,17 @@ const TALK_BUBBLE = {
         for (const s of smalls.values()) s.el.remove();
         smalls.clear();
         asked = new Map();
-        askingNow = smallsAt = '';
+        askingNow = smallsAt = desksAt = '';
+        smallOrder = [];
         tagFor = null;
-        tag.hidden = needs.hidden = true;
+        tag.hidden = needs.hidden = desks.hidden = true;
       },
       remove() {
-        api.close();
+        api.close(false);
         terminal.remove();
         for (const s of smalls.values()) s.el.remove();
         smalls.clear();
-        tag.remove();
-        needs.remove();
+        for (const el of [tag, smallBox, needs, desks, live]) el.remove();
         doc.removeEventListener('keydown', escaped);
       },
     };

@@ -71,6 +71,17 @@ const PIXEL_TERMINAL = {
     return { items: [...page.items.filter((i) => !known.has(i.id)), ...shown.items].sort(TALK_BUBBLE.byOrder), before: page.before };
   },
 
+  /**
+   * Tab inside the terminal, `count` keys and boxes in it, the focus on the one at `at` (-1: outside it): round from
+   * the last to the first (Shift+Tab, `back`, the other way), and in from outside; null where the page's own Tab does.
+   */
+  wrapOf(count, at, back) {
+    if (!count) return null;
+    if (at < 0) return back ? count - 1 : 0;
+    if (back && at === 0) return count - 1;
+    return !back && at === count - 1 ? 0 : null;
+  },
+
   /** Whether the conversation's foot is in sight, give or take 40 px: only then do new lines take it down. */
   atFoot(el) {
     return el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
@@ -90,9 +101,11 @@ const PIXEL_TERMINAL = {
 
   /**
    * The live terminal on `win`'s page, with the bubble's `page` and `room` (see TALK_BUBBLE.create), and `bubble`,
-   * whose open(id) Shrink calls. `page.openInTerminal`, where given, is the menu's Open in Terminal: { shown(),
-   * open(id) }. Gives { open(id, from), close(), shown(), frame(bubbles), remove() }; `from` is what the bubble showed
-   * ({ card, items, before, size }), so the terminal opens at the same place in the conversation.
+   * whose open(id) Shrink calls. New lines are said in a live region of its own, inside the dialog (a screen reader
+   * may not hear one outside a modal dialog). `page.openInTerminal`, where given,
+   * is the menu's Open in Terminal: { shown(), open(id) }. Gives { open(id, from), close(), shown(), frame(bubbles),
+   * remove() }; `from` is what the bubble showed ({ card, items, before, size }), so the terminal opens at the same
+   * place in the conversation.
    */
   create(win, page, room, bubble) {
     const T = PIXEL_TERMINAL, B = TALK_BUBBLE, doc = win.document;
@@ -121,17 +134,26 @@ const PIXEL_TERMINAL = {
     const order = () => TALK_ANCHORS.needsYou(desks).map((d) => d.id);
     const deskOf = (id) => B.deskOf(page, room, id, term && term.id === id ? term.card : null);
 
-    // Esc goes back to the office (or shuts the menu), N is Next question outside the input, a digit picks a choice.
+    // Esc goes back to the office (or shuts the menu, the focus back on Menu); Tab stays inside the terminal; from the
+    // terminal itself, outside the input, N is Next question, a digit picks a choice, and an arrow moves between choices.
     const keyed = (e) => {
       if (!term || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
-      const t = e.target, inBox = t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
+      const t = e.target, inBox = t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable), mine = B.within(p.el, t) && !inBox;
       const asking = term.card && term.card.asking, headless = (room.session(term.id) || {}).headless === true;
-      const n = B.digitOf(e), choice = n && asking && !headless && (B.choicesOf(asking) || []).find((c) => c.n === n);
+      const n = B.digitOf(e), choice = mine && n && asking && !headless && (B.choicesOf(asking) || []).find((c) => c.n === n);
+      const keys = /^Arrow/.test(e.key) && B.within(p.ask, t) ? [...p.ask.querySelectorAll('.talk-key')] : [];
+      const to = B.stepOf(e.key, keys.indexOf(t), keys.length);
       if (e.key === 'Escape') {
-        if (!p.menu.hidden) p.menu.hidden = true;
-        else api.close();
-      } else if ((e.key === 'n' || e.key === 'N') && !inBox && !e.altKey && !e.ctrlKey && !e.metaKey) next();
+        if (p.menu.hidden) api.close();
+        else {
+          p.menu.hidden = true;
+          p.more.focus();
+        }
+      } else if (e.key === 'Tab' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        if (!wrap(e.shiftKey, t)) return;
+      } else if ((e.key === 'n' || e.key === 'N') && mine && !e.altKey && !e.ctrlKey && !e.metaKey) next();
       else if (choice) answer(term, asking, choice);
+      else if (to !== null) keys[to].focus();
       else return;
       e.preventDefault();
       e.stopPropagation();
@@ -140,7 +162,11 @@ const PIXEL_TERMINAL = {
     function build() {
       p = { dim: make('div', 'pt-dim'), el: make('div', 'pt'), menu: make('div', 'pt-menu talk-edge') };
       p.el.setAttribute('role', 'dialog');
+      p.el.setAttribute('aria-modal', 'true');
       p.el.tabIndex = -1;
+      p.live = make('div', 'talk-live');
+      p.live.setAttribute('role', 'status');
+      p.live.setAttribute('aria-live', 'polite');
       p.menu.setAttribute('role', 'menu');
       const head = make('div', 'pt-head');
       p.dot = make('span', 'talk-dot');
@@ -182,7 +208,7 @@ const PIXEL_TERMINAL = {
       side.append(office, make('div', 'pt-list-head', 'Desks'), p.list);
       const cols = make('div', 'pt-cols');
       cols.append(main, side);
-      p.el.append(head, cols);
+      p.el.append(head, cols, p.live);
       p.form.addEventListener('submit', (e) => {
         e.preventDefault();
         say();
@@ -196,6 +222,28 @@ const PIXEL_TERMINAL = {
       doc.addEventListener('keydown', keyed);
       p.dim.hidden = p.el.hidden = true;
       doc.body.append(p.dim, p.el);
+    }
+
+    /**
+     * Tab from the last key round to the first, Shift+Tab from the first to the last; in from outside, or from the
+     * terminal itself. False: the page's own Tab, from key to key in between, so each is reached in order. A stop of the
+     * page's that isn't a key (Chromium makes the conversation one, as it scrolls) steps as the page has it too, but
+     * for one with no key after it (Shift+Tab: before it), round.
+     */
+    function wrap(back, t) {
+      if (!p.el.querySelectorAll) return false;
+      const all = [...p.el.querySelectorAll('button, textarea')].filter((el) => !el.disabled && el.getClientRects().length);
+      const at = all.indexOf(t);
+      if (at < 0 && t !== p.el && B.within(p.el, t)) {
+        if (!t.compareDocumentPosition) return false;
+        // 4: the key comes after it in the page (inside it too)
+        const after = all.filter((el) => t.compareDocumentPosition(el) & 4).length;
+        if (back ? after < all.length : after > 0) return false;
+      }
+      const to = T.wrapOf(all.length, at, back);
+      if (to === null) return false;
+      all[to].focus();
+      return true;
     }
 
     /** The room behind grows toward the desk, or back. */
@@ -227,6 +275,7 @@ const PIXEL_TERMINAL = {
     function render() {
       if (!term) return;
       const card = term.card, session = room.session(term.id) || {}, name = room.name(term.id), state = card ? card.state : session.state;
+      const typed = B.within(p.form, doc.activeElement);
       p.el.setAttribute('aria-label', `${name}: conversation`);
       p.dot.className = `talk-dot ${state}`;
       p.name.textContent = name;
@@ -235,11 +284,16 @@ const PIXEL_TERMINAL = {
       drawAsk(session);
       const input = B.inputOf(card, name);
       p.form.hidden = !input.shown;
-      p.input.disabled = p.send.disabled = input.disabled;
+      B.lock(p.input, input.disabled);
+      if (input.disabled || sending) B.offSend(doc, p.send, p.form.hidden ? p.el : p.input, { preventScroll: true });
+      p.send.disabled = input.disabled || sending;
       p.input.placeholder = input.disabled ? input.placeholder : `${input.placeholder} (Shift+Enter: a new line)`;
       p.why.textContent = input.line;
       p.why.hidden = !input.line;
       p.more.hidden = !menu().length;
+      // The form lost the focus all the same (hidden under it): back in the input (read-only now) or on the terminal,
+      // never on a choice
+      if (typed && !B.within(p.form, doc.activeElement)) (p.form.hidden ? p.el : p.input).focus({ preventScroll: true });
       drawSide();
       const desk = deskOf(term.id);
       for (const [panel, draw] of T.panels) {
@@ -387,19 +441,21 @@ const PIXEL_TERMINAL = {
 
     /**
      * The input's words to the desk, with Return; several lines as one paste where it takes them; once, however often
-     * Enter or Send is pressed while they're on their way. Sent, they leave the box, and what was typed meanwhile stays;
-     * refused, they stay, the reason under them.
+     * Enter or Send is pressed while they're on their way (a refresh meanwhile doesn't wake Send). Sent, they leave the
+     * box, and what was typed meanwhile stays; refused, or unanswered in SAY_WAIT, they stay, the reason under them.
      */
     async function say() {
       const shown = term;
-      if (!shown || sending || p.input.disabled) return;
+      if (!shown || sending || p.input.readOnly) return;
       const words = p.input.value, text = words.trim();
       if (!text) return;
       page.tick?.();
+      // Send clicked has the focus (in Chromium): into the input before it's greyed
+      B.offSend(doc, p.send, p.input, { preventScroll: true });
       sending = p.send.disabled = true;
       let res;
       try {
-        res = await page.post('/talk/say', { session: shown.id }, undefined, { text, send: true });
+        res = await page.post('/talk/say', { session: shown.id }, B.limit(win), { text, send: true });
       } finally {
         sending = false;
       }
@@ -407,10 +463,10 @@ const PIXEL_TERMINAL = {
       if (term !== shown) {
         // Another desk is shown now: what went isn't kept as this desk's draft
         if (sent && drafts.has(shown.id)) drafts.set(shown.id, rest(drafts.get(shown.id)));
-        if (p) p.send.disabled = p.input.disabled;
+        if (p) p.send.disabled = p.input.readOnly;
         return;
       }
-      p.send.disabled = p.input.disabled;
+      p.send.disabled = p.input.readOnly;
       if (sent) {
         p.input.value = rest(p.input.value);
         problem('');
@@ -437,7 +493,7 @@ const PIXEL_TERMINAL = {
         shown.focused = true;
         // Without scrolling: the question's first line and the terminal's header stay in sight in a small window
         const first = p.ask.querySelector('.talk-key');
-        (first || (p.input.disabled ? p.el : p.input)).focus({ preventScroll: true });
+        (first || (p.input.readOnly ? p.el : p.input)).focus({ preventScroll: true });
       }
       shown.timer = win.setTimeout(() => look(shown), shown.card && shown.card.asking ? B.ASKING_EVERY : B.EVERY);
     }
@@ -449,7 +505,9 @@ const PIXEL_TERMINAL = {
       const got = res && res.status === 200 ? await res.json().catch(() => null) : null;
       if (!got || term !== shown) return;
       const merged = B.merge(shown, got);
+      const said = shown.loaded ? B.linesSaid(room.name(shown.id), shown.items, merged.items) : [];
       Object.assign(shown, { items: merged.items, before: merged.before, size: got.size });
+      if (said.length) p.live.replaceChildren(...said.map((line) => make('p', '', line)));
     }
 
     /** Older messages: the page before what's shown, put above it, where you were kept in sight. */
@@ -487,6 +545,8 @@ const PIXEL_TERMINAL = {
           zoom(id);
           pictured = 0;
           picture();
+          // The keys are the terminal's at once; its first choice or input takes the focus once its card is read
+          p.el.focus({ preventScroll: true });
         }
         return true;
       },
