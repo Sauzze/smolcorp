@@ -707,17 +707,9 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		rt.events(w, r, phoneID)
 	case r.Method == http.MethodPost && r.URL.Path == "/focus":
 		writeStatus(w)(d.Focus(session))
-	// ⚙︎ in the office's corner, from its own window on this computer: setup opens, as from the tray.
-	case r.Method == http.MethodPost && r.URL.Path == "/act" && r.URL.Query().Get("action") == "settings":
-		if phoneID != officeWindowID {
-			writeStatus(w)(http.StatusForbidden, "Settings open on your "+d.machine()+".")
-			return
-		}
-		if err := openSetupPage(d); err != nil {
-			writeStatus(w)(http.StatusBadGateway, "Couldn't open your browser ("+err.Error()+"). Instead: "+setupAdvice(runtime.GOOS))
-			return
-		}
-		writeStatus(w)(http.StatusNoContent, "")
+	// A desk's keys, floors and styles, and the office's own window's actions, each checked there (act.go).
+	case r.Method == http.MethodPost && r.URL.Path == "/act":
+		d.act(w, r, phoneID, session)
 	// ⧉ window (T796), from the office's own window on this computer, never a phone: whether hires run in
 	// the background, so the key shows; then a window attached to the picked hire's own tmux session, as
 	// Setup's Open a window (openHireWindow).
@@ -778,37 +770,6 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
-	// Take over in T3 Code and Hand back (EXPERIMENTAL, t3takeover.go), from a desk's card in the office's own window
-	// on this computer, never a phone: the hire is found by its desk, never by anything sent.
-	case r.Method == http.MethodPost && r.URL.Path == "/act" && slices.Contains([]string{"takeover", "handback"}, r.URL.Query().Get("action")):
-		if phoneID != officeWindowID {
-			writeStatus(w)(http.StatusForbidden, "Take over in T3 Code is on your "+t3Here()+".")
-			return
-		}
-		status, answer, ok := d.takeOverAtDesk(r.URL.Query().Get("action"), session)
-		if !ok {
-			writeStatus(w)(http.StatusNotFound, "Only a hire Smolcorp runs can be taken over in T3 Code, or handed back.")
-			return
-		}
-		if text, isText := answer.(string); isText {
-			writeStatus(w)(status, text)
-			return
-		}
-		writeJSON(w, status, answer)
-	// Let go of a hire in T3 Code from its desk's card, after its confirm (t3desks.go): the lane's answer, as Setup's.
-	case r.Method == http.MethodPost && r.URL.Path == "/act" && r.URL.Query().Get("action") == "letgo":
-		status, answer, ok := d.letGoAtDesk(session)
-		if !ok {
-			writeStatus(w)(d.Perform("letgo", session, r.URL.Query()))
-			return
-		}
-		if text, isText := answer.(string); isText {
-			writeStatus(w)(status, text)
-			return
-		}
-		writeJSON(w, status, answer)
-	case r.Method == http.MethodPost && r.URL.Path == "/act":
-		writeStatus(w)(d.PerformFrom(phoneID, r.URL.Query().Get("action"), session, r.URL.Query()))
 	// ✨ Summary: a few lines on what the session has been doing, or why there are none.
 	case r.Method == http.MethodPost && r.URL.Path == "/summary":
 		text, err := d.Summarize(session)
