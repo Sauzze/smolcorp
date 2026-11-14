@@ -36,7 +36,10 @@ import (
 //   - pinned keys a lower file could otherwise loosen: the permission mode, always set,
 //     bypass mode switched off, an empty shell prefix and a fixed shell, and
 //     disableAllHooks:false;
-//   - auto mode, where the account allows it.
+//   - auto mode, where the account allows it;
+//   - Claude Code's own sandbox switched off ("sandbox":{"enabled":false}): a desk runs inside Smolcorp's
+//     sandbox, where Claude Code's can't start one of its own (SANDBOX-PLAN §A4.3), and a project's settings,
+//     which rank below these, can't switch it back on.
 //
 // Deny rules only see the start of a command, so they stop the plain forms; the guard
 // sees the rest. A deny rule beats an allow, so the hire's own STATUS.md, which it must
@@ -407,7 +410,9 @@ func hireSettingsValue(deny []string, guard, config map[string]any, shell string
 	}
 	// No prefix wraps a command, and the Bash tool's shell is the one named here.
 	env := map[string]any{"CLAUDE_CODE_SHELL_PREFIX": "", "CLAUDE_CODE_SHELL": shell}
-	return map[string]any{"permissions": permissions, "disableAllHooks": false, "hooks": hooks, "env": env}
+	// Claude Code's own sandbox is off: Smolcorp's sandbox is the desk's, and Claude Code's can't nest in it.
+	sandbox := map[string]any{"enabled": false}
+	return map[string]any{"permissions": permissions, "disableAllHooks": false, "hooks": hooks, "env": env, "sandbox": sandbox}
 }
 
 // reportingHooks are a test copy's hire's hooks: Claude's usual events, running

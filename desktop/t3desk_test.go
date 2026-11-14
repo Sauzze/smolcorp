@@ -1296,9 +1296,14 @@ func TestT3TheFenceLeavesT3CodesModeAlone(t *testing.T) {
 		if !reflect.DeepEqual(fence["permissions"], want) {
 			t.Errorf("auto %v: the fence's permissions are %v", auto, fence["permissions"])
 		}
-		// Only the permissions differ from a hire's settings.
+		// Only the permissions differ from a hire's settings, and Claude Code's own sandbox, which a hire's switch off
+		// and the fence leaves alone (SA-T1).
+		if hire["sandbox"] == nil || fence["sandbox"] != nil {
+			t.Errorf("auto %v: the hire's sandbox key %v, the fence's %v", auto, hire["sandbox"], fence["sandbox"])
+		}
 		delete(fence, "permissions")
 		delete(hire, "permissions")
+		delete(hire, "sandbox")
 		if !reflect.DeepEqual(fence, hire) || len(fence) != 3 || fence["disableAllHooks"] != false || fence["env"] == nil {
 			t.Errorf("auto %v: the fence is %v", auto, fence)
 		}

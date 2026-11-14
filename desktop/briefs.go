@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -583,6 +584,21 @@ const (
 	briefDoneSignal  = "JOB DONE"
 )
 
+// briefSandboxTools is what every brief Smolcorp writes for a hire ends with, whatever its template (the library's,
+// one you edited or a file you picked): developer tools whose own sandbox can't start inside Smolcorp's, and the
+// switch that turns theirs off (SANDBOX-PLAN §A4.3, AQ9). A full path such as /usr/bin/swift is named too: no
+// wrapper on the desk's PATH would catch it. Swift's and Xcode's sandboxes are the Mac's, so only a Mac's briefs name
+// them. Setup's preview shows the brief as its template makes it, without these lines.
+func briefSandboxTools(goos string) string {
+	text := "\n## Tools with a sandbox of their own\n" +
+		"A tool's own sandbox can't start inside Smolcorp's, so turn it off when you run one of these:\n"
+	if goos == "darwin" {
+		text += "- **Swift:** `swift build`, `swift test`, `swift run` and `swift package` take `--disable-sandbox`, also when you call swift by its full path (`/usr/bin/swift`).\n" +
+			"- **Xcode:** add `ENABLE_USER_SCRIPT_SANDBOXING=NO` to the `xcodebuild` line.\n"
+	}
+	return text + "- **Headless Chrome or Chromium** (Puppeteer, Electron's tests, a DevTools server): start it with `--no-sandbox`. Playwright already does.\n"
+}
+
 // briefTask is a task as it goes into the brief: without control characters
 // but line ends and tabs, trimmed, and not too long.
 func briefTask(text string) string {
@@ -917,7 +933,8 @@ type briefRequest struct {
 	date    time.Time
 	// Smolcorp's own briefs folder (briefsKeptDir).
 	kept string
-	// Off for a preview: nothing is written, and the names are those a first hire would get.
+	// Off for a preview: nothing is written, and the names are those a first hire would get. On, the brief ends
+	// with briefSandboxTools.
 	write bool
 }
 
@@ -938,6 +955,9 @@ func makeBrief(r briefRequest) (*briefMade, error) {
 		var err error
 		text, err = r.role.renderBrief(template, briefContext{folder: r.folder, pinned: r.pinned, answers: r.answers, date: r.date,
 			briefFile: names.brief, statusFile: names.status, reportFile: names.report, task: r.task})
+		if err == nil && r.write {
+			text += briefSandboxTools(runtime.GOOS) // after resolveBrief's one line end, so a blank line comes before it
+		}
 		return text, err
 	}
 	var names briefNamesOf

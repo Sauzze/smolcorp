@@ -13,7 +13,8 @@ import (
 // Tests/fixtures/frontdesk/hire-settings.json is a hire's settings, the fence,
 // as the Mac's HireSettings wrote them for fixed inputs, with 1.26's guard
 // (SANDBOX-PLAN §3.4: exec-form hooks that block when they fail, the
-// ConfigChange hook, the pinned keys, the core's groups in --groups). This
+// ConfigChange hook, the pinned keys, the core's groups in --groups), and
+// with SA-T1's "sandbox":{"enabled":false} added to each case's file. This
 // engine must make the same settings from the same inputs. (Windows writes its
 // paths as //c/…, so the Mac's paths aren't its.)
 func TestTheFenceIsTheMacsByteForByte(t *testing.T) {

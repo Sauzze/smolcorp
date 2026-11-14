@@ -30,13 +30,14 @@ func TestTheStartScriptIsTheMacsForAHire(t *testing.T) {
 	}
 	want := "unset SMOLCORP_GM_TOKEN\nunset CLAUDE_CONFIG_DIR\n" +
 		"export SMOLCORP_HIRE_PORTS='4100-4103'\nexport SMOLCORP_HIRE_KEY='k-1_a'\n" +
+		"export DISABLE_AUTOUPDATER='1'\n" +
 		"exec 'claude' '--model=sonnet' '--effort=high' '--' 'go'\n"
 	if script != want {
 		t.Fatalf("script:\n%s\nwant:\n%s", script, want)
 	}
 	// The account line, settings, and PATH come as the Mac puts them, before the exports.
 	own, _ := hireStart{Role: testHireRole(), Message: "it's", ConfigDir: "/a/b's", Settings: "/s.json", CLIDir: "/app/bin"}.startText()
-	for _, line := range []string{"export CLAUDE_CONFIG_DIR='/a/b'\\''s'\nexport PATH='/app/bin':\"$PATH\"\n", "exec 'claude' '--settings=/s.json' ", "'it'\\''s'\n"} {
+	for _, line := range []string{"export CLAUDE_CONFIG_DIR='/a/b'\\''s'\nexport DISABLE_AUTOUPDATER='1'\nexport PATH='/app/bin':\"$PATH\"\n", "exec 'claude' '--settings=/s.json' ", "'it'\\''s'\n"} {
 		if !strings.Contains(own, line) {
 			t.Errorf("missing %q in\n%s", line, own)
 		}
@@ -53,9 +54,11 @@ func TestTheStartScriptIsTheMacsForAHire(t *testing.T) {
 	if !strings.Contains(odd, "exec 'claude' '--settings=/s'") || !strings.Contains(odd, "unset CLAUDE_CONFIG_DIR") {
 		t.Errorf("an unknown agent should start as Claude:\n%s", odd)
 	}
-	// Other agents get no account line and no settings, and an unmanaged hire no exports.
+	// Other agents get no account line and no settings, and an unmanaged hire no exports but the tools' switches,
+	// which every desk has (SA-T1).
 	codex, _ := hireStart{Role: Role{Name: "Co", Agent: "codex"}, Message: "x", ConfigDir: "/a", Settings: "/s"}.startText()
-	if strings.Contains(codex, "CLAUDE_CONFIG_DIR") || strings.Contains(codex, "--settings") || strings.Contains(codex, "export") {
+	exports := strings.ReplaceAll(codex, "export DISABLE_AUTOUPDATER='1'\n", "")
+	if strings.Contains(codex, "CLAUDE_CONFIG_DIR") || strings.Contains(codex, "--settings") || strings.Contains(exports, "export") {
 		t.Errorf("codex script: %s", codex)
 	}
 }
@@ -112,7 +115,7 @@ func TestATestCopyHireExportsItsPortAndFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(script, "export SMOLCORP_PORT='7745'\nexport SMOLCORP_TEST_SUPPORT_DIR='/tmp/it'\\''s'\nexec ") {
+	if !strings.Contains(script, "export SMOLCORP_PORT='7745'\nexport SMOLCORP_TEST_SUPPORT_DIR='/tmp/it'\\''s'\nexport DISABLE_AUTOUPDATER='1'\nexec ") {
 		t.Errorf("script:\n%s", script)
 	}
 	if !strings.Contains(script, "'--setting-sources=project,local' ") {

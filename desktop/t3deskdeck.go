@@ -71,7 +71,10 @@ func t3FenceSettings(hireID string, profiles []claudeProfile) (map[string]any, e
 // left out unless it is auto, as before 1.26. T3 Code starts its agent with its permissions bypassed (T797a), and
 // with bypass switched off every command would wait for a click while T3 Code shows Full access (RT126SG1 B1).
 // The deny rules and the guard's hooks hold in bypass mode too, and a T3 desk isn't one Smolcorp starts (SG1).
+// Nor does it run in Smolcorp's sandbox, so Claude Code's own is left as the owner set it: a desk's settings switch
+// it off only because Smolcorp's sandbox holds the desk instead (hireSettingsValue).
 func t3Fence(settings map[string]any) map[string]any {
+	delete(settings, "sandbox")
 	if permissions, ok := settings["permissions"].(map[string]any); ok {
 		delete(permissions, "disableBypassPermissionsMode")
 		if permissions["defaultMode"] != "auto" {

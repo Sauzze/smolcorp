@@ -439,6 +439,12 @@ func TestTheGMGetsTheTokenAndNoKeyOthersAKeyAndNoToken(t *testing.T) {
 		!slices.Contains(otherWindow.env.Unset, "SMOLCORP_GM_TOKEN") {
 		t.Errorf("the other hire's environment: %+v", otherWindow.env)
 	}
+	// As a tmux desk, both start with Claude Code's auto-update off, and HUSKY left as the terminal has it (SA-T1).
+	for _, env := range []hireStartEnv{gmWindow.env, otherWindow.env} {
+		if _, husky := env.Set["HUSKY"]; env.Set["DISABLE_AUTOUPDATER"] != "1" || husky || slices.Contains(env.Unset, "HUSKY") {
+			t.Errorf("the tools' switches: %+v", env)
+		}
+	}
 	if file := readRegistry(registryPath(), false); file.keys[gm.ID] != "" || file.keys[other.ID] == "" {
 		t.Errorf("keys: %v", file.keys)
 	}
@@ -449,6 +455,7 @@ func TestTheGMGetsTheTokenAndNoKeyOthersAKeyAndNoToken(t *testing.T) {
 		return strings.HasPrefix(e, "SMOLCORP_GM_TOKEN=") || strings.HasPrefix(e, "CLAUDE_CONFIG_DIR=")
 	}) ||
 		!slices.Contains(got, "KEEP=1") || !slices.Contains(got, hireKeyEnvironment+"="+otherWindow.env.Set[hireKeyEnvironment]) ||
+		!slices.Contains(got, "DISABLE_AUTOUPDATER=1") ||
 		!strings.HasPrefix(got[0], "PATH="+filepath.Dir(r.o.CLI)+string(os.PathListSeparator)) {
 		t.Errorf("environment: %v", got)
 	}

@@ -79,6 +79,16 @@ type deskPlan struct {
 	APIKey bool
 }
 
+// deskToolEnvironment is set on every desk Smolcorp starts, whatever its agent, after its own variables: tools
+// that would write where Smolcorp's sandbox refuses them, told not to (SANDBOX-PLAN §A4.3). Claude Code's auto-update
+// writes over the Claude Code Smolcorp checked. Later pieces add theirs after these.
+//
+// HUSKY=0 is left out on purpose (RT126SAT1 B1): husky's hook runner reads it too, so it would skip the project's own
+// pre-commit, commit-msg and pre-push hooks at every desk's commit. husky's install, which npm runs as a project's
+// prepare, only prints an error when the shared git config is refused, and npm carries on (owner, Q2: "husky-style
+// hook installs fail in hires"). A HUSKY the owner's terminal has passes through as it was.
+var deskToolEnvironment = []envChange{{Name: "DISABLE_AUTOUPDATER", Value: "1"}}
+
 // realSmolcorpPorts are the ports of the real Smolcorps: a test copy never takes one.
 var realSmolcorpPorts = []int{7710, 7720, 7730}
 
@@ -180,7 +190,7 @@ func (h hireStart) plan() (deskPlan, error) {
 	if claude && h.GMPlugin != "" {
 		changes = append(changes, envChange{Name: gmCLIEnvironment, Value: h.GMCLI, Unset: h.GMCLI == ""})
 	}
-	return deskPlan{Agent: string(agent), Words: words, Changes: append(changes, secrets...), PathFirst: h.CLIDir,
+	return deskPlan{Agent: string(agent), Words: words, Changes: slices.Concat(changes, secrets, deskToolEnvironment), PathFirst: h.CLIDir,
 		APIKey: h.APIKey && h.KeyText == ""}, nil
 }
 

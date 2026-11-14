@@ -189,6 +189,9 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	}
 	// What the launcher sets on the agent's process, and only there.
 	env := hireStartEnv{Set: map[string]string{}, PathFirst: filepath.Dir(o.CLI), Settings: settings}
+	for _, change := range deskToolEnvironment { // as a tmux desk has them
+		env.Set[change.Name] = change.Value
+	}
 	if brief != "" {
 		env.Message = message
 		if r.StartTyped != nil {
