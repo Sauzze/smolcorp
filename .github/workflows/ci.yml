@@ -90,6 +90,130 @@ jobs:
         timeout-minutes: 15
         run: swift test --skip-build
 
+  # Every Mac build has the hardened runtime (SANDBOX-PLAN §3.3, SK3): the app, the smolcorp command and tmux. This
+  # runs SK3's rows that only a Mac can run, checks the app as a release builds it (scripts/release.sh's own
+  # build-app.sh call, ad hoc), then builds a test copy the way scripts/test-copy.sh does (ad hoc, never anyone's
+  # identity) and proves the hardened copy still starts: hidden, on its own port and folder, its core answering there
+  # and served by the app over the bridge, which knows the core by its audit token and answers no other process. The
+  # copy is then quit by its pid.
+  hardened:
+    name: Mac build, hardened, starts
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # Run by name, as the GM's launcher tests are below: each one must say PASS, so a row that's skipped (no cc or
+      # lipo here), renamed or left out of the build fails the step instead of passing unseen. They check
+      # check-runtime.sh itself (an unhardened file and each opening entitlement fail it), a library injected into a
+      # hardened stand-in, build-app.sh's signing and its dry run, the core's instance lock and the Keychain scan.
+      - name: SK3's Mac rows ran and passed
+        shell: bash
+        run: |
+          names=(
+            TestABuildWithoutTheHardenedRuntimeFailsTheCheck
+            TestTheEntitlementsThatOpenAHardenedProgramFailTheCheck
+            TestAnEntitlementOnOneProcessorOnlyFailsTheCheck
+            TestAnInjectedLibraryIsNotLoadedIntoAHardenedProgram
+            TestEveryMacBuildIsSignedWithTheRuntimeAndChecked
+            TestBuildAppsDryRunSaysHowItSignsAndNeverNamesTheLoginKeychain
+            TestTheCoreStartsOnlyWhileTheAppHoldsTheInstanceLock
+            TestTheSmolcorpProgramNeverAsksTheKeychain
+            TestOnAMacTheCallsAreNothing
+          )
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          go test -count=1 -v -run "^($(IFS='|'; echo "${names[*]}"))\$" ./desktop/ ./internal/procmem/ 2>&1 | tee "$RUNNER_TEMP/sk3-tests.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in "${names[@]}"; do
+            if ! grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/sk3-tests.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          [ "$status" -eq 0 ] && [ "$missing" -eq 0 ]
+      # The app as scripts/release.sh builds it before signing it again with the Developer ID: both processors, ad hoc.
+      # Checked here on its own, not through the test copy below, which test-copy.sh signs again itself: an app that
+      # build-app.sh left unhardened fails here even if its own check went with it.
+      - name: The app as a release builds it, hardened
+        shell: bash
+        run: |
+          SMOLCORP_SIGN_IDENTITY=- scripts/build-app.sh universal
+          APP=build/Smolcorp.app
+          for arch in arm64 x86_64; do
+            lipo -archs "$APP/Contents/MacOS/AgentDeck" | grep -qw "$arch" || { echo "::error::the release build has no $arch"; exit 1; }
+          done
+          pieces=("$APP" "$APP/Contents/Resources/bin/smolcorp")
+          [ -f "$APP/Contents/Resources/bin/tmux" ] && pieces+=("$APP/Contents/Resources/bin/tmux")
+          scripts/check-runtime.sh "${pieces[@]}"
+          echo "Hardened, each processor: ${pieces[*]}"
+      # A made-up Summary key in the copy's own folder, before it starts (test-copy.sh's own way to give one): the core
+      # can only learn it's there by asking the app over the bridge (desktop/hostshell.go, summaryStore).
+      - name: Build and open a hidden test copy
+        shell: bash
+        run: |
+          mkdir -p build/test-support
+          chmod 700 build/test-support
+          (umask 077; printf '%s\n' "sk-""ant-ci-fake-$(printf 'T3st%.0s' 1 2 3 4 5 6)" > build/test-support/test-api-key)
+          scripts/test-copy.sh 7791 | tee "$RUNNER_TEMP/copy.txt"
+      - name: Every piece hardened, and the copy answering over its bridge
+        shell: bash
+        run: |
+          APP="build/Smolcorp Test.app"
+          SUPPORT=build/test-support
+          pieces=("$APP" "$APP/Contents/Resources/bin/smolcorp")
+          [ -f "$APP/Contents/Resources/bin/tmux" ] && pieces+=("$APP/Contents/Resources/bin/tmux")
+          scripts/check-runtime.sh "${pieces[@]}"
+          pid="$(sed -n 's/.*Quit it with: kill \([0-9][0-9]*\).*/\1/p' "$RUNNER_TEMP/copy.txt")"
+          [ -n "$pid" ] || { echo "::error::the hardened test copy didn't start listening"; exit 1; }
+          # Quit by its pid however this step ends.
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          answered=0
+          for _ in $(seq 100); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7791/ || true)"
+            if [ "$code" != "000" ]; then answered=1; break; fi
+            sleep 0.2
+          done
+          [ "$answered" = 1 ] || { echo "::error::the hardened test copy didn't answer on its port"; exit 1; }
+          # Its core, bin/smolcorp core, is the copy's child, under the runtime too.
+          pgrep -P "$pid" -f 'Resources/bin/smolcorp core ' >/dev/null || { echo "::error::the copy's core isn't running"; exit 1; }
+          # One request that must cross the bridge: setup's state asks the app for the Summary key (secret-read), which
+          # the app answers only to a connection carrying the core's audit token. Answered, the key is "store"; refused
+          # or timed out, the core says there's no secret store (noStore). Read with the copy's own setup key; the
+          # state isn't printed.
+          [ -s "$SUPPORT/setup-key" ] || { echo "::error::the copy has no setup-key in $SUPPORT"; exit 1; }
+          state="$(curl -s --max-time 20 -H "X-Smolcorp-Setup-Key: $(cat "$SUPPORT/setup-key")" http://127.0.0.1:7791/setup/state)"
+          python3 -c '
+          import json, sys
+          summary = json.loads(sys.argv[1])["summary"]
+          if summary.get("key") != {"source": "store"} or summary.get("noStore") is not False:
+              print("::error::the core did not get the Summary key from the app over the bridge: key %r, noStore %r"
+                    % (summary.get("key"), summary.get("noStore")))
+              sys.exit(1)
+          ' "$state"
+          # And a process that isn't the core (this one, the same user) is closed unanswered, before its token is even
+          # read: with no audit token check, this wrong token would get "Not this app's engine." back.
+          [ -S "$SUPPORT/bridge.sock" ] || { echo "::error::the copy has no bridge socket at $SUPPORT/bridge.sock"; exit 1; }
+          python3 -c '
+          import socket, sys
+          bridge = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+          bridge.settimeout(10)
+          bridge.connect(sys.argv[1])
+          bridge.sendall(b"{\"token\":\"not-the-token\",\"action\":\"hello\"}\n")
+          try:
+              answer = bridge.recv(4096)
+          except (ConnectionResetError, socket.timeout):
+              answer = b""
+          if answer:
+              print("::error::the bridge answered a process that isn't the copy's core: %r" % answer)
+              sys.exit(1)
+          ' "$SUPPORT/bridge.sock"
+          echo "The hardened test copy started and answered (HTTP $code), its core got the key from the app over the bridge, another process got nothing, and it was quit (pid $pid)."
+
   desktop:
     name: Windows and Linux app, on ${{ matrix.os }}
     strategy:

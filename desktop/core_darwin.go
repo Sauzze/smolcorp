@@ -59,11 +59,12 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 
 	useSupportDir(options.support)
 	Port = options.port
-	if running, err := acquireInstance(); running {
-		fmt.Fprintln(errs, "smolcorp core: another Smolcorp is using this support folder.")
-		return corePortInUse // its copy holds the port: the app says so, and tries again
-	} else if err != nil {
-		fmt.Fprintf(errs, "smolcorp: no instance lock (%v), going on without\n", err)
+	// The folder's instance lock is the app's: it takes it before it asks the Keychain anything or starts this
+	// engine (InstanceLock, KeychainGate), so a second Smolcorp.app on this folder never gets that far. Found
+	// free, no app holds it for this engine, and it doesn't start.
+	if held, err := appHoldsInstance(); !held {
+		fmt.Fprintf(errs, "%s (the support folder's instance lock isn't held: %v)\n", coreRefusal, err)
+		return 2
 	}
 	recordPid()
 	defer forgetPid()
@@ -94,6 +95,24 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 		close(lines)
 	}()
 	return serveShell(deck, lines, out, failed)
+}
+
+// appHoldsInstance is whether the support folder's instance lock is held, as the app holds it from before it
+// starts this engine: a shared lock can't be had then. Nothing is created and nothing is kept.
+func appHoldsInstance() (bool, error) {
+	file, err := os.Open(instanceFile())
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	switch err := syscall.Flock(int(file.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err {
+	case syscall.EWOULDBLOCK:
+		return true, nil
+	case nil:
+		return false, errors.New("nobody holds it")
+	default:
+		return false, err
+	}
 }
 
 // coreTokenWait is how long the app has to give the token, so a core started

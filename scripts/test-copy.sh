@@ -55,6 +55,12 @@
 #
 # Quit it by its pid, or from its menu bar icon. Running this again replaces
 # the copy on the same port, and only that one.
+#
+# It has the hardened runtime, as every build does, and is never signed with
+# your own identity: ad hoc, or with the team's test identity named in
+# SMOLCORP_TEST_SIGN_IDENTITY ("Smolcorp Test", docs/RELEASING.md). So it can't
+# read the Keychain items of the Smolcorp you use, and building one never
+# unlocks your signing keychain.
 
 set -euo pipefail
 
@@ -78,12 +84,14 @@ esac
 APP="build/Smolcorp Test.app"
 SUPPORT="$PWD/build/test-support"
 
-scripts/build-app.sh
+TEST_IDENTITY="${SMOLCORP_TEST_SIGN_IDENTITY:--}"
+SMOLCORP_SIGN_IDENTITY="$TEST_IDENTITY" scripts/build-app.sh
 rm -rf "$APP"
 cp -R build/Smolcorp.app "$APP"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier io.github.sauzze.agentdeck.test" \
   -c "Set :CFBundleName Smolcorp Test" "$APP/Contents/Info.plist"
-codesign --force --sign - "$APP"
+codesign --force --options runtime --sign "$TEST_IDENTITY" --entitlements packaging/macos/Smolcorp.entitlements "$APP"
+scripts/check-runtime.sh "$APP"
 
 # Its hook: the real one, sending to this copy's port.
 mkdir -p "$SUPPORT"

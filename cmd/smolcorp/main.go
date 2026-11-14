@@ -20,6 +20,7 @@ import (
 	"github.com/Sauzze/smolcorp/desktop"
 	"github.com/Sauzze/smolcorp/internal/gm"
 	"github.com/Sauzze/smolcorp/internal/guard"
+	"github.com/Sauzze/smolcorp/internal/procmem"
 )
 
 // version is set by scripts/release-desktop.sh.
@@ -50,10 +51,12 @@ func main() {
 	gm.AppVersion = version
 	args := os.Args[1:]
 	if len(args) == 0 {
+		protect(procmem.NotDumpable)
 		os.Exit(runApp())
 	}
 	switch args[0] {
 	case "serve":
+		protect(procmem.NotDumpable, procmem.DenyMemoryAccess)
 		os.Exit(runServer())
 	case "run":
 		os.Exit(desktop.RunLauncher(args[1:]))
@@ -68,6 +71,8 @@ func main() {
 	case "status", "desks", "say", "hire", "open":
 		os.Exit(gm.RunPeople(args[0], args[1:], os.Stdout, os.Stderr))
 	case "guard":
+		// A debugger in the guard could change its answer.
+		protect(procmem.NotDumpable)
 		os.Exit(guard.Run(args[1:], os.Stdin, os.Stdout, os.Stderr))
 	case "mcp":
 		os.Exit(gm.RunMCP(args[1:], os.Stdin, os.Stdout, os.Stderr))
@@ -83,5 +88,16 @@ func main() {
 	default:
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
+	}
+}
+
+// protect keeps this process's memory from your other programs, as far as the system lets it (internal/procmem),
+// before it holds anything: the app and the server hold keys, and the guard's answer is what lets a command run. A
+// step that fails is said and the rest goes on: nothing is less protected than before.
+func protect(steps ...func() error) {
+	for _, step := range steps {
+		if err := step(); err != nil {
+			fmt.Fprintf(os.Stderr, "smolcorp: its memory couldn't be kept from other programs (%v)\n", err)
+		}
 	}
 }

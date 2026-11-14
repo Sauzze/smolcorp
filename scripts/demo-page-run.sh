@@ -41,7 +41,7 @@ chmod 700 "$SUPPORT"
 rm -rf "$APP"
 cp -R build/Smolcorp.app "$APP"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier io.github.sauzze.agentdeck.test" -c "Set :CFBundleName Smolcorp Test" "$APP/Contents/Info.plist"
-codesign --force --sign - "$APP" 2>/dev/null
+codesign --force --options runtime --sign - --entitlements packaging/macos/Smolcorp.entitlements "$APP" 2>/dev/null
 CLI="$APP/Contents/Resources/bin/smolcorp"
 
 # A test Claude account (a test copy never hires on the default one), and the copy's config: the Go engine, setup

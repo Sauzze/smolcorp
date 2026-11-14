@@ -12,6 +12,8 @@ import Carbon.HIToolbox
 final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let bridge: HostBridge
     private let core: GoCore
+    /// The support folder's, held from before the Keychain is asked anything or the core starts (`KeychainGate`).
+    private let instance: InstanceLock
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var office: OfficeWindow? {
         didSet { officeLink.window = office }
@@ -27,6 +29,7 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     init(port: UInt16 = Deck.port, support: URL = Paths.support) {
         bridge = HostBridge(socket: support.appendingPathComponent("bridge.sock"), actions: officeLink.actions(.mac))
         core = GoCore(port: port, support: support, bridge: bridge)
+        instance = InstanceLock(support: support)
         super.init()
     }
 
@@ -47,20 +50,27 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         OfficeWindow.settleForCore(Config.shared)
         // The unlocks and wakes the core's portable office asks about, counted from now (`MacPresence`).
         MacPresence.shared.start()
-        do {
-            try bridge.start()
-        } catch {
-            problem = error.localizedDescription
-            return
-        }
         DispatchQueue.global().async { [self] in
+            // The folder's instance lock first, and only then the Keychain, the bridge and the core: a second Smolcorp
+            // on this folder (one a hire started, say) waits here, and reads none of your Smolcorp's secrets.
+            while !instance.take() {
+                DispatchQueue.main.async { self.showWaiting(GoShellDelegate.anotherSmolcorpLine) }
+                Thread.sleep(forTimeInterval: GoShellDelegate.retryDelay)
+            }
+            KeychainGate.open(holding: instance)
+            do {
+                try bridge.start()
+            } catch {
+                DispatchQueue.main.async { self.problem = error.localizedDescription }
+                return
+            }
             while true {
                 do {
                     try core.start()
                     break
                 } catch GoCore.Failure.portInUse(let port) {
                     // Said in the menu, and tried again until the port is free, as the Swift engine's server did.
-                    DispatchQueue.main.async { self.showPortInUse(port) }
+                    DispatchQueue.main.async { self.showWaiting(GoShellDelegate.portInUseLine(port: port)) }
                     Thread.sleep(forTimeInterval: GoShellDelegate.retryDelay)
                 } catch {
                     DispatchQueue.main.async { self.problem = error.localizedDescription }
@@ -82,8 +92,11 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         "Port \(port) is in use. Is Smolcorp already running? Trying again…"
     }
 
-    private func showPortInUse(_ port: UInt16) {
-        let line = GoShellDelegate.portInUseLine(port: port)
+    /// The menu's line while another Smolcorp holds this support folder's instance lock.
+    static let anotherSmolcorpLine = "Another Smolcorp is using this support folder. Trying again…"
+
+    /// Said in the menu, with a warning for its icon, until the core is ready.
+    private func showWaiting(_ line: String) {
         problem = line
         item.button?.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: line)
     }
