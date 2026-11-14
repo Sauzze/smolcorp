@@ -112,7 +112,9 @@ var gitReadArgs = []string{"--no-pager", "--no-optional-locks", "-c", "protocol.
 	"-c", "diff.external="}
 
 // gitConfigNames are the environment variables that put git config (or a program, or a transport) in git's hands
-// from outside: they are dropped, whole or by prefix, from a read's environment.
+// from outside (and git's own test switches, GIT_TEST_*, which change what it writes, and the switches that change
+// what every pathspec means, GIT_*_PATHSPECS): they are dropped, whole or by prefix, from a read's environment. GIT_TEST_ASSUME_DIFFERENT_OWNER is kept: it only makes git refuse a repo as
+// another account's, never write more, and it is how the tests stand in for another account.
 var gitConfigNames = map[string]bool{
 	"GIT_DIR": true, "GIT_WORK_TREE": true, "GIT_INDEX_FILE": true, "GIT_COMMON_DIR": true, "GIT_OBJECT_DIRECTORY": true,
 	"GIT_ALTERNATE_OBJECT_DIRECTORIES": true, "GIT_PAGER": true, "GIT_TERMINAL_PROMPT": true, "GIT_OPTIONAL_LOCKS": true,
@@ -120,6 +122,7 @@ var gitConfigNames = map[string]bool{
 	"GIT_CONFIG_GLOBAL": true, "GIT_CONFIG_NOSYSTEM": true, "GIT_EXTERNAL_DIFF": true, "GIT_ATTR_SOURCE": true,
 	"GIT_SSH": true, "GIT_SSH_COMMAND": true, "GIT_ASKPASS": true, "SSH_ASKPASS": true, "GIT_PROXY_COMMAND": true,
 	"GIT_ALLOW_PROTOCOL": true, "GIT_PROTOCOL_FROM_USER": true, "GIT_NO_LAZY_FETCH": true, "GIT_EXEC_PATH": true,
+	"GIT_LITERAL_PATHSPECS": true, "GIT_GLOB_PATHSPECS": true, "GIT_NOGLOB_PATHSPECS": true, "GIT_ICASE_PATHSPECS": true,
 }
 
 // gitReadEnv is the environment of a read: the app's, without what would point git at another repo or hand it
@@ -133,7 +136,7 @@ func gitReadEnv(env []string, config [][2]string) []string {
 	for _, kv := range env {
 		name, _, _ := strings.Cut(kv, "=")
 		name = strings.ToUpper(name)
-		if gitConfigNames[name] || strings.HasPrefix(name, "GIT_CONFIG_KEY_") || strings.HasPrefix(name, "GIT_CONFIG_VALUE_") {
+		if gitConfigNames[name] || strings.HasPrefix(name, "GIT_CONFIG_KEY_") || strings.HasPrefix(name, "GIT_CONFIG_VALUE_") || (strings.HasPrefix(name, "GIT_TEST_") && name != "GIT_TEST_ASSUME_DIFFERENT_OWNER") {
 			continue
 		}
 		out = append(out, kv)
@@ -159,7 +162,8 @@ func readGitOut(ctx context.Context, dir string, call gitCall, args ...string) (
 func execGit(ctx context.Context, env []string, args ...string) ([]byte, int, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = env
-	cmd.WaitDelay = 2 * time.Second
+	cmd.WaitDelay = 2 * time.Second // after the stop below, git has this long to clean up before it is killed
+	stopGitGently(cmd)
 	hideGitWindow(cmd)
 	var out gitOutput
 	cmd.Stdout = &out // standard input and error go to the null device
