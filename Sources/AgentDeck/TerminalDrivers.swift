@@ -52,9 +52,8 @@ enum Tool {
     /// e and a combining accent).
     static func run(_ path: String, _ arguments: [String], errors: Bool = false, timeout limit: TimeInterval = Tool.timeout,
                     input: Data? = nil) -> (status: Int32, output: String)? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
+        // On its own account, never Smolcorp's: a hire can replace tmux, kitten or wezterm (`Disclaimed`).
+        guard let process = try? Disclaimed.process(URL(fileURLWithPath: path), arguments) else { return nil }
         let output = Pipe()
         process.standardOutput = output
         process.standardError = errors ? output : FileHandle.nullDevice

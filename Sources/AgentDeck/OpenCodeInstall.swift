@@ -22,10 +22,10 @@ enum OpenCodeInstall {
     /// The PATH your login shell sets, asked once, never on the main thread:
     /// empty if it doesn't say within a few seconds.
     static func loginShellPath() -> [String] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
-        // A marker before it, as a shell's start-up files can print things of their own
-        process.arguments = ["-lic", #"printf '\n<path>%s' "$PATH""#]
+        // A marker before it, as a shell's start-up files can print things of their own. On its own account, as
+        // those files run whatever they name (`Disclaimed`).
+        guard let process = try? Disclaimed.process(URL(fileURLWithPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"),
+                                                    ["-lic", #"printf '\n<path>%s' "$PATH""#]) else { return [] }
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
@@ -70,10 +70,7 @@ enum OpenCodeInstall {
     /// OpenCode's major version, as `opencode --version` says it, or nil if
     /// there's no OpenCode or it doesn't say within a few seconds.
     static func major() -> Int? {
-        guard let program = program() else { return nil }
-        let process = Process()
-        process.executableURL = program
-        process.arguments = ["--version"]
+        guard let program = program(), let process = try? Disclaimed.process(program, ["--version"]) else { return nil }
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
