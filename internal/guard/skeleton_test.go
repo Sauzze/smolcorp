@@ -117,7 +117,7 @@ func TestAPatternIsReadAsItsSkeleton(t *testing.T) {
 		{".c*", ".claude .claude/settings.json .claude/settings.local.json"}, {"*", ""}, {"?claude", ""},
 		{"[.]claude", ""}, {"(.|x)claude", ".claude"}, {".#claude", ".claude"}, {"build/*.[oa]", ""},
 		{".c?aude/settings.json", ".claude/settings.json"}, {"*/settings.json", ""}, {".*/settings.json", ".claude/settings.json"},
-		{"~/Lib*/App*/A*/s*", "gm-token gm-token-kept smolcorp_gm_token hire-guard.json hire-guard setup-key grants.jsonl phones-seal claude-install push-key-kept nightshift.json window-key settings.local.json"},
+		{"~/Lib*/App*/A*/s*", "gm-token gm-token-kept smolcorp_gm_token hire-guard.json hire-guard setup-key grants.jsonl phones-seal claude-install push-key-kept nightshift.json phones.json window-key settings.local.json"},
 		{"x/AgentDeck/*.swift", ""}, {"setup-key~x", "setup-key"}, {"setup-kx#ey", "setup-key"}, {"{}", ""},
 		{"{.c,x}laude", ".claude"}, {"=*.go", ""},
 	} {

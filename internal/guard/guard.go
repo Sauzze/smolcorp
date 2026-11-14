@@ -17,7 +17,10 @@
 // Every word of a command is also checked for the token and the guard file,
 // patterns included (gm-t*), each read as its skeleton: every way bash or zsh
 // could read it, each character they may give a meaning taken as anything
-// (skeleton.go). Anything it can't read as a command
+// (skeleton.go). In PowerShell's and cmd's reading a * ? [ ] < > in quotes is a
+// pattern too, read the way Win32 matches, and an 8.3 short name as the names
+// it may be (windowsWild, shortNameAlts: GUARDPS1): for a line a wrapper hands
+// them everywhere, for the line itself on Windows (onWindows). Anything it can't read as a command
 // name (a pattern in a path like /usr/bin/g?t, too many braces, -EncodedCommand, a shell
 // reading a pipe) is refused too. The guard fails closed: a call, a file or
 // a tool it can't make sense of is denied.
@@ -85,8 +88,75 @@
 //     -exec, a substitution ($(git rev-parse --git-dir)/refs/heads/main), a
 //     variable (d=.gi; cp ${d}t/…) or an archive's rename (tar -s) isn't
 //     read by this hook, the same as a hire's own script. Design A's
-//     sandbox closes it too.
-//   - (closed, RT126NS1R2 B1, RT126NS1R3 B1) git log, show, diff or blame writing the guard file or the night shift's jobs through --output: such a call is no reader (gitWritesOutput), with the option written out, built from a pattern (--outpu?=, ?-output=), or given through a variable or a substitution ($o, "$1", $(printf -- --output)). The name of the file a variable holds is still the open class "words built at run time" below.
+//     sandbox closes it too;
+//   - on Windows (RT126GUARDPS1 N2): a path PowerShell builds at run time
+//     ($p = 'C:\x\hire-g' + '*'; Set-Content $p x), the same open class as
+//     a command spelled through a variable; cmd's %VAR:~a,b% and delayed
+//     !VAR!, which put letters in a name with no wildcard at all (type
+//     "%APPDATA%\SauzzeDeck Pro\gm-to%PATHEXT:~0,0%ken", cmd /v:on /c "set
+//     x=gm-t&& type !x!*"); a pipe that hands names on, as xargs does
+//     (Get-ChildItem "…\SauzzeDeck Pro" -Filter "hire-g*" | Remove-Item); a
+//     wildcard that fills in a name starting with a dot, which Windows doesn't
+//     hide (Set-Content "*\settings.json" x may reach .claude\settings.json:
+//     the skeleton reads patterns the way bash does there, and refusing every
+//     run that could start .claude would refuse del "build\*"); the 8.3
+//     short name a hire sets itself (fsutil file setshortname, an
+//     administrator's), which no rule on the name can follow; and a path
+//     part's trailing dots and blanks, which Win32 drops (Set-Content
+//     ".claude.\settings.json" x is .claude\settings.json, with no wildcard
+//     in it: RT126GUARDPS1R2 N3).
+//
+// Closed since, kept here so the history reads (each with the piece and the day):
+//
+//   - CLOSED by FXNS1R2 and FXNS1R3, 2026-11-14 (RT126NS1R2 B1, RT126NS1R3
+//     B1): git log, show, diff or blame writing the guard file or the night
+//     shift's jobs through --output: such a call is no reader (gitWritesOutput), with
+//     the option written out, built from a pattern (--outpu?=, ?-output=),
+//     or given through a variable or a substitution ($o, "$1", $(printf --
+//     --output)). The name of the file a variable holds is still the open
+//     class "words built at run time" below;
+//   - CLOSED by GUARDPS1, 2026-11-14 (RT126NS1R2): a * or ? in quotes on
+//     Windows. PowerShell's -Path (Set-Content, Clear-Content, Remove-Item,
+//     Get-Content, Copy-Item, Move-Item, Out-File, Add-Content) and cmd's
+//     del, copy, type and move fill in a wildcard in quotes, where bash
+//     doesn't, and the guard read it as text: Set-Content "…\hire-g*" x,
+//     Remove-Item "…\gm-t*" and del "%APPDATA%\SauzzeDeck Pro\hire-g*"
+//     reached every kept name, while the unquoted forms were refused. On
+//     Windows the guard is the only layer. PowerShell's and cmd's reading
+//     now takes a * ? [ ] in quotes, or after a backtick, as a pattern
+//     wherever it could fill in a kept name (windowsWild), failing closed
+//     for every command. A Windows test runs the real pwsh, powershell and
+//     cmd on stand-ins to pin that premise (winwild_windows_test.go,
+//     SMOLCORP_REQUIRE_PWSH in CI). The open classes on Windows are listed
+//     above (RT126GUARDPS1 N2);
+//   - CLOSED by FXGUARDPS1R1, 2026-11-14 (RT126GUARDPS1 B1-B4, B6): what
+//     GUARDPS1 left open of the same rule. A here-string (@"…"@, @'…'@) is
+//     read as one string too (hereReadings). -LiteralPath is no exemption:
+//     after -- it is a plain string and the next word is -Path, and a
+//     function can take a cmdlet's name. PowerShell's -Name:value has its
+//     value read as a path of its own (psParamColon). cmd matches the Win32
+//     way: a path part is read by what is written before its first * ? [ <
+//     >, the rest a run (gm-t*., *.jso), and a part that may be an 8.3
+//     short name (HIRE-G~1.JSO, PUSH-K~1, SAUZZE~1) as each kept name it may
+//     stand for (shortNameAlts). And the line itself is read so only on
+//     Windows: on a Mac or Linux it is bash's, and find . -name '*token*'
+//     runs again there, where a wrapper's line (pwsh -c, cmd /c) is still
+//     read so;
+//   - CLOSED by FXGUARDPS1R2, 2026-11-14 (RT126GUARDPS1R2 B1): text in
+//     the same word hiding a path from PowerShell. An unquoted comma makes
+//     an array whose every item -Path takes (Set-Content x,'.cl*\settings.json'
+//     y, Remove-Item x,'.cl*' -Recurse), and an argument that starts with a
+//     quote may end at its close ('.cl*\settings.json'x). PowerShell's and
+//     cmd's reading now takes each piece of a word, from its start, a comma
+//     or a quote's edge to its end, a comma or a quote's close, as a word of
+//     its own, read by the command in the word's place (psPieces): one rule
+//     for the word's spelling, not a list of forms;
+//   - CLOSED by GUARDPS1, 2026-11-14 (RT126NS1, FXNS1R1): phones.json by a
+//     pattern. It was in always only, which finds a name written out, so cp
+//     x …/ph*s.json reached it. It is in protectedNames now, its patterns
+//     read as the token's are, and refused to every command, reading
+//     included (FXGUARDPS1R1, RT126GUARDPS1 B5: off a Mac the file holds
+//     each phone's signing secret).
 //
 // THE CLOSED LISTS (RWIN9, WIN125k; RWIN10, WIN125l). The guard closes these
 // lists, each in full:
@@ -155,6 +225,7 @@ package guard
 import (
 	"path"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"unicode"
@@ -251,8 +322,9 @@ var fullFolds = strings.NewReplacer(
 // (push-key-kept: desktop/pushkey.go); and the GM's memory (gm-memory:
 // desktop/memory.go), which only the core writes, and the GM reads only
 // through the core's routes. A pattern that fills in a file's name (gm-t*)
-// comes out of the lexer as the name itself. The night shift's jobs
-// are kept as the guard file is (nightFile).
+// comes out of the lexer as the name itself, for each file of
+// protectedNames (lex.go): phones.json is there too (GUARDPS1). The night
+// shift's jobs are kept as the guard file is (nightFile).
 var always = []string{"gm-token", "SMOLCORP_GM_TOKEN", "disableAllHooks", "grants-key", "grants.jsonl",
 	"phones.json", "phones-seal", "claude-install", "push-key-kept", "gm-memory"}
 
@@ -334,8 +406,24 @@ const guardFile = "hire-guard"
 // nightFile is the night shift's jobs (desktop/nightshift.go), whose approvals start hires overnight: off a Mac the
 // guard is all that stands between a hire and a job it approved itself (RT126NS1 B1). It is kept as the guard file
 // is: a command that names it, by any spelling or a pattern that fills it in (night?hift.json, n*), is refused
-// unless it only reads (readsNightFile). It holds no secret, so cat package*.json, which fills it in, still runs.
+// unless it only reads (readsNightFile). It holds no secret, so a read through a pattern that fills it in is not
+// refused for it (jq .jobs …/night?hift.json); a * in the support folder, or cat package*.json, may fill in
+// phones.json too, and is refused for that file (phonesFile), not for this one.
 const nightFile = "nightshift.json"
+
+// phonesFile is the paired phones (desktop/access.go). Off a Mac it holds each phone's signing secret as it is
+// (KeyHash) and its web-push secret, so reading it is the harm, as with the setup key: written out anywhere in the
+// line it is refused as always says, reading included, and so is a pattern that fills it in (ph*s.json; *.json where
+// the path before could be the support folder), which the lexer hands on as the name (protectedNames; GUARDPS1,
+// FXGUARDPS1R1 B5). That refuses cat package*.json too: "age" is three letters of AgentDeck, so the path before the
+// * could be the support folder.
+const phonesFile = "phones.json"
+
+// onWindows says the hook runs on Windows, where a line it is handed may be PowerShell's or cmd's: only there is the
+// line itself read with their wildcards (lexer.wild, FXGUARDPS1R1 B6). On a Mac or Linux the line is bash's or zsh's
+// (Claude Code's Bash tool), and PowerShell or cmd only read what a wrapper hands them (powershell -Command, pwsh -c,
+// cmd /c, iex, Start-Process), which is read with their wildcards everywhere. Tests set it.
+var onWindows = runtime.GOOS == "windows"
 
 // Check is the first refusal for line under groups, or nil.
 func Check(line string, groups []Group) *Refusal {
@@ -372,8 +460,10 @@ func check(line string, groups []Group) *Refusal {
 	var all [][]simple
 	for _, pess := range pessimist {
 		for _, ps := range []bool{false, true} {
-			cmds := commandsAs(line, 0, ps, pess)
-			readings, all = append(readings, reading{pess, ps, cmds}), append(all, cmds)
+			for _, here := range hereReadings(line, ps) {
+				cmds := commandsRead(line, 0, ps, pess, onWindows, here)
+				readings, all = append(readings, reading{pess, ps, cmds}), append(all, cmds)
+			}
 		}
 	}
 	// The merge group's place, for this line: whether it is one command alone, whether it moves, and whether it sets
@@ -393,6 +483,16 @@ func check(line string, groups []Group) *Refusal {
 		}
 	}
 	return nil
+}
+
+// hereReadings are the ways a line is read for PowerShell's here-strings (FXGUARDPS1R1 B1): as one string each
+// (@"…"@, here) and as before, where @ is a letter and "…" a string, both when the line holds one, so whichever
+// PowerShell takes, the guard has read it. A line not read as PowerShell's, or with none, is read the one way.
+func hereReadings(line string, ps bool) []bool {
+	if ps && hasHereString(line) {
+		return []bool{false, true}
+	}
+	return []bool{false}
 }
 
 // checkCommand looks at one simple command: the command itself, and what
@@ -583,9 +683,11 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 	// What a wrapper runs: a line to parse again, or the words after it.
 	for _, inner := range wrapped(name, rawArgs) {
 		if inner.line != "" {
-			for _, cmd := range commandsAs(inner.line, depth+1, inner.ps, pess) {
-				if r := checkCommand(cmd, groups, depth+1, pess, inner.ps); r != nil {
-					return r
+			for _, here := range hereReadings(inner.line, inner.ps) {
+				for _, cmd := range commandsRead(inner.line, depth+1, inner.ps, pess, inner.ps, here) {
+					if r := checkCommand(cmd, groups, depth+1, pess, inner.ps); r != nil {
+						return r
+					}
 				}
 			}
 		} else if r := checkCommand(inner.words, groups, depth+1, pess, ps); r != nil {

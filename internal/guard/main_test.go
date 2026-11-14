@@ -21,6 +21,9 @@ func TestMain(m *testing.M) {
 	os.Setenv("APPDATA", filepath.Join(root, "AppData"))
 	// Nor a test copy's folder from whatever ran the tests: a test that wants one sets its own.
 	os.Unsetenv(testSupportEnv)
+	// Every test reads a line the hook is handed as a Mac's or Linux's, on whatever runs it (the CI's windows-latest
+	// too); one that wants Windows' reading says so (asWindows).
+	hostWindows, onWindows = onWindows, false
 	code := m.Run()
 	os.RemoveAll(root)
 	os.Exit(code)

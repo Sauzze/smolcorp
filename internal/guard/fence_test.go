@@ -86,7 +86,8 @@ func TestNoHireTakesAwayOrRewritesClaudeCodesSettings(t *testing.T) {
 
 // NS1, RT126NS1 B1: the night shift's jobs are kept as the guard file is. A hire or the GM writes them by no
 // spelling, and by no pattern that fills them in, else one could switch off the owner's approvals or, off a Mac,
-// approve a job of its own. They hold no secret: a command that only reads them runs, as cat package*.json does.
+// approve a job of its own. They hold no secret: a command that only reads them runs. (A * in the support folder,
+// or package*.json, may fill in phones.json too, which no command reads since GUARDPS1: that refusal is phones.json's.)
 func TestNoHireWritesTheNightShiftsJobs(t *testing.T) {
 	const dir = "~/.config/sauzzedeck-pro/"
 	refused := []string{
@@ -106,11 +107,18 @@ func TestNoHireWritesTheNightShiftsJobs(t *testing.T) {
 		}
 		for _, line := range []string{
 			"cat " + dir + "nightshift.json", "cat " + dir + "NIGHTSHIFT.JSON", "jq .jobs " + dir + "night?hift.json",
-			"grep -n approved " + dir + "nightshift.json", "ls " + dir + "nightsh*.json", "cat package*.json", "git add desktop/nightshift.go",
+			"grep -n approved " + dir + "nightshift.json", "git add desktop/nightshift.go",
 			"sed -i s/a/b/ desktop/nightshift.go", "cp desktop/nightshift_test.go x",
 		} {
 			if r := Check(line, groups); r != nil {
 				t.Errorf("refused %q: %v", line, r)
+			}
+		}
+		// MSYGUARDPS1: these read the night file and ran under NS1; GUARDPS1's phones.json rule refuses them (FXGUARDPS1R1
+		// B5), for phones.json and not for the night file.
+		for _, line := range []string{"ls " + dir + "nightsh*.json", "cat package*.json"} {
+			if r := Check(line, groups); r == nil || r.Rule != phonesFile {
+				t.Errorf("%q: %+v, want guard: %s", line, r, phonesFile)
 			}
 		}
 	}

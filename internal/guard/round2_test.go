@@ -68,7 +68,9 @@ func TestNoSpellingNamesTheTokenOrTheGuardFile(t *testing.T) {
 	})
 	mustRun(t, "ordinary patterns", []string{
 		"ls *.json", "cat /tmp/*.json", "ls *", "ls /tmp/*", "ls g*", "ls gm*", "ls docs/gm*.md", "git add internal/*",
-		"cat package*.json", "ls ~/Projects/foo*", "rm -f /tmp/a*", "cat gm-notes.md", "ls token", "echo hire",
+		// cat package*.json is refused since FXGUARDPS1R1 (RT126GUARDPS1 B5): it could fill in phones.json
+		// (TestThePairedPhonesFileIsRefusedByAPattern). cat package.json still runs.
+		"cat package.json", "ls ~/Projects/foo*", "rm -f /tmp/a*", "cat gm-notes.md", "ls token", "echo hire",
 		// RWIN7 B1: brackets that fill in nothing the guard keeps.
 		"ls [!.]*", "ls [[:upper:]]*", "ls x[]y", "cat setup-k[!e]y.md", "ls src/[a-z]*.go", "cat notes[!x].md",
 	})

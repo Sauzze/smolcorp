@@ -275,6 +275,38 @@ jobs:
           if [ "$status" -ne 0 ] || [ "$missing" -ne 0 ]; then
             exit 1
           fi
+      # GUARDPS1: the premise of the guard's reading of quoted wildcards on Windows (internal/guard/lex.go,
+      # windowsWild; FXGUARDPS1R1). The real pwsh, powershell and cmd are handed stand-in files and must fill in a * or ?
+      # written in quotes (in a here-string, after > and in -LiteralPath after -- too, and in each item of a comma array),
+      # and cmd's *. and *.jso as Win32 matches them; < >, PowerShell on short names and an argument that starts with a
+      # quote ending at its close are only logged. SMOLCORP_REQUIRE_PWSH=1 turns a shell missing from PATH into a failure, and
+      # each row must say PASS by name, so a skip or a rename fails the step. It runs even when the suite above failed.
+      - name: PowerShell and cmd fill in a wildcard in quotes
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        shell: bash
+        env:
+          SMOLCORP_REQUIRE_PWSH: "1"
+        run: |
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          go test -count=1 -v -run '^TestWindowsShellsFillInAWildcardInQuotes$' ./internal/guard/ 2>&1 | tee "$RUNNER_TEMP/winwild.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in \
+            TestWindowsShellsFillInAWildcardInQuotes \
+            TestWindowsShellsFillInAWildcardInQuotes/pwsh \
+            TestWindowsShellsFillInAWildcardInQuotes/powershell \
+            TestWindowsShellsFillInAWildcardInQuotes/cmd
+          do
+            if ! grep -qE "^ *--- PASS: $name \(" "$RUNNER_TEMP/winwild.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          if [ "$status" -ne 0 ] || [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
       # The same tests under the race detector, which needs cgo: on Linux, whose runner has a C compiler.
       - name: Test with the race detector
         if: runner.os == 'Linux'
