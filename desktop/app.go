@@ -21,6 +21,11 @@ var trayIcons embed.FS
 // RunApp is the app: the deck's server, with an icon in the tray, the
 // counterpart of the Mac app's menu bar item. It returns when you quit.
 func RunApp() int {
+	// First, before any key exists in this process: its memory kept from your
+	// other programs (memory.go). If that fails, nothing starts.
+	if err := protectMemory(); err != nil {
+		return refuseUnprotected(err)
+	}
 	// Opened from Downloads or an unzipped folder, it installs itself and
 	// starts from there (Windows), before anything names this copy.
 	restarted := takeStartNotes()
@@ -93,6 +98,10 @@ func runWithTray(deck *Deck, failed chan error, firstRun bool) int {
 // RunServer is the server alone, for a computer without a desktop to show a
 // tray on, such as a Linux machine you reach over SSH.
 func RunServer() int {
+	// First, as the app's: its memory kept from your other programs, or nothing starts.
+	if err := protectMemory(); err != nil {
+		return refuseUnprotected(err)
+	}
 	// Started to take another's place, as for the home Wi-Fi: it waits for that one.
 	acquire := acquireInstance
 	if takeStartNotes() {

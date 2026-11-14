@@ -11,20 +11,30 @@ import (
 	"github.com/Sauzze/smolcorp/internal/gm"
 )
 
-// The app, `serve` and the guard keep their memory from the user's other programs first thing, before anything
-// holds a secret (internal/procmem): the package's rows test the calls, this one that main still makes them.
+// The guard keeps its memory from the user's other programs first thing, before it reads anything
+// (internal/procmem): the package's rows test the calls, this one that main still makes them. The app and `serve`
+// do it as their own first step and fail closed (desktop/memory_test.go): main hands over to them with nothing
+// in between.
 func TestTheAppServeAndTheGuardProtectTheirMemoryFirst(t *testing.T) {
-	data, err := os.ReadFile("main.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for what, wiring := range map[string]string{
-		"the app": `if len\(args\) == 0 \{\s*protect\(procmem\.NotDumpable\)\s*os\.Exit\(runApp\(\)\)`,
-		"serve":   `case "serve":\s*protect\(procmem\.NotDumpable, procmem\.DenyMemoryAccess\)\s*os\.Exit\(runServer\(\)\)`,
-		"guard":   `case "guard":\s*(//[^\n]*\s*)*protect\(procmem\.NotDumpable\)\s*os\.Exit\(guard\.Run\(`,
+	for file, wirings := range map[string]map[string]string{
+		"main.go": {
+			"the app": `if len\(args\) == 0 \{\s*(//[^\n]*\s*)*os\.Exit\(runApp\(\)\)`,
+			"serve":   `case "serve":\s*os\.Exit\(runServer\(\)\)`,
+			"guard":   `case "guard":\s*(//[^\n]*\s*)*protect\(procmem\.NotDumpable\)\s*os\.Exit\(guard\.Run\(`,
+		},
+		"start_other.go": {
+			"the app": `func runApp\(\) int\s*\{ return desktop\.RunApp\(\) \}`,
+			"serve":   `func runServer\(\) int \{ return desktop\.RunServer\(\) \}`,
+		},
 	} {
-		if !regexp.MustCompile(wiring).Match(data) {
-			t.Errorf("%s no longer protects its memory before it starts (cmd/smolcorp/main.go)", what)
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for what, wiring := range wirings {
+			if !regexp.MustCompile(wiring).Match(data) {
+				t.Errorf("%s no longer protects its memory before it starts (cmd/smolcorp/%s)", what, file)
+			}
 		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // realAskTailnet is Tailscale's look as the app does it, before the tests put a stand-in for it: for a test that
@@ -16,10 +17,18 @@ var realAskTailnet = askTailnet
 // still can't touch the real app's files (on a Mac that folder is the Mac
 // app's own, Application Support/AgentDeck). It removes the folders after.
 func TestMain(m *testing.M) {
-	os.Exit(runWithTempSupport(m))
+	// A row's stand-in for Smolcorp: this test program again, run as far as RunApp's first step (memory_test.go).
+	if part := os.Getenv(memoryStandInVariable); part != "" {
+		if part == "silent" { // one that never answers, as a window that never opens, and makes no folder to leave
+			time.Sleep(time.Hour)
+			os.Exit(1)
+		}
+		os.Exit(runWithTempSupport(func() int { return memoryStandIn(part) }))
+	}
+	os.Exit(runWithTempSupport(m.Run))
 }
 
-func runWithTempSupport(m *testing.M) int {
+func runWithTempSupport(run func() int) int {
 	realSupport := supportDir // already a temp folder: makeSupportDir sees a test binary
 	root, err := os.MkdirTemp("", "smolcorp-desktop-main-")
 	if err != nil {
@@ -66,5 +75,5 @@ func runWithTempSupport(m *testing.M) int {
 	// Nor is a stand-in claude refused for its signature (agentcheck.go): the rows that check the refusal put the
 	// real check back, on stand-ins of their own.
 	agentSignatureCheck = func(string) error { return nil }
-	return m.Run()
+	return run()
 }

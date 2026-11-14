@@ -55,12 +55,12 @@ func main() {
 	gm.AppVersion = version
 	args := os.Args[1:]
 	if len(args) == 0 {
-		protect(procmem.NotDumpable)
+		// The app and the server keep their memory from your other programs as their own first step, and don't
+		// start if they can't (desktop/memory.go).
 		os.Exit(runApp())
 	}
 	switch args[0] {
 	case "serve":
-		protect(procmem.NotDumpable, procmem.DenyMemoryAccess)
 		os.Exit(runServer())
 	case "run":
 		os.Exit(desktop.RunLauncher(args[1:]))
@@ -98,9 +98,10 @@ func main() {
 	}
 }
 
-// protect keeps this process's memory from your other programs, as far as the system lets it (internal/procmem),
-// before it holds anything: the app and the server hold keys, and the guard's answer is what lets a command run. A
-// step that fails is said and the rest goes on: nothing is less protected than before.
+// protect keeps the guard's memory from your other programs, as far as the system lets it (internal/procmem), before
+// it reads anything: its answer is what lets a command run. A step that fails is said and the guard goes on: nothing
+// is less protected than before. The app and the server, which hold keys, do it themselves and fail closed
+// (desktop/memory.go).
 func protect(steps ...func() error) {
 	for _, step := range steps {
 		if err := step(); err != nil {

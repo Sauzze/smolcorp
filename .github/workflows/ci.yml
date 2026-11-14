@@ -395,3 +395,54 @@ jobs:
             }
           }
           if ($status -ne '0' -or $missing) { exit 1 }
+
+  windows-memory:
+    # T126WINMEM, the sibling of the job above: the tray app and `smolcorp serve` keep their memory, Setup's key in
+    # it, from the user's other programs by the same first step (desktop/memory.go). A stand-in runs each as far as
+    # the end of that step; another process of the same standard user, which this job makes, must be refused when it
+    # asks to read their memory. GitHub's runner is an administrator holding SeDebugPrivilege, so in the desktop job
+    # above the memory row skips and says why; here SMOLCORP_MEMORY_REQUIRED=1 turns a skip into a failure, and the
+    # row must say PASS by name. The office window's row (WebView2 under the access list) runs too, and says PASS or
+    # why it skipped. Each stand-in has 90 seconds to answer, so a WebView2 that never opens can't hang the job.
+    name: Windows core's memory, as a standard user
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: The core's memory is refused to a standard user's other processes
+        shell: powershell
+        run: |
+          $dir = 'C:\smolcorp-memory'
+          $user = 'smolcorpmemory'
+          New-Item -ItemType Directory -Force -Path "$dir\tmp" | Out-Null
+          go test -c -o "$dir\desktop.test.exe" ./desktop
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # A standard user, in Users only, with a password made for this run.
+          $password = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N') + 'aA1!') -AsPlainText -Force
+          New-LocalUser -Name $user -Password $password -PasswordNeverExpires | Out-Null
+          Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
+          icacls $dir /grant "${user}:(OI)(CI)F" | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # The redirection goes before echo, as in the job above.
+          @(
+            '@echo off',
+            "set TMP=$dir\tmp",
+            "set TEMP=$dir\tmp",
+            'set SMOLCORP_MEMORY_REQUIRED=1',
+            "`"$dir\desktop.test.exe`" -test.v -test.count=1 -test.run `"TestTheTrayAppAndServeRefuseTheUsersOtherProcessesTheirMemory|TestTheOfficeWindowStillRunsUnderTheAccessList`" > `"$dir\out.txt`" 2>&1",
+            ">`"$dir\status.txt`" echo %ERRORLEVEL%"
+          ) | Set-Content -Encoding Ascii "$dir\run.cmd"
+          $credential = New-Object System.Management.Automation.PSCredential($user, $password)
+          Start-Process -FilePath cmd.exe -ArgumentList '/c', "`"$dir\run.cmd`"" -Credential $credential `
+            -WorkingDirectory $dir -LoadUserProfile -WindowStyle Hidden -Wait
+          Get-Content "$dir\out.txt"
+          $status = (Get-Content "$dir\status.txt" | Out-String).Trim()
+          $name = 'TestTheTrayAppAndServeRefuseTheUsersOtherProcessesTheirMemory'
+          $missing = -not (Select-String -Path "$dir\out.txt" -Pattern "^--- PASS: $name \(" -Quiet)
+          if ($missing) {
+            Write-Output "::error::$name didn't pass as a standard user: it failed, was skipped or didn't run"
+          }
+          if ($status -ne '0' -or $missing) { exit 1 }
