@@ -102,18 +102,56 @@ type registryFile struct {
 	rest     map[string]json.RawMessage
 }
 
-// readRegistry loads the file. One that is there but can't be read gives an
-// empty registry; with aside set (the edit path only) it is also moved to
-// registry.broken.json, so a later save can't wipe what might be mended. A read
-// route passes false and leaves the file where it is.
+// readRegistry is the registry the core holds (§3.2, RT126SK1 B4): the file is read once, the first time it's
+// asked for (as the core starts), and from then on only written, on every system. What another program writes into
+// it while the core runs counts for nothing, now or, on a Mac, at the next start (records_registry.go).
+//
+// A file that is there but can't be read gives an empty registry; with aside set (the edit path only) it is also
+// moved to registry.broken.json, so a later save can't wipe what might be mended. A read route passes false and
+// leaves the file where it is, until an edit.
 func readRegistry(path string, aside bool) registryFile {
+	if held, ok := heldRegistryFor(path); ok {
+		if aside && takeBrokenRegistry(path) {
+			setAside(path)
+		}
+		return held
+	}
+	file, broken := readRegistryFile(path, aside)
+	holdRegistry(path, file)
+	if broken && !aside {
+		markBrokenRegistry(path)
+	}
+	return file
+}
+
+// readRegistryFile is the registry the file at path holds, as the core first reads it, and whether it was there but
+// couldn't be read.
+func readRegistryFile(path string, aside bool) (registryFile, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return registryFile{}
+			return registryFile{}, false
 		}
-		return unreadable(path, aside)
+		registryDropped()
+		return unreadable(path, aside), true
 	}
+	file, ok := parseRegistry(data)
+	if !ok {
+		registryDropped()
+		return unreadable(path, aside), true
+	}
+	// Its permissions are a sealed record (records_registry.go): one another program changed doesn't count.
+	return vouchRegistry(data, file), false
+}
+
+// readRegistryData is the registry data holds, or an empty one if it can't be read.
+func readRegistryData(data []byte) registryFile {
+	file, _ := parseRegistry(data)
+	return file
+}
+
+// parseRegistry reads a registry file's bytes: false if they aren't one.
+func parseRegistry(data []byte) (registryFile, bool) {
 	var raw map[string]json.RawMessage
 	var version int
 	var hires []Hire
@@ -124,11 +162,11 @@ func readRegistry(path string, aside bool) registryFile {
 		(raw["hires"] != nil && json.Unmarshal(raw["hires"], &hires) != nil) ||
 		(raw["contacts"] != nil && json.Unmarshal(raw["contacts"], &contacts) != nil) ||
 		(raw["keys"] != nil && json.Unmarshal(raw["keys"], &keys) != nil) {
-		return unreadable(path, aside)
+		return registryFile{}, false
 	}
 	for i, h := range hires {
 		if h.ID == "" || h.Name == "" || h.Folder == "" {
-			return unreadable(path, aside)
+			return registryFile{}, false
 		}
 		hires[i].Folder = projectFolder(h)
 	}
@@ -136,7 +174,8 @@ func readRegistry(path string, aside bool) registryFile {
 	delete(raw, "hires")
 	delete(raw, "contacts")
 	delete(raw, "keys")
-	return registryFile{hires: hires, contacts: contacts, keys: keys, rest: raw}
+	delete(raw, sealedPartField)
+	return registryFile{hires: hires, contacts: contacts, keys: keys, rest: raw}, true
 }
 
 // projectFolder is a hire's folder as the contract's registry.json has it: the project it was hired into.
@@ -171,6 +210,31 @@ func setAside(path string) registryFile {
 }
 
 func (f registryFile) save(path string) error {
+	if filepath.Base(path) != registryName {
+		fields, err := f.fields()
+		if err != nil {
+			return err
+		}
+		data, err := json.MarshalIndent(fields, "", "  ")
+		if err == nil {
+			err = writePrivate(path, data)
+		}
+		if err == nil {
+			holdRegistry(path, f)
+		}
+		return err
+	}
+	// A sealed record (records.go): what takes authority away is written under a new record key (registryTightens).
+	old, held := heldRegistryFor(path)
+	if err := keepRecord(registryName, f.writer(path), held && registryTightens(old, f)); err != nil {
+		return err
+	}
+	holdRegistry(path, f)
+	return nil
+}
+
+// fields are the registry file's fields as f holds them, its seal aside.
+func (f registryFile) fields() (map[string]json.RawMessage, error) {
 	hires := []Hire{}
 	for _, h := range f.hires {
 		// Where a desk sits is a hire in T3 Code's alone, as the Mac writes it.
@@ -190,11 +254,29 @@ func (f registryFile) save(path string) error {
 	if len(f.keys) > 0 {
 		out["keys"] = f.keys
 	}
-	data, err := json.MarshalIndent(out, "", "  ")
+	data, err := json.Marshal(out)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return writePrivate(path, data)
+	var fields map[string]json.RawMessage
+	err = json.Unmarshal(data, &fields)
+	return fields, err
+}
+
+// writer writes the registry at path as f holds it now, sealed under the key given (records.go's recordWriter).
+func (f registryFile) writer(path string) recordWriter {
+	fields, err := f.fields()
+	part := registrySecurityPart(f)
+	return func(key []byte, prev string) error {
+		if err != nil {
+			return err
+		}
+		data, err := withPartSeal(fields, key, prev, registryName, part)
+		if err != nil {
+			return err
+		}
+		return writePrivate(path, data)
+	}
 }
 
 // contactsJSON is the pairs as gm team and POST /setup/gm/contacts answer them:

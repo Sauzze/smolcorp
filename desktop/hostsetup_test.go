@@ -1,8 +1,11 @@
 package desktop
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -49,6 +52,19 @@ type macStandIn struct {
 	// The Mac's screens (gmscreens.go), and a terminal that refuses Smolcorp its Automation permission for tiling.
 	screens       []macScreen
 	tileForbidden bool
+	// The record key's items in the app's Keychain (records.go), and what record-key-look says of them when a
+	// test plants a state ("moved", "unreadable"); "" for what the items themselves say.
+	recordItems []bridgeRecordKey
+	recordLook  string
+	// addOverwritten: another program overwrites the next item added in the very second of the add (RT126SK1 B1).
+	// The app reads it back and refuses it (KeychainGate.swift): the item stays, with a witness beside it.
+	addOverwritten bool
+}
+
+// newRecordItem is a stand-in record key's item: a fake key, made of its id.
+func newRecordItem(id string) bridgeRecordKey {
+	sum := sha256.Sum256([]byte("FAKEKEY-record-" + id))
+	return bridgeRecordKey{ID: id, Value: hex.EncodeToString(sum[:])}
 }
 
 func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
@@ -102,6 +118,8 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 		return bridgeAnswer{OK: true, On: m.login}, nil
 	case "choose-folder":
 		return bridgeAnswer{OK: true, Folder: m.picked}, nil
+	case "record-key-look", "record-key-new", "record-key-add", "record-key-retire":
+		return m.recordKey(request), nil
 	case "secret-read", "secret-write", "secret-delete":
 		if request.Action == "secret-read" && m.lookFailed[request.Item] {
 			return bridgeAnswer{OK: true, Failed: true}, nil
@@ -379,6 +397,18 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 			return errors.Is(placeError(answer, err), errAgentGone), err
 		},
 		"Add smolcorp to Terminal, in a test copy": func(h hostBridge) (any, error) { return nil, hostTerminalCommand(h, true) },
+		"the record key, looked at": func(h hostBridge) (any, error) {
+			answer, err := hostRecordKey(h, "record-key-look", "")
+			return answer.Records + " " + answer.RecordKeys[0].ID + " " + strconv.Itoa(len(keyFromBridge(answer.RecordKeys[0]))), err
+		},
+		"a record key added beside it, to rotate": func(h hostBridge) (any, error) {
+			answer, err := hostRecordKey(h, "record-key-add", "")
+			return answer.RecordKeys[0].ID + " " + strconv.Itoa(len(keyFromBridge(answer.RecordKeys[0]))), err
+		},
+		"the old record key deleted": func(h hostBridge) (any, error) {
+			_, err := hostRecordKey(h, "record-key-retire", "key-0a1b2c3d4e5f6071")
+			return nil, err
+		},
 		"the desks' terminals, from the drivers' tables": func(h hostBridge) (any, error) {
 			return hostAbilities(h, []string{"iterm:AB12", "tty:/dev/ttys003", "headless:3f2a9c1e"})
 		},
@@ -484,6 +514,8 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"where you are, for the portable office: idle, locked, and the unlocks and wakes seen": macPresence{idle: 2500 * time.Millisecond,
 			unlocks: 3, wakes: 1},
 		"the GM's token, from the Keychain item the Swift engine kept it in": "fake-gm-token-from-1-24-0000000000000000000",
+		"the record key, looked at":                                                   "one key-0a1b2c3d4e5f6071 32",
+		"a record key added beside it, to rotate":                                     "key-8091a2b3c4d5e6f7 32",
 		"an app allowed keys":                                                         []string{"com.example.notes", "com.example.mail"},
 		"an app taken off, any capitals":                                              []string{"com.example.mail"},
 		"a terminal never allowed keys":                                               []string{},
@@ -699,7 +731,8 @@ func TestTheMacsSwitchesAreKeptHereAndDoneByTheApp(t *testing.T) {
 	mac.mu.Lock()
 	for _, request := range mac.asked {
 		read := request.Action == "secret-read" || request.Action == "login-item" && request.On == nil
-		background := request.Action == "bots-roster" // the bots looked for in the Grok Bot app, at the deck's start
+		// The bots looked for in the Grok Bot app, and the record key (records.go), at the deck's start.
+		background := request.Action == "bots-roster" || strings.HasPrefix(request.Action, "record-key-")
 		if !read && !background && request.Action != "facts" && request.Action != "bots-resolve" && request.Action != "abilities" && request.Action != "api-key-offer" {
 			done = append(done, request.Action)
 		}
@@ -938,4 +971,47 @@ func TestGrokBotsAreFoundInTheGrokBotAppThroughTheApp(t *testing.T) {
 		t.Errorf("the app was never asked to resolve the bots; it was asked %q", found.all)
 	}
 	_ = mac
+}
+
+// recordKey answers the record key's actions as the app does (KeychainGate.swift's RecordKeychain), on stand-in
+// items. The caller holds m.mu.
+func (m *macStandIn) recordKey(request bridgeRequest) bridgeAnswer {
+	fresh := func() bridgeRecordKey { return newRecordItem(fmt.Sprintf("key-%d", len(m.asked))) }
+	if m.addOverwritten && (request.Action == "record-key-new" || request.Action == "record-key-add") {
+		m.addOverwritten = false
+		if request.Action == "record-key-new" {
+			m.recordItems = nil
+		}
+		planted := newRecordItem("key-overwritten")
+		planted.Value = strings.Repeat("41", 32)
+		m.recordItems = append(m.recordItems, planted, newRecordItem(fmt.Sprintf("key-witness-%d", len(m.asked))))
+		return bridgeAnswer{Error: "The Keychain made no key."}
+	}
+	switch request.Action {
+	case "record-key-new":
+		m.recordItems, m.recordLook = []bridgeRecordKey{fresh()}, ""
+		return bridgeAnswer{OK: true, RecordKeys: slices.Clone(m.recordItems)}
+	case "record-key-add":
+		item := fresh()
+		m.recordItems = append(m.recordItems, item)
+		return bridgeAnswer{OK: true, RecordKeys: []bridgeRecordKey{item}}
+	case "record-key-retire":
+		m.recordItems = slices.DeleteFunc(m.recordItems, func(item bridgeRecordKey) bool { return item.ID == request.Item })
+		return bridgeAnswer{OK: true}
+	}
+	look := m.recordLook
+	switch {
+	case look != "":
+	case len(m.recordItems) == 0:
+		look = "none"
+	case len(m.recordItems) == 1:
+		look = "one"
+	default:
+		look = "many"
+	}
+	answer := bridgeAnswer{OK: true, Records: look}
+	if look == "one" || look == "many" {
+		answer.RecordKeys = slices.Clone(m.recordItems)
+	}
+	return answer
 }

@@ -135,8 +135,8 @@ var goOnlyRoutes = []routeRow{
 	{"POST", "/setup/peers/join", []string{"page"}},
 	// The owner's yes or no to an ask (grants.go): the page's cookie alone, never a tool's key nor the GM's token.
 	{"POST", "/setup/grants/answer", []string{"page"}},
-	// A phone phones.json lists that this app can't vouch for, let in by the owner (access.go's Confirm): the page alone.
-	{"POST", "/setup/phones/confirm", []string{"page"}},
+	// Smolcorp's records started over, once their key failed its check (records.go): the page alone.
+	{"POST", "/setup/records/reset", []string{"page"}},
 	{"GET", nightListPath, []string{"gm", "page", "tool"}},
 	{"POST", nightProposePath, []string{"gm", "page"}},
 	{"POST", nightSavePath, []string{"page"}},

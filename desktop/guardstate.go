@@ -3,6 +3,7 @@ package desktop
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -354,7 +355,9 @@ func saveGuard(body []byte, path, goos string) briefRouteAnswer {
 		}
 		stored.extra = unique
 	}
-	if holdGuard(path, guardFileData(stored)) != nil {
+	if err := holdGuard(path, guardFileData(stored)); errors.Is(err, errRecordsHeld) {
+		return briefRefusal(409, recordsHeldAnswer)
+	} else if err != nil {
 		return briefRefusal(500, guardNotWrittenAnswer)
 	}
 	return briefJSON(guardState(path, goos))

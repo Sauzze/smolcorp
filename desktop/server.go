@@ -1273,19 +1273,18 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		d.mu.Unlock()
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
-	// An entry of phones.json this app can't vouch for, let in by the owner's own tap on the setup page (access.go's
-	// Confirm): the page's cookie alone, never a tool's key nor the GM's token (goOnlyRoutes; RT126FS2c B1 b). The tap
-	// names the row the page showed, by its id and its digest (entry), so it lets in that row or nothing (RT126FS2R4 B1).
-	case r.Method == http.MethodPost && path == "/setup/phones/confirm":
+	// The records' reset, once their key failed its check (records.go): the page's cookie alone, never a tool's
+	// key nor the GM's token (goOnlyRoutes). Every phone, paired Mac and hire's key starts over.
+	case r.Method == http.MethodPost && path == "/setup/records/reset":
 		if r.caller != callerPage {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
 		d.mu.Lock()
-		confirmed := d.access.Phones.Confirm(query.Get("phone"), query.Get("entry"))
+		err := d.resetRecords()
 		d.mu.Unlock()
-		if !confirmed {
-			writeStatus(w)(http.StatusNotFound, "No such phone waits for you to confirm it.")
+		if err != nil {
+			writeStatus(w)(http.StatusConflict, "Smolcorp's records couldn't be reset: "+err.Error()+".")
 			return
 		}
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
@@ -2253,17 +2252,13 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 			"beforeSigning": before, "pairedAgain": before && d.access.Phones.PairedAgain(phone),
 		}
 	}
-	// What phones.json lists that waits for the owner to confirm it (access.go's Waiting): the page's alone, as
-	// only its tap confirms one. Each row carries its digest, which the tap sends back, and nothing the planter of a
-	// row could choose freely: a name this app gives phones, the date listed and the key's short fingerprint
-	// (RT126FS2R4 B1, B2).
-	var waitingPhones []map[string]any
+	// What Setup says of Smolcorp's records when their key failed its check (records.go), for the page alone, with
+	// what its Reset's confirm asks, and a line for any record dropped at this start (RT126SK1R2 N1): "" otherwise.
+	recordsSaid, recordsReset, recordsDropped := "", "", ""
 	if who == callerPage {
-		waitingPhones = []map[string]any{}
-		for _, phone := range d.access.Phones.Waiting() {
-			waitingPhones = append(waitingPhones, map[string]any{"id": phone.ID, "entry": EntryDigest(phone), "name": phone.Name,
-				"pairedAt": phone.PairedAt.UnixMilli(), "key": KeyPrint(phone)})
-		}
+		recordsSaid = recordsText(recordsState(), recordsStale())
+		recordsReset = recordsResetConfirm(recordsState(), recordsStale())
+		recordsDropped = recordsDroppedText()
 	}
 	// Every key a project can be pinned to, even those the phone doesn't
 	// show: with Auto, a pin there adds keys up to it; with a fixed number,
@@ -2366,8 +2361,11 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"activeProfile": d.config.ActiveProfile,
 		"profileEdited": d.config.profileEdited(),
 	}
-	if waitingPhones != nil {
-		state["waitingPhones"] = waitingPhones
+	if recordsSaid != "" {
+		state["records"], state["recordsReset"] = recordsSaid, recordsReset
+	}
+	if recordsDropped != "" {
+		state["recordsDropped"] = recordsDropped
 	}
 	// What to type to start an agent through the launcher. Not under the Mac app, even while it doesn't answer:
 	// the page takes "launcher" for a Linux or Windows computer and words everything for one (its Keychain

@@ -577,7 +577,7 @@ func TestTheBadgeIsOnTheWindowAndTheGMRoutesOnly(t *testing.T) {
 	file["hires"] = append(file["hires"].([]any),
 		map[string]any{"id": "h1", "name": "Bo", "role": "builder", "state": "working", "folder": repo, "repo": repo, "worktree": worktree})
 	data, _ := json.Marshal(file)
-	if err := os.WriteFile(registryPath(), data, 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	phone := pair(t, d)

@@ -194,7 +194,7 @@ func setContacts(path string, body []byte) ([]Contact, *refusal) {
 // with d.mu held.
 func (d *Deck) newGMToken() string {
 	token := randomKey()
-	if d.gmKept.writeNow(token) != nil {
+	if d.gmKept.writeNow(gmVerifierForm(hashKey(token))) != nil {
 		return ""
 	}
 	d.mu.Lock()
@@ -216,17 +216,27 @@ func (d *Deck) clearGMToken() {
 // failed or was fired takes its own token away, never a newer GM's.
 func (d *Deck) clearGMTokenIf(token string) {
 	d.mu.Lock()
-	if token != "" && constantTimeEqual(d.gmToken, token) {
+	if check := d.gmCheck(); token != "" && check != "" && constantTimeEqual(hashKey(token), check) {
 		d.gmToken = ""
 		d.gmTokenChanged()
 	}
 	d.mu.Unlock()
 }
 
-// isGMToken says whether a header's value is the GM's token. It never makes
-// one: with no token yet, nobody is the GM. The caller holds d.mu.
+// isGMToken says whether a header's value is the GM's token, by its verifier (gmCheck): the core keeps no GM token
+// between runs, only its hash. It never makes one: with no token yet, nobody is the GM. The caller holds d.mu.
 func (d *Deck) isGMToken(candidate string) bool {
-	return candidate != "" && d.gmToken != "" && constantTimeEqual(candidate, d.gmToken)
+	check := d.gmCheck()
+	return candidate != "" && check != "" && constantTimeEqual(hashKey(candidate), check)
+}
+
+// gmCheck is what the GM's token is checked against: the hash of the token made in this run, else the verifier
+// kept from the last, else "" (no GM). The caller holds d.mu.
+func (d *Deck) gmCheck() string {
+	if d.gmToken != "" {
+		return hashKey(d.gmToken)
+	}
+	return d.gmVerifier
 }
 
 // The two texts the GM's token gets when it asks to hire the General Manager

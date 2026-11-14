@@ -63,16 +63,27 @@ type macPeers struct {
 // macPeersFile is the list's file in the support folder, taken as the deck starts.
 func macPeersFile() string { return filepath.Join(supportDir, "mac-peers.json") }
 
+// loadMacPeers is the Macs paired here. The list is a sealed record (records.go): on a Mac, one whose seal doesn't
+// fit is left out whole and said, and at the one-time change of every key (B1) every Mac pairs again.
 func loadMacPeers(file string) *macPeers {
 	p := &macPeers{file: file}
-	if data, err := os.ReadFile(file); err == nil {
-		_ = json.Unmarshal(data, &p.All)
+	if data, err := os.ReadFile(file); err == nil && !recordsRotated() {
+		body, counts := openBody(filepath.Base(file), data)
+		if counts {
+			_ = json.Unmarshal(body, &p.All)
+		} else {
+			recordDropped(filepath.Base(file), "mac-peers.json was changed by another program, or its seal doesn't fit: no Mac it lists is let in. Pair them again.")
+		}
 	}
 	return p
 }
 
-// pair adds a Mac and gives its key: the only time the key exists here.
+// pair adds a Mac and gives its key: the only time the key exists here. None while the records can't keep it
+// (access.go's keepable, RT126SK1R3 N3): then it gives "", and nothing is paired.
 func (p *macPeers) pair(name string) string {
+	if !keepable() {
+		return ""
+	}
 	key := randomKey()
 	now := time.Now().UTC().Truncate(time.Second)
 	p.All = append(p.All, MacPeer{ID: newID(), Name: name, PairedAt: now, LastSeen: now, KeyHash: hashKey(key)})
@@ -112,17 +123,25 @@ func (p *macPeers) remove(id string) bool {
 	}
 	gone := len(kept) < len(p.All)
 	p.All = kept
-	p.save()
+	// Under a new record key when one went: a copy of the list from before no longer fits (records.go).
+	_ = keepRecord("mac-peers.json", p.writer(), gone)
 	return gone
 }
 
-func (p *macPeers) save() {
-	list := p.All
+func (p *macPeers) save() { _ = keepRecord("mac-peers.json", p.writer(), false) }
+
+// writer writes the list as it is now (records.go's recordWriter).
+func (p *macPeers) writer() recordWriter {
+	list, file := slices.Clone(p.All), p.file
 	if list == nil {
 		list = []MacPeer{}
 	}
-	if data, err := json.MarshalIndent(list, "", "  "); err == nil {
-		_ = writePrivate(p.file, data)
+	return func(key []byte, prev string) error {
+		data, err := json.MarshalIndent(list, "", "  ")
+		if err != nil {
+			return err
+		}
+		return writePrivate(file, sealBody(key, prev, filepath.Base(file), data))
 	}
 }
 
@@ -307,7 +326,7 @@ func (d *Deck) peerPair(w http.ResponseWriter, r *request) {
 	switch {
 	case tooSoon:
 		writeStatus(w)(http.StatusTooManyRequests, peerCodeTooSoon)
-	case !ok:
+	case !ok, key == "":
 		writeStatus(w)(http.StatusForbidden, d.inWords(peerCodeRefusal))
 	default:
 		writeJSON(w, http.StatusOK, map[string]any{"key": key, "name": peerMachineName()})

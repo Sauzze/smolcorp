@@ -92,7 +92,9 @@ func (d *Deck) applyByHand() error {
 		_ = os.Remove(gmTokenPath())
 		return nil
 	}
-	if d.gmToken == "" && !d.gmKept.readFailed() {
+	// Not over the verifier of a hired GM's token from the last run: that GM goes on working, and a GM started by
+	// hand needs a new token (rotate) to be given one, as the core no longer has the old one whole.
+	if d.gmCheck() == "" && !d.gmKept.readFailed() {
 		d.gmToken = randomKey()
 		d.keepGMToken()
 	}
@@ -122,6 +124,8 @@ func (d *Deck) forgetByHand() {
 // GM can be started by hand at any time: one taken away (its GM fired, or its hire failed) is replaced by a new one.
 func (d *Deck) gmTokenChanged() {
 	d.forgetByHand()
+	// The token made now (or none) replaces any verifier kept from the last run.
+	d.gmVerifier = ""
 	if d.gmToken == "" && d.byHandAllowed() {
 		d.gmToken = randomKey()
 	}
@@ -171,7 +175,7 @@ func (d *Deck) byHandGMSession() string {
 // exactly that id, as if its token had just worked. Never another session, never with no token. The caller holds d.mu.
 func (d *Deck) restoreByHand() {
 	h := &d.gmHand
-	if h.session == "" && h.remembered != "" && d.byHandAllowed() && d.gmToken != "" && d.sessions.Get(h.remembered) != nil {
+	if h.session == "" && h.remembered != "" && d.byHandAllowed() && d.gmCheck() != "" && d.sessions.Get(h.remembered) != nil {
 		h.seen, h.session = true, h.remembered
 	}
 }
@@ -243,7 +247,7 @@ func (d *Deck) rotateGMToken() bool {
 	old := d.gmToken
 	d.mu.Unlock()
 	fresh := randomKey()
-	if d.gmKept.writeNow(fresh) != nil {
+	if d.gmKept.writeNow(gmVerifierForm(hashKey(fresh))) != nil {
 		return false
 	}
 	d.mu.Lock()

@@ -45,7 +45,6 @@ var knownGaps = []knownGap{
 	{"setup-state", ".phones[].beforeSigning", "extra", "a phone paired before 1.25, whose key crossed the Wi-Fi in clear (FXSEC B1), which the Swift engine never had", "stays: Go-only, the page's Paired phones; the Mac runs the Go core"},
 	{"setup-state", ".phones[].pairedAgain", "extra", "a phone of its name paired since, so setup offers to remove the old entry (FXSEC B1)", "stays: Go-only, the page's Paired phones; the Mac runs the Go core"},
 	{"setup-state", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
-	{"setup-state", ".waitingPhones", "extra", "the phones phones.json lists with no seal of this app's, for the owner to confirm or revoke (1.26 FS2)", "stays: Go-only; the page's alone, and the phones' seal is this app's"},
 	{"setup-state-tool", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state-tool", ".hiring.managedWindows", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
 	{"setup-state-tool", ".mailBeta", "extra", "mail to a hire is beta on Windows", "stays: Go-only, the page doesn't read it"},

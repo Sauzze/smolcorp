@@ -27,10 +27,13 @@ type Deck struct {
 	// Held through Start here's GM hire (server.go), never with mu: one at a time.
 	gmHiring sync.Mutex
 	access   *Access
-	gmToken  string         // the GM's token, in memory, kept by gmKept, and under the Mac app in a file for a GM started by hand (gmbyhand.go)
-	grants   *grantStore    // the owner's asks and grants (grants.go): its own lock, never mu
-	gmKept   *gmTokenKeeper // where the token is kept between runs: the Keychain, a secret store or a file (gmtokenstore.go)
-	gmHand   gmByHandState
+	gmToken  string // the GM's token made in this run, in memory, and under the Mac app in a file for a GM started by hand (gmbyhand.go)
+	// gmVerifier is the verifier of a GM token from an earlier run (SHA-256, in hex): all the core keeps between
+	// runs (gmKept), and what it checks the GM's token against while gmToken is "" (gmCheck).
+	gmVerifier string
+	grants     *grantStore    // the owner's asks and grants (grants.go): its own lock, never mu
+	gmKept     *gmTokenKeeper // where the token is kept between runs: the Keychain, a secret store or a file (gmtokenstore.go)
+	gmHand     gmByHandState
 	// Floors from other Macs (peers_mac.go): the Macs paired here and the code to join with, under mu; where the
 	// Macs this one joined are kept, with their keys (the secret store); joinMu, held through a join, never with mu.
 	macPeers *macPeers
@@ -185,6 +188,13 @@ var effortLevels = []string{"low", "medium", "high", "xhigh", "max"}
 func NewDeck() *Deck {
 	// Before anything is served: a start script left by a core that stopped has no watcher.
 	removeLeftStartScripts()
+	// Before any record is read: the one-time change of every key (B1), and the record key from the Mac app
+	// (records.go), with the records it finds unsealed sealed as found at the first sealed start.
+	changeKeysOnce()
+	startRecords(host)
+	if recordsFirst() {
+		sealGuardAsFound()
+	}
 	// The owner's guard, read as the core starts and held from then on (guardheld.go): a desk left running across a
 	// restart can't change it before the first desk start or Settings view reads it.
 	heldGuard(filepath.Join(supportDir, hireGuardFile))
@@ -197,14 +207,14 @@ func NewDeck() *Deck {
 		// The Mac app it runs under, or none, taken now: the deck reads only its own (hostsetup.go).
 		mac: macState{host: host},
 	}
-	if settleListenScope(d.config, phonesKnown(d.access.Phones), runtime.GOOS) {
+	if settleListenScope(d.config, phonesKnown(d.access.Phones), runtime.GOOS) || recordsFirst() {
 		d.config.save()
 	}
 	// The GM's token kept from the last run (gmtokenstore.go): a GM hired before it, or one started by hand, goes on
 	// working. Read before anything is served, without d.mu; then, under the Mac app, the file of a GM started by hand
 	// (gmbyhand.go), and whatever the token is now is kept, but over an item that couldn't be read.
 	d.gmKept = newGMTokenKeeper(gmStoreFor(d.mac.host))
-	d.gmToken = d.gmKept.restore(readRegistry(registryPath(), false).gmIsHired() || d.byHandAllowed())
+	d.gmVerifier = d.gmKept.restore(readRegistry(registryPath(), false).gmIsHired() || d.byHandAllowed())
 	d.loadByHandGM()
 	if !d.gmKept.readFailed() {
 		d.keepGMToken()
@@ -244,6 +254,7 @@ func NewDeck() *Deck {
 	d.t3Desks = newT3Desks(registry)
 	// Floors from other Macs: those paired here, from the support folder; those joined, in the secret store.
 	d.macPeers = loadMacPeers(macPeersFile())
+	d.settleRecords()
 	d.peerKeys = peerKeyStoreFor(d.mac.host)
 	// The night shift's jobs, read now. Its scheduler is started by the runner (N2): until then nothing falls due.
 	d.night = newNightShift(filepath.Join(support, nightFileName), nil)

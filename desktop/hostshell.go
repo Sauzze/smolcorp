@@ -255,7 +255,7 @@ func macPresenceOf(h hostBridge) func() (macPresence, bool) {
 // macChecks are the self-test's lines after the hooks under the Mac app, as SelfTest.swift has them:
 // Accessibility, then the network, the phone and the login lines in the Mac's words. Without the app's
 // facts there's no Accessibility line. Without the lock.
-func (d *Deck) macChecks(phones, waiting int) []check {
+func (d *Deck) macChecks(phones int, waiting string) []check {
 	var checks []check
 	facts := d.macFactsNow()
 	if facts != nil {

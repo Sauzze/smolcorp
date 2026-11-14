@@ -1013,7 +1013,7 @@ func grantState(t *testing.T, d *Deck, id string) string {
 // nobody (401), and none of them changes the ask.
 func TestTheSetupPageAnswersAndNoOtherSetupCaller(t *testing.T) {
 	d, _, id := deckWithAnAsk(t)
-	if err := os.WriteFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"aaa111","name":"Rev","folder":"/w","role":"reviewer","state":"working"}]}`), 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"aaa111","name":"Rev","folder":"/w","role":"reviewer","state":"working"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	hireKey, err := newSendKey(registryPath(), "aaa111")

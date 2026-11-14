@@ -1262,6 +1262,8 @@ final class HostBridgeTests: XCTestCase {
             return .ok("0 30 476 566")
         }
         mac.placeOffice = { [unowned self] rect, mainHeight in asked.append("office \(Int(rect.minX)) \(Int(rect.minY)) \(Int(rect.width)) \(Int(rect.height)) \(Int(mainHeight))") }
+        // The record key (SK1): a stand-in store with the fixture's stand-in keys, never the Keychain.
+        mac.records = FixtureRecordKeys()
         func text(_ object: Any) -> String {
             String(decoding: (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data(), as: UTF8.self)
         }
@@ -1831,4 +1833,15 @@ private final class PhoneTerminal: TerminalDriver {
     var open: ((TabAddress) -> Bool?)?
     func isOpen(_ tab: TabAddress) -> Bool? { open?(tab) ?? nil }
     func screen(of tab: TabAddress) -> String? { nil }
+}
+
+/// The record key as the shared fixture has it: one item, a second added beside it, the first deleted. Stand-in
+/// keys only; nothing asks the Keychain.
+struct FixtureRecordKeys: RecordKeyStore {
+    static let first = RecordKeyItem(id: "key-0a1b2c3d4e5f6071", value: Data(repeating: 0x0f, count: 32))
+    static let second = RecordKeyItem(id: "key-8091a2b3c4d5e6f7", value: Data(repeating: 0xf0, count: 32))
+    func look() -> RecordKeyLook { .one(Self.first) }
+    func makeNew() -> RecordKeyItem? { Self.first }
+    func add() -> RecordKeyItem? { Self.second }
+    func retire(_ id: String) -> Bool { id == Self.first.id }
 }

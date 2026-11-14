@@ -72,7 +72,7 @@ func TestTheTeamIsTheRegistryMergedWithLiveSessionsAsTeamJSONSays(t *testing.T) 
 func TestTheTeamRouteAnswersFromTheRegistryFileForThePageAndAToolAlikeAndNobodyWithoutAKey(t *testing.T) {
 	d := newTestDeck(t)
 	managerOn(d)
-	if err := os.WriteFile(registryPath(), frontDeskFixture(t, "registry.json"), 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), frontDeskFixture(t, "registry.json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	get := func(c call) *httptest.ResponseRecorder {
@@ -107,7 +107,7 @@ func TestARegistryEditAnswersAndRefusesAsRegistryEditJSONSays(t *testing.T) {
 	d := newTestDeck(t)
 	managerOn(d)
 	original := frontDeskFixture(t, "registry.json")
-	if err := os.WriteFile(registryPath(), original, 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), original, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var edit struct {
@@ -162,7 +162,7 @@ func TestAGetWithABrokenRegistryLeavesTheFileWhereItIs(t *testing.T) {
 	d := newTestDeck(t)
 	managerOn(d)
 	broken := []byte(`{"version": 99, "hires": []}`)
-	if err := os.WriteFile(registryPath(), broken, 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), broken, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	w := serve(t, d, call{method: "GET", target: "/setup/gm/team", host: "localhost:7710", from: thisComputer})

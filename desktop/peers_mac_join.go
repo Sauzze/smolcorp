@@ -231,14 +231,21 @@ func (rt *router) peerSetupRoutes(w http.ResponseWriter, r *request) bool {
 		}
 		d.mu.Unlock()
 	case r.Method == http.MethodPost && r.URL.Path == "/setup/peers/code":
+		// No code while the records can't take a Mac (records.go): it would be kept unsealed, and dropped at the next
+		// start with every Mac paired before (RT126SK1R3 N3), as a phone isn't paired then either.
+		refused := recordsRefusal()
 		d.mu.Lock()
 		on := d.config.FloorsFromOtherMacs
-		if on {
+		if on && refused == "" {
 			d.macPeers.code.renew()
 		}
 		d.mu.Unlock()
 		if !on {
 			writeStatus(w)(http.StatusConflict, d.inWords(peersOffRefusal))
+			return true
+		}
+		if refused != "" {
+			writeStatus(w)(http.StatusConflict, refused)
 			return true
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/setup/peers/revoke":

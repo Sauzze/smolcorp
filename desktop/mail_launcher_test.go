@@ -3,7 +3,6 @@ package desktop
 import (
 	"encoding/json"
 	"io"
-	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -465,7 +464,7 @@ func TestAWindowAnotherHireMayOwnIsNotTyped(t *testing.T) {
 	a, b := launcherHire(), launcherHire()
 	b.ID, b.Name = "bbbbbb123456", "Bo"
 	data, _ := json.Marshal(map[string]any{"version": 1, "hires": []Hire{a, b}})
-	if err := os.WriteFile(registryPath(), data, 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	theirs := newFakeLauncher(t, d, "L1", "/work/api", "", "idle-empty", true)
@@ -479,7 +478,7 @@ func TestAWindowAnotherHireMayOwnIsNotTyped(t *testing.T) {
 	// Once B is fired, the window can only be A's.
 	b.State = "fired"
 	data, _ = json.Marshal(map[string]any{"version": 1, "hires": []Hire{a, b}})
-	os.WriteFile(registryPath(), data, 0o600)
+	writeRegistryFile(registryPath(), data, 0o600)
 	if id, ok := d.hireLauncherID(a); !ok || id != "L1" {
 		t.Errorf("with the other hire fired: %q %v", id, ok)
 	}

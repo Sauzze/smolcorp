@@ -265,7 +265,7 @@ func TestTheRegistrysFolderIsTheProjectAndOldRowsAreReadSo(t *testing.T) {
 		{ID: "d4", Name: "D", Folder: "/w/app", Worktree: "/w/app-hires/d-4", Repo: "/w/app", State: "working"},
 	}
 	data, _ := json.Marshal(map[string]any{"version": 1, "hires": old})
-	if err := os.WriteFile(registryPath(), data, 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"/w/app", filepath.Join("/w/app", "sub", "x"), "/w/plain", "/w/app"}

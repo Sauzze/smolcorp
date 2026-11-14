@@ -22,8 +22,29 @@ const (
 	fakeOtherToken = "fake-gm-token-other-00000000000000000000000"
 )
 
-// keptItem is the Mac app's gm-token item as the stand-in holds it, and whether there is one.
+// keptAs is how a token's verifier is kept between runs (gmVerifierForm): never the token itself (SK1).
+func keptAs(token string) string { return gmVerifierForm(hashKey(token)) }
+
+// gmTokenNow is the GM's token the deck made in this run, "" for none.
+func gmTokenNow(d *Deck) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.gmToken
+}
+
+// keptItem is the verifier in the Mac app's gm-token item as the stand-in holds it, its seal aside (sealedItem),
+// and whether there is one.
 func (m *macStandIn) keptItem() (string, bool) {
+	value, found := m.sealedItem()
+	if prefix, rest, ok := strings.Cut(value, gmVerifierPrefix); ok && prefix == "" {
+		verifier, _, _ := strings.Cut(rest, ":")
+		value = gmVerifierPrefix + verifier
+	}
+	return value, found
+}
+
+// sealedItem is the Mac app's gm-token item as the stand-in holds it, seal and all.
+func (m *macStandIn) sealedItem() (string, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	value, found := m.secrets[gmTokenItem]
@@ -54,7 +75,7 @@ func TestAHiredGMsTokenIsKeptInTheMacsKeychainItemAcrossARestart(t *testing.T) {
 	d := startDeck(t)
 	token := d.newGMToken()
 	d.gmKept.flush(time.Minute)
-	if kept, _ := mac.keptItem(); kept != token {
+	if kept, _ := mac.keptItem(); kept != keptAs(token) {
 		t.Fatalf("the hired GM's token isn't the Keychain item's (kept %v)", kept != "")
 	}
 	withHiredGM(t, "working")
@@ -75,25 +96,28 @@ func TestAHiredGMsTokenIsKeptInTheMacsKeychainItemAcrossARestart(t *testing.T) {
 	}
 }
 
-// The upgrade from 1.24: the token the Swift engine kept in the same item is read on the first launch, so the GM
-// that's running goes on working, and nothing is written over it. With no GM hired (and none started by hand), a
-// token left in the item is taken away rather than kept working.
-func TestTheTokenOfAGMHiredOn124WorksOnTheFirstLaunch(t *testing.T) {
+// The upgrade to 1.26 (B1): a token kept whole in the item, by 1.24 or 1.25, is no verifier. It works no more, and
+// is taken away: the GM gets a new token when it is hired again. Nothing kept ever holds a token itself.
+func TestATokenKeptWholeBefore126IsDroppedOnTheFirstLaunch(t *testing.T) {
 	isolate(t)
 	mac := withMac(t)
 	mac.secrets = map[string]string{gmTokenItem: fakeKeptToken}
 	withHiredGM(t, "working")
 	d := startDeck(t)
 	d.gmKept.flush(time.Minute)
-	if !worksAsGM(d, fakeKeptToken) {
-		t.Fatal("the GM hired on 1.24 is refused on the first launch")
+	if worksAsGM(d, fakeKeptToken) {
+		t.Fatal("a token kept whole by 1.25 works on the first launch of 1.26")
 	}
-	for _, action := range mac.actions() {
-		if action == "secret-write" || action == "secret-delete" {
-			t.Errorf("the item was changed at the start: %s", action)
-		}
+	if kept, found := mac.keptItem(); found && kept == fakeKeptToken {
+		t.Error("the token kept whole is still in the item")
 	}
 
+	// A verifier kept by 1.26, sealed under the record key as the core keeps it (RT126SK1 B2), works across a restart
+	// while the GM is hired, and goes once it isn't.
+	mac.secrets = map[string]string{gmTokenItem: sealGMVerifier(keptAs(fakeKeptToken))}
+	if again := startDeck(t); !worksAsGM(again, fakeKeptToken) {
+		t.Error("the hired GM's token is refused after a restart")
+	}
 	withHiredGM(t, "fired")
 	gone := startDeck(t)
 	gone.gmKept.flush(time.Minute)
@@ -101,7 +125,7 @@ func TestTheTokenOfAGMHiredOn124WorksOnTheFirstLaunch(t *testing.T) {
 		t.Error("with no GM hired, the old token works")
 	}
 	if _, found := mac.keptItem(); found {
-		t.Error("with no GM hired, the old token is still kept")
+		t.Error("with no GM hired, the old token's verifier is still kept")
 	}
 }
 
@@ -109,7 +133,7 @@ func TestTheTokenOfAGMHiredOn124WorksOnTheFirstLaunch(t *testing.T) {
 func TestANewGMTokenIsTheOneKeptForTheNextRun(t *testing.T) {
 	isolate(t)
 	mac := withMac(t)
-	mac.secrets = map[string]string{gmTokenItem: fakeKeptToken}
+	mac.secrets = map[string]string{gmTokenItem: keptAs(fakeKeptToken)}
 	withHiredGM(t, "working")
 	d := startDeck(t)
 	managerOn(d)
@@ -117,9 +141,9 @@ func TestANewGMTokenIsTheOneKeptForTheNextRun(t *testing.T) {
 		t.Fatalf("rotate: %d", code)
 	}
 	d.gmKept.flush(time.Minute)
-	fresh, _ := mac.keptItem()
-	if fresh == "" || fresh == fakeKeptToken || !worksAsGM(d, fresh) {
-		t.Fatalf("the Keychain item after a new token: changed %v, works %v", fresh != fakeKeptToken, worksAsGM(d, fresh))
+	fresh := gmTokenNow(d)
+	if kept, _ := mac.keptItem(); fresh == "" || kept != keptAs(fresh) || !worksAsGM(d, fresh) {
+		t.Fatalf("the Keychain item after a new token: changed %v, works %v", kept != keptAs(fakeKeptToken), worksAsGM(d, fresh))
 	}
 	again := startDeck(t)
 	if worksAsGM(again, fakeKeptToken) || !worksAsGM(again, fresh) {
@@ -273,7 +297,7 @@ func (m *macStandIn) refuseWrites(why string) {
 func TestANewGMTokenTheKeychainRefusedIsNotGiven(t *testing.T) {
 	isolate(t)
 	mac := withMac(t)
-	mac.secrets = map[string]string{gmTokenItem: fakeKeptToken}
+	mac.secrets = map[string]string{gmTokenItem: keptAs(fakeKeptToken)}
 	withHiredGM(t, "working")
 	d := startDeck(t)
 	managerOn(d)
@@ -282,8 +306,8 @@ func TestANewGMTokenTheKeychainRefusedIsNotGiven(t *testing.T) {
 	if code != http.StatusInternalServerError || said["rotated"] == true || !strings.Contains(body, "the old one still works") {
 		t.Errorf("a new token the Keychain refused: %d %q", code, body)
 	}
-	if kept, _ := mac.keptItem(); !worksAsGM(d, fakeKeptToken) || kept != fakeKeptToken {
-		t.Fatalf("after the refusal, the old token works %v, is still kept %v", worksAsGM(d, fakeKeptToken), kept == fakeKeptToken)
+	if kept, _ := mac.keptItem(); !worksAsGM(d, fakeKeptToken) || kept != keptAs(fakeKeptToken) {
+		t.Fatalf("after the refusal, the old token works %v, is still kept %v", worksAsGM(d, fakeKeptToken), kept == keptAs(fakeKeptToken))
 	}
 	if !worksAsGM(startDeck(t), fakeKeptToken) {
 		t.Error("after the refusal and a restart, the running GM's token is refused")
@@ -294,9 +318,9 @@ func TestANewGMTokenTheKeychainRefusedIsNotGiven(t *testing.T) {
 		t.Fatalf("rotate with the Keychain back: %d", code)
 	}
 	// No flush: the store was written before the page was answered.
-	fresh, _ := mac.keptItem()
-	if fresh == fakeKeptToken || !worksAsGM(d, fresh) {
-		t.Fatalf("the Keychain item after the rotate: changed %v, works %v", fresh != fakeKeptToken, worksAsGM(d, fresh))
+	fresh := gmTokenNow(d)
+	if kept, _ := mac.keptItem(); kept != keptAs(fresh) || !worksAsGM(d, fresh) {
+		t.Fatalf("the Keychain item after the rotate: changed %v, works %v", kept != keptAs(fakeKeptToken), worksAsGM(d, fresh))
 	}
 	again := startDeck(t)
 	if worksAsGM(again, fakeKeptToken) || !worksAsGM(again, fresh) {
@@ -319,7 +343,7 @@ func TestAGMFiredWhileTheKeychainRefusesNeverComesBackWithItsToken(t *testing.T)
 	fired := d.newGMToken()
 	withHiredGM(t, "working")
 	d.gmKept.flush(time.Minute)
-	if kept, _ := mac.keptItem(); kept != fired || tokenInFile(t) != fired {
+	if kept, _ := mac.keptItem(); kept != keptAs(fired) || tokenInFile(t) != fired {
 		t.Fatalf("the hired GM's token is the Keychain item's %v, the file's %v", kept == fired, tokenInFile(t) == fired)
 	}
 
@@ -345,7 +369,7 @@ func TestAGMFiredWhileTheKeychainRefusesNeverComesBackWithItsToken(t *testing.T)
 	if !again.gmKept.flush(time.Minute) || !d.gmKept.flush(time.Minute) {
 		t.Fatal("the Keychain is back, and the token still isn't kept")
 	}
-	if kept, _ := mac.keptItem(); kept != replacement {
+	if kept, _ := mac.keptItem(); kept != keptAs(replacement) {
 		t.Error("the Keychain is back, and its item isn't the replacement")
 	}
 }
@@ -360,7 +384,7 @@ func TestAGMReplacedWhileTheKeychainRefusesIsRefusedAndTheOldTokenStaysDead(t *t
 	old := d.newGMToken()
 	withHiredGM(t, "working")
 	d.gmKept.flush(time.Minute)
-	if kept, _ := mac.keptItem(); old == "" || kept != old {
+	if kept, _ := mac.keptItem(); old == "" || kept != keptAs(old) {
 		t.Fatalf("the first GM's token isn't the Keychain item's (made %v)", old != "")
 	}
 
@@ -393,7 +417,7 @@ func TestAGMReplacedWhileTheKeychainRefusesIsRefusedAndTheOldTokenStaysDead(t *t
 	// With the Keychain back, a GM can be hired again, and its token is kept before it is given.
 	mac.refuseWrites("")
 	next := d.newGMToken()
-	if kept, _ := mac.keptItem(); next == "" || kept != next || !worksAsGM(d, next) {
+	if kept, _ := mac.keptItem(); next == "" || kept != keptAs(next) || !worksAsGM(d, next) {
 		t.Errorf("with the Keychain back: a token given %v, kept %v", next != "", kept == next)
 	}
 }
@@ -453,7 +477,7 @@ func TestAKeychainItemThatCouldntBeReadIsNeverWrittenOver(t *testing.T) {
 	}
 	isolate(t)
 	mac := withMac(t)
-	mac.secrets = map[string]string{gmTokenItem: fakeKeptToken}
+	mac.secrets = map[string]string{gmTokenItem: keptAs(fakeKeptToken)}
 	mac.lookFailed = map[string]bool{gmTokenItem: true}
 	config := loadConfig()
 	config.GMByHand = true
@@ -483,7 +507,7 @@ func TestAKeychainItemThatCouldntBeReadIsNeverWrittenOver(t *testing.T) {
 
 	hired := withFile.newGMToken()
 	withFile.gmKept.flush(time.Minute)
-	if kept, _ := mac.keptItem(); kept != hired {
+	if kept, _ := mac.keptItem(); kept != keptAs(hired) {
 		t.Error("a GM hired after the item couldn't be read has its token not kept")
 	}
 }

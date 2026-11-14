@@ -208,8 +208,8 @@ func TestAFiredGMsTokenFileThatCantBeRewrittenIsTakenAway(t *testing.T) {
 	if !d.gmKept.flush(time.Minute) {
 		t.Fatal("the replacement isn't kept in the store")
 	}
-	replacement, _ := mac.keptItem()
-	if replacement == "" || replacement == fired {
+	replacement := gmTokenNow(d)
+	if kept, _ := mac.keptItem(); replacement == "" || replacement == fired || kept != keptAs(replacement) {
 		t.Fatalf("the store's replacement: made %v", replacement != "")
 	}
 	if tokenInFile(t) == fired {

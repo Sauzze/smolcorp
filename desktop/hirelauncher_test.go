@@ -604,7 +604,7 @@ func TestMailFindsAnEngineHiresLauncherByIdIncludingTwoHiresInOneFolder(t *testi
 func writeRegistry(t *testing.T, hires ...Hire) {
 	t.Helper()
 	data, _ := json.Marshal(map[string]any{"version": 1, "hires": hires})
-	if err := os.WriteFile(registryPath(), data, 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

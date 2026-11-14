@@ -36,7 +36,52 @@ func isolate(t *testing.T) string {
 	windowKeyFile = filepath.Join(supportDir, "window-key")
 	sessionsFile = filepath.Join(supportDir, "sessions.json")
 	homeDir = t.TempDir()
+	// No record key from a test before (records.go): a deck started here takes its own from its stand-in Mac, or
+	// from a stand-in Keychain of this test's own in front of one that has none.
+	noRecordKey()
+	keychain, via := &macStandIn{}, recordsVia
+	recordsVia = func(h hostBridge) hostBridge {
+		if _, own := h.(*macStandIn); own {
+			return h
+		}
+		return recordsBeside{h, keychain}
+	}
+	t.Cleanup(func() { noRecordKey(); recordsVia = via })
 	return homeDir
+}
+
+// writeRegistryFile writes a registry file as one found at the core's next start: the core reads the registry once
+// and holds it (RT126SK1 B4), so what a test writes stands for a file written while it was stopped.
+func writeRegistryFile(path string, data []byte, perm os.FileMode) error {
+	err := os.WriteFile(path, data, perm)
+	forgetHeldRegistries()
+	return err
+}
+
+// recordsBeside is a stand-in Mac app that has no record key of its own, with a stand-in Keychain answering for it.
+type recordsBeside struct {
+	app      hostBridge
+	keychain *macStandIn
+}
+
+func (r recordsBeside) call(request bridgeRequest) (bridgeAnswer, error) {
+	if strings.HasPrefix(request.Action, "record-key-") {
+		return r.keychain.call(request)
+	}
+	return r.app.call(request)
+}
+
+// noRecordKey puts the records' state back to a core's without the Mac app: no key, nothing held, nothing said.
+func noRecordKey() {
+	records.mu.Lock()
+	records.host, records.key, records.id, records.prev, records.state = nil, nil, "", "", recordsOff
+	records.first, records.rotated, records.stale, records.writers = false, false, false, nil
+	records.settled, records.owed = false, false
+	records.mu.Unlock()
+	forgetHeldRegistries()
+	recordsSaid.Lock()
+	recordsSaid.said = map[string]bool{}
+	recordsSaid.Unlock()
 }
 
 // scriptSettings are the settings a start script gives its Claude Code in its command line (--settings=…, one

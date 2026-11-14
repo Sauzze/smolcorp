@@ -84,7 +84,7 @@ func asCaller(who caller, gm, hireKey string) call {
 // withGMAndAHire gives a test deck a GM token and a registry with one open hire holding a send key.
 func withGMAndAHire(t *testing.T, d *Deck) (gm, hireKey string) {
 	t.Helper()
-	if err := os.WriteFile(registryPath(), frontDeskFixture(t, "registry.json"), 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), frontDeskFixture(t, "registry.json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	key, err := newSendKey(registryPath(), "a1b2c3")

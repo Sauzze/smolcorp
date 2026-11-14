@@ -241,7 +241,7 @@ func TestTheStatusRouteIsThePagesAlone(t *testing.T) {
 
 	d := newTestDeck(t)
 	d.signInSeen.probe = func() []agentSignIn { return []agentSignIn{{Agent: "claude"}} }
-	os.WriteFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"aaa111","name":"Rev","folder":"/w","role":"reviewer","state":"working"}]}`), 0o600)
+	writeRegistryFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"aaa111","name":"Rev","folder":"/w","role":"reviewer","state":"working"}]}`), 0o600)
 	hireKey, err := newSendKey(registryPath(), "aaa111")
 	if err != nil {
 		t.Fatal(err)

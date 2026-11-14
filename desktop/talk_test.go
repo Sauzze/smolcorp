@@ -67,7 +67,7 @@ func TestOnlyTheOfficesOwnWindowReadsTheTalkCard(t *testing.T) {
 	d := newTestDeck(t)
 	phone := pair(t, d)
 	talkHook(d, 1761000541000, map[string]any{"hook_event_name": "SessionStart", "session_id": "s1", "cwd": "/work/s1", "source": "startup"})
-	if err := os.WriteFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"aaa111","name":"Rev","folder":"/w","role":"reviewer","state":"working"}]}`), 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"aaa111","name":"Rev","folder":"/w","role":"reviewer","state":"working"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	hireKey, err := newSendKey(registryPath(), "aaa111")

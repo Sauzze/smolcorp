@@ -675,7 +675,7 @@ func TestThePagesCookieMayPostABotsNews(t *testing.T) {
 	}
 	// Nobody else may: a hire's key and the GM's token are refused (403), alone or together, and the page's cookie
 	// without the setup header is refused too (a page from another site can't send it).
-	if err := os.WriteFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"aaa111","name":"Rev","folder":"/w","role":"reviewer","state":"working"}]}`), 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"aaa111","name":"Rev","folder":"/w","role":"reviewer","state":"working"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	hireKey, err := newSendKey(registryPath(), "aaa111")

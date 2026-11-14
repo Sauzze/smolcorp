@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -186,6 +187,9 @@ type Config struct {
 	// back with the rest, so a setting from another version, older or newer,
 	// or the Mac app's, isn't lost at the next save.
 	unknown map[string]json.RawMessage
+	// keptPart is the security settings as the file last held them (records_registry.go): a change is written under
+	// a new record key.
+	keptPart []byte
 }
 
 // knownConfigKeys are the names this version reads, from its fields' tags.
@@ -215,11 +219,13 @@ func loadConfig() *Config {
 		if err := json.Unmarshal(data, config); err != nil {
 			_ = writePrivate(configFile+".broken", data)
 		}
+		// Its security settings are a sealed record (records_registry.go): another program's change doesn't count.
+		vouchConfig(config, data)
 		var fields map[string]json.RawMessage
 		if json.Unmarshal(data, &fields) == nil {
 			known := knownConfigKeys()
 			for name, value := range fields {
-				if !known[name] {
+				if !known[name] && name != sealedPartField {
 					if config.unknown == nil {
 						config.unknown = map[string]json.RawMessage{}
 					}
@@ -312,30 +318,46 @@ func loadConfig() *Config {
 	copy(pins, config.Pins)
 	config.Pins = pins
 	config.FloorPins = config.checkedFloorPins(config.FloorPins)
+	config.keptPart = configSecurityPart(config)
 	return config
 }
 
 // save writes through a file beside the config and renames it, so a crash or
 // a full disk leaves the last config whole rather than half of the new one.
+// Its security settings are a sealed record (records.go): a change to them is
+// written under a new record key.
 func (c *Config) save() {
+	part := configSecurityPart(c)
+	changed := configChanges(c.keptPart, part)
+	c.keptPart = part
+	_ = keepRecord("config.json", c.writer(), changed)
+}
+
+// writer writes the config as it is now, its security settings sealed under the key given (records.go's
+// recordWriter).
+func (c *Config) writer() recordWriter {
 	data, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return
-	}
-	if len(c.unknown) > 0 {
-		var fields map[string]json.RawMessage
-		if json.Unmarshal(data, &fields) == nil {
-			for name, value := range c.unknown {
-				if _, ours := fields[name]; !ours {
-					fields[name] = value
+	part, unknown, file := configSecurityPart(c), maps.Clone(c.unknown), configFile
+	return func(key []byte, prev string) error {
+		if err != nil {
+			return err
+		}
+		out := data
+		if len(unknown) > 0 || key != nil {
+			var fields map[string]json.RawMessage
+			if json.Unmarshal(data, &fields) == nil {
+				for name, value := range unknown {
+					if _, ours := fields[name]; !ours {
+						fields[name] = value
+					}
+				}
+				if merged, err := withPartSeal(fields, key, prev, "config.json", part); err == nil {
+					out = merged
 				}
 			}
-			if merged, err := json.MarshalIndent(fields, "", "  "); err == nil {
-				data = merged
-			}
 		}
+		return writePrivate(file, out)
 	}
-	_ = writePrivate(configFile, data)
 }
 
 // settleBots puts the bots still "upstairs", from before bots could sit on

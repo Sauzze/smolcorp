@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"crypto/hmac"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,10 +10,10 @@ import (
 	"time"
 )
 
-// The GM's token is kept between runs of the core, so a hired GM, in a tmux session of its own that outlives the
-// app, isn't refused after a restart or an update (RM7 B3). Under the Mac app it is the app's own Keychain item,
-// the one the Swift engine kept it in (GMKeychain: smolcorp-gm, gm-token), through the bridge's gm-token: the
-// token of a GM hired on 1.24 is read on the first launch and goes on working. In a test copy the app keeps that
+// The GM's token's verifier is kept between runs of the core, so a hired GM, in a tmux session of its own that
+// outlives the app, isn't refused after a restart (RM7 B3); the token itself is never kept (gmVerifierPrefix).
+// Under the Mac app it is the app's own Keychain item (GMKeychain: smolcorp-gm, gm-token), through the bridge's
+// gm-token, which the app reads only if no program changed it since it wrote it (KeychainGate.swift). In a test copy the app keeps that
 // item in a file of its own, never the Keychain. Elsewhere it is this computer's secret store (Windows Credential
 // Manager, or the Secret Service on Linux), as the Summary key's, else a file in the support folder,
 // gm-token-kept: readable by you alone on Linux (0600), and on Windows as private as that folder is
@@ -167,24 +168,77 @@ func newGMTokenKeeper(store gmTokenStore) *gmTokenKeeper {
 	return &gmTokenKeeper{store: store, retry: gmTokenRetry, wake: make(chan struct{}, 1)}
 }
 
-// restore is the token kept from the last run, as the core starts: "" for none, or one that isn't a token. With no
-// GM to give it to (none hired, and none to start by hand), a kept token is taken away rather than kept working: a
-// GM that's gone never comes back with it.
+// What is kept between runs is never the GM's token, only its verifier (SANDBOX-PLAN §3.1, SK1): "v1:" and the
+// token's SHA-256 in hex. A program that reads the Keychain item, the secret store or gm-token-kept finds nothing
+// that opens anything. A token kept whole, by 1.25 or before, is dropped at the first start of 1.26 (B1): the GM
+// gets a new one when it is hired again.
+//
+// On a Mac the verifier is sealed under the record key too (§3.1, RT126SK1 B2): ":" and its seal follow it in the
+// Keychain item, written again under each new key (records.go's rotate). A verifier another program put in the
+// item, or one from a store whose key failed its check, never counts. Off a Mac nothing can seal it (§3.8).
+const gmVerifierPrefix = "v1:"
+
+// gmVerifierRecord is the GM's verifier among the sealed records.
+const gmVerifierRecord = "gm-verifier"
+
+// sealGMVerifier is kept, a verifier's form, as the store keeps it: sealed under the record key when there is one.
+func sealGMVerifier(kept string) string {
+	key := recordKey()
+	if kept == "" || key == nil {
+		return kept
+	}
+	return kept + ":" + recordMAC(key, gmVerifierRecord, "", []byte(kept))
+}
+
+// gmVerifierForm is a verifier as it's kept, "" for none.
+func gmVerifierForm(verifier string) string {
+	if verifier == "" {
+		return ""
+	}
+	return gmVerifierPrefix + verifier
+}
+
+// gmVerifierFrom is the verifier kept, or "" if what's kept isn't one: with a record key, only one whose seal fits.
+func gmVerifierFrom(saved string) string {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(saved), gmVerifierPrefix)
+	verifier, _, _ := strings.Cut(rest, ":")
+	if !ok || !isKeyHash(verifier) {
+		return ""
+	}
+	// At the first sealed start (the update to 1.26) what's kept counts as found, as the records do; from then on,
+	// only with its seal.
+	if recordKey() != nil && !recordsFirst() && !hmac.Equal([]byte(strings.TrimSpace(saved)), []byte(sealGMVerifier(gmVerifierForm(verifier)))) {
+		return ""
+	}
+	return verifier
+}
+
+// errRecordsUnchecked: the records' key failed its check, so a verifier kept counts for nothing, and nothing is
+// written over it until the owner resets (records.go).
+var errRecordsUnchecked = errors.New("the key that seals Smolcorp's records failed its check")
+
+// restore is the verifier kept from the last run, as the core starts: "" for none, or what isn't one (a token
+// kept whole by 1.25, which is taken away). With no GM to give it to (none hired, and none to start by hand), a
+// kept verifier is taken away rather than kept working: a GM that's gone never comes back with its token.
 func (k *gmTokenKeeper) restore(gmWanted bool) string {
 	if k == nil {
 		return ""
 	}
 	saved, err := k.store.read()
-	token := validGMToken(saved)
+	verifier := gmVerifierFrom(saved)
+	if err == nil && strings.TrimSpace(saved) != "" && recordsFailed() {
+		err, verifier = errRecordsUnchecked, ""
+	}
+	kept := gmVerifierForm(verifier)
 	k.mu.Lock()
-	k.wanted, k.latest = token, token
-	k.known, k.unreadable = err == nil && token == strings.TrimSpace(saved), err != nil
+	k.wanted, k.latest = kept, kept
+	k.known, k.unreadable = err == nil && sealGMVerifier(kept) == strings.TrimSpace(saved), err != nil
 	k.mu.Unlock()
-	if err == nil && token != "" && !gmWanted {
+	if err == nil && verifier != "" && !gmWanted {
 		k.keep("")
 		return ""
 	}
-	return token
+	return verifier
 }
 
 // readFailed is whether the store couldn't be read as the core started, and nothing has been written to it since:
@@ -244,7 +298,7 @@ func (k *gmTokenKeeper) write() {
 			return
 		}
 		k.mu.Unlock()
-		err := k.store.write(token)
+		err := k.store.write(sealGMVerifier(token))
 		k.mu.Lock()
 		k.wroteLocked(token, err)
 		k.mu.Unlock()
@@ -283,7 +337,7 @@ func (k *gmTokenKeeper) writeNow(token string) error {
 	k.mu.Lock()
 	asked := k.wanted
 	k.mu.Unlock()
-	err := k.store.write(token)
+	err := k.store.write(sealGMVerifier(token))
 	k.mu.Lock()
 	k.wroteLocked(token, err)
 	if err == nil && k.wanted == asked {
@@ -300,6 +354,27 @@ func (k *gmTokenKeeper) writeNow(token string) error {
 		}
 		k.mu.Unlock()
 	}
+	return err
+}
+
+// reseal writes what the store is to hold again, sealed under the record key of the moment: a step of each
+// rotation (records.go), so the verifier still fits at the next start. Nothing over an item that couldn't be read.
+func (k *gmTokenKeeper) reseal() error {
+	if k == nil {
+		return nil
+	}
+	k.writing.Lock()
+	defer k.writing.Unlock()
+	k.mu.Lock()
+	token, skip := k.wanted, k.unreadable
+	k.mu.Unlock()
+	if skip || token == "" {
+		return nil
+	}
+	err := k.store.write(sealGMVerifier(token))
+	k.mu.Lock()
+	k.wroteLocked(token, err)
+	k.mu.Unlock()
 	return err
 }
 
@@ -327,5 +402,5 @@ func (k *gmTokenKeeper) flush(within time.Duration) bool {
 	}
 }
 
-// keepGMToken has the token as it is now kept for the next run. The caller holds d.mu.
-func (d *Deck) keepGMToken() { d.gmKept.keep(d.gmToken) }
+// keepGMToken has the token's verifier as it is now kept for the next run. The caller holds d.mu.
+func (d *Deck) keepGMToken() { d.gmKept.keep(gmVerifierForm(d.gmCheck())) }

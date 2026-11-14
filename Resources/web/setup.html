@@ -1351,11 +1351,11 @@
     <div class="group paired" data-search="Paired phones" data-keywords="revoke unpair wifi wi-fi typing tailscale">
       <h2>Paired phones</h2>
       <div class="box" id="phones"></div>
-      <div id="waiting" hidden>
-        <h3 class="sub">Waiting for you to confirm</h3>
-        <p class="hint" id="waiting-why"></p>
-        <div class="box" id="waiting-phones"></div>
+      <div id="records" hidden>
+        <p class="hint" id="records-why"></p>
+        <div class="tools"><button class="btn" id="records-reset">Reset Smolcorp's records</button></div>
       </div>
+      <p class="hint" id="records-dropped" hidden></p>
       <div class="tools"><button class="btn" id="unpair-all">Unpair all phones</button></div>
       <div class="box steps switches">
         <div class="step" id="step-wifityping">
@@ -4356,8 +4356,8 @@
   $('easy-new-code').onclick = () => $('new-code').click();
 
   function renderPhones() {
-    renderWaitingPhones();
-    $('unpair-all').hidden = !state.phones.length && !(state.waitingPhones || []).length;
+    renderRecords();
+    $('unpair-all').hidden = !state.phones.length;
     if (!state.phones.length) {
       $('phones').innerHTML = '<div class="none">No phones paired yet.</div>';
       return;
@@ -4392,40 +4392,27 @@
   };
 
   /**
-   * Phones the list on this computer names but that this app can't vouch for: from before 1.26, or written in by
-   * another program. None is let in until you confirm it here, one by one.
+   * Smolcorp's records (phones, paired Macs, the team's keys) when the key that seals them failed its check: none
+   * of them counts until you reset them here (desktop/records.go). The core says why, in its own words.
    */
-  function renderWaitingPhones() {
-    const waiting = state.waitingPhones || [];
-    $('waiting').hidden = !waiting.length;
-    if (!waiting.length) return;
-    $('waiting-why').textContent = wording('The list of paired phones on this computer names these devices, but Smolcorp can\'t tell that you paired them: '
-      + 'they come from before 1.26, or another program on this computer wrote them in. None of them works until you confirm it. '
-      + 'Confirm only a phone you know is yours. If you\'re not sure, revoke it and pair the phone again: it takes a new code.');
-    $('waiting-phones').replaceChildren(...waiting.map((phone) => {
-      const el = document.createElement('div');
-      el.className = 'device';
-      el.innerHTML = '<div class="what"><div class="name"></div><div class="when"></div></div>'
-        + '<button class="btn confirm">Confirm</button><button class="btn revoke">Revoke</button>';
-      // Nothing here is the planter's own words: the core sends a waiting row only under a name it gives phones
-      // itself, with the date as listed and its key's short fingerprint (RT126FS2R4 B2). The date is the list's
-      // claim, and is said as one.
-      const listed = phone.pairedAt > 0 ? `The list says paired on ${day(phone.pairedAt)}` : 'The list gives no pairing date';
-      el.querySelector('.name').textContent = phone.name;
-      el.querySelector('.when').textContent = `${listed} · key ${phone.key} · not let in`;
-      el.querySelector('.confirm').onclick = () => {
-        const ask = wording(`Let in the device listed as “${phone.name}” (key ${phone.key})?\n\n${listed}. Smolcorp can't check that, `
-          + 'or that this row is your phone\'s: any program on this computer could have written it.\n\n'
-          + 'Confirm only if you paired this device yourself and still use it. Once confirmed, it can answer what your team asks you.');
-        if (confirm(ask)) {
-          // The row's digest goes with its id: the core lets in this row, or none (RT126FS2R4 B1).
-          post(`/setup/phones/confirm?phone=${encodeURIComponent(phone.id)}&entry=${encodeURIComponent(phone.entry)}`);
-        }
-      };
-      el.querySelector('.revoke').onclick = () => post(`/setup/unpair?phone=${encodeURIComponent(phone.id)}`);
-      return el;
-    }));
+  function renderRecords() {
+    const why = state.records || '';
+    $('records').hidden = !why;
+    $('records-why').textContent = wording(why);
+    // A record that didn't fit at this start, though the check passed: dropped, and its copies from before with it.
+    const dropped = state.recordsDropped || '';
+    $('records-dropped').hidden = !dropped;
+    $('records-dropped').textContent = wording(dropped);
   }
+
+  // The core words the confirm for the state the records are in (records.go's recordsResetConfirm): what a reset
+  // keeps, and after a failed check what it loses for good.
+  $('records-reset').onclick = () => {
+    const ask = state.recordsReset || '';
+    if (ask && confirm(wording(ask))) {
+      post('/setup/records/reset');
+    }
+  };
 
   $('unpair-all').onclick = () => {
     if (confirm('Unpair all phones? They stop working straight away, and each needs a new code to pair again.')) {

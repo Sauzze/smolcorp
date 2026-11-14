@@ -169,6 +169,10 @@ type bridgeAnswer struct {
 	Check *check `json:"check,omitempty"`
 	// time-format: how this Mac writes a short time (macclock.go).
 	TimeFormat *macTimeFormat `json:"timeFormat,omitempty"`
+	// record-key-*: the record key's items (records.go), and what record-key-look found: "one", "none", "many",
+	// "moved" (an item overwritten) or "unreadable" (not without a prompt).
+	RecordKeys []bridgeRecordKey `json:"recordKeys,omitempty"`
+	Records    string            `json:"records,omitempty"`
 	// keystroke-apps: the list, with the app on it or off it; glossary: the names, checked.
 	Apps  []string `json:"apps,omitempty"`
 	Names []string `json:"names,omitempty"`

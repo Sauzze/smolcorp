@@ -131,12 +131,10 @@ func phonesOnly(phones *Phones) int {
 	return n
 }
 
-// phonesKnown is phonesOnly plus the entries waiting for the owner to confirm them (access.go's Waiting): his own
-// phones from before 1.26 among them. They count as paired where the count decides what to offer or keep open, so
-// an update that leaves every phone waiting doesn't hide Unpair All or lock a phone out of the home Wi-Fi
-// (RT126FS2R4 nits 1, 2).
+// phonesKnown is phonesOnly: since 1.26 no entry waits for the owner to confirm it (access.go), so the phones let
+// in are all there are, where the count decides what to offer or keep open.
 func phonesKnown(phones *Phones) int {
-	return phonesOnly(phones) + len(phones.Waiting())
+	return phonesOnly(phones)
 }
 
 // isWindowDevice is whether the paired device is the office window's own (ensureWindowKey), by either name.

@@ -62,7 +62,7 @@ func TestAnotherHiresProjectIsNotWhereItWorks(t *testing.T) {
 	b := Hire{ID: "bbbbbb123456", Name: "Bo", Role: "tester", Folder: "/work/api-hires/bo-bbbbbb", Worktree: "/work/api-hires/bo-bbbbbb",
 		Repo: "/work/api", Branch: "hire/bo-bbbbbb", State: "working"}
 	data, _ := json.Marshal(map[string]any{"version": 1, "hires": []Hire{a, b}})
-	if err := os.WriteFile(registryPath(), data, 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := readRegistry(registryPath(), false).hires[1].Folder; got != "/work/api" {
@@ -74,7 +74,7 @@ func TestAnotherHiresProjectIsNotWhereItWorks(t *testing.T) {
 	}
 	// A window in b's worktree is still never a's.
 	d2 := newTestDeck(t)
-	if err := os.WriteFile(registryPath(), data, 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	newFakeLauncher(t, d2, "L2", "/work/api-hires/bo-bbbbbb", "", "idle-empty", true)

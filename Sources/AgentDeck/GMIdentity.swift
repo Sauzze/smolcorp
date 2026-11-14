@@ -17,8 +17,10 @@ protocol GMTokenStore {
     func remove()
 }
 
-/// The token in the Mac's Keychain, under the app's own item. A test copy
-/// has an item of its own, never the real one's.
+/// What the core keeps of the GM's token in the Mac's Keychain, under the app's own item: since 1.26 only its
+/// verifier ("v1:" and its SHA-256, then the core's seal of it under the record key), never the token (SANDBOX-PLAN
+/// §3.1, desktop/gmtokenstore.go). The item is sealed by this app too (`ItemSeal`): one another program added is
+/// never read. A test copy has an item of its own, never the real one's.
 struct GMKeychain: GMTokenStore {
     static let service = SummaryKey.testMode ? "smolcorp-gm-test" : "smolcorp-gm"
     static let account = "gm-token"
@@ -58,9 +60,10 @@ struct GMKeychain: GMTokenStore {
     func remove() { Keychain.delete(match) }
 }
 
-/// Where the General Manager's token is kept on this Mac. The Go core makes the
-/// token and checks who sends it; this app only holds the Keychain item for it
-/// (the bridge's "gm-token" secret).
+/// Where the General Manager's token's verifier is kept on this Mac. The Go core makes the
+/// token, gives it to the GM alone, and checks who sends it against the verifier; this app only holds the
+/// Keychain item for that verifier (the bridge's "gm-token" secret), and reads it only if no other program
+/// overwrote it (`Keychain`).
 enum GMIdentity {
     /// Where the token is kept: the Keychain, or in a test copy a file in its own support
     /// folder (the Keychain is never asked there: see `TestCopySecrets`).

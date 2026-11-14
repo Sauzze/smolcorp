@@ -66,7 +66,7 @@ func (d *Deck) selfTest() []check {
 	}
 	d.mu.Lock()
 	scope := effectiveScope(d.config)
-	phones, waiting := phonesOnly(d.access.Phones), len(d.access.Phones.Waiting())
+	phones, waiting := phonesOnly(d.access.Phones), recordsText(recordsState(), recordsStale())
 	d.mu.Unlock()
 	// Under the Mac app, the rest is the Mac's (hostshell.go).
 	if d.macHost() != nil {
@@ -199,16 +199,13 @@ func networkCheck(scope string, tailscale []string) check {
 	return c
 }
 
-// phoneCheck is whether a phone is paired, the office window not counted. waiting
-// is how many entries of the list wait for the owner to confirm them (access.go's
-// Waiting): said here too, as their phones get nothing until then (RT126FS2R4
-// nit 2).
-func phoneCheck(phones, waiting int) check {
+// phoneCheck is whether a phone is paired, the office window not counted. records is what Setup says of the
+// records' key when its check failed (records.go's recordsText), "" when it didn't: then no phone counts until
+// the owner resets them in Setup.
+func phoneCheck(phones int, records string) check {
 	c := check{ID: "phone", Title: "A phone is paired"}
-	if waiting > 0 {
-		c.Status = checkTodo
-		c.Detail = fmt.Sprintf("%d paired, and %d listed from before 1.26 or by another program wait for you: "+
-			"confirm under Paired phones only one you paired yourself, or revoke it and pair the phone again.", phones, waiting)
+	if records != "" {
+		c.Status, c.Detail = checkTodo, records+" Reset them under Phone and voice."
 		return c
 	}
 	if phones > 0 {

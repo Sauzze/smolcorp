@@ -413,6 +413,8 @@ final class HostBridge {
             return window(action, request, actions, until: deadline)
         case "secret-read", "secret-write", "secret-delete":
             return secret(action, request, actions)
+        case "record-key-look", "record-key-new", "record-key-add", "record-key-retire":
+            return recordKey(action, request, actions.records)
         case "api-key-offer", "api-key-read":
             return hireKey(action, actions.hireKey)
         case "login-item":
@@ -1307,6 +1309,31 @@ final class HostBridge {
         }
     }
 
+    /// The record key (RecordKey.swift), for the core it started alone: what the item is now (`look`, with its value
+    /// only when there is exactly one untouched item, or two for the core to tell an interrupted update from a planted
+    /// item), a new one in place of every item (`new`, "update" at the update to 1.26), one beside it (`add`, read
+    /// back before it's handed on) and the old one deleted (`retire`).
+    private static func recordKey(_ action: String, _ request: [String: Any], _ store: RecordKeyStore) -> [String: Any] {
+        switch action {
+        case "record-key-new", "record-key-add":
+            guard let item = action == "record-key-new" ? store.makeNew() : store.add() else { return refused("The Keychain made no key.") }
+            // A new record key at the update to 1.26 or a reset: the items' key too, where it must be (ItemSeal).
+            if action == "record-key-new" { store.renewItems(update: request["item"] as? String == "update") }
+            return ["ok": true, "recordKeys": [item.json]]
+        case "record-key-retire":
+            guard let id = request["item"] as? String, !id.isEmpty, store.retire(id) else { return refused("That key wasn't deleted.") }
+            return ["ok": true]
+        default:
+            switch store.look() {
+            case .one(let item): return ["ok": true, "records": "one", "recordKeys": [item.json]]
+            case .many(let items): return ["ok": true, "records": "many", "recordKeys": items.map(\.json)]
+            case .none: return ["ok": true, "records": "none"]
+            case .moved: return ["ok": true, "records": "moved"]
+            case .unreadable: return ["ok": true, "records": "unreadable"]
+            }
+        }
+    }
+
     /// The API-key account for a hire (C23), as the Swift engine's `Deck.hire` has it, for setup's state and for one
     /// hire on it. `api-key-offer` never reads the key: whether it's offered, the notice beside the choice, and,
     /// when it isn't, the refusal a hire on it gets, all in this app's words (a test copy's own among them).
@@ -1457,6 +1484,8 @@ final class HostBridge {
         var screens: () -> [[String: Any]] = { Tiler.screens() }
         var tileScript: Tiler.Script = Tiler.osascript
         var placeOffice: (_ rect: CGRect, _ mainHeight: CGFloat) -> Void = { _, _ in }
+        /// The record key's item (RecordKey.swift): the Keychain, or a test copy's and the test suite's own file.
+        var records: RecordKeyStore = RecordKeys.defaultStore()
 
         /// The Swift engine's own: the terminal drivers on their terminals' queues, one at a time
         /// as the deck runs them, the openers, the secrets' stores (files in a test copy), the login item.
