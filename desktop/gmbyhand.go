@@ -204,14 +204,15 @@ func (rt *router) byHandRoutes(w http.ResponseWriter, r *request) bool {
 	if r.URL.Path == "/setup/gm/by-hand" {
 		d.mu.Lock()
 		defer d.mu.Unlock()
-		// Whether the GM's token is also kept in a file, for a GM started by hand: off by default. Works with the manager off.
+		// Whether a GM started by hand may ask for a token, with `smolcorp gm login`: off by default. Works with the manager off.
 		enabled := r.URL.Query().Get("enabled")
 		if enabled != "1" && enabled != "0" {
 			writeStatus(w)(http.StatusBadRequest, "Say enabled=1 or enabled=0.")
 			return true
 		}
-		// Switching it off takes the file's token away: refused while the records' key can't be read, as every
-		// revocation is, since it would come back at the restart (RT126SK1R4 follow-up 2).
+		// Switching it off is a revocation: a GM started by hand is forgotten, with its session's role, and no login
+		// may ask any more. Refused while the records' key can't be read, as every revocation is, since the setting
+		// would come back at the restart (RT126SK1R4 follow-up 2).
 		if refused := d.config.heldRefusal(func(c *Config) { c.GMByHand = enabled == "1" }); refused != "" {
 			writeStatus(w)(http.StatusConflict, refused)
 			return true

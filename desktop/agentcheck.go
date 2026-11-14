@@ -2,6 +2,8 @@ package desktop
 
 import (
 	"errors"
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,6 +49,12 @@ func wrapsHooks(name string) bool {
 	return strings.HasPrefix(name, "CLAUDE_CODE_") && strings.Contains(name, "HOOK")
 }
 
+// CheckAgentStart is why program, found for a command line's first word, mustn't be started, or nil: the check
+// smolcorp run makes (launcher.go), for `smolcorp gm login` (internal/gm, whose CheckProgram cmd/smolcorp sets).
+func CheckAgentStart(word, program string) error {
+	return checkAgentProgram(string(agentNamed(word)), program)
+}
+
 // checkAgentProgram is why program, found as the agent called name, mustn't be started, or nil. It goes by the
 // name it was looked for as, never by the file's own: Anthropic's installer links ~/.local/bin/claude to a file
 // named by its version, and a link planted in its place could name any file at all. The link is resolved again
@@ -80,8 +88,17 @@ const (
 // claudeInstalls is which kind of Claude Code this computer has, remembered in the support folder's claude-install
 // (SANDBOX-PLAN §3.4, RT126SG2 B2): the first one seen, made "signed" by any signed one that passes, and "npm" again
 // only by the owner's confirmation on the setup page. It's read once, then kept in memory: a hire that changes the
-// file changes nothing while Smolcorp runs (sealing it is SK1's, as for config.json's security settings).
+// file changes nothing while Smolcorp runs. A hire can neither write nor read it (the hire fence, hiresettings.go,
+// and the guard, internal/guard: RMSY126k nit 1); sealing it against a program of the owner's is SK1's follow-up, as
+// for config.json's security settings.
 var claudeInstalls = &claudeInstallMemory{}
+
+// claudeInstallName is the support folder's file the kind is remembered in; claudeInstallTemp the file it is written
+// through (writePrivate, paths.go).
+const (
+	claudeInstallName = "claude-install"
+	claudeInstallTemp = claudeInstallName + ".tmp"
+)
 
 type claudeInstallMemory struct {
 	mu   sync.Mutex
@@ -91,7 +108,7 @@ type claudeInstallMemory struct {
 	refused string
 }
 
-func claudeInstallFile() string { return filepath.Join(supportDir, "claude-install") }
+func claudeInstallFile() string { return filepath.Join(supportDir, claudeInstallName) }
 
 // read makes sure the kind is the support folder's. With m.mu held.
 func (m *claudeInstallMemory) read() {
@@ -105,13 +122,19 @@ func (m *claudeInstallMemory) read() {
 	}
 }
 
-// keep makes kind the one remembered, on disk too. With m.mu held.
+// keep makes kind the one remembered, on disk too. With m.mu held. A write that fails is said, never silent: the
+// kind still holds while Smolcorp runs, but the next start would read what the disk had before (RT126SG2F B1).
 func (m *claudeInstallMemory) keep(kind string) {
 	if m.kind != kind {
 		m.kind = kind
-		_ = writePrivate(m.path, []byte(kind+"\n"))
+		if err := writePrivate(m.path, []byte(kind+"\n")); err != nil {
+			sayClaudeInstall(fmt.Sprintf("which Claude Code this computer has (%s) couldn't be written down, so the next start won't know it: %v", kind, err))
+		}
 	}
 }
+
+// sayClaudeInstall says what went wrong keeping which Claude Code this computer has.
+var sayClaudeInstall = func(text string) { log.Printf("smolcorp: %s", text) }
 
 // remember notes that a Claude Code of kind passed.
 func (m *claudeInstallMemory) remember(kind string) {

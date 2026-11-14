@@ -705,4 +705,8 @@ func TestTheClipboardLineIsBesideThePortableOfficesCopy(t *testing.T) {
 	if strings.Contains(html, "gm-token-copy") || strings.Contains(html, "Writes the token to the file above") {
 		t.Error("the page still offers the GM's token file")
 	}
+	// Nor does Find a setting's jump to it name one (RMSY126k nit 3).
+	if strings.Contains(html, "the file for one started by hand") || !strings.Contains(html, "What it is, and how one you start yourself gets it") {
+		t.Error("Find a setting still names the GM's token file")
+	}
 }

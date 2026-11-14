@@ -46,6 +46,10 @@ const usage = `Usage: smolcorp [command]
   quit                    stop the running Smolcorp (the one of this user)
   version                 which Smolcorp this is`
 
+// `smolcorp gm login` checks the program it starts as the GM as Smolcorp checks every agent it starts (SG2,
+// RMSY126k nit 6): internal/gm can't import desktop, so the check is put there here.
+func init() { gm.CheckProgram = desktop.CheckAgentStart }
+
 func main() {
 	desktop.Version = version
 	gm.AppVersion = version

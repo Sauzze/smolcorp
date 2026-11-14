@@ -311,11 +311,14 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 	// This app's folder, piece by piece: never a rule that would cover the hire's own STATUS.md.
 	root := absoluteRulePath(support)
 	// The secrets of both engines a Mac may run (the Swift app's gm-session and hook-header, the Go
-	// engine's hook-key and window-key), in the same order as the Mac's HireSettings: one file either way.
+	// engine's hook-key and window-key), in the order the Mac's fence has always had (the fixtures,
+	// Tests/fixtures/frontdesk): one file either way.
 	// Then the owner's grant record (grants.go): its key's name, kept off the disk, and the file it is written
-	// through (grants.jsonl itself is a *.jsonl); and the paired phones' seal's key (access.go: phones.json itself
-	// is a *.json).
-	for _, pattern := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "grants-key", "grants.jsonl.tmp", phoneSealName} {
+	// through (grants.jsonl itself is a *.jsonl); the paired phones' seal's key (access.go: phones.json itself
+	// is a *.json); and which Claude Code the owner has (agentcheck.go: one a hire wrote "npm" in would let an
+	// unsigned Claude Code start after a signed one, at the next start), and the file it is written through,
+	// whether or not they are there yet.
+	for _, pattern := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "grants-key", "grants.jsonl.tmp", phoneSealName, claudeInstallName, claudeInstallTemp} {
 		both(root + "/" + pattern)
 	}
 	has := func(list []string, name string) bool {
@@ -341,6 +344,13 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 			both(root + "/" + name + "/**")
 		}
 	}
+	// Which Claude Code the owner has, and the file it is written through, as folders too, listed even when absent
+	// now: a folder a hire left in either's place would stop "signed" from ever reaching the disk (RT126SG2F B1).
+	for _, name := range []string{claudeInstallName, claudeInstallTemp} {
+		if !has(entries, name) {
+			both(root + "/" + name + "/**")
+		}
+	}
 	both(root + "/hires/*.sh")
 	// Every hire's folder, by file type and not by name: a hire started after this file
 	// was written is covered too. STATUS.md is .md, so it stays writable.
@@ -353,7 +363,7 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 		}
 	}
 	// Nothing secret or app-state can be read either.
-	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", hireGuardFile, "phones.json", "sessions.json", "config.json", "registry.json", "grants-key", "grants.jsonl", "grants.jsonl.tmp", phoneSealName} {
+	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", hireGuardFile, "phones.json", "sessions.json", "config.json", "registry.json", "grants-key", "grants.jsonl", "grants.jsonl.tmp", phoneSealName, claudeInstallName, claudeInstallTemp} {
 		rules = append(rules, "Read("+root+"/"+name+")")
 	}
 	// The GM's token, kept in a file on a computer whose secret store can't keep it (gmtokenstore.go), and the file

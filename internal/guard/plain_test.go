@@ -46,7 +46,7 @@ func TestTheGuardRefusesWhatIsntWrittenPlainly(t *testing.T) {
 		// zsh's glob forms: ( glued or opening a word after the name, ^, ~ and # inside a word.
 		"cat x(N)", "cat (a|b)", "cat x(:a)", "cat !(x)", "cat @(x)", "f() { echo x; }",
 		"npm i lodash@^4.17.0", "git diff origin/^", "cat hire-guard.json~1",
-		"git diff origin/main~1", "git diff main~1", "git log main~3..main", "rm -rf CLAUDE~1", "cat hire-guard^1",
+		"git diff origin/main~1", "git diff main~1", "git log main~3..main", "cat hire-guard^1",
 		"git diff origin/main^/x",
 	}
 	// WIN125j: these are refused by the name their skeleton could fill in (skeleton.go), which the guard finds first.
@@ -54,6 +54,8 @@ func TestTheGuardRefusesWhatIsntWrittenPlainly(t *testing.T) {
 		"cat " + dir + "^nothing", "cat setup-key~x", "cat " + dir + "setup-key~x", "cat setup-key#",
 		"cat " + dir + "s*~x", "git diff --no-index /dev/null " + dir + "setup-key~1",
 		"cat setup-key^1", "git log setup-key~1", "cat GM-TOK~1", "rm -rf .claude^1",
+		// RMSY126k nit 1: refused as before, now by claude-install, whose short name on Windows it can be.
+		"rm -rf CLAUDE~1",
 	}
 	for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
 		for _, line := range append(append([]string{}, rwin6...), rules...) {

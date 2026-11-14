@@ -62,3 +62,35 @@ func TestThePairedPhonesAreProtectedForTheGMAndAHire(t *testing.T) {
 		}
 	}
 }
+
+// RMSY126k nit 1: neither the GM nor a hire may name which Claude Code the owner has (desktop/agentcheck.go's
+// claude-install), by any spelling: "npm" written there would let an unsigned Claude Code start where a signed one
+// ran. Only the refusal is checked: nothing is written.
+func TestWhichClaudeCodeTheOwnerHasIsProtectedForTheGMAndAHire(t *testing.T) {
+	lines := []string{
+		"echo npm > ~/Library/Application\\ Support/AgentDeck/claude-install",
+		"printf 'npm\\n' > \"$HOME/.config/smolcorp/claude-install\"",
+		"rm ~/Library/Application\\ Support/AgentDeck/claude-install",
+		// Other spellings: cased, quoted, by a pattern, Windows' folder and PowerShell, a script.
+		"echo npm > ~/Library/Application\\ Support/AgentDeck/CLAUDE-INSTALL",
+		"echo npm > ~/.config/smolcorp/cla'ude-ins'tall",
+		"echo npm > ~/Library/Application\\ Support/AgentDeck/claude-?nstall",
+		"cp /tmp/x ~/.config/smolcorp/claude-i*",
+		"Set-Content $env:APPDATA\\Smolcorp\\claude-install npm",
+		"python3 -c 'open(\"/home/u/.config/smolcorp/claude-install\", \"w\").write(\"npm\")'",
+	}
+	for name, groups := range map[string][]Group{"a hire": DefaultGroups(), "the GM": ForGM(DefaultGroups())} {
+		for _, line := range lines {
+			if Check(line, groups) == nil {
+				t.Errorf("%s: let through: %s", name, line)
+			}
+		}
+	}
+	// Reading the code that keeps it, or Claude Code itself, is neither.
+	for _, line := range []string{"cat desktop/agentcheck.go", "grep -n claudeInstalls desktop/*.go", "which claude",
+		"ls ~/.claude*", "npm ls -g @anthropic-ai/claude-code"} {
+		if r := Check(line, DefaultGroups()); r != nil {
+			t.Errorf("refused %q: %v", line, r)
+		}
+	}
+}

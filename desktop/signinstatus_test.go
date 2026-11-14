@@ -19,7 +19,7 @@ import (
 // own, in a stand-in home. No real claude, codex or gemini is ever run, and no
 // credential file or Keychain item is read.
 
-// fakeAnthropicToken is a token of the kind given (oat, ort), with the body given: a string
+// fakeAnthropicToken is a token of the kind given (oat, ort or api), with the body given: a string
 // shaped as an Anthropic sign-in token, obviously fake. Its prefix is put together only when the tests
 // run, so the public check (scripts/check-public.sh) never takes these files for a real key.
 func fakeAnthropicToken(kind, body string) string {

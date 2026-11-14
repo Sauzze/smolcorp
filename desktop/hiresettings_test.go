@@ -231,7 +231,7 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 	want = append(want, "Read(~/.claude*/projects/**)")
 	both("//c/work/settings*.json")
 	want = append(want, "Read(//c/work/projects/**)")
-	for _, p := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "grants-key", "grants.jsonl.tmp", "phones-seal"} {
+	for _, p := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "grants-key", "grants.jsonl.tmp", "phones-seal", "claude-install", "claude-install.tmp"} {
 		both("//s/" + p)
 	}
 	both("//s/events")
@@ -239,12 +239,14 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 	both("//s/briefs")
 	both("//s/briefs/**")
 	both("//s/recaps/**")
+	both("//s/claude-install/**")
+	both("//s/claude-install.tmp/**")
 	both("//s/hires/*.sh")
 	for _, p := range []string{"*.json", "*.sh", "*.jsonl", "*.log", "settings*"} {
 		both("//s/hires/*/" + p)
 	}
 	both("//s/hires/other11/**")
-	for _, n := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json", "grants-key", "grants.jsonl", "grants.jsonl.tmp", "phones-seal"} {
+	for _, n := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json", "grants-key", "grants.jsonl", "grants.jsonl.tmp", "phones-seal", "claude-install", "claude-install.tmp"} {
 		want = append(want, "Read(//s/"+n+")")
 	}
 	if !slices.Equal(got, want) {
@@ -271,6 +273,93 @@ func TestAHireCantTouchTheGrantRecord(t *testing.T) {
 				t.Errorf("%s: %s %d times", system, rule, n)
 			}
 		}
+	}
+}
+
+// RMSY126k nit 1: a hire can neither write nor read which Claude Code the owner has (claude-install, agentcheck.go),
+// on every system, whether the file is there yet or not: "npm" written there would let an unsigned Claude Code start
+// after a signed one, at the next start. Nor can it write the file it is written through, or leave a folder in the
+// place of either, which would stop "signed" from ever reaching the disk (RT126SG2F B1). Only the rules are checked:
+// nothing is written there.
+func TestAHireCantWriteWhichClaudeCodeTheOwnerHas(t *testing.T) {
+	for _, system := range []string{"darwin", "linux", "windows"} {
+		for _, entries := range [][]string{nil, {claudeInstallName}, {claudeInstallName, claudeInstallTemp}} {
+			rules := hireDenyRules("abc123", nil, "/s", nil, nil, entries, system)
+			for _, path := range []string{"/s/claude-install", "/s/claude-install.tmp"} {
+				for _, tool := range []string{"Edit", "Write", "Read"} {
+					if !hireDenied(rules, path, tool) {
+						t.Errorf("%s, entries %v: %s of %s isn't denied", system, entries, tool, path)
+					}
+				}
+			}
+			for _, path := range []string{"/s/claude-install/x", "/s/claude-install.tmp/x"} {
+				for _, tool := range []string{"Edit", "Write"} {
+					if !hireDenied(rules, path, tool) {
+						t.Errorf("%s, entries %v: %s of %s isn't denied", system, entries, tool, path)
+					}
+				}
+			}
+			for _, rule := range []string{"Edit(//s/claude-install)", "Edit(//s/claude-install.tmp)", "Edit(//s/claude-install/**)", "Edit(//s/claude-install.tmp/**)"} {
+				if n := len(slices.DeleteFunc(slices.Clone(rules), func(r string) bool { return r != rule })); n != 1 {
+					t.Errorf("%s, entries %v: %s %d times", system, entries, rule, n)
+				}
+			}
+		}
+	}
+	// Through the settings a hire really gets, with the file absent: nothing it can do with its tools reaches it.
+	r := newHireSettingsRig(t)
+	path, err := r.write("abc123", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(r.support, claudeInstallName)); err == nil {
+		t.Fatal("the rig has a claude-install")
+	}
+	deny := r.deny(path)
+	for _, tool := range []string{"Edit", "Write", "Read"} {
+		for _, name := range []string{claudeInstallName, claudeInstallTemp} {
+			if !hireDenied(deny, filepath.Join(r.support, name), tool) {
+				t.Errorf("a hire's %s of %s isn't denied", tool, name)
+			}
+		}
+	}
+	for _, name := range []string{claudeInstallName, claudeInstallTemp} {
+		if !hireDenied(deny, filepath.Join(r.support, name, "x"), "Write") {
+			t.Errorf("a hire's Write in a folder named %s isn't denied", name)
+		}
+	}
+}
+
+// RT126SG2F: a folder left where claude-install is written through stops the write; that is said, never silent, and
+// the kind still holds while Smolcorp runs.
+func TestAClaudeInstallThatCantBeWrittenIsSaid(t *testing.T) {
+	var said []string
+	saved := sayClaudeInstall
+	sayClaudeInstall = func(text string) { said = append(said, text) }
+	t.Cleanup(func() { sayClaudeInstall = saved })
+	support := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(support, claudeInstallTemp, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	m := &claudeInstallMemory{path: filepath.Join(support, claudeInstallName)}
+	m.keep(claudeSigned)
+	if m.kind != claudeSigned {
+		t.Errorf("in memory: %q", m.kind)
+	}
+	if _, err := os.Stat(m.path); err == nil {
+		t.Error("written after all")
+	}
+	if len(said) != 1 || !strings.Contains(said[0], "couldn't be written down") || !strings.Contains(said[0], claudeInstallTemp) {
+		t.Errorf("said: %q", said)
+	}
+	// Kept as it was, nothing more is said; a write that works says nothing.
+	m.keep(claudeSigned)
+	if err := os.RemoveAll(filepath.Join(support, claudeInstallTemp)); err != nil {
+		t.Fatal(err)
+	}
+	m.keep(claudeUnsigned)
+	if data, err := os.ReadFile(m.path); err != nil || string(data) != claudeUnsigned+"\n" || len(said) != 1 {
+		t.Errorf("after the folder is gone: %q %v, said %q", data, err, said)
 	}
 }
 

@@ -290,7 +290,9 @@ func TestADesksGuardNamesItsFolderInItsCommandLine(t *testing.T) {
 }
 
 // A desk's settings ride in its command line, on Windows too, where a command line holds at most 32767
-// characters: a default hire's, with every deny rule and the core's groups, stays well under that.
+// characters: a default hire's, with every deny rule and the core's groups, stays well under that. (25000 since
+// RT126SG2F B1's four rules for claude-install's temp file and folder forms, about 580 characters here: this test's
+// support folder is a long temp path, which every rule of the folder repeats.)
 func TestADesksSettingsFitInACommandLine(t *testing.T) {
 	r := newHireSettingsRig(t)
 	line, err := r.write("abc123", func(o *hireSettingsOptions) {
@@ -302,7 +304,7 @@ func TestADesksSettingsFitInACommandLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Quoted for Windows, each quote takes a backslash.
-	if quoted := len(line) + strings.Count(line, `"`); quoted > 24000 {
+	if quoted := len(line) + strings.Count(line, `"`); quoted > 25000 {
 		t.Errorf("the settings are %d characters quoted", quoted)
 	}
 	t.Logf("a default hire's settings: %d characters, %d quoted", len(line), len(line)+strings.Count(line, `"`))
