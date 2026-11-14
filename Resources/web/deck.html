@@ -380,7 +380,9 @@
   const office = !window.AgentOffice ? { show() {}, close() {}, select() {}, setVisible() {}, setFramed() {}, setFloating() {}, setSaving() {}, setLite() {}, setPR() {}, moved() {}, openStyles() {} } : AgentOffice.create($('office-canvas'), {
     // A desk's pull request tag tapped: the computer opens it (it looks up the address itself, and checks it).
     ...(gitHere ? { pr(id) { tick(); send('/desk/pr/open', { session: id }); } } : {}),
-    ...(talkHere ? { talk: { get, post, flash, tick } } : {}),
+    // Open in Terminal, in the Pixel Terminal's menu: a window on the hire's own tmux session, as ⧉ window, behind the
+    // same setting (Settings' hires in the background, on a Mac)
+    ...(talkHere ? { talk: { get, post, flash, tick, openInTerminal: { shown: () => windowKey, open: (id) => openHireWindow(id) } } } : {}),
     select(id) {
       tick();
       selected = id;
@@ -489,7 +491,8 @@
       if (action === 'up' || action === 'down') return choose(action);
       // The office window's own two, which the computer has no button for. Only in its window: they're answered
       // by the deck itself, from what reaches it as /act.
-      if (bare && action === `button:${BOARD_BUTTON}`) return openBoard(selected);
+      // ▤ opens the Pixel Terminal where the room has the talk bubble (1.26), else the slate
+      if (bare && action === `button:${BOARD_BUTTON}`) return (talkHere && office.expand?.(selected)) || openBoard(selected);
       if (bare && action === `button:${INFO_BUTTON}`) return openInfo(selected);
       if (bare && action === `button:${WINDOW_BUTTON}`) return openHireWindow(selected);
       if (t3Here && action === `button:${T3_BUTTON}`) return openT3(selected);
@@ -1163,9 +1166,8 @@
    * only while its foot is in sight.
    */
   let board = null; // { session, items, before, size, timer }
-  // Its rows and pages, as the talk bubble draws and merges them (talk/bubble.js).
+  // Its rows and pages, as the talk bubble and the Pixel Terminal draw and merge them (talk/bubble.js, talk/terminal.js).
   const conversation = window.AgentOffice && AgentOffice.conversation;
-  const byOrder = (a, b) => conversation.byOrder(a, b);
 
   function openBoard(id) {
     const session = sessions.find((s) => s.id === id);
@@ -1230,9 +1232,7 @@
     if (!res.ok) return boardProblem(await problemText(res));
     const page = await res.json().catch(() => null);
     if (!page || board !== shown) return;
-    const known = new Set(shown.items.map((i) => i.id));
-    shown.items = [...page.items.filter((i) => !known.has(i.id)), ...shown.items].sort(byOrder);
-    shown.before = page.before;
+    Object.assign(shown, conversation.older(shown, page));
     // Where you were stays in sight as the older ones come in above it.
     const body = $('board-body');
     const fromFoot = body.scrollHeight - body.scrollTop;

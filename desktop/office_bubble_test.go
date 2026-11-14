@@ -13,7 +13,7 @@ import (
 func talkBubbleSources(t *testing.T) string {
 	t.Helper()
 	var all strings.Builder
-	for _, name := range []string{"anchors.js", "style.js", "bubble.js"} {
+	for _, name := range []string{"anchors.js", "style.js", "bubble.js", "terminal.js"} {
 		src, err := os.ReadFile("../Resources/web/office/talk/" + name)
 		if err != nil {
 			t.Fatal(err)
@@ -168,7 +168,7 @@ const room = { canvas: { getBoundingClientRect: () => ({ left: 0, top: 0, right:
 const bubble = B.create(win, page, room);
 const panel = () => body.children.find((c) => c.className && c.className.includes('talk-bubble'));
 const reopen = async () => { bubble.open('s1'); timers.splice(0).forEach((f) => f()); bubble.open('s1'); await settle(); };
-const keys = () => panel().find('talk-key').filter((k) => !['Esc', 'Send'].includes(k.textContent));
+const keys = () => panel().find('talk-key').filter((k) => !['Expand', 'Esc', 'Send'].includes(k.textContent));
 
 (async () => {
   bubble.open('s1');
@@ -346,7 +346,7 @@ func TestTheDeckGivesTheRoomTalkOnlyInItsOwnWindow(t *testing.T) {
 	page := string(data)
 	from, to := "  const preview = location.pathname", "const talkHere = ownWindow && whole && !preview && !saver;"
 	start, end := strings.Index(page, from), strings.Index(page, to)
-	if start < 0 || end < start || !strings.Contains(page, "...(talkHere ? { talk: { get, post, flash, tick } } : {}),") {
+	if start < 0 || end < start || !strings.Contains(page, "...(talkHere ? { talk: { get, post, flash, tick, openInTerminal: ") {
 		t.Fatal("deck.html no longer decides talkHere as this test expects: update it")
 	}
 	runNode(t, `

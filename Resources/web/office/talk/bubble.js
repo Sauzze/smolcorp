@@ -2,7 +2,8 @@
  * The talk bubble (1.26, Talk Bubble), in the office's own window only. A click on the bubble over an agent's head
  * grows it into a small conversation: its last messages, its question with a button per choice, a one-line input. A
  * mouse resting on a bubble shows a one-line tag; each desk waiting on you shows a small question bubble, and a Needs
- * you key in the room's corner walks through them, longest waiting first.
+ * you key in the room's corner walks through them, longest waiting first. Its Expand opens the desk's whole
+ * conversation in the Pixel Terminal (PIXEL_TERMINAL).
  *
  * The plain functions come first: what the bubble shows of a conversation, a prompt's choices, what a choice sends,
  * whether the input takes words, which key picks by its digit. The ▤ slate (deck.html) draws its rows and merges its
@@ -31,6 +32,38 @@ const TALK_BUBBLE = {
   /** The four keys, where a prompt's choices can't be offered by label: ✕ says No, as a permission's No does. */
   KEYS: [{ act: 'up', label: '▲', name: 'Up' }, { act: 'down', label: '▼', name: 'Down' },
     { act: 'accept', label: '✓', name: 'Pick' }, { act: 'reject', label: '✕', name: 'No', no: true }],
+  /** The keys other files added (F-O, see PIXEL_TERMINAL): name → { label, title, shown(desk), press(desk) }. */
+  added: new Map(),
+
+  /**
+   * A key from another file, on the open bubble's header and in the Pixel Terminal's menu: `press(desk)` what it does,
+   * `shown(desk)`, if given, whether it's there for that desk; `desk` as deskOf gives it. Added again under the same
+   * name, it takes the first one's place. Gives the name.
+   */
+  addKey(name, key) {
+    TALK_BUBBLE.added.set(String(name), key);
+    return name;
+  },
+
+  /** The added keys there for `desk`, in the order they were added. */
+  keysFor(desk) {
+    return [...TALK_BUBBLE.added].filter(([, key]) => {
+      try {
+        return !key.shown || key.shown(desk);
+      } catch {
+        return false;
+      }
+    }).map(([name, key]) => ({ ...key, name }));
+  },
+
+  /**
+   * What an added key or panel is told of a desk: its id, name, card (GET /talk), a copy of its session, and the page's
+   * get, post and flash. Those carry the window's key: a feature file is trusted code, reviewed as the core is.
+   */
+  deskOf(page, room, id, card) {
+    const session = room.session(id);
+    return { id, name: room.name(id), card: card || null, session: session ? { ...session } : null, get: page.get, post: page.post, flash: page.flash };
+  },
 
   /** A conversation's items in the file's order. */
   byOrder(a, b) {
@@ -183,8 +216,9 @@ const TALK_BUBBLE = {
 
   /**
    * The live bubbles on `win`'s page. `room`: { canvas, anchor(id), view(), shape(), session(id), name(id) }, from the
-   * room. Gives { open(id, anchor), hover(id, anchor), frame(bubbles), close(), remove() }: the room's click and hover
-   * on a bubble, each frame the room draws (the bubbles it drew), a click on the floor, and the room leaving the page.
+   * room. Gives { open(id, anchor), hover(id, anchor), expand(id), frame(bubbles), close(), remove() }: the room's click
+   * and hover on a bubble, the Pixel Terminal on a desk (Expand, the ▤ key), each frame the room draws (the bubbles it
+   * drew), a click on the floor, and the room leaving the page.
    */
   create(win, page, room) {
     const B = TALK_BUBBLE, doc = win.document;
@@ -214,6 +248,8 @@ const TALK_BUBBLE = {
     needs.type = 'button';
     tag.hidden = needs.hidden = true;
     doc.body.append(tag, needs);
+    // Expand: the Pixel Terminal, whose Shrink opens the same desk's bubble again
+    const terminal = PIXEL_TERMINAL.create(win, page, room, { open: (id) => api.open(id) });
     // Needs you: the next waiting desk after the open one, longest waiting first.
     needs.addEventListener('click', () => {
       const next = order[(order.indexOf(open && open.id) + 1) % order.length];
@@ -221,7 +257,7 @@ const TALK_BUBBLE = {
     });
     // Esc closes the open bubble wherever the focus is, but where the bubble said it already.
     const escaped = (e) => {
-      if (open && e.key === 'Escape' && !e.defaultPrevented) api.close();
+      if (open && e.key === 'Escape' && !e.defaultPrevented && !e.isComposing) api.close();
     };
     doc.addEventListener('keydown', escaped);
     const rect = () => room.canvas.getBoundingClientRect();
@@ -273,17 +309,18 @@ const TALK_BUBBLE = {
       el.setAttribute('role', 'dialog');
       el.tabIndex = -1;
       const head = make('div', 'talk-head'), dot = make('span', 'talk-dot'), name = make('span', 'talk-name'), state = make('span', 'talk-state');
-      const esc = make('button', 'talk-key dark', 'Esc');
-      esc.type = 'button';
+      const added = make('span', 'talk-added'), expand = make('button', 'talk-key dark', 'Expand'), esc = make('button', 'talk-key dark', 'Esc');
+      expand.type = esc.type = 'button';
+      expand.addEventListener('click', () => open && api.expand(open.id));
       esc.addEventListener('click', () => api.close());
-      head.append(dot, name, state, esc);
+      head.append(dot, name, state, added, expand, esc);
       const form = make('form', 'talk-input'), input = make('input'), send = make('button', 'talk-key go', 'Send');
       input.type = 'text';
       input.maxLength = 2000;
       input.autocomplete = 'off';
       send.type = 'submit';
       form.append(input, send);
-      const parts = { el, dot, name, state, lines: make('div', 'talk-lines'), ask: make('div', 'talk-ask'), form, input, send,
+      const parts = { el, dot, name, state, added, lines: make('div', 'talk-lines'), ask: make('div', 'talk-ask'), form, input, send,
         why: make('p', 'talk-why'), problem: make('p', 'talk-problem'), tail: make('div', 'talk-tail') };
       el.append(head, parts.lines, parts.ask, form, parts.why, parts.problem, parts.tail);
       form.addEventListener('submit', (e) => {
@@ -292,6 +329,7 @@ const TALK_BUBBLE = {
       });
       el.addEventListener('keydown', (e) => {
         const n = B.digitOf(e), choice = n && open && (B.choicesOf(open.card && open.card.asking) || []).find((c) => c.n === n);
+        if (e.isComposing || e.keyCode === 229) return;
         if (e.key === 'Escape') api.close();
         else if (choice) answer(open.id, open.card.asking, choice);
         else return;
@@ -313,6 +351,26 @@ const TALK_BUBBLE = {
       parts.dot.className = `talk-dot ${state}`;
       parts.name.textContent = name;
       parts.state.textContent = B.STATES[state] || '';
+      // The keys other files added, drawn again only when which are there changed
+      const id = open.id, keys = B.keysFor(B.deskOf(page, room, id, card)), names = keys.map((k) => k.name).join(' ');
+      if (names !== open.added) {
+        open.added = names;
+        parts.added.replaceChildren(...keys.map((k) => {
+          const b = make('button', 'talk-key dark', k.label);
+          b.type = 'button';
+          if (k.title) b.title = k.title;
+          b.addEventListener('click', (e) => {
+            e.stopPropagation();
+            try {
+              // The key as it's registered now: added again under the same name, the new one presses
+              (B.added.get(k.name) || k).press(B.deskOf(page, room, id, open && open.id === id ? open.card : null));
+            } catch (err) {
+              win.console?.error?.(err);
+            }
+          });
+          return b;
+        }));
+      }
       const rows = session.conversation === false ? null : B.fold(open.items);
       const drawn = rows ? rows.map((r) => r.id + (r.text || '').length).join() + open.loaded : 'none';
       if (drawn !== open.drawn) {
@@ -517,11 +575,20 @@ const TALK_BUBBLE = {
       tag.style.top = `${Math.round(Math.max(r.top + 4, anchor.css.box.top - tag.offsetHeight - 6))}px`;
     }
 
+    /** Under the terminal, none of the small bubbles, Needs you or a tag: laid out again once it goes. */
+    function under() {
+      for (const s of smalls.values()) s.el.remove();
+      smalls.clear();
+      smallsAt = '';
+      tag.hidden = needs.hidden = true;
+    }
+
     const api = {
       /** The bubble over `id`'s head opened, or, open already, closed (a click on the same bubble). */
       open(id) {
         if (open && open.id === id) return api.close();
         api.close();
+        terminal.close();
         page.tick?.();
         api.hover(null);
         open = { id, card: cards.get(id) || null, items: [], before: null, size: null, loaded: false, timer: 0, fit: 0 };
@@ -536,7 +603,7 @@ const TALK_BUBBLE = {
       hover(id, anchor) {
         tagFor = null;
         tag.hidden = true;
-        if (id === null || !anchor || (open && open.id === id)) return;
+        if (id === null || !anchor || (open && open.id === id) || terminal.shown()) return;
         showTag(id, anchor);
         if (!anchor.again) return;
         page.get('/talk', { session: id }).then(async (res) => {
@@ -545,8 +612,22 @@ const TALK_BUBBLE = {
           if (card && tagFor === id) showTag(id, anchor);
         });
       },
+      /**
+       * The Pixel Terminal on `id`'s desk, from the open bubble at the same place in its conversation (or fresh), the
+       * bubble closed behind it; false for a desk the room doesn't have.
+       */
+      expand(id) {
+        const from = open && open.id === id ? { card: open.card, items: open.items, before: open.before, size: open.size } : { card: cards.get(id) || null };
+        if (!terminal.open(id, from)) return false;
+        api.close();
+        api.hover(null);
+        under();
+        return true;
+      },
       /** A frame of the room, with the bubbles it drew: the open bubble follows its head; the small ones are laid out. */
       frame(bubbles) {
+        terminal.frame(bubbles);
+        if (terminal.shown()) return under();
         if (open && !room.session(open.id)) api.close();
         place();
         const waiting = bubbles.filter((b) => b.state === 'asking');
@@ -570,6 +651,7 @@ const TALK_BUBBLE = {
       /** The room closed (its stream broke): nothing of the talk layers stays over the page. The next frame draws them again. */
       away() {
         api.close();
+        terminal.close();
         for (const s of smalls.values()) s.el.remove();
         smalls.clear();
         asked = new Map();
@@ -579,6 +661,7 @@ const TALK_BUBBLE = {
       },
       remove() {
         api.close();
+        terminal.remove();
         for (const s of smalls.values()) s.el.remove();
         smalls.clear();
         tag.remove();

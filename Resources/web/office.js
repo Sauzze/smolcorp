@@ -8,7 +8,7 @@
  * whole number of the screen's pixels so every edge stays sharp.
  *
  *   AgentOffice.create(canvas, on) → { show(snapshot), close(), select(id), setVisible(shown), setFramed(framed), moved(),
- *                                      setSaving(on), setLite(on), setPR(found), onElevator(clientX, clientY), ride() }
+ *                                      setSaving(on), setLite(on), setPR(found), expand(id), onElevator(clientX, clientY), ride() }
  *
  * `show` takes what the deck streams; `close` empties the office when the
  * stream drops, and whoever is there when it's back is already at work.
@@ -54,7 +54,8 @@
  * tail aims at, in art pixels and in CSS pixels on the page. Without `on.talk` the room draws and answers as before.
  * With the page's network in it too, `on.talk.get(path, params)` and `on.talk.post(path, params, signal, json)` (and
  * `flash(text)`, `tick()`), the room opens the bubbles itself (TALK_BUBBLE): the conversation over a head, the
- * small question bubbles of the desks waiting on you, and the Needs you key.
+ * small question bubbles of the desks waiting on you, and the Needs you key; and `expand(id)` opens a desk's whole
+ * conversation in the Pixel Terminal (PIXEL_TERMINAL), as the ▤ key does there.
  *
  * `on.pr(id)` (1.26, the office's own window only; see PR_LOOKS) turns a desk's pull request into a tag on the front of
  * the desk, and a click or tap on it into `on.pr(id)` for session `id`; the page gives the pull requests to show with
@@ -92,7 +93,8 @@
    * small question bubbles, which are drawn later (as other desks' questions come and go) and would lie over its keys. In
    * a short window the open bubble gives way in this order, so its keys and its input stay in view: the conversation
    * shrinks first (to 44 px), then the question (to two lines, scrolling), and only then the choices scroll inside
-   * their box; the input stays at the foot.
+   * their box; the input stays at the foot. The Pixel Terminal is the ▤ slate's chalkboard in its wood frame, its
+   * corners stepped, at the slate's height (z-index 8) over a dimmed room.
    */
   const TALK_STYLE = {
     ID: 'talk-bubble-style',
@@ -166,6 +168,65 @@
   .talk-small .talk-key { min-height: 0; padding: 1px 4px; margin: 1px; font-size: .85em; }
   .talk-tag { max-width: 300px; padding: 3px 7px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
   .talk-needs, .talk-small { z-index: 6; }
+  .talk-head .talk-added { display: contents; }
+  .pt, .pt-dim { --edge: #1b1e2a; --cream: #f4f1ea; --paper: #fffdf8; --chalk: #eef0ea; --board: #1f2b26; --wood: #6b4a2b;
+    --dim: #9fb0a6; --orange: #ff8a1f; --yellow: #f2d16b; --slate: #3e495b; position: fixed; z-index: 8; box-sizing: border-box; }
+  .pt *, .pt *::before { box-sizing: border-box; }
+  .pt[hidden], .pt-dim[hidden], .pt [hidden] { display: none !important; }
+  .pt-dim { inset: 0; background: rgba(10, 12, 18, .6); }
+  .pt { inset: 16px; display: flex; flex-direction: column; overflow: hidden; background: var(--board); color: var(--chalk);
+    font: 13px/1.4 -apple-system, system-ui, sans-serif; -webkit-user-select: text; user-select: text;
+    clip-path: polygon(0 6px, 2px 6px, 2px 2px, 6px 2px, 6px 0, calc(100% - 6px) 0, calc(100% - 6px) 2px, calc(100% - 2px) 2px,
+      calc(100% - 2px) 6px, 100% 6px, 100% calc(100% - 6px), calc(100% - 2px) calc(100% - 6px), calc(100% - 2px) calc(100% - 2px),
+      calc(100% - 6px) calc(100% - 2px), calc(100% - 6px) 100%, 6px 100%, 6px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 6px), 0 calc(100% - 6px));
+    box-shadow: inset 0 0 0 4px var(--wood), inset 0 0 0 6px var(--edge); padding: 6px; }
+  .pt:focus { outline: none; }
+  .pt.enter, .pt-dim.enter { animation: pt-in 200ms steps(4, end); }
+  @keyframes pt-in { from { opacity: 0; } to { opacity: 1; } }
+  .pt-head { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; background: var(--edge);
+    color: var(--cream); font: 700 11px/1 ui-monospace, Menlo, monospace; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+  .pt-head .talk-name { color: var(--chalk); margin-left: 6px; }
+  .pt-head .talk-state { color: var(--dim); }
+  .pt-menu { position: absolute; right: 8px; top: calc(100% + 4px); z-index: 1; display: flex; flex-direction: column; padding: 6px; min-width: 180px; }
+  .pt-cols { flex: 1; min-height: 0; display: flex; }
+  .pt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .pt-main > * { flex: none; }
+  .pt-body { flex: 1 1 auto; min-height: 60px; overflow-y: auto; padding: 6px 12px 12px; display: flex; flex-direction: column; gap: 7px; overflow-wrap: anywhere; }
+  .pt-body > * { flex: none; }
+  .pt-body .board-top { align-self: center; color: var(--dim); font-size: 12px; padding: 4px 0; }
+  .pt-body .board-row { white-space: pre-wrap; }
+  .pt-body .board-row.user, .pt-body .board-row.answer { align-self: flex-end; max-width: 85%; padding: 5px 9px; background: var(--cream); color: var(--edge);
+    box-shadow: 0 -2px 0 var(--edge), 0 2px 0 var(--edge), -2px 0 0 var(--edge), 2px 0 0 var(--edge); }
+  .pt-body .board-row.answer { background: var(--yellow); }
+  .pt-body .board-row.question { color: var(--yellow); }
+  .pt-body .board-row.peer { color: #9cc7f0; }
+  .pt-body .board-row .from { display: block; font: 700 10px/1.2 ui-monospace, Menlo, monospace; text-transform: uppercase; opacity: .85; }
+  .pt-body .board-row.tool, .pt-body .board-row.result { font: 11px/1.35 ui-monospace, Menlo, monospace; color: var(--dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pt-body .board-row.result { padding-left: 1.6em; opacity: .75; }
+  .pt-body .board-row .more { opacity: .55; }
+  .pt .talk-ask { max-height: 40%; overflow-y: auto; }
+  .pt-main > .pt-panels { flex: 0 1 auto; min-height: 0; max-height: 40%; overflow-y: auto; }
+  .pt-panels:empty, .pt-panel:empty { display: none; }
+  .pt-panel { padding: 8px 12px; border-top: 2px solid var(--edge); }
+  .pt-input { display: flex; gap: 8px; align-items: flex-end; padding: 8px; background: var(--edge); }
+  .pt-input textarea { flex: 1; min-width: 0; min-height: 64px; max-height: 40vh; resize: vertical; padding: 6px 8px; border: 0; border-radius: 0;
+    background: var(--paper); color: var(--edge); font: inherit; box-shadow: inset 0 0 0 2px var(--edge); }
+  .pt-input textarea:focus { outline: 2px solid var(--orange); outline-offset: 0; }
+  .pt-input textarea:disabled { background: #e3ded2; color: #6b7280; }
+  .pt .talk-why { color: var(--dim); }
+  .pt .talk-problem { padding-top: 7px; color: #f2a19b; }
+  .pt-side { flex: none; width: 204px; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-left: 2px solid var(--edge); overflow-y: auto; }
+  .pt-side > * { flex: none; }
+  .pt-office.talk-key { padding: 2px; display: block; }
+  .pt .pt-picture { display: block; position: static; width: 184px; height: auto; max-width: 100%; image-rendering: pixelated; }
+  .pt-list-head { font: 700 11px/1 ui-monospace, Menlo, monospace; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); padding: 4px 2px 0; }
+  .pt-list { display: flex; flex-direction: column; gap: 4px; }
+  .pt-desk.talk-key { display: flex; gap: 6px; text-transform: none; letter-spacing: 0; font: 600 12px/1.2 -apple-system, system-ui, sans-serif; }
+  .pt-desk.asking { background: var(--yellow); }
+  .pt-desk-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pt-desk-state { color: #4b5263; font-weight: 400; }
+  .pt-none { color: var(--dim); font-style: italic; }
   `,
 
     /** The bubbles' style, put on `doc` once. */
@@ -182,7 +243,8 @@
    * The talk bubble (1.26, Talk Bubble), in the office's own window only. A click on the bubble over an agent's head
    * grows it into a small conversation: its last messages, its question with a button per choice, a one-line input. A
    * mouse resting on a bubble shows a one-line tag; each desk waiting on you shows a small question bubble, and a Needs
-   * you key in the room's corner walks through them, longest waiting first.
+   * you key in the room's corner walks through them, longest waiting first. Its Expand opens the desk's whole
+   * conversation in the Pixel Terminal (PIXEL_TERMINAL).
    *
    * The plain functions come first: what the bubble shows of a conversation, a prompt's choices, what a choice sends,
    * whether the input takes words, which key picks by its digit. The ▤ slate (deck.html) draws its rows and merges its
@@ -211,6 +273,38 @@
     /** The four keys, where a prompt's choices can't be offered by label: ✕ says No, as a permission's No does. */
     KEYS: [{ act: 'up', label: '▲', name: 'Up' }, { act: 'down', label: '▼', name: 'Down' },
       { act: 'accept', label: '✓', name: 'Pick' }, { act: 'reject', label: '✕', name: 'No', no: true }],
+    /** The keys other files added (F-O, see PIXEL_TERMINAL): name → { label, title, shown(desk), press(desk) }. */
+    added: new Map(),
+
+    /**
+     * A key from another file, on the open bubble's header and in the Pixel Terminal's menu: `press(desk)` what it does,
+     * `shown(desk)`, if given, whether it's there for that desk; `desk` as deskOf gives it. Added again under the same
+     * name, it takes the first one's place. Gives the name.
+     */
+    addKey(name, key) {
+      TALK_BUBBLE.added.set(String(name), key);
+      return name;
+    },
+
+    /** The added keys there for `desk`, in the order they were added. */
+    keysFor(desk) {
+      return [...TALK_BUBBLE.added].filter(([, key]) => {
+        try {
+          return !key.shown || key.shown(desk);
+        } catch {
+          return false;
+        }
+      }).map(([name, key]) => ({ ...key, name }));
+    },
+
+    /**
+     * What an added key or panel is told of a desk: its id, name, card (GET /talk), a copy of its session, and the page's
+     * get, post and flash. Those carry the window's key: a feature file is trusted code, reviewed as the core is.
+     */
+    deskOf(page, room, id, card) {
+      const session = room.session(id);
+      return { id, name: room.name(id), card: card || null, session: session ? { ...session } : null, get: page.get, post: page.post, flash: page.flash };
+    },
 
     /** A conversation's items in the file's order. */
     byOrder(a, b) {
@@ -363,8 +457,9 @@
 
     /**
      * The live bubbles on `win`'s page. `room`: { canvas, anchor(id), view(), shape(), session(id), name(id) }, from the
-     * room. Gives { open(id, anchor), hover(id, anchor), frame(bubbles), close(), remove() }: the room's click and hover
-     * on a bubble, each frame the room draws (the bubbles it drew), a click on the floor, and the room leaving the page.
+     * room. Gives { open(id, anchor), hover(id, anchor), expand(id), frame(bubbles), close(), remove() }: the room's click
+     * and hover on a bubble, the Pixel Terminal on a desk (Expand, the ▤ key), each frame the room draws (the bubbles it
+     * drew), a click on the floor, and the room leaving the page.
      */
     create(win, page, room) {
       const B = TALK_BUBBLE, doc = win.document;
@@ -394,6 +489,8 @@
       needs.type = 'button';
       tag.hidden = needs.hidden = true;
       doc.body.append(tag, needs);
+      // Expand: the Pixel Terminal, whose Shrink opens the same desk's bubble again
+      const terminal = PIXEL_TERMINAL.create(win, page, room, { open: (id) => api.open(id) });
       // Needs you: the next waiting desk after the open one, longest waiting first.
       needs.addEventListener('click', () => {
         const next = order[(order.indexOf(open && open.id) + 1) % order.length];
@@ -401,7 +498,7 @@
       });
       // Esc closes the open bubble wherever the focus is, but where the bubble said it already.
       const escaped = (e) => {
-        if (open && e.key === 'Escape' && !e.defaultPrevented) api.close();
+        if (open && e.key === 'Escape' && !e.defaultPrevented && !e.isComposing) api.close();
       };
       doc.addEventListener('keydown', escaped);
       const rect = () => room.canvas.getBoundingClientRect();
@@ -453,17 +550,18 @@
         el.setAttribute('role', 'dialog');
         el.tabIndex = -1;
         const head = make('div', 'talk-head'), dot = make('span', 'talk-dot'), name = make('span', 'talk-name'), state = make('span', 'talk-state');
-        const esc = make('button', 'talk-key dark', 'Esc');
-        esc.type = 'button';
+        const added = make('span', 'talk-added'), expand = make('button', 'talk-key dark', 'Expand'), esc = make('button', 'talk-key dark', 'Esc');
+        expand.type = esc.type = 'button';
+        expand.addEventListener('click', () => open && api.expand(open.id));
         esc.addEventListener('click', () => api.close());
-        head.append(dot, name, state, esc);
+        head.append(dot, name, state, added, expand, esc);
         const form = make('form', 'talk-input'), input = make('input'), send = make('button', 'talk-key go', 'Send');
         input.type = 'text';
         input.maxLength = 2000;
         input.autocomplete = 'off';
         send.type = 'submit';
         form.append(input, send);
-        const parts = { el, dot, name, state, lines: make('div', 'talk-lines'), ask: make('div', 'talk-ask'), form, input, send,
+        const parts = { el, dot, name, state, added, lines: make('div', 'talk-lines'), ask: make('div', 'talk-ask'), form, input, send,
           why: make('p', 'talk-why'), problem: make('p', 'talk-problem'), tail: make('div', 'talk-tail') };
         el.append(head, parts.lines, parts.ask, form, parts.why, parts.problem, parts.tail);
         form.addEventListener('submit', (e) => {
@@ -472,6 +570,7 @@
         });
         el.addEventListener('keydown', (e) => {
           const n = B.digitOf(e), choice = n && open && (B.choicesOf(open.card && open.card.asking) || []).find((c) => c.n === n);
+          if (e.isComposing || e.keyCode === 229) return;
           if (e.key === 'Escape') api.close();
           else if (choice) answer(open.id, open.card.asking, choice);
           else return;
@@ -493,6 +592,26 @@
         parts.dot.className = `talk-dot ${state}`;
         parts.name.textContent = name;
         parts.state.textContent = B.STATES[state] || '';
+        // The keys other files added, drawn again only when which are there changed
+        const id = open.id, keys = B.keysFor(B.deskOf(page, room, id, card)), names = keys.map((k) => k.name).join(' ');
+        if (names !== open.added) {
+          open.added = names;
+          parts.added.replaceChildren(...keys.map((k) => {
+            const b = make('button', 'talk-key dark', k.label);
+            b.type = 'button';
+            if (k.title) b.title = k.title;
+            b.addEventListener('click', (e) => {
+              e.stopPropagation();
+              try {
+                // The key as it's registered now: added again under the same name, the new one presses
+                (B.added.get(k.name) || k).press(B.deskOf(page, room, id, open && open.id === id ? open.card : null));
+              } catch (err) {
+                win.console?.error?.(err);
+              }
+            });
+            return b;
+          }));
+        }
         const rows = session.conversation === false ? null : B.fold(open.items);
         const drawn = rows ? rows.map((r) => r.id + (r.text || '').length).join() + open.loaded : 'none';
         if (drawn !== open.drawn) {
@@ -697,11 +816,20 @@
         tag.style.top = `${Math.round(Math.max(r.top + 4, anchor.css.box.top - tag.offsetHeight - 6))}px`;
       }
 
+      /** Under the terminal, none of the small bubbles, Needs you or a tag: laid out again once it goes. */
+      function under() {
+        for (const s of smalls.values()) s.el.remove();
+        smalls.clear();
+        smallsAt = '';
+        tag.hidden = needs.hidden = true;
+      }
+
       const api = {
         /** The bubble over `id`'s head opened, or, open already, closed (a click on the same bubble). */
         open(id) {
           if (open && open.id === id) return api.close();
           api.close();
+          terminal.close();
           page.tick?.();
           api.hover(null);
           open = { id, card: cards.get(id) || null, items: [], before: null, size: null, loaded: false, timer: 0, fit: 0 };
@@ -716,7 +844,7 @@
         hover(id, anchor) {
           tagFor = null;
           tag.hidden = true;
-          if (id === null || !anchor || (open && open.id === id)) return;
+          if (id === null || !anchor || (open && open.id === id) || terminal.shown()) return;
           showTag(id, anchor);
           if (!anchor.again) return;
           page.get('/talk', { session: id }).then(async (res) => {
@@ -725,8 +853,22 @@
             if (card && tagFor === id) showTag(id, anchor);
           });
         },
+        /**
+         * The Pixel Terminal on `id`'s desk, from the open bubble at the same place in its conversation (or fresh), the
+         * bubble closed behind it; false for a desk the room doesn't have.
+         */
+        expand(id) {
+          const from = open && open.id === id ? { card: open.card, items: open.items, before: open.before, size: open.size } : { card: cards.get(id) || null };
+          if (!terminal.open(id, from)) return false;
+          api.close();
+          api.hover(null);
+          under();
+          return true;
+        },
         /** A frame of the room, with the bubbles it drew: the open bubble follows its head; the small ones are laid out. */
         frame(bubbles) {
+          terminal.frame(bubbles);
+          if (terminal.shown()) return under();
           if (open && !room.session(open.id)) api.close();
           place();
           const waiting = bubbles.filter((b) => b.state === 'asking');
@@ -750,6 +892,7 @@
         /** The room closed (its stream broke): nothing of the talk layers stays over the page. The next frame draws them again. */
         away() {
           api.close();
+          terminal.close();
           for (const s of smalls.values()) s.el.remove();
           smalls.clear();
           asked = new Map();
@@ -759,11 +902,542 @@
         },
         remove() {
           api.close();
+          terminal.remove();
           for (const s of smalls.values()) s.el.remove();
           smalls.clear();
           tag.remove();
           needs.remove();
           doc.removeEventListener('keydown', escaped);
+        },
+      };
+      return api;
+    },
+  };
+
+  /**
+   * The Pixel Terminal (1.26, Talk Bubble's Expand), in the office's own window only: Expand on an open bubble, or the ▤
+   * key, opens that desk's whole conversation on a large chalkboard monitor, the room zooming toward the desk and dimming
+   * behind it (a cross-fade alone with reduced motion). Its header: Back to office (Esc), Shrink to bubble (the office
+   * again, that desk's bubble open), the desk's status as a word, Next question N (the next desk waiting on you, longest
+   * waiting first, N of them; greyed with none) and a Menu with Open in Terminal where the page offers it. Its body: the
+   * conversation with Older messages, following new lines only while its foot is in sight (the ▤ slate's rule); the
+   * desk's question with its choices, and the four keys under them (D4); and a roomy input, Enter sends, Shift+Enter a
+   * new line. Its side: a small picture of the office (a click goes back) and the other desks, waiting ones first, a
+   * click switching the terminal to that desk. One desk at a time.
+   *
+   * The bubble's rules hold: text is shown as text, never as HTML; nothing is typed into a prompt (the input is greyed
+   * while the desk asks, and wakes after a No); a desk the window can't type into says so in one plain line.
+   *
+   * The office's extension seam (F-O): `PIXEL_TERMINAL.addPanel(name, draw)` adds a panel under the conversation, and
+   * `TALK_BUBBLE.addKey(name, key)` a key on the bubble and in this menu. A feature lives in a file of its own,
+   * `talk/<name>.js`, included after this one, that registers itself as its const is made:
+   *
+   *   const TALK_DIFF = {
+   *     draw(box, desk) { … },
+   *     added: PIXEL_TERMINAL.addPanel('diff', (box, desk) => TALK_DIFF.draw(box, desk)),
+   *   };
+   *
+   * so it touches only buildoffice's module list and one //#include line.
+   */
+  const PIXEL_TERMINAL = {
+    /** How much the room grows toward the desk behind the terminal, and how long it takes, in ms. */
+    ZOOM: 1.6,
+    ZOOM_MS: 200,
+    /** The office's picture in the side, its width in CSS pixels, drawn again at most this often (ms). */
+    PICTURE: 184,
+    PICTURE_EVERY: 250,
+    /** The panels other files added (F-O): name → draw(box, desk). */
+    panels: new Map(),
+
+    /**
+     * A panel under the conversation, from another file: `draw(box, desk)` fills `box`, an element of its own (empty,
+     * nothing shows), each time the terminal shows a desk or reads its card again (every 2 or 3 seconds), so it draws
+     * only what changed; on another desk, the box starts empty again. `desk` is TALK_BUBBLE.deskOf's. Added again
+     * under the same name, it takes the first one's place. Gives the name.
+     */
+    addPanel(name, draw) {
+      PIXEL_TERMINAL.panels.set(String(name), draw);
+      return name;
+    },
+
+    /**
+     * Next question: of the desks waiting on you (`order`, longest waiting first), how many there are besides `id`, and
+     * the one Next goes to: the one after `id` in that order, round to the first; the first, where `id` isn't waiting.
+     */
+    nextOf(order, id) {
+      const at = order.indexOf(id), others = order.filter((o) => o !== id);
+      const next = at < 0 ? others[0] : [...order.slice(at + 1), ...order.slice(0, at)][0];
+      return { count: others.length, next: next || null };
+    },
+
+    /**
+     * The side's desk list: every desk with a talk bubble but `id`, those waiting on you first (longest waiting first,
+     * as Needs you), then the rest by name. `desks`: [{ id, state, since }].
+     */
+    listOf(desks, id, nameOf) {
+      const waiting = TALK_ANCHORS.needsYou(desks).filter((d) => d.id !== id);
+      const rest = desks.filter((d) => d.state !== 'asking' && d.id !== id)
+        .sort((a, b) => nameOf(a.id).localeCompare(nameOf(b.id)) || String(a.id).localeCompare(String(b.id)));
+      return [...waiting, ...rest].map((d) => ({ id: d.id, state: d.state, name: nameOf(d.id) }));
+    },
+
+    /** An older page of /conversation put above what's shown ({ items, before }): its items not there yet, in the file's order. */
+    older(shown, page) {
+      const known = new Set(shown.items.map((i) => i.id));
+      return { items: [...page.items.filter((i) => !known.has(i.id)), ...shown.items].sort(TALK_BUBBLE.byOrder), before: page.before };
+    },
+
+    /** Whether the conversation's foot is in sight, give or take 40 px: only then do new lines take it down. */
+    atFoot(el) {
+      return el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+    },
+
+    /** A key in the roomy input: Enter sends; Shift+Enter is a new line, and so is Enter while a letter is being composed. */
+    keyOf(e) {
+      return e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229 ? 'send' : null;
+    },
+
+    /** The room's zoom toward the desk: the point on the canvas it grows from (the head, else the middle). None with reduced motion. */
+    zoomOf(tip, rect, reduced) {
+      if (reduced) return null;
+      const x = tip ? tip.x - rect.left : rect.width / 2, y = tip ? tip.y - rect.top : rect.height / 2;
+      return { origin: `${Math.round(x)}px ${Math.round(y)}px`, scale: PIXEL_TERMINAL.ZOOM };
+    },
+
+    /**
+     * The live terminal on `win`'s page, with the bubble's `page` and `room` (see TALK_BUBBLE.create), and `bubble`,
+     * whose open(id) Shrink calls. `page.openInTerminal`, where given, is the menu's Open in Terminal: { shown(),
+     * open(id) }. Gives { open(id, from), close(), shown(), frame(bubbles), remove() }; `from` is what the bubble showed
+     * ({ card, items, before, size }), so the terminal opens at the same place in the conversation.
+     */
+    create(win, page, room, bubble) {
+      const T = PIXEL_TERMINAL, B = TALK_BUBBLE, doc = win.document;
+      const make = (tag, cls, text) => {
+        const el = doc.createElement(tag);
+        if (cls) el.className = cls;
+        if (text !== undefined) el.textContent = text;
+        return el;
+      };
+      const key = (cls, text, press) => {
+        const b = make('button', `talk-key ${cls}`, text);
+        b.type = 'button';
+        b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          press();
+        });
+        return b;
+      };
+      let p = null;            // the terminal's parts, made on first open
+      let term = null;         // the desk shown: { id, card, items, before, size, loaded, timer, round, drawn, at, listed, boxes }
+      let desks = [];          // the desks with talk bubbles, from the room's frames: { id, state, since }
+      let pictured = 0;
+      let sending = false;     // a /talk/say on its way: Enter or Send again sends nothing more until it's back
+      const drafts = new Map(); // words left in the input, by desk, so switching never sends them to another
+      const reduced = () => !!(win.matchMedia && win.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      const order = () => TALK_ANCHORS.needsYou(desks).map((d) => d.id);
+      const deskOf = (id) => B.deskOf(page, room, id, term && term.id === id ? term.card : null);
+
+      // Esc goes back to the office (or shuts the menu), N is Next question outside the input, a digit picks a choice.
+      const keyed = (e) => {
+        if (!term || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+        const t = e.target, inBox = t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
+        const asking = term.card && term.card.asking, headless = (room.session(term.id) || {}).headless === true;
+        const n = B.digitOf(e), choice = n && asking && !headless && (B.choicesOf(asking) || []).find((c) => c.n === n);
+        if (e.key === 'Escape') {
+          if (!p.menu.hidden) p.menu.hidden = true;
+          else api.close();
+        } else if ((e.key === 'n' || e.key === 'N') && !inBox && !e.altKey && !e.ctrlKey && !e.metaKey) next();
+        else if (choice) answer(term, asking, choice);
+        else return;
+        e.preventDefault();
+        e.stopPropagation();
+      };
+
+      function build() {
+        p = { dim: make('div', 'pt-dim'), el: make('div', 'pt'), menu: make('div', 'pt-menu talk-edge') };
+        p.el.setAttribute('role', 'dialog');
+        p.el.tabIndex = -1;
+        p.menu.setAttribute('role', 'menu');
+        const head = make('div', 'pt-head');
+        p.dot = make('span', 'talk-dot');
+        p.name = make('span', 'talk-name');
+        p.state = make('span', 'talk-state');
+        p.next = key('go', '', next);
+        // The menu is drawn as it opens, so what it offers is what's true now
+        p.more = key('dark', 'Menu ▾', () => {
+          p.menu.hidden = !p.menu.hidden;
+          if (p.menu.hidden) return;
+          drawMenu();
+          p.menu.querySelector('.talk-key')?.focus();
+        });
+        p.more.setAttribute('aria-haspopup', 'menu');
+        head.append(key('dark', 'Back to office', () => api.close()), key('dark', 'Shrink to bubble', shrink), p.dot, p.name, p.state,
+          p.next, p.more, p.menu);
+        p.body = make('div', 'pt-body');
+        p.ask = make('div', 'talk-ask');
+        p.panels = make('div', 'pt-panels');
+        p.form = make('form', 'pt-input');
+        p.input = make('textarea');
+        p.input.rows = 3;
+        p.input.maxLength = 2000;
+        p.input.autocomplete = 'off';
+        p.send = make('button', 'talk-key go', 'Send');
+        p.send.type = 'submit';
+        p.form.append(p.input, p.send);
+        p.why = make('p', 'talk-why');
+        p.problem = make('p', 'talk-problem');
+        const main = make('div', 'pt-main');
+        main.append(p.body, p.ask, p.panels, p.form, p.why, p.problem);
+        p.picture = make('canvas', 'pt-picture');
+        const office = key('pt-office', '', () => api.close());
+        office.setAttribute('aria-label', 'Back to office');
+        office.title = 'Back to office';
+        office.append(p.picture);
+        p.list = make('div', 'pt-list');
+        const side = make('div', 'pt-side');
+        side.append(office, make('div', 'pt-list-head', 'Desks'), p.list);
+        const cols = make('div', 'pt-cols');
+        cols.append(main, side);
+        p.el.append(head, cols);
+        p.form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          say();
+        });
+        // A held Enter repeats: only the first press sends, and the rest add no new lines either
+        p.input.addEventListener('keydown', (e) => {
+          if (T.keyOf(e) !== 'send') return;
+          e.preventDefault();
+          if (!e.repeat) say();
+        });
+        doc.addEventListener('keydown', keyed);
+        p.dim.hidden = p.el.hidden = true;
+        doc.body.append(p.dim, p.el);
+      }
+
+      /** The room behind grows toward the desk, or back. */
+      function zoom(id) {
+        const style = room.canvas.style, anchor = id && room.anchor(id);
+        const z = id && T.zoomOf(anchor && anchor.css.tip, room.canvas.getBoundingClientRect(), reduced());
+        style.transition = reduced() ? '' : `transform ${T.ZOOM_MS}ms steps(4, end), transform-origin ${T.ZOOM_MS}ms steps(4, end)`;
+        if (z) style.transformOrigin = z.origin;
+        style.transform = z ? `scale(${z.scale})` : '';
+      }
+
+      /** `id`'s desk in the terminal, from what was shown of it (`from`), or fresh. */
+      function show(id, from = {}) {
+        if (term) {
+          win.clearTimeout(term.timer);
+          drafts.set(term.id, p.input.value);
+        }
+        term = { id, card: from.card || null, items: from.items || [], before: from.before ?? null, size: from.size ?? null,
+          loaded: !!(from.items && from.items.length), timer: 0, drawn: '', at: null, listed: '', boxes: new Map() };
+        p.input.value = drafts.get(id) || '';
+        p.menu.hidden = true;
+        p.panels.replaceChildren();
+        problem('');
+        if (!p.el.hidden) zoom(id);
+        render();
+        look(term);
+      }
+
+      function render() {
+        if (!term) return;
+        const card = term.card, session = room.session(term.id) || {}, name = room.name(term.id), state = card ? card.state : session.state;
+        p.el.setAttribute('aria-label', `${name}: conversation`);
+        p.dot.className = `talk-dot ${state}`;
+        p.name.textContent = name;
+        p.state.textContent = B.STATES[state] || '';
+        drawLines(false);
+        drawAsk(session);
+        const input = B.inputOf(card, name);
+        p.form.hidden = !input.shown;
+        p.input.disabled = p.send.disabled = input.disabled;
+        p.input.placeholder = input.disabled ? input.placeholder : `${input.placeholder} (Shift+Enter: a new line)`;
+        p.why.textContent = input.line;
+        p.why.hidden = !input.line;
+        p.more.hidden = !menu().length;
+        drawSide();
+        const desk = deskOf(term.id);
+        for (const [panel, draw] of T.panels) {
+          let box = term.boxes.get(panel);
+          if (!box) {
+            term.boxes.set(panel, box = make('section', 'pt-panel'));
+            box.setAttribute('data-panel', panel);
+            p.panels.append(box);
+          }
+          try {
+            draw(box, desk);
+          } catch (err) {
+            win.console?.error?.(err);
+          }
+        }
+      }
+
+      /** The whole conversation, drawn again only when there's more of it; new lines followed only while its foot is in sight. */
+      function drawLines(force) {
+        const none = (room.session(term.id) || {}).conversation === false, items = term.items;
+        const drawn = none ? 'none'
+          : [items.length, items[0] && items[0].id, items.length && items[items.length - 1].id, term.before, !!term.loadingOlder, term.loaded].join();
+        if (drawn === term.drawn && !force) return;
+        const follow = !term.drawn || T.atFoot(p.body);
+        term.drawn = drawn;
+        const top = make('div', 'board-top');
+        if (none) top.textContent = 'No conversation for this agent';
+        else if (!items.length && !term.loaded) top.textContent = 'Loading…';
+        else if (term.before !== null) {
+          const older = key('dark', term.loadingOlder ? 'Loading…' : 'Older messages', olderPage);
+          older.disabled = !!term.loadingOlder;
+          top.append(older);
+        } else top.textContent = items.length ? 'The start of the conversation' : 'Nothing written yet';
+        p.body.replaceChildren(top, ...(none ? [] : items.map((i) => B.row(doc, i))));
+        if (follow) p.body.scrollTop = p.body.scrollHeight;
+      }
+
+      /**
+       * The desk's question, its choices by label where they can be offered, and the four keys under them (D4); a headless
+       * run's, the question alone.
+       */
+      function drawAsk(session) {
+        const asking = term.card && term.card.asking, at = asking ? `${asking.since} ${asking.pickable} ${session.headless}` : '';
+        if (at === term.at) return;
+        term.at = at;
+        p.ask.hidden = !asking;
+        if (!asking) return p.ask.replaceChildren();
+        const shown = term, headless = session.headless === true, choices = headless ? null : B.choicesOf(asking);
+        const row = (list) => {
+          const keys = make('div', 'talk-keys');
+          for (const choice of list) {
+            const b = key(choice.n === 1 ? 'go' : '', '', () => answer(shown, asking, choice));
+            if (choice.n) b.append(make('i', '', String(choice.n)));
+            b.append(choice.label);
+            if (choice.name) b.setAttribute('aria-label', choice.name);
+            if (choice.description) b.title = choice.description;
+            keys.append(b);
+          }
+          return keys;
+        };
+        const hint = choices ? 'Something else? Tap No, then type. Or move in its menu:'
+          : 'Its menu can\'t be read from here: ▲ ▼ move, ✓ picks, ✕ says No.';
+        p.ask.replaceChildren(make('div', 'talk-q', B.questionOf(asking)), ...(headless ? [] : [...(choices ? [row(choices)] : []),
+          make('div', 'talk-hint', hint), row(B.KEYS)]));
+      }
+
+      /** Next question's count and the desk list, each drawn again only when it changed. */
+      function drawSide() {
+        const { count, next: to } = T.nextOf(order(), term.id);
+        if (p.next.textContent !== `Next question ${count}`) p.next.replaceChildren('Next question ', make('i', '', String(count)));
+        p.next.disabled = !to;
+        const rows = T.listOf(desks, term.id, room.name), listed = rows.map((r) => `${r.id} ${r.state} ${r.name}`).join('|');
+        if (listed === term.listed) return;
+        term.listed = listed;
+        p.list.replaceChildren(...(rows.length ? rows.map((r) => {
+          const b = key(`pt-desk ${r.state}`, '', () => show(r.id));
+          b.append(make('span', `talk-dot ${r.state}`), make('span', 'pt-desk-name', r.name),
+            make('span', 'pt-desk-state', B.STATES[r.state] || ''));
+          return b;
+        }) : [make('div', 'pt-none', 'No other desks')]));
+      }
+
+      /** The menu: Open in Terminal where the page offers it (a setting), then the keys other files added. */
+      function menu() {
+        const id = term.id, offered = page.openInTerminal;
+        const items = offered && offered.shown() ? [{ label: 'Open in Terminal', press: () => offered.open(id) }] : [];
+        return [...items, ...B.keysFor(deskOf(id))];
+      }
+
+      function drawMenu() {
+        p.menu.replaceChildren(...menu().map((item) => {
+          const b = key('dark', item.label, () => {
+            p.menu.hidden = true;
+            try {
+              item.press(deskOf(term.id));
+            } catch (err) {
+              win.console?.error?.(err);
+            }
+          });
+          b.setAttribute('role', 'menuitem');
+          if (item.title) b.title = item.title;
+          return b;
+        }));
+      }
+
+      /** The office's picture in the side: the room's own canvas, small. */
+      function picture() {
+        const from = room.canvas, to = p.picture, ctx = from.width && from.height && to.getContext && to.getContext('2d');
+        if (!ctx) return;
+        const w = T.PICTURE, h = Math.round((w * from.height) / from.width);
+        if (to.width !== w * 2 || to.height !== h * 2) Object.assign(to, { width: w * 2, height: h * 2 });
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(from, 0, 0, to.width, to.height);
+      }
+
+      function problem(text) {
+        p.problem.textContent = text;
+        p.problem.hidden = !text;
+      }
+
+      function next() {
+        const { next: to } = term ? T.nextOf(order(), term.id) : {};
+        if (to) show(to);
+      }
+
+      function shrink() {
+        const id = term && term.id;
+        api.close();
+        if (id) bubble.open(id);
+      }
+
+      /** A choice tapped, as in the bubble: a No wakes the input. */
+      async function answer(shown, asking, choice) {
+        page.tick?.();
+        const { path, params } = B.sendOf(shown.id, asking, choice);
+        const res = await page.post(path, params);
+        if (term !== shown) return;
+        if (!res) return page.flash?.('Can\'t reach your computer');
+        if (!res.ok) page.flash?.(await B.said(res));
+        else shown.card = B.answered(shown.card, choice);
+        render();
+        if (res.ok && choice.no) p.input.focus();
+        look(shown);
+      }
+
+      /**
+       * The input's words to the desk, with Return; several lines as one paste where it takes them; once, however often
+       * Enter or Send is pressed while they're on their way. Sent, they leave the box, and what was typed meanwhile stays;
+       * refused, they stay, the reason under them.
+       */
+      async function say() {
+        const shown = term;
+        if (!shown || sending || p.input.disabled) return;
+        const words = p.input.value, text = words.trim();
+        if (!text) return;
+        page.tick?.();
+        sending = p.send.disabled = true;
+        let res;
+        try {
+          res = await page.post('/talk/say', { session: shown.id }, undefined, { text, send: true });
+        } finally {
+          sending = false;
+        }
+        const sent = !!(res && res.ok), rest = (left) => (left.startsWith(words) ? left.slice(words.length).trimStart() : left);
+        if (term !== shown) {
+          // Another desk is shown now: what went isn't kept as this desk's draft
+          if (sent && drafts.has(shown.id)) drafts.set(shown.id, rest(drafts.get(shown.id)));
+          if (p) p.send.disabled = p.input.disabled;
+          return;
+        }
+        p.send.disabled = p.input.disabled;
+        if (sent) {
+          p.input.value = rest(p.input.value);
+          problem('');
+          return look(shown);
+        }
+        problem(res ? await B.said(res) : 'Can\'t reach your computer.');
+      }
+
+      /** The desk's card again, and its newest messages when the transcript grew; then again in 2 or 3 seconds. */
+      async function look(shown) {
+        if (term !== shown) return;
+        win.clearTimeout(shown.timer);
+        const mine = shown.round = (shown.round || 0) + 1, current = () => term === shown && shown.round === mine;
+        const res = await page.get('/talk', { session: shown.id });
+        if (!current()) return;
+        if (res && res.status === 404) return api.close();
+        const card = res && res.ok ? await res.json().catch(() => null) : null;
+        if (card && current()) shown.card = card;
+        if (shown.card && shown.card.size !== shown.size && (room.session(shown.id) || {}).conversation !== false) await newest(shown);
+        if (!current()) return;
+        shown.loaded = true;
+        render();
+        if (!shown.focused) {
+          shown.focused = true;
+          // Without scrolling: the question's first line and the terminal's header stay in sight in a small window
+          const first = p.ask.querySelector('.talk-key');
+          (first || (p.input.disabled ? p.el : p.input)).focus({ preventScroll: true });
+        }
+        shown.timer = win.setTimeout(() => look(shown), shown.card && shown.card.asking ? B.ASKING_EVERY : B.EVERY);
+      }
+
+      async function newest(shown) {
+        const params = { session: shown.id };
+        if (shown.size !== null && shown.items.length) params.size = shown.size;
+        const res = await page.get('/conversation', params);
+        const got = res && res.status === 200 ? await res.json().catch(() => null) : null;
+        if (!got || term !== shown) return;
+        const merged = B.merge(shown, got);
+        Object.assign(shown, { items: merged.items, before: merged.before, size: got.size });
+      }
+
+      /** Older messages: the page before what's shown, put above it, where you were kept in sight. */
+      async function olderPage() {
+        const shown = term;
+        if (!shown || shown.before === null || shown.loadingOlder) return;
+        const fromFoot = p.body.scrollHeight - p.body.scrollTop, kept = () => { p.body.scrollTop = p.body.scrollHeight - fromFoot; };
+        shown.loadingOlder = true;
+        drawLines(false);
+        kept();
+        const res = await page.get('/conversation', { session: shown.id, before: shown.before });
+        shown.loadingOlder = false;
+        if (term !== shown) return;
+        const got = res && res.status === 200 ? await res.json().catch(() => null) : null;
+        if (!got) problem(res ? await B.said(res) : 'Can\'t reach your computer.');
+        else Object.assign(shown, T.older(shown, got));
+        drawLines(true);
+        kept();
+      }
+
+      const api = {
+        /** The terminal on `id`'s desk, from what the bubble showed of it; false for a desk the room doesn't have. */
+        open(id, from) {
+          if (!room.session(id)) return false;
+          if (!p) build();
+          const was = !!term;
+          show(id, from);
+          if (!was) {
+            p.dim.hidden = p.el.hidden = false;
+            for (const el of [p.dim, p.el]) {
+              el.classList.remove('enter');
+              el.classList.add('enter');
+            }
+            win.setTimeout(() => p && [p.dim, p.el].forEach((el) => el.classList.remove('enter')), T.ZOOM_MS + 20);
+            zoom(id);
+            pictured = 0;
+            picture();
+          }
+          return true;
+        },
+        /** Back to the office: the terminal goes, the room comes back to its size, and the room has the focus again. */
+        close() {
+          if (!term) return;
+          drafts.set(term.id, p.input.value);
+          win.clearTimeout(term.timer);
+          term = null;
+          p.dim.hidden = p.el.hidden = p.menu.hidden = true;
+          zoom(null);
+          room.canvas.focus?.();
+        },
+        shown() {
+          return !!term;
+        },
+        /** A frame of the room, with the bubbles it drew: the desks and Next question kept up, and the office's picture. */
+        frame(bubbles) {
+          // Upstairs or on the ride the room draws no bubbles: the list stays as it was rather than empty
+          desks = (bubbles.length || !term ? bubbles : desks).filter((b) => room.session(b.id)).map((b) => ({ id: b.id, state: b.state, since: b.since }));
+          if (!term) return;
+          if (!room.session(term.id)) return api.close();
+          const now = Date.now();
+          if (now - pictured < T.PICTURE_EVERY) return;
+          pictured = now;
+          picture();
+          drawSide();
+        },
+        remove() {
+          api.close();
+          if (!p) return;
+          p.dim.remove();
+          p.el.remove();
+          doc.removeEventListener('keydown', keyed);
+          p = null;
         },
       };
       return api;
@@ -70629,6 +71303,14 @@
         if (id) openCard(id);
         else hiredCard = null;
       },
+      /**
+       * The Pixel Terminal on `id`'s desk, as the ▤ key opens it in the office's own window: false where the page gave
+       * no talk, or for a desk with no talk bubble (a hire in T3 Code), for the page to open its slate instead.
+       */
+      expand(id) {
+        const session = sessionOf(id);
+        return !!(talkPanels && session && !session.t3 && talkPanels.expand(id));
+      },
       /** The office's styles' panel opened, from the page's settings: on the ground floor, whose style it is. */
       openStyles() {
         if (!on.style || framed || arranging) return;
@@ -70976,7 +71658,7 @@
     teamColours: Object.fromEntries(Object.entries({ skin: SKIN_TONES, hair: HAIR_COLOURS, colour: SHIRT_COLOURS })
       .map(([part, colours]) => [part, Object.fromEntries(Object.entries(colours).map(([id, hex]) => [id, css(hex)]))])),
     // The conversation's rows and pages as the talk bubble draws them, for the ▤ slate to draw them the same way
-    conversation: { row: TALK_BUBBLE.row, byOrder: TALK_BUBBLE.byOrder, merge: TALK_BUBBLE.merge },
+    conversation: { row: TALK_BUBBLE.row, byOrder: TALK_BUBBLE.byOrder, merge: TALK_BUBBLE.merge, older: PIXEL_TERMINAL.older },
     // The badges a role can wear, in setup's order, and each one's icon on a canvas of its own for a role's card
     badges: BADGE_IDS, badgeIcon: (id, scale = 1) => (Object.hasOwn(BADGES, id) ? paintIcon(BADGES[id].icon, Math.max(1, Math.round(scale))) : null),
   };

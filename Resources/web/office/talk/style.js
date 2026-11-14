@@ -8,7 +8,8 @@
  * small question bubbles, which are drawn later (as other desks' questions come and go) and would lie over its keys. In
  * a short window the open bubble gives way in this order, so its keys and its input stay in view: the conversation
  * shrinks first (to 44 px), then the question (to two lines, scrolling), and only then the choices scroll inside
- * their box; the input stays at the foot.
+ * their box; the input stays at the foot. The Pixel Terminal is the ▤ slate's chalkboard in its wood frame, its
+ * corners stepped, at the slate's height (z-index 8) over a dimmed room.
  */
 const TALK_STYLE = {
   ID: 'talk-bubble-style',
@@ -82,6 +83,65 @@ const TALK_STYLE = {
 .talk-small .talk-key { min-height: 0; padding: 1px 4px; margin: 1px; font-size: .85em; }
 .talk-tag { max-width: 300px; padding: 3px 7px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .talk-needs, .talk-small { z-index: 6; }
+.talk-head .talk-added { display: contents; }
+.pt, .pt-dim { --edge: #1b1e2a; --cream: #f4f1ea; --paper: #fffdf8; --chalk: #eef0ea; --board: #1f2b26; --wood: #6b4a2b;
+  --dim: #9fb0a6; --orange: #ff8a1f; --yellow: #f2d16b; --slate: #3e495b; position: fixed; z-index: 8; box-sizing: border-box; }
+.pt *, .pt *::before { box-sizing: border-box; }
+.pt[hidden], .pt-dim[hidden], .pt [hidden] { display: none !important; }
+.pt-dim { inset: 0; background: rgba(10, 12, 18, .6); }
+.pt { inset: 16px; display: flex; flex-direction: column; overflow: hidden; background: var(--board); color: var(--chalk);
+  font: 13px/1.4 -apple-system, system-ui, sans-serif; -webkit-user-select: text; user-select: text;
+  clip-path: polygon(0 6px, 2px 6px, 2px 2px, 6px 2px, 6px 0, calc(100% - 6px) 0, calc(100% - 6px) 2px, calc(100% - 2px) 2px,
+    calc(100% - 2px) 6px, 100% 6px, 100% calc(100% - 6px), calc(100% - 2px) calc(100% - 6px), calc(100% - 2px) calc(100% - 2px),
+    calc(100% - 6px) calc(100% - 2px), calc(100% - 6px) 100%, 6px 100%, 6px calc(100% - 2px), 2px calc(100% - 2px), 2px calc(100% - 6px), 0 calc(100% - 6px));
+  box-shadow: inset 0 0 0 4px var(--wood), inset 0 0 0 6px var(--edge); padding: 6px; }
+.pt:focus { outline: none; }
+.pt.enter, .pt-dim.enter { animation: pt-in 200ms steps(4, end); }
+@keyframes pt-in { from { opacity: 0; } to { opacity: 1; } }
+.pt-head { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; background: var(--edge);
+  color: var(--cream); font: 700 11px/1 ui-monospace, Menlo, monospace; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+.pt-head .talk-name { color: var(--chalk); margin-left: 6px; }
+.pt-head .talk-state { color: var(--dim); }
+.pt-menu { position: absolute; right: 8px; top: calc(100% + 4px); z-index: 1; display: flex; flex-direction: column; padding: 6px; min-width: 180px; }
+.pt-cols { flex: 1; min-height: 0; display: flex; }
+.pt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pt-main > * { flex: none; }
+.pt-body { flex: 1 1 auto; min-height: 60px; overflow-y: auto; padding: 6px 12px 12px; display: flex; flex-direction: column; gap: 7px; overflow-wrap: anywhere; }
+.pt-body > * { flex: none; }
+.pt-body .board-top { align-self: center; color: var(--dim); font-size: 12px; padding: 4px 0; }
+.pt-body .board-row { white-space: pre-wrap; }
+.pt-body .board-row.user, .pt-body .board-row.answer { align-self: flex-end; max-width: 85%; padding: 5px 9px; background: var(--cream); color: var(--edge);
+  box-shadow: 0 -2px 0 var(--edge), 0 2px 0 var(--edge), -2px 0 0 var(--edge), 2px 0 0 var(--edge); }
+.pt-body .board-row.answer { background: var(--yellow); }
+.pt-body .board-row.question { color: var(--yellow); }
+.pt-body .board-row.peer { color: #9cc7f0; }
+.pt-body .board-row .from { display: block; font: 700 10px/1.2 ui-monospace, Menlo, monospace; text-transform: uppercase; opacity: .85; }
+.pt-body .board-row.tool, .pt-body .board-row.result { font: 11px/1.35 ui-monospace, Menlo, monospace; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pt-body .board-row.result { padding-left: 1.6em; opacity: .75; }
+.pt-body .board-row .more { opacity: .55; }
+.pt .talk-ask { max-height: 40%; overflow-y: auto; }
+.pt-main > .pt-panels { flex: 0 1 auto; min-height: 0; max-height: 40%; overflow-y: auto; }
+.pt-panels:empty, .pt-panel:empty { display: none; }
+.pt-panel { padding: 8px 12px; border-top: 2px solid var(--edge); }
+.pt-input { display: flex; gap: 8px; align-items: flex-end; padding: 8px; background: var(--edge); }
+.pt-input textarea { flex: 1; min-width: 0; min-height: 64px; max-height: 40vh; resize: vertical; padding: 6px 8px; border: 0; border-radius: 0;
+  background: var(--paper); color: var(--edge); font: inherit; box-shadow: inset 0 0 0 2px var(--edge); }
+.pt-input textarea:focus { outline: 2px solid var(--orange); outline-offset: 0; }
+.pt-input textarea:disabled { background: #e3ded2; color: #6b7280; }
+.pt .talk-why { color: var(--dim); }
+.pt .talk-problem { padding-top: 7px; color: #f2a19b; }
+.pt-side { flex: none; width: 204px; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-left: 2px solid var(--edge); overflow-y: auto; }
+.pt-side > * { flex: none; }
+.pt-office.talk-key { padding: 2px; display: block; }
+.pt .pt-picture { display: block; position: static; width: 184px; height: auto; max-width: 100%; image-rendering: pixelated; }
+.pt-list-head { font: 700 11px/1 ui-monospace, Menlo, monospace; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); padding: 4px 2px 0; }
+.pt-list { display: flex; flex-direction: column; gap: 4px; }
+.pt-desk.talk-key { display: flex; gap: 6px; text-transform: none; letter-spacing: 0; font: 600 12px/1.2 -apple-system, system-ui, sans-serif; }
+.pt-desk.asking { background: var(--yellow); }
+.pt-desk-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-desk-state { color: #4b5263; font-weight: 400; }
+.pt-none { color: var(--dim); font-style: italic; }
 `,
 
   /** The bubbles' style, put on `doc` once. */

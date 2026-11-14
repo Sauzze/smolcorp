@@ -8,7 +8,7 @@
  * whole number of the screen's pixels so every edge stays sharp.
  *
  *   AgentOffice.create(canvas, on) → { show(snapshot), close(), select(id), setVisible(shown), setFramed(framed), moved(),
- *                                      setSaving(on), setLite(on), setPR(found), onElevator(clientX, clientY), ride() }
+ *                                      setSaving(on), setLite(on), setPR(found), expand(id), onElevator(clientX, clientY), ride() }
  *
  * `show` takes what the deck streams; `close` empties the office when the
  * stream drops, and whoever is there when it's back is already at work.
@@ -54,7 +54,8 @@
  * tail aims at, in art pixels and in CSS pixels on the page. Without `on.talk` the room draws and answers as before.
  * With the page's network in it too, `on.talk.get(path, params)` and `on.talk.post(path, params, signal, json)` (and
  * `flash(text)`, `tick()`), the room opens the bubbles itself (TALK_BUBBLE): the conversation over a head, the
- * small question bubbles of the desks waiting on you, and the Needs you key.
+ * small question bubbles of the desks waiting on you, and the Needs you key; and `expand(id)` opens a desk's whole
+ * conversation in the Pixel Terminal (PIXEL_TERMINAL), as the ▤ key does there.
  *
  * `on.pr(id)` (1.26, the office's own window only; see PR_LOOKS) turns a desk's pull request into a tag on the front of
  * the desk, and a click or tap on it into `on.pr(id)` for session `id`; the page gives the pull requests to show with
@@ -85,6 +86,8 @@
   //#include talk/style.js
 
   //#include talk/bubble.js
+
+  //#include talk/terminal.js
 
   /* ------------------------------------------------------------ the floor */
 
@@ -35623,6 +35626,14 @@
         if (id) openCard(id);
         else hiredCard = null;
       },
+      /**
+       * The Pixel Terminal on `id`'s desk, as the ▤ key opens it in the office's own window: false where the page gave
+       * no talk, or for a desk with no talk bubble (a hire in T3 Code), for the page to open its slate instead.
+       */
+      expand(id) {
+        const session = sessionOf(id);
+        return !!(talkPanels && session && !session.t3 && talkPanels.expand(id));
+      },
       /** The office's styles' panel opened, from the page's settings: on the ground floor, whose style it is. */
       openStyles() {
         if (!on.style || framed || arranging) return;
@@ -35970,7 +35981,7 @@
     teamColours: Object.fromEntries(Object.entries({ skin: SKIN_TONES, hair: HAIR_COLOURS, colour: SHIRT_COLOURS })
       .map(([part, colours]) => [part, Object.fromEntries(Object.entries(colours).map(([id, hex]) => [id, css(hex)]))])),
     // The conversation's rows and pages as the talk bubble draws them, for the ▤ slate to draw them the same way
-    conversation: { row: TALK_BUBBLE.row, byOrder: TALK_BUBBLE.byOrder, merge: TALK_BUBBLE.merge },
+    conversation: { row: TALK_BUBBLE.row, byOrder: TALK_BUBBLE.byOrder, merge: TALK_BUBBLE.merge, older: PIXEL_TERMINAL.older },
     // The badges a role can wear, in setup's order, and each one's icon on a canvas of its own for a role's card
     badges: BADGE_IDS, badgeIcon: (id, scale = 1) => (Object.hasOwn(BADGES, id) ? paintIcon(BADGES[id].icon, Math.max(1, Math.round(scale))) : null),
   };

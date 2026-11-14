@@ -60,13 +60,17 @@ The first three are at the top of the IIFE, the rest inside `drawOffice`.
 
 The first files here that are code, not data tables. Each is one `const` (an
 object of functions), built in exactly as a table is, and parses on its own
-(`node --check`). The Talk Bubble's last file (`talk/terminal.js`) joins this
-list as it lands.
+(`node --check`). A feature that shows in the bubble or the Pixel Terminal
+(a diff, a preview, a photo, the mic) goes in a `talk/<name>.js` of its own,
+included after `talk/terminal.js`, and registers itself as its const is made
+(`added: PIXEL_TERMINAL.addPanel(name, draw)` or `TALK_BUBBLE.addKey(name,
+key)`): see the comment at the top of `talk/terminal.js`.
 
 | File | Const | Where | What it is |
 | --- | --- | --- | --- |
-| `talk/style.js` | `TALK_STYLE` | first in the IIFE | the talk bubbles' CSS, put on the page once as a `<style>`: the pixel edges, keys, the open bubble, the small ones, the tag and Needs you |
+| `talk/style.js` | `TALK_STYLE` | first in the IIFE | the talk bubbles' CSS, put on the page once as a `<style>`: the pixel edges, keys, the open bubble, the small ones, the tag, Needs you and the Pixel Terminal |
 | `talk/bubble.js` | `TALK_BUBBLE` | after `TALK_STYLE` | the talk bubble: the conversation's rows and page merge (shared with deck.html's ▤ slate), a prompt's choices and what each sends, the input's gate, and `create`, the live bubbles the room opens where the page gives `on.talk` its network |
+| `talk/terminal.js` | `PIXEL_TERMINAL` | after `TALK_BUBBLE` | the Pixel Terminal, Expand's full-size view of one desk: Back, Shrink, Next question, the whole conversation with Older messages (the page merge shared with the slate), the roomy input, the desk list and the office's picture; and `addPanel`, the seam other files add panels by |
 | `talk/anchors.js` | `TALK_ANCHORS` | top of the IIFE, before `poseOf` | where each person's talk bubble is: its box and tail point in art and CSS pixels, the hover's timing, which small question bubbles fit, who has waited longest; plain functions of what they're given, so node tests run them alone |
 
 ## Adding a table

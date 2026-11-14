@@ -43,6 +43,7 @@ type module struct {
 var modules = []module{
 	{"talk/style.js", "TALK_STYLE"},
 	{"talk/bubble.js", "TALK_BUBBLE"},
+	{"talk/terminal.js", "PIXEL_TERMINAL"},
 	{"data/room-styles.js", "ROOM_STYLES"},
 	{"data/paints.js", "PAINTS"},
 	{"data/outfits.js", "OUTFITS"},
