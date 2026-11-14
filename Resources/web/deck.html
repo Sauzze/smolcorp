@@ -1551,6 +1551,7 @@
         openSettings();
       }));
     }
+    pushRows(row, button, rows);
     if (!preview && !whole && phoneMic.on && location.protocol !== 'https:') {
       rows.push(Object.assign(document.createElement('div'), { className: 'info-note', id: 'lan-note',
         textContent: "Over the Wi-Fi, what you type isn't encrypted. Tailscale is the private option." }));
@@ -1567,6 +1568,137 @@
     $('settings').hidden = true;
   }
   $('settings-close').addEventListener('click', closeSettings);
+
+  /* ------------------------------------------------------------ 🔔 notifications, on a phone (1.26 PUSH2) */
+
+  /*
+   * A paired phone's page can ring when a desk needs you, even while it's closed (Web Push). Its worker, /sw.js, and
+   * its manifest are the computer's, given with no key and the same to every phone, and the worker never holds one:
+   * this phone's key stays here, after # in the page's address. A browser lets a page subscribe only in a secure
+   * context, which for a phone is Tailscale's HTTPS address (`tailscale serve`, with the phone's typing on: F3), never
+   * the Wi-Fi's plain http; and on an iPhone or iPad only from the Home Screen app. So the key to turn them on shows
+   * only there. What rings, and when, is the computer's (PUSH3a); a tap on a notification is PUSH4's.
+   */
+  const pushPage = !preview && !whole && !!phoneKey;
+  let pushOn = null;      // whether the computer keeps this phone's subscription, as it last said; null until asked
+  let pushAsking = false; // the computer asked, or a turning on or off, under way
+  let pushSaid = '';      // why the last ask or turning on or off didn't, in the computer's or the browser's words
+
+  /** Whether this is an iPhone or iPad: Safari has navigator.standalone there alone, and a touch screen. */
+  function pushApple(n = navigator) {
+    return 'standalone' in n && n.maxTouchPoints > 0;
+  }
+  /** Whether the key to turn notifications on shows: a secure context with the push API, and on an iPhone or iPad
+   *  the Home Screen app. */
+  function pushShown(w = window, n = navigator) {
+    if (!w.isSecureContext || !('serviceWorker' in n) || !('PushManager' in w) || !('Notification' in w)) return false;
+    return !pushApple(n) || n.standalone === true;
+  }
+  /** Why there's no key here, where saying so helps; else ''. */
+  function pushWhyNot(w = window, n = navigator) {
+    if (!w.isSecureContext) return 'Notifications need HTTPS: see Tailscale in setup.';
+    if (pushApple(n) && n.standalone !== true) return 'Notifications turn on in Smolcorp opened from your Home Screen.';
+    return '';
+  }
+
+  // The manifest, for the Home Screen app, linked on an iPhone or iPad alone. A browser elsewhere that finds one
+  // (Chrome on Android) may make the page an app through its maker's server, sent this address, #k= and all; without
+  // it, Add to Home screen stays a shortcut kept on the phone, as before.
+  if (pushPage && pushApple()) {
+    document.head.append(Object.assign(document.createElement('link'), { rel: 'manifest', href: '/manifest.webmanifest' }));
+  }
+  // The worker, where the key shows: registered by its address alone, which holds no key.
+  const pushWorker = pushPage && pushShown() ? navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).catch(() => null) : null;
+
+  /** The settings' row for notifications, or a line on why there's none; nothing on a page that isn't a phone's. */
+  function pushRows(row, button, rows) {
+    if (!pushPage) return;
+    const note = (text) => rows.push(Object.assign(document.createElement('div'), { className: 'info-note', id: 'push-note', textContent: text }));
+    if (!pushShown()) {
+      const why = pushWhyNot();
+      if (why) note(why);
+      return;
+    }
+    if (pushOn === null && !pushAsking) askPush();
+    const key = button(pushAsking ? '…' : pushOn ? 'On' : 'Turn on', pushOn, () => (pushOn ? turnPushOff() : turnPushOn()));
+    key.disabled = pushAsking;
+    row('Notifications, on this phone', key);
+    if (pushSaid) note(pushSaid);
+  }
+  /** The settings again, with what's changed, if they're still open. */
+  function pushAgain() {
+    if (!$('settings').hidden) openSettings();
+  }
+  /** Whether the computer keeps this phone's subscription. Not known, it's taken as off, with the reason. */
+  async function askPush() {
+    pushAsking = true;
+    const res = await get('/push');
+    const data = res && res.ok ? await res.json().catch(() => null) : null;
+    pushOn = !!(data && data.on === true);
+    pushSaid = data ? '' : res ? await problemText(res, 300) : "Couldn't reach your computer.";
+    pushAsking = false;
+    pushAgain();
+  }
+  async function turnPushOn() {
+    // Asked first, on the tap itself: a browser asks for leave to show notifications only from a tap.
+    const leave = Notification.requestPermission();
+    tick();
+    pushAsking = true;
+    pushSaid = '';
+    pushAgain();
+    pushSaid = await pushSubscribe(leave).catch(() => "This browser couldn't turn notifications on.");
+    pushAsking = false;
+    pushAgain();
+  }
+  /** The browser's leave, its subscription made with the computer's public key, then kept by the computer: '' once
+   *  on, else why not. */
+  async function pushSubscribe(leave) {
+    const given = await leave;
+    if (given !== 'granted') return given === 'denied' ? "Notifications are off for Smolcorp in this phone's settings." : '';
+    if (!(await pushWorker)) return "This browser couldn't start Smolcorp's notifications.";
+    const worker = await navigator.serviceWorker.ready;
+    const res = await get('/push');
+    if (!res || !res.ok) return res ? problemText(res, 300) : "Couldn't reach your computer.";
+    const key = pushKeyBytes((await res.json()).key);
+    let subscription = await worker.pushManager.getSubscription();
+    // One made with another key (the computer's made again) can't be rung with this one: it goes first.
+    if (subscription && !pushSameBytes(subscription.options.applicationServerKey, key)) {
+      await subscription.unsubscribe();
+      subscription = null;
+    }
+    subscription = subscription || await worker.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    const kept = await post('/push', {}, undefined, subscription.toJSON());
+    if (!kept || kept.status !== 204) return kept ? problemText(kept, 300) : "Couldn't reach your computer.";
+    pushOn = true;
+    return '';
+  }
+  async function turnPushOff() {
+    tick();
+    pushAsking = true;
+    pushSaid = '';
+    pushAgain();
+    const res = await post('/push/off');
+    if (res && res.status === 204) {
+      pushOn = false;
+      // The computer no longer rings it; the browser's subscription goes too.
+      const worker = await pushWorker;
+      const subscription = worker && await worker.pushManager.getSubscription().catch(() => null);
+      if (subscription) await subscription.unsubscribe().catch(() => {});
+    } else {
+      pushSaid = res ? await problemText(res, 300) : "Couldn't reach your computer.";
+    }
+    pushAsking = false;
+    pushAgain();
+  }
+  /** The computer's public key, base64url as GET /push gives it, as the bytes a subscription is made with. */
+  function pushKeyBytes(text) {
+    const plain = String(text).replace(/-/g, '+').replace(/_/g, '/');
+    return Uint8Array.from(atob(plain + '='.repeat((4 - plain.length % 4) % 4)), (c) => c.charCodeAt(0));
+  }
+  function pushSameBytes(a, b) {
+    const bytes = a ? new Uint8Array(a) : new Uint8Array(0);
+    return bytes.length === b.length && bytes.every((v, i) => v === b[i]);
+  }
 
   function closeInfo() {
     if (info) clearInterval(info.timer);

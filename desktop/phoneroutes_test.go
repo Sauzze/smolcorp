@@ -93,6 +93,8 @@ var everyPhoneRoute = [][2]string{
 	{"GET", "/grants"}, {"POST", "/grants/answer"}, {"PUT", "/grants/answer"},
 	// A phone's notifications (pushsubs.go, PUSH1), and their wrong methods.
 	{"GET", "/push"}, {"POST", "/push"}, {"POST", "/push/off"}, {"PUT", "/push"}, {"GET", "/push/off"},
+	// The phone page's notifications worker and its manifest (server.go, PUSH2): files with no key, as /office.js.
+	{"GET", "/sw.js"}, {"GET", "/manifest.webmanifest"},
 }
 
 // probeRoute asks one route as one caller, through the whole router, and says the status and the text.
@@ -266,6 +268,9 @@ func dumpPhoneRoutes(t *testing.T) string {
 // code refuses it at the table's gate, by request class (request.windowsServe, pushRefusal), on any method under
 // /push; Mac and Linux serve, and WireGuard on Windows, are let in as before. No other cell moves. Reopen as (a), with
 // its own review, once SA-W2/W3 deny hires the tailscale CLI and serve settings on Windows.
+// PUSH2 adds two lines at the end, and moves no cell: GET /sw.js and GET /manifest.webmanifest, the phone page's
+// notifications worker and manifest, files with no key served where /office.js is (past the door, before the key
+// check), so each answers every caller exactly as GET /office.js does.
 func TestEveryRouteKeepsItsAccessThroughTheMove(t *testing.T) {
 	after := dumpPhoneRoutes(t)
 	if after != phoneRouteAccess {
@@ -543,6 +548,8 @@ POST /push: 401 403 400 400 403 400 403 403 403 403 403 403 403 403 403 403 403 
 POST /push/off: 401 403 204 204 403 204 403 403 403 403 403 403 403 403 403 403 403 403 401 403 403; let in: phone-wireguard, phone-serve-mac, phone-serve-linux
 PUT /push: 401 404 404 404 403 404 403 403 403 403 403 404 403 403 403 404 404 403 401 404 403; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, spoof-proto-wifi, phone-here, window, window-device
 GET /push/off: 401 404 404 404 403 404 403 403 403 403 403 404 403 403 403 404 404 403 401 404 403; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, spoof-proto-wifi, phone-here, window, window-device
+GET /sw.js: 200 200 200 200 403 200 403 403 200 403 403 200 403 403 403 200 200 403 200 200 403; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows, spoof-proto-wifi, phone-here, window, window-key-on-wifi, window-device
+GET /manifest.webmanifest: 200 200 200 200 403 200 403 403 200 403 403 200 403 403 403 200 200 403 200 200 403; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows, spoof-proto-wifi, phone-here, window, window-key-on-wifi, window-device
 `
 
 // MARK: The switch's route set (FR1's review, N1)
@@ -591,6 +598,8 @@ var switchRoutes = map[string]string{
 	// No key at all: a file or a page that holds nothing of yours.
 	"/icon.png": "open", "/favicon-16.png": "open", "/favicon-32.png": "open", "/office.js": "open", "/guide.js": "open",
 	"/sign.js": "open: what signs a phone's requests (1.25)", "/licenses": "open", "ident sounds": "open: the office's recordings",
+	// The phone page's notifications worker and manifest (PUSH2): no key, nothing per phone, before the key check.
+	"/sw.js": "open: the phone page's notifications worker (1.26)", "/manifest.webmanifest": "open: the phone page's manifest (1.26)",
 	// The pairing page and the deck page: with no key the deck gives pair.html, and a code is how a phone gets a key.
 	"/": "open: pair.html until paired", "/office": "open: pair.html until paired, the window's token here", "/pair": "open: a pairing code",
 	// This computer only, with a key of its own: setup (the table routes.go says which caller), the hook, a launcher.

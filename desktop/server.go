@@ -607,6 +607,15 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		serveFile(w, "Resources/web/sign.js")
 		return
 	}
+	// The phone page's notifications worker and its manifest (1.26 PUSH2), fetched by the browser itself, which sends
+	// no key for them: here, before any key is looked at, so neither reads a key, marks a phone seen or answers one
+	// phone otherwise than another. The same files for everyone, with nothing of yours in them: the worker never holds
+	// a phone's key (it stays in the page's address, after #), and the manifest names no start address, so a Home
+	// Screen app opens where it was added, its #k= with it (Q-F5 (a)).
+	if r.Method == http.MethodGet && (r.URL.Path == "/sw.js" || r.URL.Path == "/manifest.webmanifest") {
+		serveFile(w, "Resources/web"+r.URL.Path)
+		return
+	}
 	// The first-run guide's arrows, for the setup page: nothing of yours either.
 	if r.Method == http.MethodGet && r.URL.Path == "/guide.js" {
 		serveFile(w, "Resources/web/guide.js")
@@ -2638,6 +2647,9 @@ func serveFramedBy(w http.ResponseWriter, name, frameOptions, frameAncestors str
 		w.Header().Set("Content-Type", "image/png")
 	case strings.HasSuffix(name, ".js"):
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	// The phone page's manifest (PUSH2): a browser reads it only as this type.
+	case strings.HasSuffix(name, ".webmanifest"):
+		w.Header().Set("Content-Type", "application/manifest+json")
 	case strings.HasSuffix(name, ".m4a"):
 		w.Header().Set("Content-Type", "audio/mp4")
 	case strings.HasSuffix(name, ".webm"):

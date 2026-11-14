@@ -10,7 +10,7 @@ import "embed"
 // office.js is built from: the apps serve office.js, and only that (see
 // scripts/buildoffice).
 //
-//go:embed Resources/web/*.html Resources/web/*.js Resources/web/*.png Resources/web/sounds
+//go:embed Resources/web/*.html Resources/web/*.js Resources/web/*.png Resources/web/*.webmanifest Resources/web/sounds
 //go:embed Resources/opencode-plugin.js Resources/opencode-plugin-v1.js
 //go:embed Resources/briefs/*.md
 var Files embed.FS
