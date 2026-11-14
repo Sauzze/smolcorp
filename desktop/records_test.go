@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 // SK1 (SANDBOX-PLAN §3.1, §3.2): on a Mac, nothing a program running as the owner can read in the support folder is
@@ -477,7 +479,9 @@ func TestOffAMacEveryKeyChangesOnceAndFilesCountAsFound(t *testing.T) {
 
 // The inventory of the support folder (§3.2): every file the core writes, after a phone, a peer, a hire's key, the
 // GM's token, the settings and the guard are all made, has one of four classes, and a new file without one fails.
-// No file holds any of the keys made, nor a phone's signing secret. A sealed record carries a seal that fits.
+// No file holds any of the keys made, nor a phone's signing secret. A sealed record carries a seal that fits. Each
+// one, and each name in the classes, also has a row in the sandbox's Policy (SA-X1), so a new file is thought about
+// there too.
 func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 	const (
 		verifier  = "verifier"
@@ -529,8 +533,16 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for name := range classes {
+		if _, ok := sandbox.SupportRow(name); !ok {
+			t.Errorf("%s has no row in the sandbox's Policy (internal/sandbox/policy.go, supportFiles)", name)
+		}
+	}
 	for _, entry := range entries {
 		name := entry.Name()
+		if _, ok := sandbox.SupportRow(name); !ok {
+			t.Errorf("%s has no row in the sandbox's Policy (internal/sandbox/policy.go, supportFiles)", name)
+		}
 		class, ok := classes[name]
 		if !ok {
 			t.Errorf("%s has no class in the inventory", name)
