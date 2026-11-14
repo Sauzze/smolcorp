@@ -90,7 +90,7 @@ func TestARoleOnlyAsksBeforeItStarts(t *testing.T) {
 		"1. You've started in " + filepath.Join("~", "work", "api") + ". Is that the one to work on?\n" +
 		"2. Which tests should you run: all of them, a folder, or a single file?\n" +
 		"3. What's the main thing someone must be able to do, for you to try by hand too?\n" +
-		"4. Is there anything to set up or start first, such as a database or a server? Say what's needed; don't send keys or passwords.\n\n" +
+		"4. What must be set up or started first, such as a database or a server? Say what's needed; don't send keys or passwords.\n\n" +
 		"Once I've answered, as my Tester: Run the tests I point you to."
 	if !strings.HasPrefix(message, want) {
 		t.Errorf("the tester is first told\n%s\nwant it to start\n%s", message, want)
@@ -631,7 +631,15 @@ func TestShippedRolesFromBefore126AskTheNewQuestions(t *testing.T) {
 		if questions, ok := questionsBefore126[role.ID]; ok && !slices.Equal(role.Questions, questions) {
 			t.Errorf("%s before outfits asks %v, want %v", role.ID, role.Questions, questions)
 		}
+		for _, question := range questionsBeforeOutfits[role.ID] {
+			if !strings.Contains(text, fmt.Sprintf("%q", question)) {
+				t.Errorf("%s asked %q before outfits, which the Mac app's doesn't say", role.ID, question)
+			}
+		}
 		now := shippedRoles[slices.IndexFunc(shippedRoles, func(r Role) bool { return r.ID == role.ID })]
+		if slices.Equal(role.Questions, now.Questions) {
+			t.Errorf("%s before outfits asks today's questions, want the ones it asked then", role.ID)
+		}
 		if got := checkedRoles([]Role{role})[0]; !got.sameAs(now) {
 			t.Errorf("%s from before outfits loads as %+v, want today's", role.ID, got)
 		}

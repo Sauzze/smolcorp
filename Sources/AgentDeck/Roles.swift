@@ -54,22 +54,22 @@ struct Role: Codable, Equatable {
         Role(id: "tester", name: "Tester", agent: "claude", model: "sonnet", effort: "medium", questions: [
             "Which tests should you run: all of them, a folder, or a single file?",
             "What's the main thing someone must be able to do, for you to try by hand too?",
-            "Is there anything to set up or start first, such as a database or a server? Say what's needed; don't send keys or passwords.",
+            "What must be set up or started first, such as a database or a server? Say what's needed; don't send keys or passwords.",
         ], instructions: """
             Run the tests I point you to. If any fail, find out why, and explain each failure with the fix you'd \
             make. Don't change any code until I say so.
             """, badge: "clipboard"),
         Role(id: "bughunter", name: "Bug hunter", agent: "claude", model: "opus", effort: "high", questions: [
             "Which area or feature should you focus on, or should you look everywhere?",
-            "Which devices, systems or browsers should you try, and can they run here?",
-            "Any known bugs to skip, and how serious must a bug be to report it?",
+            "Which devices, systems or browsers matter, and which of them can run on this computer?",
+            "Which known bugs should you skip, and how serious must a bug be to report it?",
         ], instructions: """
             Look for bugs where I point you to: wrong results, crashes, edge cases that aren't handled. Report each \
             one with how to reproduce it and how sure you are. Don't fix anything until I say which.
             """, badge: "magnifier", outfit: "detective"),
         Role(id: "docs", name: "Docs writer", agent: "claude", model: "sonnet", effort: "medium", questions: [
             "Which docs should you check: the README, a docs folder, or comments in the code?",
-            "Who reads them: newcomers, developers, or both? In which languages?",
+            "Who reads them (newcomers, developers, or both), and in which languages?",
             "Should you only list what's wrong, or fix it too? Anything that must stay as it is?",
         ], instructions: """
             Check the docs I point you to against what the code actually does. List what's missing, wrong or out \
@@ -77,22 +77,25 @@ struct Role: Codable, Equatable {
             """, badge: "quill", outfit: "librarian"),
         Role(id: "refactorer", name: "Refactorer", agent: "claude", model: "opus", effort: "high", questions: [
             "Which area or files should you work on?",
-            "Any limits: anything you mustn't change, such as public APIs, file names or behaviour?",
+            "What mustn't change, such as public APIs, file names or behaviour?",
+            "Which command runs the tests and checks that prove nothing changed?",
         ], instructions: """
             In the area I point you to, find the code that's hardest to follow or change. Propose one refactor at a \
             time: what you'd change, why, and what could break, within the limits I've given. Wait for my OK before \
             editing, and keep each change small.
             """, badge: "wrench", outfit: "hardhat"),
         Role(id: "artdirector", name: "Art Director", agent: "claude", model: "opus", effort: "high", questions: [
-            "What should you look at: assets, screenshots, a page or a screen of the app?",
-            "Is there a style or brief it has to match?",
+            "What should you look at (assets, a page, a screen of the app), and where is each piece shown?",
+            "What must it match: a style guide, a brief, or the pieces already accepted?",
+            "How can you see it in place: a page or command that runs here, and in which modes (day and night, light and dark)?",
         ], instructions: """
             Review the visual work I point you to. Say whether each piece belongs with the rest and reads well at the size it's \
             shown, and list the fixes you'd make, most important first. Don't redraw or edit anything until I say which.
             """, badge: "palette", outfit: "artdirector"),
         Role(id: "lawyer", name: "Lawyer", agent: "claude", model: "opus", effort: "high", questions: [
             "What should you read: the licence, terms, a privacy policy, or the dependencies' licences?",
-            "Where will the project be used or sold, and by whom?",
+            "How is the project used: open source, sold, or only inside a company, and in which countries?",
+            "What is this read for: a release, a sale, a new dependency, or a check-up?",
         ], instructions: """
             Read the documents and licences I point you to. Flag the risks and gaps you find, each with where it is and why it \
             matters. Say plainly that this isn't legal advice, and when a real lawyer should look. Don't change any files.
@@ -106,7 +109,8 @@ struct Role: Codable, Equatable {
             """, badge: "speech", outfit: "therapist"),
         Role(id: "plumber", name: "Plumber", agent: "claude", model: "sonnet", effort: "medium", questions: [
             "Which pipeline should you look at: the build, CI, deploy scripts, or a data job?",
-            "Is there anything you mustn't run, such as a deploy or a job that writes data?",
+            "Which steps mustn't you run, such as a deploy or a job that writes data?",
+            "Can you see CI's recent logs here, and if so, where?",
         ], instructions: """
             Run and watch the pipeline I point you to, and find where it leaks or clogs: failures, slow steps, flaky ones. \
             Report each with the fix you'd make, and wait for my OK before making it. Never deploy or push unless I ask.
@@ -126,22 +130,24 @@ struct Role: Codable, Equatable {
             """, badge: "crown", outfit: "gmexec"),
         Role(id: "janitor", name: "Janitor", agent: "claude", model: "sonnet", effort: "medium", questions: [
             "Which project or area should you tidy up?",
-            "Is there anything that must stay, even if it looks unused, such as old branches or public APIs?",
+            "What must stay even if it looks unused, such as old branches, public APIs or files other apps load?",
+            "Do other projects, scripts or apps call into this one, and where are they?",
         ], instructions: """
             Look for what's left lying around: dead code, unused files and dependencies, stale branches, old TODOs. List \
             each with why you think it's unused and how sure you are. Don't delete anything until I say which.
             """, badge: "broom", outfit: "janitor"),
         Role(id: "firefighter", name: "Firefighter", agent: "claude", model: "opus", effort: "high", questions: [
-            "What's on fire: what's broken, since when, and who is affected?",
-            "Is there an error, a log or a failing request you can look at?",
-            "What's the smallest outcome that will do for now: stop the harm, undo a recent change, or only find the cause? Anything you mustn't restart or touch?",
+            "What's broken, since when, and who is affected?",
+            "Which error, log or failing request can you look at?",
+            "What will do for now (stop the harm, undo a recent change, or only find the cause), and what mustn't you restart or touch?",
         ], instructions: """
             Triage first: find out what's broken, how badly, and the most likely cause, and tell me. Then propose the \
             smallest safe fix, with how to undo it. Don't change, deploy or restart anything until I say so.
             """, badge: "flame", outfit: "firefighter"),
         Role(id: "pilot", name: "Pilot", agent: "claude", model: "opus", effort: "high", questions: [
             "What's going out: which project, which version, and to where?",
-            "Is there a release checklist or a deploy script you should follow?",
+            "Is there a release checklist or a deploy script to follow, and what was the last release's tag?",
+            "Which commands build and test it here, and is there anything you mustn't run?",
         ], instructions: """
             Prepare the release I point you to and run through the checklist: tests, version, changelog, migrations, \
             config. Report each item as ready or not, with what's missing, and wait for my OK before changing anything. \
@@ -149,22 +155,23 @@ struct Role: Codable, Equatable {
             """, badge: "plane", outfit: "pilot"),
         Role(id: "postman", name: "Postman", agent: "claude", model: "sonnet", effort: "medium", questions: [
             "Which notifications or webhooks should you look at: sending, receiving, or both?",
-            "Where do they go, and is there a test endpoint you can use?",
+            "Where do they go, and is there a test endpoint you may send to?",
         ], instructions: """
             Check how the notifications and webhooks I point you to are wired: what's sent, the payloads, signatures, \
             retries and what happens when delivery fails. Report what's wrong or missing with the fix you'd make, and \
             wait for my OK before changing anything.
             """, badge: "envelope", outfit: "postman"),
         Role(id: "accountant", name: "Accountant", agent: "claude", model: "sonnet", effort: "medium", questions: [
-            "Which costs should you look at: API calls, usage, billing code, or budgets?",
-            "Is there a budget or a limit it has to stay within?",
+            "Which costs should you cover: paid APIs and models, hosting and storage, billing code, or all of them?",
+            "How much is it used today (calls, users or a monthly bill), and is there a budget it must stay under?",
         ], instructions: """
             Find where the project spends money: API calls, usage, billing and budgets in the code. Estimate what each \
             costs, flag waste and missing limits, and list the savings you'd make. Don't change anything until I say which.
             """, badge: "coins", outfit: "accountant"),
         Role(id: "marketer", name: "Marketer", agent: "claude", model: "sonnet", effort: "medium", questions: [
-            "What should you write: release notes, landing copy, or an announcement?",
-            "Who is it for, and what tone should it have?",
+            "What should you write (release notes, landing copy, or an announcement), where will it appear, and how long may it be?",
+            "Who is it for, in which language, and in what tone?",
+            "Which changes does it cover: a version, a range of commits, or a feature?",
         ], instructions: """
             Read what changed and write the copy I asked for: clear, short, and true to what the code actually does. \
             Show me a draft before editing any file, and don't publish or post anything.
@@ -178,8 +185,9 @@ struct Role: Codable, Equatable {
             Don't fix anything until I say which, and never print a secret in full.
             """, badge: "lock", outfit: "securityguard"),
         Role(id: "chef", name: "Chef", agent: "claude", model: "sonnet", effort: "medium", questions: [
-            "What should you cook up: a scaffold, a prototype, or a new feature's first draft?",
-            "What's the recipe: the stack, the files, and anything it has to include?",
+            "What should you make (a scaffold, a prototype, or a feature's first draft), and where in the project should it live?",
+            "What's the spec: the stack, the files, and what it must include?",
+            "What may stay a stub for now, and what must really work?",
         ], instructions: """
             Follow the recipe I give you to cook up a scaffold or prototype. First list what you'll make, file by file, \
             and wait for my OK. Then build it in small steps, and keep it out of the way of existing code.
@@ -195,9 +203,9 @@ struct Role: Codable, Equatable {
             next step.
             """, badge: "bulb", outfit: "professor"),
         Role(id: "builder", name: "Builder", agent: "claude", model: "sonnet", effort: "high", questions: [
-            "What should you build: a feature, an app, or a website?",
-            "What must it do or include, and what does \"done\" look like?",
-            "Anything to build from, such as a design, a study or an existing page?",
+            "What should you build, and who will use it?",
+            "What must it do or include? List the things that make it \"done\".",
+            "What should you build from (a design, a study, an existing page), and what mustn't you touch, such as payments, sign-in or stored data?",
         ], instructions: """
             Build what I describe, on a branch of its own. First list what you'll make or change, file by file, and wait \
             for my OK. Then build it in small steps, and check it in the real thing, not only in tests. Show me what \
@@ -206,7 +214,7 @@ struct Role: Codable, Equatable {
         Role(id: "designer", name: "Designer", agent: "claude", model: "opus", effort: "high", questions: [
             "What should you design: a page, a screen, a site, or a whole look?",
             "Who is it for, and what should it feel like?",
-            "Is there a current version to start from, or anything to avoid?",
+            "Is there a current version to start from, and anything that must stay (name, logo, contact details) or that you should avoid?",
         ], instructions: """
             Design what I point you to: one strong direction, proven with real HTML/CSS mockups built from real \
             content, beside screenshots of what's there today. First tell me the direction in a few lines and wait for my \
@@ -238,9 +246,18 @@ struct Role: Codable, Equatable {
     static let shippedBeforeOutfits = shipped.filter { ["bughunter", "docs", "refactorer"].contains($0.id) }.map { role in
         var old = role
         old.outfit = ""
-        old.questions = questionsBefore126[role.id] ?? role.questions
+        old.questions = questionsBefore126[role.id] ?? questionsBeforeOutfits[role.id] ?? role.questions
         return old
     }
+
+    /// What the Refactorer asked before it had an outfit, and until its brief
+    /// asked for the command that proves nothing changed.
+    static let questionsBeforeOutfits = [
+        "refactorer": [
+            "Which area or files should you work on?",
+            "Any limits: anything you mustn't change, such as public APIs, file names or behaviour?",
+        ],
+    ]
 
     /// What the Bug hunter, the Tester, the Docs writer and the Firefighter
     /// asked before 1.26 gave each a sharper brief and more to ask.

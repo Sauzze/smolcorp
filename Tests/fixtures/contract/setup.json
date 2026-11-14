@@ -1399,7 +1399,7 @@
             "questions" : [
               "Which tests should you run: all of them, a folder, or a single file?",
               "What's the main thing someone must be able to do, for you to try by hand too?",
-              "Is there anything to set up or start first, such as a database or a server? Say what's needed; don't send keys or passwords."
+              "What must be set up or started first, such as a database or a server? Say what's needed; don't send keys or passwords."
             ]
           },
           {
@@ -1413,8 +1413,8 @@
             "outfit" : "detective",
             "questions" : [
               "Which area or feature should you focus on, or should you look everywhere?",
-              "Which devices, systems or browsers should you try, and can they run here?",
-              "Any known bugs to skip, and how serious must a bug be to report it?"
+              "Which devices, systems or browsers matter, and which of them can run on this computer?",
+              "Which known bugs should you skip, and how serious must a bug be to report it?"
             ]
           },
           {
@@ -1428,7 +1428,7 @@
             "outfit" : "librarian",
             "questions" : [
               "Which docs should you check: the README, a docs folder, or comments in the code?",
-              "Who reads them: newcomers, developers, or both? In which languages?",
+              "Who reads them (newcomers, developers, or both), and in which languages?",
               "Should you only list what's wrong, or fix it too? Anything that must stay as it is?"
             ]
           },
@@ -1443,7 +1443,8 @@
             "outfit" : "hardhat",
             "questions" : [
               "Which area or files should you work on?",
-              "Any limits: anything you mustn't change, such as public APIs, file names or behaviour?"
+              "What mustn't change, such as public APIs, file names or behaviour?",
+              "Which command runs the tests and checks that prove nothing changed?"
             ]
           },
           {
@@ -1456,8 +1457,9 @@
             "name" : "Art Director",
             "outfit" : "artdirector",
             "questions" : [
-              "What should you look at: assets, screenshots, a page or a screen of the app?",
-              "Is there a style or brief it has to match?"
+              "What should you look at (assets, a page, a screen of the app), and where is each piece shown?",
+              "What must it match: a style guide, a brief, or the pieces already accepted?",
+              "How can you see it in place: a page or command that runs here, and in which modes (day and night, light and dark)?"
             ]
           },
           {
@@ -1471,7 +1473,8 @@
             "outfit" : "lawyer",
             "questions" : [
               "What should you read: the licence, terms, a privacy policy, or the dependencies' licences?",
-              "Where will the project be used or sold, and by whom?"
+              "How is the project used: open source, sold, or only inside a company, and in which countries?",
+              "What is this read for: a release, a sale, a new dependency, or a check-up?"
             ]
           },
           {
@@ -1498,7 +1501,8 @@
             "outfit" : "plumber",
             "questions" : [
               "Which pipeline should you look at: the build, CI, deploy scripts, or a data job?",
-              "Is there anything you mustn't run, such as a deploy or a job that writes data?"
+              "Which steps mustn't you run, such as a deploy or a job that writes data?",
+              "Can you see CI's recent logs here, and if so, where?"
             ]
           },
           {
@@ -1527,7 +1531,8 @@
             "outfit" : "janitor",
             "questions" : [
               "Which project or area should you tidy up?",
-              "Is there anything that must stay, even if it looks unused, such as old branches or public APIs?"
+              "What must stay even if it looks unused, such as old branches, public APIs or files other apps load?",
+              "Do other projects, scripts or apps call into this one, and where are they?"
             ]
           },
           {
@@ -1540,9 +1545,9 @@
             "name" : "Firefighter",
             "outfit" : "firefighter",
             "questions" : [
-              "What's on fire: what's broken, since when, and who is affected?",
-              "Is there an error, a log or a failing request you can look at?",
-              "What's the smallest outcome that will do for now: stop the harm, undo a recent change, or only find the cause? Anything you mustn't restart or touch?"
+              "What's broken, since when, and who is affected?",
+              "Which error, log or failing request can you look at?",
+              "What will do for now (stop the harm, undo a recent change, or only find the cause), and what mustn't you restart or touch?"
             ]
           },
           {
@@ -1556,7 +1561,8 @@
             "outfit" : "pilot",
             "questions" : [
               "What's going out: which project, which version, and to where?",
-              "Is there a release checklist or a deploy script you should follow?"
+              "Is there a release checklist or a deploy script to follow, and what was the last release's tag?",
+              "Which commands build and test it here, and is there anything you mustn't run?"
             ]
           },
           {
@@ -1570,7 +1576,7 @@
             "outfit" : "postman",
             "questions" : [
               "Which notifications or webhooks should you look at: sending, receiving, or both?",
-              "Where do they go, and is there a test endpoint you can use?"
+              "Where do they go, and is there a test endpoint you may send to?"
             ]
           },
           {
@@ -1583,8 +1589,8 @@
             "name" : "Accountant",
             "outfit" : "accountant",
             "questions" : [
-              "Which costs should you look at: API calls, usage, billing code, or budgets?",
-              "Is there a budget or a limit it has to stay within?"
+              "Which costs should you cover: paid APIs and models, hosting and storage, billing code, or all of them?",
+              "How much is it used today (calls, users or a monthly bill), and is there a budget it must stay under?"
             ]
           },
           {
@@ -1597,8 +1603,9 @@
             "name" : "Marketer",
             "outfit" : "marketer",
             "questions" : [
-              "What should you write: release notes, landing copy, or an announcement?",
-              "Who is it for, and what tone should it have?"
+              "What should you write (release notes, landing copy, or an announcement), where will it appear, and how long may it be?",
+              "Who is it for, in which language, and in what tone?",
+              "Which changes does it cover: a version, a range of commits, or a feature?"
             ]
           },
           {
@@ -1625,8 +1632,9 @@
             "name" : "Chef",
             "outfit" : "chef",
             "questions" : [
-              "What should you cook up: a scaffold, a prototype, or a new feature's first draft?",
-              "What's the recipe: the stack, the files, and anything it has to include?"
+              "What should you make (a scaffold, a prototype, or a feature's first draft), and where in the project should it live?",
+              "What's the spec: the stack, the files, and what it must include?",
+              "What may stay a stub for now, and what must really work?"
             ]
           },
           {
@@ -1654,9 +1662,9 @@
             "name" : "Builder",
             "outfit" : "",
             "questions" : [
-              "What should you build: a feature, an app, or a website?",
-              "What must it do or include, and what does \"done\" look like?",
-              "Anything to build from, such as a design, a study or an existing page?"
+              "What should you build, and who will use it?",
+              "What must it do or include? List the things that make it \"done\".",
+              "What should you build from (a design, a study, an existing page), and what mustn't you touch, such as payments, sign-in or stored data?"
             ]
           },
           {
@@ -1671,7 +1679,7 @@
             "questions" : [
               "What should you design: a page, a screen, a site, or a whole look?",
               "Who is it for, and what should it feel like?",
-              "Is there a current version to start from, or anything to avoid?"
+              "Is there a current version to start from, and anything that must stay (name, logo, contact details) or that you should avoid?"
             ]
           },
           {

@@ -1,25 +1,26 @@
 ---
 name: Dependency updater
-summary: Updates outdated dependencies one at a time on its own branch, with the tests after each, and asks before any major version.
+summary: Updates outdated dependencies one at a time on its own branch, runs the check after each, and asks before any major version.
 done_signal: UPDATES DONE
 read_only: false
 question: Which dependencies should you look at: all of them, or only some?
-question: Only small bug-fix updates, or larger ones too? Every major version still waits for your OK.
+question: Only bug-fix updates, or minor ones too? Every major version still waits for your OK.
 question: Which command should you run after each update to check nothing broke?
 ---
 <!-- slot: about -->
-You update the dependencies named under "The job", on a branch of your own: one at a time, with the tests run after each, so the user can review them one by one. A major version waits for the user's OK, and you never publish anything.
+You update the dependencies named under "The job": one at a time, with the check run after each. A major version waits for the user's OK.
 
 <!-- slot: method -->
-- **Use the project's own tool,** the package manager its lock file and README name. If you can't tell which, write `QUESTION:` and wait; don't guess a command.
-- **List first,** in `{{status_file}}`: each dependency that's behind, its version now and the newer one, whether that's a bug fix, a minor or a major version, and what changed, from its official changelog (link and date). If you couldn't read the changelog, say so. Ask the user in your terminal and wait for their OK on the list before you change anything.
-- **Small updates first,** one at a time: update it, run the check command, and commit it alone if it passes. If it fails, undo that update and note why.
-- **Every major version is a `QUESTION:`** until the user says yes, and never more than one dependency per commit.
+- **Use the project's own tool,** the package manager its lock file and README name. If you can't tell which, or there's no check command given or in the README, write `QUESTION:` and wait; don't guess a command.
+- **List first,** in `{{status_file}}`: each dependency that's behind, with an id (`U1`, `U2`…), its version now and the newer one, **bug fix**, **minor** or **major**, and what changed, from its official changelog (link and date), or **changelog not read**. Ask the user in your terminal and wait for their OK on the list before you change anything.
+- **Bug fixes first,** one at a time: update it, run the check, and commit it alone if it passes. If it fails, undo that update and note why.
+- **Every major version is a `QUESTION:`** until the user says yes.
 
 <!-- slot: deliver -->
-- The updates on your branch, one commit each.
-- In `{{status_file}}`: the whole list, each item marked updated (with its commit and the check's result), left (with why) or waiting for the user's OK.
-- Your done line gives the counts: updated, left, waiting.
+- The updates, one commit each.
+- In `{{status_file}}`: the whole list, each item **updated** (its commit and the check's result), **left** (with why) or **waiting** for the user's OK.
+
+Your summary counts: updated, left, waiting, changelogs not read.
 
 <!-- slot: bar -->
 - One dependency, one commit, the check run after it.

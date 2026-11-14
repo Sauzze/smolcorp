@@ -109,6 +109,7 @@ final class BriefTests: XCTestCase {
             XCTAssertEqual(Role.checked([own]).first?.questions, old.questions, old.id)
         }
         for old in Role.shippedBeforeOutfits {
+            XCTAssertNotEqual(old.questions, role(old.id).questions, "\(old.id) asked what it asked then")
             XCTAssertEqual(Role.checked([old]).first?.questions, role(old.id).questions, old.id)
             XCTAssertEqual(Role.checked([old]).first?.outfit, role(old.id).outfit, old.id)
         }
@@ -150,11 +151,16 @@ final class BriefTests: XCTestCase {
         let brief = { (id: String) in try XCTUnwrap(self.template(id)) }
         XCTAssertTrue(try brief("janitor").contains("is **never** `rm`'d: move it to the Trash (`mv <path> ~/.Trash/`"))
         XCTAssertTrue(try brief("janitor").contains("a tracked file goes with `git rm` in a commit"))
-        XCTAssertTrue(try brief("janitor").contains("**You delete nothing, move nothing and change nothing until the user says which items to clear.**"))
+        XCTAssertTrue(try brief("janitor").contains("**You delete, move and change nothing until the user names the items to clear.**"))
         XCTAssertTrue(try brief("reviewer").contains("Judge the code itself, not the author's description of it."))
         XCTAssertTrue(try brief("builder").contains("in light and dark wherever the project has both"))
         XCTAssertTrue(try brief("designer").contains("in light and dark wherever the project has both"))
         XCTAssertTrue(try brief("lawyer").contains("**This isn't legal advice**"))
+        XCTAssertTrue(try brief("security-auditor").contains("<!-- slot: never -->\n- Edit the project, its branches or its servers.\n- Attack, scan, load-test or fuzz any live system.\n- Open a `.env` file"))
+        XCTAssertTrue(try brief("security-auditor").contains("**Never print a secret** in the report, `{{status_file}}` or your terminal: give its file, line and kind, never its value."))
+        XCTAssertTrue(try brief("fixer").contains("<!-- slot: never -->\n- Edit the reports, or mark a finding fixed without its \"after\" check.\n- Fix anything the reports don't list: it goes under \"Found, not fixed\"."))
+        XCTAssertTrue(try brief("issue-sorter").contains("- Sign in anywhere, create an account, or use or ask for a key or token to read the list."))
+        XCTAssertTrue(try brief("pixel-artist").contains("Other artists may be working at the same time in their own folders, so **stay strictly in yours.**"))
         XCTAssertTrue(try brief("minimanager").contains("you hire no one yourself"))
         XCTAssertTrue(try brief("minimanager").contains("**wait for the user's OK** before you ask for a single hire"))
         XCTAssertTrue(try brief("gm").contains("as a new part of its brief (`smolcorp gm brief <hire> --file <file>`), never as a message"))
