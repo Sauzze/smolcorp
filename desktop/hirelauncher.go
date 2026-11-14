@@ -187,6 +187,9 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	env := hireStartEnv{Set: map[string]string{}, PathFirst: filepath.Dir(o.CLI), Settings: settings}
 	if brief != "" {
 		env.Message = message
+		if r.StartTyped != nil {
+			r.StartTyped(message)
+		}
 	}
 	if place.Ports != "" {
 		env.Set["SMOLCORP_HIRE_PORTS"] = place.Ports
@@ -465,6 +468,7 @@ func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, h
 	gmToken := ""
 	if role.ID == gmRole {
 		request.GMToken = func() string { gmToken = d.newGMToken(); return gmToken }
+		request.StartTyped = d.owner.notOwners
 	}
 	d.mu.Unlock()
 	request.Profiles = claudeDenyProfiles(savedAccounts)

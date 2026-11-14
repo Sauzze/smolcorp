@@ -367,6 +367,7 @@ func (d *Deck) botMailboxLook(now time.Time) {
 	barred, most := d.mailboxBarred(), d.mailLimits().MaxBytes
 	for _, bot := range bots {
 		for _, reply := range botMailboxCollect(bot.Mailbox, barred, most, now) {
+			d.owner.notOwners(reply.Text) // a bot's words are never the owner's (ownerwords.go)
 			d.events.append(eventEntry{At: now.UnixMilli(), Session: bot.sessionID(), Folder: bot.folder(), Agent: bot.Agent,
 				Kind: eventKindMail, Detail: bot.Name + " wrote " + botCleanName(reply.Name) + ": " + reply.Text})
 		}

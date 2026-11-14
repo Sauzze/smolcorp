@@ -53,6 +53,9 @@ type engineRequest struct {
 	// GMToken makes the General Manager's token, new at its hire (the Deck's
 	// newGMToken); asked only for the gm role, after the hire is written down.
 	GMToken func() string
+	// StartTyped is told the GM's start message, as it goes to the agent: the core's own words, never the owner's
+	// (ownerwords.go). nil for any other hire.
+	StartTyped func(message string)
 	// For its brief: the desk it was hired at on the ground floor (nil for none
 	// or upstairs), the answers to its role's questions (nil when it asks them
 	// itself) and the task whoever hired wrote for it ("" for none).

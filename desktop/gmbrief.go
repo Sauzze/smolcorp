@@ -39,6 +39,8 @@ func (rt *router) gmBrief(w http.ResponseWriter, r *request) {
 			refuse(http.StatusInternalServerError, "Couldn't add to the brief file.")
 			return
 		}
+		// A brief is the GM's words, never the owner's (ownerwords.go).
+		d.owner.notOwners(text)
 		name := file // by file name in the hire's own folder, else by whole path
 		if physical(filepath.Dir(file)) == physical(h.Folder) {
 			name = filepath.Base(file)

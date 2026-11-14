@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 // fakeHost stands in for the Mac app: it keeps what it was asked and answers
@@ -260,5 +261,41 @@ func TestWithoutTheMacAppAWatchOnlyDeskIsAsItWas(t *testing.T) {
 	}
 	if status, said := w.post(t, "/focus", "session=headless"); status != http.StatusConflict || said != headlessNoControls {
 		t.Errorf("focus, headless: %d %q", status, said)
+	}
+}
+
+// A queued effort is typed by one of the deck's rounds, so a test's deck, stopped as the test ends, waits for it: it
+// never runs into the next test, where its look at the GM's role reads the folders that test puts in (FXMEM3RACE).
+func TestStoppingADeckWaitsForTheEffortItQueued(t *testing.T) {
+	w := newWatchOnly(t)
+	fake := withHost(t, bridgeAnswer{OK: true})
+	// The key worker is kept busy, so the effort waits behind it.
+	underWay, finish := make(chan struct{}), make(chan struct{})
+	w.d.work <- func() { close(underWay); <-finish }
+	<-underWay
+	if status, said := w.post(t, "/act", "action=effort&level=high&session=watch"); status != http.StatusNoContent || said != "" {
+		t.Fatalf("effort: %d %q", status, said)
+	}
+	stopped := make(chan struct{})
+	go func() { w.d.stopWatchers(); close(stopped) }()
+	select {
+	case <-stopped:
+		t.Fatal("the stop didn't wait for the effort queued")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(finish)
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the deck did not stop")
+	}
+	if len(fake.asked) != 1 || fake.asked[0].Action != "type" || fake.asked[0].Text != "/effort high" {
+		t.Errorf("asked %+v, want /effort high typed before the stop's end", fake.asked)
+	}
+	w.d.mu.Lock()
+	effort := w.d.sessions.Get("watch").Effort
+	w.d.mu.Unlock()
+	if effort != "high" {
+		t.Errorf("the effort: %q", effort)
 	}
 }

@@ -6,7 +6,8 @@ import "net/http"
 // They go through typeText, phonetext.go, the code POST /dictate runs, so every rule has one copy: the text
 // prepared and at most 2,000 characters, no "!" first, never while the desk asks (as the request comes and
 // again right before the words), several lines as one paste only where the tab takes one, Return on its own
-// after, through claimReturn, a T3 desk refused. Nothing is kept.
+// after, through claimReturn, a T3 desk refused. Nothing is kept but the owner's words to the GM, from the Mac
+// app's own window, in memory (ownerwords.go).
 
 // POST /talk/say?session=: the office window's words typed into the session's agent, by the same code as /dictate.
 // The window's key from this computer only, never a phone's (phoneroutes.go).
@@ -20,7 +21,12 @@ func init() {
 			if value, ok := body["send"].(bool); ok {
 				send = &value
 			}
-			writeStatus(w)(d.TypeWindowText(stringValue(body["text"]), session, send))
+			text := stringValue(body["text"])
+			status, message := d.TypeWindowText(text, session, send)
+			// The owner's words only from the Mac app's own window: never the office in a browser, nor a window off
+			// a Mac (accessOwnerTap, ownerwords.go).
+			d.heardOwner(textFromWindow, accessOwnerTap.lets(r, r.phoneID), session, text, status, message)
+			writeStatus(w)(status, message)
 		}})
 }
 

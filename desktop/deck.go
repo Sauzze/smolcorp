@@ -148,6 +148,8 @@ type Deck struct {
 	events *eventLog
 	// The mail outbox, one per Deck (see mail_routes.go).
 	mail *mailOutbox
+	// The owner's words to the GM, in memory only, for a rule to quote (ownerwords.go): its own lock, taken with or without mu.
+	owner ownerWords
 	// A look in the bots' mailboxes is out (see botmailbox.go).
 	looking sync.Mutex
 	// What the GM asked the app to watch, kept in the support folder (see watchers.go).
@@ -503,6 +505,8 @@ func (d *Deck) IngestFrom(event map[string]any, reported, tab, startedIn string,
 	}
 	changed := d.sessions.Apply(canonical, agent, tab, startedIn, at)
 	d.logEvent(canonical, agent, at)
+	// A prompt of the GM's session: the owner's words where the core didn't type them (ownerwords.go). Never logged.
+	d.heardInTerminal(canonical)
 	// A photo its desk has just read goes at once (photo.go).
 	d.notePhotoRead(canonical)
 	if id, _ := canonical["session_id"].(string); pid > 0 || parent != "" {
@@ -1493,6 +1497,14 @@ func (d *Deck) toAgent(name string, agent Agent, op func(Tab) error) (int, strin
 	})
 }
 
+// typeInto types text into the tab named name, with Enter: every Type of the core's into a desk goes through it,
+// so what it types into the GM's session, a made button's text whoever wrote it, is noted as the core's and never
+// kept as the owner's words (coreTypes, ownerwords.go). On the key worker, without the lock.
+func (d *Deck) typeInto(name string, t Tab, text string) error {
+	d.coreTypes(name, text)
+	return t.Type(text)
+}
+
 // pressTo presses keystroke for agent, in its tab: see toAgent.
 func (d *Deck) pressTo(name string, agent Agent, keystroke Keystroke) (int, string) {
 	return d.toAgent(name, agent, func(t Tab) error { return t.Press(keystroke) })
@@ -1784,7 +1796,7 @@ func (d *Deck) PerformFrom(phone, action, id string, query url.Values) (int, str
 		if busy {
 			return http.StatusConflict, "Busy — clear it when " + agent.Name() + " is done"
 		}
-		return d.toAgent(tab, agent, func(t Tab) error { return t.Type(agent.NewConversation()) })
+		return d.toAgent(tab, agent, func(t Tab) error { return d.typeInto(tab, t, agent.NewConversation()) })
 	case "button":
 		d.mu.Lock()
 		button, found := d.config.Layout.madeButton(query.Get("button"))
@@ -1801,7 +1813,7 @@ func (d *Deck) PerformFrom(phone, action, id string, query url.Values) (int, str
 		case button.Text == "":
 			return http.StatusBadRequest, buttonTypesNothing
 		}
-		return d.toAgent(tab, agent, func(t Tab) error { return t.Type(button.Text) })
+		return d.toAgent(tab, agent, func(t Tab) error { return d.typeInto(tab, t, button.Text) })
 	case "effort":
 		if !agent.HasEffortDial() {
 			return http.StatusBadRequest, agent.Name() + " has no effort setting"
@@ -1973,23 +1985,28 @@ func (d *Deck) applyQueuedEffort() {
 		if session.PendingEffort == "" || session.IsBusy() {
 			continue
 		}
-		level, tab, agent := session.PendingEffort, d.tab(session.Tab), session.Agent
+		level, name, tab, agent := session.PendingEffort, session.Tab, d.tab(session.Tab), session.Agent
 		session.PendingEffort = ""
 		// Nothing typed into a tab a test copy keeps away from (RWTC N1).
 		if tab == nil || testCopyKeepsTab(session.Tab) != "" {
 			continue
 		}
 		// Queued from a goroutine of its own: the lock is held here, and the
-		// job takes it once done.
-		go func() {
+		// job takes it once done. One of the deck's rounds, which waits for the
+		// job to have run on the key worker: a test's deck stops its rounds as
+		// the test ends, so the job never runs into the next test, where
+		// coreTypes would read the stand-in folders it puts in (FXMEM3RACE).
+		d.rounds.run(func() {
+			done := make(chan struct{})
 			d.work <- func() {
+				defer close(done)
 				// Not into a pane its agent has left: see toAgent.
 				if pane, ok := paneOf(tab); ok {
 					if running, known := pane.runs(agent); known && !running {
 						return
 					}
 				}
-				if tab.Type("/effort "+level) != nil {
+				if d.typeInto(name, tab, "/effort "+level) != nil {
 					return
 				}
 				d.mu.Lock()
@@ -1997,7 +2014,8 @@ func (d *Deck) applyQueuedEffort() {
 				session.Effort = level
 				d.changed()
 			}
-		}()
+			<-done
+		})
 	}
 }
 

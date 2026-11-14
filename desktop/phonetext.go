@@ -52,7 +52,12 @@ func init() {
 			if value, ok := body["send"].(bool); ok {
 				send = &value
 			}
-			writeStatus(w)(d.TypePhoneText(stringValue(body["text"]), session, send))
+			text := stringValue(body["text"])
+			status, message := d.TypePhoneText(text, session, send)
+			// The owner's words only from a phone the owner's tap lets in: over Tailscale, never the Wi-Fi's plain
+			// http nor the Windows window's device (ownerwords.go).
+			d.heardOwner(textFromPhone, accessOwnerTap.lets(r, r.phoneID), session, text, status, message)
+			writeStatus(w)(status, message)
 		}})
 	registerPhoneRoute(phoneRoute{method: http.MethodPost, path: "/choose", access: accessPhone, refusal: says(phoneTextPhonesOnly),
 		serve: func(d *Deck, w http.ResponseWriter, r *request, session string) {
@@ -382,6 +387,8 @@ func (d *Deck) typeText(from textFrom, text, id string, send *bool) (int, string
 	if why != "" {
 		return status, why
 	}
+	// Typed by the core: the prompt they make in the GM's session isn't kept again as its terminal's (ownerwords.go).
+	d.coreTypes(target.name, words)
 	name, agent := target.name, target.agent
 	lines := isPhoneLines(words)
 	if lines && !takesLinesAtAll(name) {

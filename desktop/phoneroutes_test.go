@@ -102,7 +102,20 @@ func probeAnswer(t *testing.T, d *Deck, method, target, phoneKey string, c route
 	if strings.Contains(target, "?") {
 		sep = "&"
 	}
-	target, body := target+sep+"session=nobody", "{}"
+	return probeAnswerWith(t, d, method, target+sep+"session=nobody", "{}", phoneKey, c)
+}
+
+// probeRouteWith is probeRoute with the target's own query and a body of its own.
+func probeRouteWith(t *testing.T, d *Deck, method, target, body, phoneKey string, c routeCaller) (int, string) {
+	t.Helper()
+	w := probeAnswerWith(t, d, method, target, body, phoneKey, c)
+	return w.Code, strings.TrimSpace(w.Body.String())
+}
+
+// probeAnswerWith is probeAnswer with the target's own query and a body of its own: what probeAnswer and
+// probeRouteWith both ask through.
+func probeAnswerWith(t *testing.T, d *Deck, method, target, body, phoneKey string, c routeCaller) *httptest.ResponseRecorder {
+	t.Helper()
 	if c.signs {
 		// Signed as sign.js signs it: the key never sent, and a GET with no body (a signed GET with one is refused).
 		if method == http.MethodGet {

@@ -184,6 +184,9 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		}
 		start.Message += "\n\n" + gmIntroduction(place.Folder, start.GMPlugin != "" && start.GMCLI == "")
 	}
+	if r.StartTyped != nil {
+		r.StartTyped(start.Message)
+	}
 	if r.TestPort != 0 {
 		start.TestPort, start.TestSupportDir = r.TestPort, supportDir
 	}
@@ -306,6 +309,7 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 	token := ""
 	if role.ID == gmRole {
 		request.GMToken = func() string { token = d.newGMToken(); return token }
+		request.StartTyped = d.owner.notOwners
 	}
 	d.mu.Unlock()
 	request.Profiles = claudeDenyProfiles(savedAccounts)

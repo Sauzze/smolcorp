@@ -230,6 +230,8 @@ func (d *Deck) stopDictation(run *dictationRun) {
 // window's go (typeTarget): checked right before the text, on the key worker. A terminal that stopped
 // answering, or a desk that began asking, says so over the desk. Called without the lock.
 func (d *Deck) typeDictation(run *dictationRun, text string) {
+	// The core types it, maybe as Claude tidied it: never kept as the owner's words (ownerwords.go, RT126MEM3 N4).
+	d.coreTypes(run.tab, text)
 	var failed error
 	var asked bool
 	_, _ = d.toAgent(run.tab, run.agent, func(t Tab) error {
