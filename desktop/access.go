@@ -9,9 +9,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/big"
 	"os"
+	"path/filepath"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -42,11 +46,17 @@ type Access struct {
 	// The setup page's sessions: random ids, kept in memory only, each opened
 	// by a token. A cookie holds one of these, never the setup key.
 	setupSessions []string
-	// WindowKey is the key the office in a browser on this computer reads the
-	// office with, as the Mac app's office window does: new at each start,
-	// never saved, and taken only from this computer. The tray's Show Office
-	// carries a token of officeTokens, which the deck swaps for it.
-	WindowKey    string
+	// WindowKey is the key the Mac app's office window reads the office with,
+	// handed to the app alone (core_darwin.go's office op): new at each start,
+	// never saved, taken only from this computer, and never in a browser's
+	// address. Under the Mac app it is the one window whose tap is the owner's.
+	WindowKey string
+	// BrowserKey is the key the office in a browser on this computer reads
+	// the office with: the tray's Show Office carries a token of officeTokens,
+	// which the deck swaps for it. It reads the office as the window does, but
+	// a browser keeps it in its history, a file any program here can read, so
+	// it never answers the owner's asks (RT126FS2b N1).
+	BrowserKey   string
 	officeTokens map[string]time.Time
 
 	code       string
@@ -74,7 +84,7 @@ const (
 
 func NewAccess() *Access {
 	return &Access{Phones: loadPhones(), HookKey: loadHookKey(), SetupKey: newSetupKey(), WindowKey: randomKey(),
-		misses: map[string]int{}, started: processStarted}
+		BrowserKey: randomKey(), misses: map[string]int{}, started: processStarted}
 }
 
 func (a *Access) IsHookKey(candidate string) bool {
@@ -135,9 +145,14 @@ func (a *Access) RedeemOfficeToken(candidate string) bool {
 	return redeemToken(a.officeTokens, candidate)
 }
 
-// IsWindowKey is whether candidate is the office's own key on this computer.
+// IsWindowKey is whether candidate is the office window's own key on this computer.
 func (a *Access) IsWindowKey(candidate string) bool {
 	return candidate != "" && a.WindowKey != "" && constantTimeEqual(candidate, a.WindowKey)
+}
+
+// IsBrowserKey is whether candidate is the key the office in a browser on this computer was given.
+func (a *Access) IsBrowserKey(candidate string) bool {
+	return candidate != "" && a.BrowserKey != "" && constantTimeEqual(candidate, a.BrowserKey)
 }
 
 func newToken(tokens *map[string]time.Time, lifetime time.Duration) string {
@@ -210,7 +225,10 @@ func (a *Access) Claim(parts signedParts, ok bool, part, address, userAgent stri
 			return why
 		}
 		a.code, a.pairKey = "", ""
-		a.Phones.PairKey(phoneKeyFrom(key, part), phoneName(userAgent), true)
+		// With no seal's key the phone can't be kept (PairKey): it isn't paired, and is told so.
+		if !a.Phones.PairKey(phoneKeyFrom(key, part), phoneName(userAgent), true) {
+			return signedBad
+		}
 		return ""
 	}
 	a.misses[address]++
@@ -234,7 +252,8 @@ func phoneKeyFrom(codeKey, part string) string {
 // Redeem returns a key for a newly paired phone if attempt is the active
 // code and address isn't locked out. The code is spent on success. The key
 // signs over the Wi-Fi only if it came over a private way: this computer's
-// loopback or Tailscale.
+// loopback or Tailscale. A right code with an empty key is a phone this
+// computer couldn't keep (Pair).
 func (a *Access) Redeem(attempt, address, userAgent string, private bool) (string, bool) {
 	active := a.ActiveCode()
 	if active == "" || a.misses[address] >= maxAttemptsPerAddress {
@@ -320,40 +339,309 @@ type PairedPhone struct {
 	// anyone could have read it: its key works only over this computer's
 	// loopback and Tailscale, until it pairs again.
 	Signs bool `json:"signs"`
+	// Seal is this app's own mark on the phone (sealOf): an entry it didn't
+	// write itself has none that fits, and is never trusted.
+	Seal string `json:"seal,omitempty"`
 }
 
 // Phones is every paired phone. Each has its own key, so one can be revoked
 // and the others keep working. This computer keeps only a hash of each key:
-// the key itself never shows, though the hash signs as the phone does.
+// the key itself never shows, though the hash signs as the phone does, so
+// the file is kept as private as the keys.
+//
+// Nor can the file add a phone (RT126FS2b N2): a phone's tap can answer the
+// owner's asks (grants.go), and phones.json holds hashes alone, so anyone who
+// can write the file could list a key of their own. Each entry is sealed with
+// an HMAC of its id, name, key's hash and Signs, made with a key of 32 random
+// bytes kept beside the other secrets, in phones-seal (0600; the guard and a
+// hire's fence name both files). At start, an entry whose seal doesn't fit is
+// left out and said, so only a phone paired through the owner's own pairing
+// flow (Pair), or one he confirmed on the setup page (Confirm), is ever let
+// in. An entry with no seal at all is never sealed on trust, not even as an
+// update's (RT126FS2c B1 b): it waits, left out, for the owner. And each
+// unpairing makes a new seal's key, so a copy of an entry from before it no
+// longer fits (B1 c).
 type Phones struct {
 	All []PairedPhone
+	// Refused is what phones.json lists that this app can't vouch for, as it
+	// started: never let in. An entry with no seal (from before the seal, or
+	// written by another program) waits for the owner (waiting): the setup
+	// page lists it, to confirm or revoke, and it stays in the file till then.
+	// One whose seal doesn't fit, that shares its id or key with another
+	// entry, or whose name this app never gives can't be confirmed (refusal):
+	// it is dropped at the next save, and the phone is paired again.
+	Refused []PairedPhone
+	sealKey []byte
+}
+
+// phoneSealName is the file the seal's key is kept in, beside phones.json.
+const phoneSealName = "phones-seal"
+
+func phoneSealPath() string { return filepath.Join(filepath.Dir(phonesFile), phoneSealName) }
+
+// loadPhoneSealKey is the seal's key, as kept; if none is kept, or what is
+// kept isn't one, a new one. Nil if none could be kept.
+func loadPhoneSealKey() []byte {
+	if saved, err := os.ReadFile(phoneSealPath()); err == nil {
+		if key, err := hex.DecodeString(strings.TrimSpace(string(saved))); err == nil && len(key) == 32 {
+			return key
+		}
+	}
+	return newPhoneSealKey()
+}
+
+// newPhoneSealKey makes a seal's key and keeps it, in place of any before it:
+// nil if it couldn't be kept.
+func newPhoneSealKey() []byte {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil
+	}
+	if writePrivate(phoneSealPath(), []byte(hex.EncodeToString(key)+"\n")) != nil {
+		return nil
+	}
+	return key
+}
+
+// sealOf is the seal a phone carries when this app paired it: the HMAC of its
+// id, name, key's hash and whether it signs. The name is in it, so the Windows
+// window's device (window.go), whose key is in a file here, can't be renamed
+// into a phone; and Signs is, so a phone whose key crossed the Wi-Fi in clear
+// can't be turned into one that signs there (signed.go).
+func sealOf(key []byte, phone PairedPhone) string {
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(phone.ID + "\x00" + phone.Name + "\x00" + phone.KeyHash + "\x00" + strconv.FormatBool(phone.Signs)))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // How out of date LastSeen may get before a request updates it. Saving on
 // every request would rewrite the file many times a second.
 const seenResolution = time.Minute
 
+// loadPhones is the phones this app paired, as phones.json lists them: an
+// entry it didn't seal is left out (Refused) and said. One with no seal (a
+// list from before the seal, 1.25 or earlier, is all such) waits for the
+// owner to confirm it on the setup page: nothing here can tell his phone
+// from one another program wrote in.
 func loadPhones() *Phones {
 	phones := &Phones{}
+	var listed []PairedPhone
 	if data, err := os.ReadFile(phonesFile); err == nil {
-		_ = json.Unmarshal(data, &phones.All)
+		_ = json.Unmarshal(data, &listed)
+	}
+	key := loadPhoneSealKey()
+	phones.sealKey = key
+	for _, phone := range listed {
+		if key != nil && phone.Seal != "" && hmac.Equal([]byte(phone.Seal), []byte(sealOf(key, phone))) {
+			phones.All = append(phones.All, phone)
+		} else {
+			phones.Refused = append(phones.Refused, phone)
+		}
+	}
+	if text := phones.refusedText(); text != "" {
+		sayPhones(text)
 	}
 	return phones
 }
 
+// refusedText says what loadPhones left out, and why, or "". A name is said
+// escaped and cut short: it is whatever was written into the list.
+func (p *Phones) refusedText() string {
+	byWhy := map[string][]string{}
+	for i, phone := range p.Refused {
+		why := p.refusal(i)
+		byWhy[why] = append(byWhy[why], saidName(phone.Name))
+	}
+	var said []string
+	if names := byWhy[refusedWaits]; len(names) > 0 {
+		said = append(said, fmt.Sprintf("phones.json lists %d device(s) this app can't vouch for (%s): they carry no seal of this app's, "+
+			"as a list from before 1.26 doesn't, or one another program wrote in. None of them is let in until you confirm it on the setup page, "+
+			"under Paired phones. Confirm only a phone you know you paired; if you're not sure, revoke it and pair the phone again.",
+			len(names), strings.Join(names, ", ")))
+	}
+	if names := byWhy[refusedSeal]; len(names) > 0 {
+		said = append(said, fmt.Sprintf("phones.json lists %d device(s) this app didn't pair (%s): their seal doesn't fit, "+
+			"as after an unpairing or when the seal's key is lost. None of them is let in. Pair a phone again from setup if it was yours.",
+			len(names), strings.Join(names, ", ")))
+	}
+	if names := byWhy[refusedTwin]; len(names) > 0 {
+		said = append(said, fmt.Sprintf("phones.json lists %d device(s) that share an id or a key with another of its entries (%s): "+
+			"a tap on the setup page couldn't say which one it lets in, so none of them is let in or offered to you. "+
+			"Pair a phone again from setup if it was yours.",
+			len(names), strings.Join(names, ", ")))
+	}
+	if names := byWhy[refusedForm]; len(names) > 0 {
+		said = append(said, fmt.Sprintf("phones.json lists %d device(s) under a name, or in a form, this app never gives a phone (%s): "+
+			"such an entry was written by another program, maybe to mislead you, so none of them is let in or offered to you. "+
+			"Pair a phone again from setup if it was yours.",
+			len(names), strings.Join(names, ", ")))
+	}
+	return strings.Join(said, " ")
+}
+
+// saidName is a name from phones.json as the log says it: quoted, anything
+// but plain ASCII escaped, and cut at 40 bytes.
+func saidName(name string) string {
+	quoted := strconv.QuoteToASCII(name)
+	if len(quoted) > 40 {
+		return quoted[:37] + "…\""
+	}
+	return quoted
+}
+
+// Why an entry phones.json lists is refused (refusal).
+const (
+	refusedWaits = ""     // it waits for the owner to confirm it
+	refusedSeal  = "seal" // a seal that doesn't fit, or the window's own device
+	refusedTwin  = "twin" // its id or key's hash is another listed entry's too
+	refusedForm  = "form" // a name or key's hash this app never writes
+)
+
+// waitingNames is every name a build of this app ever gave a phone (phoneName,
+// and the Mac's own engine before 1.25, which also said "iPhone app"). Only
+// an entry under one of these may wait for the owner, so the setup page never
+// shows him words another program chose (RT126FS2R4 B2): no markup, no
+// look-alike, no "Smolcorp checked this phone".
+var waitingNames = []string{"iPhone", "iPad", "Android phone", "Phone", "Agent Office", "Screen saver", "iPhone app"}
+
+// isKeyHash is whether text has the form of a key's hash as this app writes
+// one: 64 lowercase hex digits.
+func isKeyHash(text string) bool {
+	if len(text) != 64 {
+		return false
+	}
+	for _, c := range text {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// refusal is why the refused entry at i isn't let in: refusedWaits if it waits
+// for the owner. One waits only if it has no seal at all, isn't the window's
+// own device (which pairs again by itself), holds an id and a key's hash that
+// no other listed entry holds, sealed or not (RT126FS2R4 B1: the owner's tap
+// names one entry, never one of two), and has a name and a hash as this app
+// writes them (B2).
+func (p *Phones) refusal(i int) string {
+	phone := p.Refused[i]
+	if phone.Seal != "" || phone.isWindowDevice() {
+		return refusedSeal
+	}
+	same := func(other PairedPhone) bool { return other.ID == phone.ID || other.KeyHash == phone.KeyHash }
+	if slices.ContainsFunc(p.All, same) {
+		return refusedTwin
+	}
+	for j, other := range p.Refused {
+		if j != i && same(other) {
+			return refusedTwin
+		}
+	}
+	if !slices.Contains(waitingNames, phone.Name) || !isKeyHash(phone.KeyHash) {
+		return refusedForm
+	}
+	return refusedWaits
+}
+
+// Waiting is every refused entry that waits for the owner, for the setup page.
+func (p *Phones) Waiting() []PairedPhone {
+	var waiting []PairedPhone
+	for i, phone := range p.Refused {
+		if p.refusal(i) == refusedWaits {
+			waiting = append(waiting, phone)
+		}
+	}
+	return waiting
+}
+
+// EntryDigest names one entry of phones.json whole: every field, as listed.
+// The setup page confirms an entry by its id and this, so its tap lets in
+// exactly the row it showed, or nothing (RT126FS2R4 B1).
+func EntryDigest(phone PairedPhone) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{phone.ID, phone.Name,
+		strconv.FormatInt(phone.PairedAt.UnixNano(), 10), strconv.FormatInt(phone.LastSeen.UnixNano(), 10),
+		phone.KeyHash, strconv.FormatBool(phone.Signs), phone.Seal}, "\x00")))
+	return hex.EncodeToString(sum[:])
+}
+
+// KeyPrint is the short fingerprint of a waiting entry's key, as the setup
+// page shows it: the first 8 digits of its hash, which isKeyHash has checked.
+// It tells two rows apart; the phone itself shows nothing to match it with.
+func KeyPrint(phone PairedPhone) string {
+	if !isKeyHash(phone.KeyHash) {
+		return ""
+	}
+	return phone.KeyHash[:8]
+}
+
+// sayPhones says what loadPhones left out: in the log, or to a test.
+var sayPhones = func(text string) { log.Printf("smolcorp: %s", text) }
+
+// seal is the seal's key, read or made at the first use: nil if none can be kept.
+func (p *Phones) seal() []byte {
+	if p.sealKey == nil {
+		p.sealKey = loadPhoneSealKey()
+	}
+	return p.sealKey
+}
+
 // Pair adds a phone and returns its key: the only time the key exists here.
-// signs: whether it may sign over the Wi-Fi (see PairedPhone.Signs).
+// signs: whether it may sign over the Wi-Fi (see PairedPhone.Signs). It is
+// sealed as this app's own. With no seal's key it can't be kept, so it isn't
+// paired, and its key is "".
 func (p *Phones) Pair(name string, signs bool) string {
 	key := randomKey()
-	p.PairKey(key, name, signs)
+	if !p.PairKey(key, name, signs) {
+		return ""
+	}
 	return key
 }
 
-// PairKey adds a phone holding key, made already for the QR code.
-func (p *Phones) PairKey(key, name string, signs bool) {
+// PairKey adds a phone holding key, made already for the QR code, sealed as
+// this app's own: false, and nothing kept, if there's no seal's key.
+func (p *Phones) PairKey(key, name string, signs bool) bool {
+	sealKey := p.seal()
+	if sealKey == nil {
+		return false
+	}
 	now := time.Now().UTC().Truncate(time.Second)
-	p.All = append(p.All, PairedPhone{ID: newID(), Name: name, PairedAt: now, LastSeen: now, KeyHash: hashKey(key), Signs: signs})
+	phone := PairedPhone{ID: newID(), Name: name, PairedAt: now, LastSeen: now, KeyHash: hashKey(key), Signs: signs}
+	phone.Seal = sealOf(sealKey, phone)
+	p.All = append(p.All, phone)
 	p.save()
+	return true
+}
+
+// Confirm lets in an entry that waits for the owner, sealed now as this app's
+// own. Only the setup page's own tap reaches it (POST /setup/phones/confirm),
+// naming the entry it showed by its id and its EntryDigest: the one entry
+// that holds both, or none (RT126FS2R4 B1). False if no entry waits with that
+// id and digest, if the id is listed more than once, or if it can't be sealed.
+func (p *Phones) Confirm(id, digest string) bool {
+	at := -1
+	for i, phone := range p.Refused {
+		if phone.ID != id {
+			continue
+		}
+		if at >= 0 {
+			return false
+		}
+		at = i
+	}
+	if at < 0 || p.refusal(at) != refusedWaits || !hmac.Equal([]byte(EntryDigest(p.Refused[at])), []byte(digest)) {
+		return false
+	}
+	sealKey := p.seal()
+	if sealKey == nil {
+		return false
+	}
+	phone := p.Refused[at]
+	phone.Seal = sealOf(sealKey, phone)
+	p.All = append(p.All, phone)
+	p.Refused = slices.Delete(p.Refused, at, at+1)
+	p.save()
+	return true
 }
 
 // WithKey is the phone holding key, if any.
@@ -390,24 +678,46 @@ func (p *Phones) MarkSeen(phone *PairedPhone) {
 	p.save()
 }
 
+// Remove forgets a phone, or an entry that waits for the owner, and seals the
+// rest anew (reseal).
 func (p *Phones) Remove(id string) {
-	kept := p.All[:0]
-	for _, phone := range p.All {
-		if phone.ID != id {
-			kept = append(kept, phone)
-		}
-	}
-	p.All = kept
+	p.All = slices.DeleteFunc(p.All, func(phone PairedPhone) bool { return phone.ID == id })
+	p.Refused = slices.DeleteFunc(p.Refused, func(phone PairedPhone) bool { return phone.ID == id })
+	p.reseal()
 	p.save()
 }
 
+// RemoveAll forgets every phone and every entry that waits, and makes a new
+// seal's key.
 func (p *Phones) RemoveAll() {
-	p.All = nil
+	p.All, p.Refused = nil, nil
+	p.reseal()
 	p.save()
 }
 
+// reseal makes a new seal's key and seals the phones kept with it, so a copy
+// of phones.json from before (a phone unpaired, put back) no longer fits
+// (RT126FS2c B1 c). The key is written before the list: a stop between the
+// two leaves the phones kept refused, to pair again, never an old one let in.
+// If the new key can't be kept, the old one is deleted all the same, and
+// every entry refused at the next start.
+func (p *Phones) reseal() {
+	key := newPhoneSealKey()
+	if key == nil {
+		_ = os.Remove(phoneSealPath())
+		p.sealKey = nil
+		return
+	}
+	p.sealKey = key
+	for i := range p.All {
+		p.All[i].Seal = sealOf(key, p.All[i])
+	}
+}
+
+// save writes the phones let in, and the entries that wait for the owner, as
+// they were listed: with no seal, still not let in at the next start.
 func (p *Phones) save() {
-	data, err := json.MarshalIndent(p.orEmpty(), "", "  ")
+	data, err := json.MarshalIndent(append(slices.Clone(p.orEmpty()), p.Waiting()...), "", "  ")
 	if err == nil {
 		_ = writePrivate(phonesFile, data)
 	}

@@ -203,10 +203,12 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 	want = append(want, "Read(~/.claude*/projects/**)")
 	both("//c/work/settings*.json")
 	want = append(want, "Read(//c/work/projects/**)")
-	for _, p := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token"} {
+	for _, p := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "grants-key", "grants.jsonl.tmp", "phones-seal"} {
 		both("//s/" + p)
 	}
+	both("//s/events")
 	both("//s/events/**")
+	both("//s/briefs")
 	both("//s/briefs/**")
 	both("//s/recaps/**")
 	both("//s/hires/*.sh")
@@ -214,11 +216,33 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 		both("//s/hires/*/" + p)
 	}
 	both("//s/hires/other11/**")
-	for _, n := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json"} {
+	for _, n := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json", "grants-key", "grants.jsonl", "grants.jsonl.tmp", "phones-seal"} {
 		want = append(want, "Read(//s/"+n+")")
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("rules differ:\n got %q\nwant %q", got, want)
+	}
+}
+
+// RT126FS2 B1: a hire can neither read nor write the owner's grant record, the file it is written through or its
+// key's name, on every system; and a file the support folder holds is denied as a file, not only as a folder's /**
+// (which doesn't match it), once, even when a pattern names it too.
+func TestAHireCantTouchTheGrantRecord(t *testing.T) {
+	for _, system := range []string{"darwin", "linux", "windows"} {
+		rules := hireDenyRules("abc123", nil, "/s", nil, nil, []string{"grants.jsonl", "grants-key", "some-file", "hook-key"}, system)
+		for _, rule := range []string{
+			"Read(//s/grants-key)", "Edit(//s/grants-key)", "Read(//s/grants.jsonl)", "Edit(//s/*.jsonl)",
+			"Read(//s/grants.jsonl.tmp)", "Edit(//s/grants.jsonl.tmp)", "Edit(//s/some-file)", "Edit(//s/grants.jsonl)",
+		} {
+			if !slices.Contains(rules, rule) {
+				t.Errorf("%s: no %s", system, rule)
+			}
+		}
+		for _, rule := range []string{"Edit(//s/grants-key)", "Edit(//s/hook-key)"} {
+			if n := len(slices.DeleteFunc(slices.Clone(rules), func(r string) bool { return r != rule })); n != 1 {
+				t.Errorf("%s: %s %d times", system, rule, n)
+			}
+		}
 	}
 }
 
@@ -332,7 +356,7 @@ func TestHireOwnStatusFileIsNotDeniedButItsSettingsAndTheRestAre(t *testing.T) {
 			t.Errorf("%s: a later hire's status file is covered", tool)
 		}
 	}
-	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json"} {
+	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "phones-seal", "sessions.json", "config.json", "registry.json"} {
 		if !hireDenied(deny, base+"/"+name, "Read") {
 			t.Errorf("%s can be read", name)
 		}

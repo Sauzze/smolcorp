@@ -129,6 +129,10 @@ var goOnlyRoutes = []routeRow{
 	{"POST", "/setup/peers/code", []string{"page"}},
 	{"POST", "/setup/peers/revoke", []string{"page"}},
 	{"POST", "/setup/peers/join", []string{"page"}},
+	// The owner's yes or no to an ask (grants.go): the page's cookie alone, never a tool's key nor the GM's token.
+	{"POST", "/setup/grants/answer", []string{"page"}},
+	// A phone phones.json lists that this app can't vouch for, let in by the owner (access.go's Confirm): the page alone.
+	{"POST", "/setup/phones/confirm", []string{"page"}},
 }
 
 // name is how the table spells a caller.

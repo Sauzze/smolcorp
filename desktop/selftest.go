@@ -66,11 +66,11 @@ func (d *Deck) selfTest() []check {
 	}
 	d.mu.Lock()
 	scope := effectiveScope(d.config)
-	phones := phonesOnly(d.access.Phones)
+	phones, waiting := phonesOnly(d.access.Phones), len(d.access.Phones.Waiting())
 	d.mu.Unlock()
 	// Under the Mac app, the rest is the Mac's (hostshell.go).
 	if d.macHost() != nil {
-		return append(checks, d.macChecks(phones)...)
+		return append(checks, d.macChecks(phones, waiting)...)
 	}
 	checks = append(checks, networkCheck(scope, tailscaleAddresses()))
 	if scope != listenThisComputer {
@@ -78,7 +78,7 @@ func (d *Deck) selfTest() []check {
 			checks = append(checks, *firewall)
 		}
 	}
-	checks = append(checks, phoneCheck(phones), loginCheck(isOpenAtLogin(), hasTray()))
+	checks = append(checks, phoneCheck(phones, waiting), loginCheck(isOpenAtLogin(), hasTray()))
 	return checks
 }
 
@@ -199,9 +199,18 @@ func networkCheck(scope string, tailscale []string) check {
 	return c
 }
 
-// phoneCheck is whether a phone is paired, the office window not counted.
-func phoneCheck(phones int) check {
+// phoneCheck is whether a phone is paired, the office window not counted. waiting
+// is how many entries of the list wait for the owner to confirm them (access.go's
+// Waiting): said here too, as their phones get nothing until then (RT126FS2R4
+// nit 2).
+func phoneCheck(phones, waiting int) check {
 	c := check{ID: "phone", Title: "A phone is paired"}
+	if waiting > 0 {
+		c.Status = checkTodo
+		c.Detail = fmt.Sprintf("%d paired, and %d listed from before 1.26 or by another program wait for you: "+
+			"confirm under Paired phones only one you paired yourself, or revoke it and pair the phone again.", phones, waiting)
+		return c
+	}
 	if phones > 0 {
 		c.Status, c.Detail = checkOK, fmt.Sprintf("%d paired. Pair another from Phone and voice.", phones)
 		return c

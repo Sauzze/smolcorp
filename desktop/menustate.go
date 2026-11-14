@@ -3,8 +3,9 @@ package desktop
 // menuState is what Smolcorp's menu shows of the deck, read at once: the tray's
 // on Windows and Linux (app.go), and the Mac's menu bar, which the core sends it
 // to whenever it changes (core_darwin.go). The sessions and how many wait on
-// you, the phones paired (not the office window's own device), the logo, the
-// office's window kept on top, and the portable office.
+// you, the phones paired (not the office window's own device) with those waiting
+// for the owner to confirm them, the logo, the office's window kept on top,
+// and the portable office.
 type menuState struct {
 	Sessions int          `json:"sessions"`
 	Waiting  int          `json:"waiting"`
@@ -26,7 +27,7 @@ type portableMenu struct {
 func (d *Deck) menuState() menuState {
 	d.mu.Lock()
 	all := d.sessions.All()
-	state := menuState{Sessions: len(all), Phones: phonesOnly(d.access.Phones), Logo: d.config.Logo, OnTop: d.config.AlwaysOnTop}
+	state := menuState{Sessions: len(all), Phones: phonesKnown(d.access.Phones), Logo: d.config.Logo, OnTop: d.config.AlwaysOnTop}
 	for _, s := range all {
 		if s.State == Asking {
 			state.Waiting++

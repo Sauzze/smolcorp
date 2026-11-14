@@ -18,11 +18,12 @@ import (
 //   - a hire the GM route makes: fenced Claude roles only (fenceRefusal).
 // The owner's own (the page, a tool with the setup key) passes what the route table lets it; their terminal has
 // no guard. An MCP key and a night job are held as the GM is: its routes, its scope, its guard profile, its fence.
-// Nothing asks the owner yet: the grant record that keeps an ask (FS2) and the merge and spend groups (FS3) come
-// later, through shellGates.
+// A gate that needs the owner says askOwner; decide then keeps the ask in the grant record (grants.go, FS2), where
+// only the owner's tap grants it, and a later identical action by the same actor finds its grant, once. The merge
+// and spend groups (FS3) come later, through shellGates.
 
-// actor is who asks: "gm", "hire", "mcp:<key>", "night:<job>", or the owner's own, "page" and "tool". Anyone
-// else is "nobody".
+// actor is who asks: "gm", "hire" or "hire:<id>", "mcp:<key>", "night:<job>", or the owner's own, "page" and
+// "tool". Anyone else is "nobody".
 type actor string
 
 const (
@@ -37,13 +38,17 @@ const (
 func mcpActor(key string) actor   { return actor("mcp:" + key) }
 func nightActor(job string) actor { return actor("night:" + job) }
 
+// hireActor is the hire with that id: its asks and grants are its own, never another hire's (grants.go).
+func hireActor(id string) actor { return actor("hire:" + id) }
+
 // actorOf is a setup caller as an actor (caller.name spells it as the route table does).
 func actorOf(who caller) actor { return actor(who.name()) }
 
-// kind is what the actor is, without its key or job: an MCP key or a night job with no name is nobody.
+// kind is what the actor is, without its key, job or id: an MCP key, a night job or a hire with an empty name is
+// nobody.
 func (a actor) kind() string {
 	if kind, name, named := strings.Cut(string(a), ":"); named {
-		if (kind == "mcp" || kind == "night") && name != "" {
+		if (kind == "mcp" || kind == "night" || kind == "hire") && name != "" {
 			return kind
 		}
 		return string(actorNobody)
@@ -120,6 +125,7 @@ type verdict struct {
 	status int
 	why    string
 	what   string
+	amount string // an amount the owner is asked to allow, as it reads, if any
 	body   any
 }
 
@@ -129,10 +135,17 @@ func refuse(status int, why string) verdict {
 	return verdict{kind: verdictRefuse, status: status, why: why}
 }
 
-// askOwner is a verdict that waits for the owner's tap. Until FS2 keeps the ask, it is answered as a no
-// (silence is a no): askOwnerAnswer says what waits.
-func askOwner(what string) verdict {
-	return verdict{kind: verdictAskOwner, status: http.StatusForbidden, what: what, why: askOwnerAnswer + what}
+// askOwner is a verdict that waits for the owner's tap. Until the owner grants it, it is answered as a no (silence
+// is a no): askOwnerAnswer says what waits. Deck.decide keeps the ask (grants.go).
+func askOwner(what string) verdict { return askOwnerFor(what, "") }
+
+// askOwnerFor is askOwner for something with an amount: "12 dollars", as the owner is to read it.
+func askOwnerFor(what, amount string) verdict {
+	why := askOwnerAnswer + what
+	if amount != "" {
+		why += " (" + amount + ")"
+	}
+	return verdict{kind: verdictAskOwner, status: http.StatusForbidden, what: what, amount: amount, why: why}
 }
 
 const askOwnerAnswer = "This waits for the owner's OK: "
@@ -145,8 +158,19 @@ func (v verdict) allowed() bool { return v.kind == verdictAllow }
 var shellGates []func(a actor, line string) verdict
 
 // decide is whether a may do what, as each gate it wraps decides it today. A route's decision takes the deck's
-// lock and reads the registry: call it with the lock let go. A line or a hire needs neither.
+// lock and reads the registry: call it with the lock let go. A line or a hire needs neither. A gate that says
+// askOwner is settled against the grant record: the owner's grant for this actor and this ask lets it through
+// once; else the ask waits in the approvals list and the answer is a no. The record has a lock of its own, never
+// the deck's, so a hire's gate may be asked with that lock held.
 func (d *Deck) decide(a actor, what action) verdict {
+	v := d.decideNow(a, what)
+	if v.kind == verdictAskOwner {
+		return d.grants.settle(a, v)
+	}
+	return v
+}
+
+func (d *Deck) decideNow(a actor, what action) verdict {
 	switch {
 	case what.route != nil:
 		return d.decideRoute(a, *what.route)

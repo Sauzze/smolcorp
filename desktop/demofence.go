@@ -1173,8 +1173,9 @@ func (f demoFence) aboveSupport(folder string) bool {
 }
 
 // demoSecretNames are the app's files that a Glob or Grep from above its folder mustn't reach by its last part:
-// the setup key and the GM's token files (gmbyhand.go, gmtokenstore.go).
-var demoSecretNames = []string{"setup-key", gmTokenFileName, keptGMTokenName, gmSessionFileName}
+// the setup key and the GM's token files (gmbyhand.go, gmtokenstore.go), the owner's grant record (grants.go) and
+// the paired phones' seal's key (access.go).
+var demoSecretNames = []string{"setup-key", gmTokenFileName, keptGMTokenName, gmSessionFileName, "grants.jsonl", "phones-seal"}
 
 // demoSecretPattern says whether a pattern's last part could fill in one of demoSecretNames.
 func demoSecretPattern(last string) bool {

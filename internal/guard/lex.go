@@ -1158,9 +1158,11 @@ func valuePattern(value string, unq []bool) []bool {
 
 // protectedNames are the files and variable a hire may not name by any
 // spelling (the GM token, in its file or where a computer with no secret
-// store keeps it, the guard file, the app's setup key). protectedByPattern says which a
-// pattern word (gm-t*, hire-g?ard.json) could fill in, read as its skeleton (skeleton.go).
-var protectedNames = []string{"gm-token", "gm-token-kept", "smolcorp_gm_token", "hire-guard.json", "hire-guard", setupKeyFile}
+// store keeps it, the guard file, the app's setup key, the owner's grant record, and the paired phones' seal's
+// key). protectedByPattern says which a pattern word (gm-t*, hire-g?ard.json) could fill in, read as its skeleton
+// (skeleton.go).
+var protectedNames = []string{"gm-token", "gm-token-kept", "smolcorp_gm_token", "hire-guard.json", "hire-guard", setupKeyFile,
+	"grants.jsonl", "phones-seal"}
 
 // supportWords are the words of the app's support folder on each system (appdirs: AgentDeck, sauzzedeck-pro,
 // SauzzeDeck Pro), and Smolcorp's: a path before a pattern that could hold one may be that folder.

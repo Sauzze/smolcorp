@@ -153,11 +153,15 @@ func TestTheFirewallIsRightOnlyWithTailscalesRuleForThisCopy(t *testing.T) {
 }
 
 func TestOnlyAPhoneCountsAsPairedAndLoginIsOffered(t *testing.T) {
-	if c := phoneCheck(0); c.Status != checkTodo || c.Detail != "Open Pair a phone, then scan its QR code with your phone's camera, or type its 6-digit code on your phone." {
+	if c := phoneCheck(0, 0); c.Status != checkTodo || c.Detail != "Open Pair a phone, then scan its QR code with your phone's camera, or type its 6-digit code on your phone." {
 		t.Errorf("no phone: %+v", c)
 	}
-	if c := phoneCheck(2); c.Status != checkOK || !strings.HasPrefix(c.Detail, "2 paired") {
+	if c := phoneCheck(2, 0); c.Status != checkOK || !strings.HasPrefix(c.Detail, "2 paired") {
 		t.Errorf("two phones: %+v", c)
+	}
+	// Entries waiting for the owner are said, as their phones get nothing till then (RT126FS2R4 nit 2).
+	if c := phoneCheck(0, 2); c.Status != checkTodo || !strings.HasPrefix(c.Detail, "0 paired, and 2 listed") || !strings.Contains(c.Detail, "Paired phones") {
+		t.Errorf("two waiting: %+v", c)
 	}
 	if c := loginCheck(false, true); c.Status != checkTodo || c.Fix != fixLogin {
 		t.Errorf("not at login: %+v", c)

@@ -543,6 +543,9 @@ var phoneRoutes = map[string]bool{
 	// Another Mac's alone (M1, peers_mac.go): no phone or window reaches it, and it answers a name, reading no body.
 	// POST /peer/pair isn't a row: servePeer answers it before the table, with a code and a name, never a phone's text.
 	"/peer/hello": false,
+	// The owner's asks and his yes or no to one (FS2, grants.go): a paired phone over Tailscale alone, never the
+	// Wi-Fi (accessOwnerTap), with an ask's id and yes or no, never a phone's text.
+	"/grants": false, "/grants/answer": false,
 }
 
 // phoneRouteCode is one route's code as this test reads it: its paths, its code, and whether only the window reaches it.

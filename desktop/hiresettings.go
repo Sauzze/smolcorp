@@ -252,7 +252,10 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 	root := absoluteRulePath(support)
 	// The secrets of both engines a Mac may run (the Swift app's gm-session and hook-header, the Go
 	// engine's hook-key and window-key), in the same order as the Mac's HireSettings: one file either way.
-	for _, pattern := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token"} {
+	// Then the owner's grant record (grants.go): its key's name, kept off the disk, and the file it is written
+	// through (grants.jsonl itself is a *.jsonl); and the paired phones' seal's key (access.go: phones.json itself
+	// is a *.json).
+	for _, pattern := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "grants-key", "grants.jsonl.tmp", phoneSealName} {
 		both(root + "/" + pattern)
 	}
 	has := func(list []string, name string) bool {
@@ -263,8 +266,12 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 		}
 		return false
 	}
+	// An entry is denied as a file and as a folder: a /** rule alone doesn't match a file.
 	for _, entry := range entries {
 		if entry != "hires" && entry != keptGMTokenName && entry != keptGMTokenTemp && !strings.HasPrefix(entry, ".") && !strings.Contains(entry, "/") {
+			if file := "Edit(" + root + "/" + entry + ")"; !has(rules, file) {
+				rules = append(rules, file)
+			}
 			both(root + "/" + entry + "/**")
 		}
 	}
@@ -286,7 +293,7 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 		}
 	}
 	// Nothing secret or app-state can be read either.
-	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", hireGuardFile, "phones.json", "sessions.json", "config.json", "registry.json"} {
+	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", hireGuardFile, "phones.json", "sessions.json", "config.json", "registry.json", "grants-key", "grants.jsonl", "grants.jsonl.tmp", phoneSealName} {
 		rules = append(rules, "Read("+root+"/"+name+")")
 	}
 	// The GM's token, kept in a file on a computer whose secret store can't keep it (gmtokenstore.go), and the file

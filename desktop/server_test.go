@@ -705,8 +705,14 @@ func TestTheTraysOfficeIsTheOfficeOnThisComputerOnly(t *testing.T) {
 	token := d.access.NewOfficeToken()
 	d.mu.Unlock()
 	opened := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: "localhost:7710", from: thisComputer})
-	if opened.Code != http.StatusSeeOther || opened.Header().Get("Location") != "/office?t="+d.access.WindowKey+"&own" {
-		t.Fatalf("the tray's link gave %d to %q, want the office with its own key", opened.Code, opened.Header().Get("Location"))
+	if opened.Code != http.StatusSeeOther || opened.Header().Get("Location") != "/office?t="+d.access.BrowserKey+"&own" {
+		t.Fatalf("the tray's link gave %d to %q, want the office with the browser's key", opened.Code, opened.Header().Get("Location"))
+	}
+	if d.access.BrowserKey == d.access.WindowKey {
+		t.Error("the browser is given the Mac app's window's key")
+	}
+	if browser := serve(t, d, call{method: "GET", target: "/office?t=" + d.access.BrowserKey, host: "localhost:7710", from: thisComputer}); browser.Code != http.StatusOK || !strings.Contains(browser.Body.String(), "/events") {
+		t.Errorf("the office with the browser's key gave %d, want the deck's page", browser.Code)
 	}
 	if again := serve(t, d, call{method: "GET", target: "/office?o=" + token, host: "localhost:7710", from: thisComputer}); again.Code == http.StatusSeeOther {
 		t.Error("the tray's token worked twice")

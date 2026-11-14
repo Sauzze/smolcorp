@@ -82,6 +82,10 @@ func TestTheDemosFenceRefusesWhatItDoesntRead(t *testing.T) {
 			tool("Grep", map[string]any{"path": s.home, "pattern": "."}),
 			tool("Glob", map[string]any{"path": s.support, "pattern": "*"}),
 			tool("Read", map[string]any{"file_path": s.support + "/setup-key"}),
+			// RT126FS2b N4: the owner's grant record and the paired phones' seal's key, from above the folder.
+			tool("Glob", map[string]any{"path": s.home, "pattern": "**/grants.json?"}),
+			tool("Glob", map[string]any{"path": s.home, "pattern": "**/phones-s*"}),
+			tool("Grep", map[string]any{"path": s.home, "pattern": "x", "glob": "phones-se?l"}),
 			// B4: eval, env -S and a name built in a nested line.
 			bash(`eval smolcorp gm "h'i're" --role tester --worktree --folder ` + out),
 			bash(`eval smolcorp gm hi\\re --role tester --worktree --folder ` + out),
