@@ -59,7 +59,6 @@ final class SetupConsistencyPageTests: XCTestCase {
         for use in ["pathLine(document.createElement('span'), shortFolder(rule.folder) + (rule.exact ? ' (alone)' : ''), says)",
                     "pathLine($('first-folder-short'), tildePath(f.folder, f.home), f.folder);",
                     "pathLine($('first-folder-path'), tildePath(f.folder || f.suggested, f.home), f.folder || f.suggested);",
-                    "pathLine($('gm-token-file'), m.gmTokenFileShown || file, file);",
                     "pathLine(Object.assign(document.createElement('span'), { className: 'dir' }), p.dir);",
                     "pathLine(Object.assign(document.createElement('span'), { className: 'dir' }), f.dir));"] {
             XCTAssertTrue(page.contains(use), use)

@@ -40,9 +40,10 @@ import (
 //     code hands over a key after #, never sent; a typed code, whose answer
 //     is the key, works only on this computer or over Tailscale.
 //   - The setup page answers only to this computer. The page itself holds
-//     nothing; what it reads and changes needs the setup key, new at every
-//     start, as the cookie the page gets when the tray opens it or as
-//     X-Smolcorp-Setup-Key from a tool of your own. Its actions also need a
+//     nothing; what it reads and changes needs the cookie the page gets when
+//     the tray or Smolcorp's window opens it, or X-Smolcorp-Setup-Key from a
+//     tool you allowed in Smolcorp's window (terminalask.go): no file holds a
+//     key to it, new at every start, in memory alone. Its actions also need a
 //     header that other sites can't send without asking first.
 
 const (
@@ -65,9 +66,13 @@ const (
 	setupHeader = "X-AgentDeck-Setup"
 	// Names the app on the 401 of /setup/state, so the locked page tells how to get in.
 	appHeader = "X-Smolcorp-App"
-	// The setup key, as a tool of your own sends it, read from the setup-key
-	// file; or as the page's cookie, from the tray's link.
+	// A tool's key, as a terminal you allowed in Smolcorp's window sends it
+	// (terminalask.go): the setup key itself never leaves the core.
 	setupKeyHeader = "X-Smolcorp-Setup-Key"
+	// The check-only key, as `smolcorp setup` and the Mac's --setup send it (selftestkey.go).
+	selftestKeyHeader = "X-Smolcorp-Selftest-Key"
+	// sessionEndedHeader says, on a locked page's 401, why its session ended (setuplink.go).
+	sessionEndedHeader = "X-Smolcorp-Session-Ended"
 	// A tray link's one-time token, which the page swaps for the cookie.
 	setupTokenHeader = "X-Smolcorp-Setup-Once"
 	// The office in a browser on this computer, as the deck sees it: see
@@ -223,7 +228,8 @@ type caller int
 
 const (
 	callerNobody caller = iota
-	// A tool on this computer sending the setup key from its file in a header.
+	// A tool on this computer sending a tool's key in a header: one you allowed in Smolcorp's window, or the
+	// check-only key on GET /setup/selftest alone (selftestkey.go).
 	callerTool
 	// The setup page, with a session cookie a one-time link gave it.
 	callerPage
@@ -328,11 +334,26 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		// setup key never opens a session, and the cookie is never the key.
 		session := r.Method == http.MethodPost && r.URL.Path == "/setup/session"
 		redeemed := session && d.redeemSetupToken(r.Header.Get(setupTokenHeader))
+		// A link's token already used: another program used it first, and the session it opened ends (setuplink.go).
+		if session && !redeemed {
+			if changes, used := d.usedFirst(r.Header.Get(setupTokenHeader)); used {
+				d.Refresh() // the menu shows the warning at once, whoever brought the token
+				writeJSON(w, http.StatusConflict, usedFirstAnswer(changes))
+				return
+			}
+		}
 		r.caller = d.routeCallerOf(r.Request, r.Method, r.URL.Path)
+		// The check-only key (selftestkey.go) opens this one route, and nothing else.
+		if r.caller == callerNobody && d.isSelftestOnly(r.Request) {
+			r.caller = callerTool
+		}
 		if r.URL.Path != "/setup" && !redeemed && r.caller == callerNobody {
 			// The locked page says which app it came from, so its note names this app's own way in.
 			if r.URL.Path == "/setup/state" {
 				w.Header().Set(appHeader, d.appNamed())
+				if d.sessionEndedForUsedFirst(r.Request) {
+					w.Header().Set(sessionEndedHeader, setupSessionEnded)
+				}
 			}
 			if session {
 				writeStatus(w)(http.StatusUnauthorized, setupSessionRefusal)
@@ -347,13 +368,13 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 				return
 			}
 			d.completeSetup()
-			http.SetCookie(w, &http.Cookie{Name: setupCookie(), Value: d.newSetupSession(), Path: "/setup", HttpOnly: true,
+			http.SetCookie(w, &http.Cookie{Name: setupCookie(), Value: d.newSetupSession(r.Header.Get(setupTokenHeader)), Path: "/setup", HttpOnly: true,
 				SameSite: http.SameSiteStrictMode})
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		// The gate service (gates.go) decides: what each caller may use is the route table's (routes.go):
-		// pairing a phone, and what a hire holding the setup-key file could misuse, are the page's. A tool
+		// pairing a phone, and what a hire holding a tool's key could misuse, are the page's. A tool
 		// with the key can see whether pairing is open, never the code. /setup itself is the page. Then the
 		// manager's switch, and a General Manager the owner held to one project goes no further than it
 		// (gmscope.go), its route given the request as checked.
@@ -365,6 +386,11 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		if v.body != nil {
 			data, _ := json.Marshal(v.body)
 			r.Body = io.NopCloser(bytes.NewReader(data))
+		}
+		// What a page's session changes, and a read that hands it a key, is kept with it, for the "used first"
+		// report (setuplink.go).
+		if r.caller == callerPage && (r.Method != http.MethodGet && r.Method != http.MethodHead || slices.Contains(setupReadsNoted, r.Method+" "+r.URL.Path)) {
+			d.noteSetupChange(r.Request)
 		}
 		rt.setup(w, r)
 		return
@@ -423,6 +449,14 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		d.IngestFrom(event, r.Header.Get("X-AgentDeck-Agent"), r.Header.Get("X-AgentDeck-Tab"),
 			r.Header.Get("X-AgentDeck-Project"), pid, r.Header.Get("X-AgentDeck-Parent"), at)
 		w.WriteHeader(http.StatusNoContent)
+		return
+	// A terminal asks for a key, and waits for the owner's answer in Smolcorp's window (terminalask.go).
+	case r.URL.Path == terminalAskPath:
+		if !r.isLocal {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		d.terminalAskRoute(w, r)
 		return
 	// A second Smolcorp asking this one to show the office instead of staying.
 	case r.URL.Path == raisePath:
@@ -853,10 +887,59 @@ func hasSmuggledHookHeader(header http.Header) bool {
 	return false
 }
 
-func (d *Deck) newSetupSession() string {
+// newSetupSession opens a page session: by a link's token, or by Smolcorp's own window when token is "".
+func (d *Deck) newSetupSession(token string) string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.access.NewSetupSession()
+	return d.access.NewSetupSessionFrom(token)
+}
+
+// usedFirst is Access.UsedFirst under the deck's lock.
+func (d *Deck) usedFirst(token string) ([]string, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.access.UsedFirst(token)
+}
+
+// noteSetupChange records a change made with the page's session cookie, for the "used first" report.
+func (d *Deck) noteSetupChange(r *http.Request) {
+	cookie, err := r.Cookie(setupCookie())
+	if err != nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.access.NoteSetupChange(cookie.Value, r.Method, r.URL.Path)
+}
+
+// clearUsedFirst takes the "used first" warning away, from the owner's own channel, and the menu follows.
+func (d *Deck) clearUsedFirst() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.access.ClearUsedFirst()
+	d.changed()
+}
+
+// sessionEndedForUsedFirst is whether the request's cookie names a session ended because its link was used again.
+func (d *Deck) sessionEndedForUsedFirst(r *http.Request) bool {
+	cookie, err := r.Cookie(setupCookie())
+	if err != nil {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.access.EndedForUsedFirst(cookie.Value)
+}
+
+// isWindowPage is whether the request carries a session Smolcorp's own window opened, never a browser's.
+func (d *Deck) isWindowPage(r *http.Request) bool {
+	cookie, err := r.Cookie(setupCookie())
+	if err != nil {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.access.IsWindowSession(cookie.Value)
 }
 
 // completeSetup marks setup complete: what a setup page that got in with a
@@ -1155,7 +1238,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// The portable office's viewer (beta). Only this reply carries the link,
 	// which holds the key; the write secret is in a reply only once, as it's made.
 	case r.Method == http.MethodGet && path == "/setup/viewer":
-		// The link holds the key: the page gets it, a tool with the setup-key file doesn't.
+		// The link holds the key: the page gets it, a tool doesn't.
 		writeJSON(w, http.StatusOK, d.portable.SetupState(r.caller == callerPage))
 
 	case r.Method == http.MethodPost && path == "/setup/viewer":
@@ -1957,6 +2040,20 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		setOpenAtLogin(query.Get("enabled") == "1")
 		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
 
+	// The owner's answer to a terminal's ask for a key (terminalask.go).
+	case r.Method == http.MethodPost && path == "/setup/terminal/answer":
+		rt.answerTerminalAsk(w, r)
+
+	// "I've seen it" for the warning that a link was used first (setuplink.go): Smolcorp's own Settings window alone,
+	// never a page a link opened, which may be the very program that used it. Off a Mac the tray clears it.
+	case r.Method == http.MethodPost && path == "/setup/used-first/seen":
+		if d.macHost() == nil || !d.isWindowPage(r.Request) {
+			writeStatus(w)(http.StatusForbidden, usedFirstClearElsewhere(d.macHost() != nil))
+			return
+		}
+		d.clearUsedFirst()
+		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+
 	// The self-test: Start here's checklist, and `smolcorp setup`'s.
 	case r.Method == http.MethodGet && path == "/setup/selftest":
 		writeJSON(w, http.StatusOK, selfTestReport(d.selfTest()))
@@ -2452,6 +2549,19 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 	}
 	if recordsDropped != "" {
 		state["recordsDropped"] = recordsDropped
+	}
+	// A terminal's ask for a key, for the page alone: its folder and code, never its ticket (terminalask.go).
+	if asks := d.asks.waiting(); asks != nil && who == callerPage {
+		state["terminalAsks"] = asks
+	}
+	// Off a Mac, no terminal is given a key: Setup says why, in the owner's words (terminalask.go).
+	if d.mac.host == nil && who == callerPage {
+		state["terminalAsksOff"] = terminalAskOff(runtime.GOOS)
+	}
+	// A link used first (setuplink.go): on every page until the owner clears it in their own channel.
+	if report := d.access.UsedFirstReport(); report != nil && who == callerPage {
+		report["clearIn"] = map[bool]string{true: "window", false: "tray"}[d.mac.host != nil]
+		state["usedFirst"] = report
 	}
 	// What to type to start an agent through the launcher. Not under the Mac app, even while it doesn't answer:
 	// the page takes "launcher" for a Linux or Windows computer and words everything for one (its Keychain

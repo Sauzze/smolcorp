@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// The demo's page (FXX1d). `smolcorp demo` holds only the setup key, which never hires and never opens a
+// The demo's page (FXX1d). `smolcorp demo` holds only a tool's key (demooffice.go), which never hires and never opens a
 // session of setup (the route table; server.go). So the demo's General Manager is hired by you, from Setup's
 // Start here: the demo makes its folder, then asks the app to open Setup at the demo. The app makes the
 // one-time link and opens it in the browser itself, as the tray's Open Setup… does, so the link's token never
@@ -29,13 +29,13 @@ import (
 //
 //	GET  /setup/demo[?root=R]               page, tool: the office as the demo needs it (a GM hired, the hires
 //	                                        open); with root, that demo's hire, its switches, its page and its GM
-//	POST /setup/demo/register?root=R&roles=L the command alone (the setup key): records the folder it made, with
+//	POST /setup/demo/register?root=R&roles=L the command alone (a tool's key): records the folder it made, with
 //	                                        the roles its fence lets the GM hire
 //	POST /setup/demo/open?root=R            page, tool: opens Setup at the demo in the browser, once per demo folder
 //	POST /setup/demo/page?root=R&state=S    the page alone: it is open (S=open, every 15 s) or was closed (S=closed)
 //
 // None is in the route table (routes.go), which keeps 1.23's rule for a route it doesn't name (the page, or a tool
-// with the setup key), and a GM's token gets none. Go only: the Mac's Swift engine doesn't serve them (404), and
+// with a tool's key), and a GM's token gets none. Go only: the Mac's Swift engine doesn't serve them (404), and
 // the demo says so.
 
 // demoPage is what the app knows of one demo: the roles it was registered with, and its page.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"maps"
 	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -331,10 +332,11 @@ func TestOnAMacWhileTheKeyIsUnreadableTheGMsTokenFromBeforeKeepsWorking(t *testi
 	}
 }
 
-// RT126SK1F nit 5: a start while the key can't be read leaves the token file of a GM started by hand as it is (the
-// core holds the setting's safe default, off, then), so after the unlocked restart a GM started by hand still reads
-// the token from before, which works.
-func TestOnAMacTheByHandGMsTokenFileOutlastsAStartWhileTheKeyIsUnreadable(t *testing.T) {
+// RT126SK1F nit 5, as SK2 leaves it: a start while the key can't be read loses nothing of the GM's token. No file
+// holds it any more (SK2): a gm-token file an earlier version wrote goes, unread, at every start, held or not, and
+// the token kept from before works again after the unlocked restart. A GM started by hand asks again after any
+// restart (smolcorp gm login), held or not.
+func TestOnAMacTheGMsTokenOutlastsAStartWhileTheKeyIsUnreadable(t *testing.T) {
 	d, mac, _, _ := macDeck(t)
 	withHiredGM(t, "working")
 	token := d.newGMToken()
@@ -343,18 +345,64 @@ func TestOnAMacTheByHandGMsTokenFileOutlastsAStartWhileTheKeyIsUnreadable(t *tes
 	d.config.save()
 	_ = d.applyByHand()
 	d.mu.Unlock()
-	if !d.gmKept.flush(3*time.Second) || tokenInFile(t) != token {
-		t.Fatal("the token isn't in the file")
+	if !d.gmKept.flush(3 * time.Second) {
+		t.Fatal("the token isn't kept")
+	}
+	// The file an earlier version wrote for a GM started by hand, with that token in it.
+	if err := os.WriteFile(gmTokenPath(), []byte(token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	mac.recordLook = "unreadable"
 	held := restart(t)
 	held.gmKept.flush(3 * time.Second)
-	if tokenInFile(t) != token {
-		t.Error("a start while the key can't be read changed the token file")
+	if _, err := os.Stat(gmTokenPath()); err == nil {
+		t.Error("a start while the key can't be read left the token file")
 	}
 	mac.recordLook = ""
 	again := restart(t)
-	if tokenInFile(t) != token || !worksAsGM(again, token) {
-		t.Errorf("after the unlocked restart %q: the file holds the token %v, it works %v", recordsState(), tokenInFile(t) == token, worksAsGM(again, token))
+	if !worksAsGM(again, token) {
+		t.Errorf("after the unlocked restart %q, the GM's token from before doesn't work", recordsState())
+	}
+}
+
+// RT126SK1R4 follow-up 3 on SK2's login: while the records' key can't be read, the owner's Allow for a GM started by
+// hand (smolcorp gm login) gives no token, with Setup's reason, as a rotation in Setup is refused; the GM's token from
+// before works again after the unlocked restart.
+func TestOnAMacAGMLoginWhileTheKeyIsUnreadableIsRefusedWithSetupsReason(t *testing.T) {
+	d, mac, _, _ := macDeck(t)
+	withHiredGM(t, "working")
+	token := d.newGMToken()
+	if !d.gmKept.flush(3 * time.Second) {
+		t.Fatal("the token isn't kept")
+	}
+	mac.recordLook = "unreadable"
+	held := restart(t)
+	shortAskWait(t)
+	// Switched on, it lasts until the restart (heldSwitches): a terminal may ask then.
+	if code, _, _ := fromPage(t, held, http.MethodPost, "/setup/gm/by-hand?enabled=1", nil); code != http.StatusOK {
+		t.Fatalf("by hand on while the key can't be read: %d", code)
+	}
+	code, asked := askFromTerminal(t, held, askGM, "/work/gm")
+	if code != http.StatusOK {
+		t.Fatalf("the GM's ask: %d", code)
+	}
+	shown := shownAsks(t, held)
+	if len(shown) != 1 {
+		t.Fatalf("shown %v", shown)
+	}
+	held.mu.Lock()
+	window := held.access.NewSetupSession()
+	held.mu.Unlock()
+	w := answerAsk(t, held, window, shown[0]["id"].(string), asked["code"].(string), "allow")
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), recordsHeldAnswer) {
+		t.Errorf("the Allow while the key can't be read: %d %q", w.Code, w.Body)
+	}
+	if given := tokenNow(t, held); given != "" && worksAsGM(held, given) && given != token {
+		t.Error("while the key can't be read, a new GM token was made for the login")
+	}
+	mac.recordLook = ""
+	again := restart(t)
+	if !worksAsGM(again, token) {
+		t.Errorf("after the unlocked restart %q, the GM's token from before doesn't work", recordsState())
 	}
 }

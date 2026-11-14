@@ -11,13 +11,18 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/gm"
 )
 
-// The demo's real team: Smolcorp's office, through setup's API with the setup key the
-// running app wrote for tools on this computer (as `smolcorp setup` reaches it), and
-// real Claude Code on the owner's own account.
+// The demo's real team: Smolcorp's office, through setup's API with a tool's key, and real
+// Claude Code on the owner's own account. No file holds a key that opens anything (1.26, SK2):
+// the demo asks the running app for its key once, Smolcorp shows a code in its window, and
+// once you click Allow there (the code matching the one printed here) the key comes to this
+// process alone, in memory, until it ends (terminalask.go, internal/gm's AskForKey).
 
 // officeTeam is the office as the demo asks it.
 type officeTeam struct {
@@ -66,15 +71,42 @@ type demoMember struct {
 }
 
 func newOfficeTeam() *officeTeam {
-	return &officeTeam{base: localBase(), key: func() ([]byte, error) { return os.ReadFile(setupKeyFile) },
+	return &officeTeam{base: localBase(), key: askedOnce(askDemoKey),
 		http: &http.Client{Timeout: time.Minute}, start: startApp, every: 3 * time.Second, wait: demoHireWait}
 }
 
-// call sends one request with the setup key and reads its JSON answer into answer (nil: none).
+// askDemoKey asks the running app for a tool's key, its code said on the terminal: a variable, for the tests.
+var askDemoKey = func() (string, error) {
+	folder, _ := os.Getwd()
+	env := gm.Env{Getenv: func(name string) string {
+		if name == "SMOLCORP_PORT" {
+			return strconv.Itoa(Port) // the port this command aims at, as localBase
+		}
+		return os.Getenv(name)
+	}}
+	return gm.AskForKey(env, gm.AskTool, folder, os.Stdout)
+}
+
+// askedOnce is the key ask gives, asked at the first call and kept in this process's memory after it, never in a file.
+func askedOnce(ask func() (string, error)) func() ([]byte, error) {
+	var key string
+	return func() ([]byte, error) {
+		if key == "" {
+			given, err := ask()
+			if err != nil {
+				return nil, err
+			}
+			key = given
+		}
+		return []byte(key), nil
+	}
+}
+
+// call sends one request with the demo's key and reads its JSON answer into answer (nil: none).
 func (o *officeTeam) call(method, path string, body, answer any) error {
 	key, err := o.key()
 	if err != nil {
-		return errors.New("no setup key: run the demo on the computer Smolcorp runs on, as yourself")
+		return fmt.Errorf("Smolcorp gave the demo no key: %v", err)
 	}
 	var sent io.Reader
 	if body != nil {

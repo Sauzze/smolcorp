@@ -420,19 +420,19 @@ func TestWhatSetupReadsAndChangesNeedsTheSetupKey(t *testing.T) {
 	if got := local(call{method: "GET", target: "/setup"}); got != http.StatusOK {
 		t.Errorf("the setup page: %d, want %d", got, http.StatusOK)
 	}
-	// A tool of your own sends the key from its file.
-	saved, err := os.ReadFile(setupKeyFile)
-	if err != nil || strings.TrimSpace(string(saved)) != d.access.SetupKey {
-		t.Fatalf("the setup-key file holds %q (%v), want the key", saved, err)
-	}
-	if runtime.GOOS != "windows" {
-		if info, _ := os.Stat(setupKeyFile); info.Mode().Perm() != 0o600 {
-			t.Errorf("the setup-key file can be read by others: %v", info.Mode().Perm())
-		}
+	// No file holds the setup key (1.26, SK2): a tool has it from memory, the core's own or one you allowed.
+	if _, err := os.Stat(setupKeyFile); !os.IsNotExist(err) {
+		t.Fatalf("a setup-key file is there: %v", err)
 	}
 	if got := local(call{method: "GET", target: "/setup/state", withoutSetupKey: true,
-		headers: map[string]string{setupKeyHeader: strings.TrimSpace(string(saved))}}); got != http.StatusOK {
-		t.Errorf("setup's state with the key from its file: %d, want %d", got, http.StatusOK)
+		headers: map[string]string{setupKeyHeader: d.access.SetupKey}}); got != http.StatusOK {
+		t.Errorf("setup's state with the key: %d, want %d", got, http.StatusOK)
+	}
+	// The check-only key's file is yours alone.
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(selftestKeyFile); err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("the selftest-key file: %v", err)
+		}
 	}
 	// The key is for the header only: as a cookie, it opens nothing.
 	if got := local(call{method: "GET", target: "/setup/state", withoutSetupKey: true,
@@ -605,8 +605,9 @@ func TestTheTraysLinkWorksOnceAndCarriesNoKey(t *testing.T) {
 	if first.Code != http.StatusNoContent || len(first.Result().Cookies()) != 1 || first.Result().Cookies()[0].Value == d.access.SetupKey {
 		t.Fatalf("the link's token gave %d, cookies %v", first.Code, first.Result().Cookies())
 	}
-	// Read from another user's view of the command line, it's used up already.
-	if again := handOver(token); again.Code != http.StatusUnauthorized {
+	// Read from another program's view of the command line, it's used up already: a second use is refused, and
+	// said to be a link used first, as both sessions can't be told apart (setuplink.go).
+	if again := handOver(token); again.Code != http.StatusConflict || len(again.Result().Cookies()) != 0 {
 		t.Errorf("the token worked a second time: %d", again.Code)
 	}
 	// And one never used runs out.

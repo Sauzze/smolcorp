@@ -120,7 +120,7 @@ func probeRoute(t *testing.T, d *Deck, method, target, phoneKey string, c routeC
 	case c.key == "browser":
 		r.Header.Set(hookKeyHeader, d.access.BrowserKey)
 	case c.key == "window-device":
-		r.Header.Set(hookKeyHeader, ensureWindowKey(d.access.Phones, windowKeyFile))
+		r.Header.Set(hookKeyHeader, ensureWindowKey(d.access.Phones, &d.access.windowDeviceKey))
 	}
 	d.config.PhoneMicEnabled = !c.textOff
 	if c.macApp {
@@ -480,6 +480,8 @@ var switchRoutes = map[string]string{
 	"/setup": "local + setup caller", "/setup/": "local + setup caller", "/setup/session": "local + setup caller", "/setup/state": "local + setup caller",
 	"/bots/": "local + setup caller", "/hook": "local + hook key", "/launcher": "local + hook key", "ident raisePath": "local + hook key",
 	"ident hireStartPath": "local + hook key", "ident screenAnswerPath": "local + hook key + the launcher's secret",
+	// A terminal asks for a key with no key: it gets one only on the owner's Allow in Smolcorp's window (terminalask.go).
+	"ident terminalAskPath": "local, no key: the owner's Allow gives the key",
 	// Not a route: the tray's token swapped for the window's key, a redirect to /office.
 	"/office?t=": "redirect to /office",
 	// A paired phone's key or the window's, past the router's own checks (handle's phoneID): the route says the rest by hand.

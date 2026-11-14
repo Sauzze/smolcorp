@@ -12,6 +12,11 @@ smolcorp-cli demo         # Windows
 /Applications/Smolcorp.app/Contents/Resources/bin/smolcorp demo   # Mac
 ```
 
+**On a Mac only, for now.** The demo asks Smolcorp for a key, with a code you
+check and Allow in Smolcorp's Settings window. On Windows and Linux nothing may
+say yes to a terminal yet (only your paired phone will, and on Windows
+Smolcorp's own window), so the demo says so and stops before it makes anything.
+
 It makes a new folder, `~/smolcorp-demo` (then `smolcorp-demo-2`, and so on;
 `--in FOLDER` makes it somewhere else inside your home folder), copies a small
 sample project into it, and starts Smolcorp if it isn't running. Then it says

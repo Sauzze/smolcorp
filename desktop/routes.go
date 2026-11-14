@@ -137,6 +137,10 @@ var goOnlyRoutes = []routeRow{
 	{"POST", "/setup/grants/answer", []string{"page"}},
 	// Smolcorp's records started over, once their key failed its check (records.go): the page alone.
 	{"POST", "/setup/records/reset", []string{"page"}},
+	// The owner's answer to a terminal's ask for a key (terminalask.go): the page alone, under the Mac app its own window.
+	{"POST", "/setup/terminal/answer", []string{"page"}},
+	// "I've seen it" for a Setup link used first (setuplink.go): the page alone, and only the Mac's own window's.
+	{"POST", "/setup/used-first/seen", []string{"page"}},
 	{"GET", nightListPath, []string{"gm", "page", "tool"}},
 	{"POST", nightProposePath, []string{"gm", "page"}},
 	{"POST", nightSavePath, []string{"page"}},
@@ -187,7 +191,7 @@ func routeFor(method, path string) *routeRow {
 }
 
 // routeAllows is whether a caller may use a route. A route not in the table
-// keeps 1.23's rule: the page, or a tool with the setup-key file.
+// keeps 1.23's rule: the page, or a tool (a tool's key you allowed).
 func routeAllows(who caller, method, path string) bool {
 	row := routeFor(method, path)
 	if row == nil {

@@ -58,8 +58,9 @@ your browser instead.
 - **Always on Top** keeps the window above the others.
 - Size and position are remembered (`window` in `config.json`); if the screen
   changed and the place is out of reach, it opens centred.
-- The window pairs itself, as a device named "Smolcorp (window)", its key in
-  `window-key` beside `hook-key`. Phones still pair with the six-digit code,
+- The window pairs itself, as a device named "Smolcorp (window)", with a new
+  key at each start, handed to the window inside Smolcorp and kept in no file,
+  nor in the window's address, which WebView2 keeps in its own folder. Phones still pair with the six-digit code,
   and **Unpair All Phones** leaves the window's device alone.
 
 ### Who can reach Smolcorp (Windows and Linux)

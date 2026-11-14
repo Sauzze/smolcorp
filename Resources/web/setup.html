@@ -440,6 +440,12 @@
   .attention { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: color-mix(in srgb, var(--asking) 10%, var(--group));
     border: 1px solid color-mix(in srgb, var(--asking) 45%, transparent); border-radius: 12px; padding: 12px 16px; }
   .attention .text { flex: 1 1 240px; }
+  .terminal-asks { margin: 0 0 16px; border-color: color-mix(in srgb, var(--asking) 45%, transparent); }
+  .terminal-asks .check { margin: 6px 0; }
+  .terminal-asks .folder { display: block; margin: 4px 0; overflow-wrap: anywhere; }
+  .terminal-asks .code { display: block; font-size: 22px; font-weight: 600; letter-spacing: 2px; margin: 6px 0; }
+  .used-first-warning { margin: 0 0 16px; border-color: color-mix(in srgb, var(--asking) 45%, transparent); }
+  .used-first-warning ul { margin: 6px 0; padding-left: 20px; }
   .attention b { display: block; }
   .attention span { color: var(--dim); font-size: 12px; }
   .easy-switch { display: flex; gap: 12px; align-items: center; }
@@ -737,6 +743,18 @@
       <div class="search"><input type="search" class="search-input" placeholder="Search settings" aria-label="Search settings" autocomplete="off" spellcheck="false"><div class="results" hidden></div></div>
     </div>
 <main>
+  <!-- A terminal's ask for a key (smolcorp gm login, demo, status, desks): above every pane, until you answer it or
+       it runs out. Its folder and code, never a key: the key goes to that terminal alone. -->
+  <div class="box terminal-asks" id="terminal-asks" role="alert" hidden></div>
+  <!-- A Setup link another program used first (setuplink.go): above every pane until the owner clears it in their own
+       channel, Smolcorp's menu off a Mac or its Settings window on one. No page a link opened can clear it. -->
+  <div class="box pad used-first-warning" id="used-first-warning" role="alert" hidden>
+    <p class="text"><b>A Setup link was used twice: another program on this computer may have used it before you did.</b></p>
+    <p class="hint" id="used-first-when"></p>
+    <ul id="used-first-changes"></ul>
+    <p class="hint" id="used-first-clear"></p>
+    <button class="btn" id="used-first-seen" hidden>I've seen it</button> <span class="result" id="used-first-result" role="status"></span>
+  </div>
   <!-- ================================================================ Easy -->
   <section class="pane" data-pane="easy" data-title="Easy setup">
     <header class="pane-head">
@@ -1217,22 +1235,21 @@
         </div>
       </div>
       <p class="hint said-under" id="gm-fence"></p>
-      <!-- Its token: what it is, who gets it, and the file for one started by hand. Never the token itself.
-           Hidden where Smolcorp has no General Manager started by hand (Linux and Windows): no file is named. -->
+      <!-- Its token: what it is, who gets it, and how one started by hand asks for it. Never the token itself, and no
+           file holds it (1.26). Hidden where Smolcorp has no General Manager started by hand (Linux and Windows). -->
       <h3 class="sub" id="gm-token-head">Its token</h3>
       <div class="box gm-token" id="gm-token" data-search="The General Manager's token" data-keywords="gm general manager token key file path copy by hand rotate new">
         <div class="pad">
           <p class="text">The token is your General Manager's key to Smolcorp: with it, it can see your team and hire, brief and fire. This page never shows it.</p>
           <p class="hint">A General Manager you hire from Smolcorp (Hire your General Manager, on Easy setup) gets it by itself: there's nothing to copy.</p>
-          <p class="hint">For a General Manager you start yourself, turn on <b>Allow a General Manager started by hand</b> below. Smolcorp then writes the token to this file, where your General Manager can read it:</p>
-          <div class="token-file"><code id="gm-token-file"></code> <button class="btn" id="gm-token-copy">Copy path</button> <span class="result" id="gm-token-copied" role="status"></span></div>
+          <p class="hint">For a General Manager you start yourself, turn on <b>Allow a General Manager started by hand</b> below, then start it in Terminal with <code>smolcorp gm login</code>. Smolcorp asks you here, with a code: check that Terminal shows the same one, then click Allow. The token goes to that General Manager alone, and no file holds it.</p>
         </div>
         <div class="field pad">
-          <span class="text">Allow a General Manager started by hand<br><small class="hint">Writes the token to the file above. Anything that can read your files can read it. Off keeps the token out of every file.</small></span>
+          <span class="text">Allow a General Manager started by hand<br><small class="hint">Lets <code>smolcorp gm login</code> ask you for a token here, at each start. Each one gets a new token, and the one before stops working.</small></span>
           <button class="switch" id="gm-byhand" aria-label="Allow a General Manager started by hand"></button>
         </div>
         <div class="field pad" id="gm-rotate-row" hidden>
-          <span class="text">A new General Manager token<br><small class="hint">The old token stops working. Fire the General Manager and hire it again to give it the new one.</small></span>
+          <span class="text">A new General Manager token<br><small class="hint">The old token stops working. Fire the General Manager and hire it again to give it the new one, or start it again with smolcorp gm login.</small></span>
           <button class="btn" id="gm-rotate">New GM token</button>
         </div>
       </div>
@@ -1514,6 +1531,13 @@
           </div>
           <button class="switch" id="webhook" aria-label="Tell other tools"></button>
         </div>
+        <!-- Off a Mac, no command in a terminal is let in (the owner's B8 STRICT, terminalask.go): said here, in words. -->
+        <div class="step" id="step-terminal-asks-off" data-keywords="terminal command smolcorp demo status desks key ask allow" hidden>
+          <div class="text">
+            <div class="title">Commands in a terminal</div>
+            <div class="detail" id="terminal-asks-off"></div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="group" id="guard-section" hidden>
@@ -1575,6 +1599,7 @@
               <div>Paste this into Vercel as <b>VIEWER_WRITE_SECRET</b>, then redeploy. It's shown only this once.</div>
               <code id="viewer-secret"></code>
               <div><button class="btn" id="viewer-secret-copy">Copy</button> <span class="result" id="viewer-secret-copied"></span></div>
+              <p class="hint">What you copy, any program running as you can read, your hires included, until you copy something else: copy something else once it's in Vercel.</p>
             </div>
           </div>
           <button class="btn" id="viewer-make-secret">Make a write secret</button>
@@ -1602,6 +1627,7 @@
                   <button class="btn" id="viewer-rotate">Rotate key…</button>
                   <span class="result" id="viewer-link-copied"></span>
                 </div>
+                <p class="hint" id="viewer-clipboard">What you copy, any program running as you can read, your hires included, until you copy something else. Scanning the code copies nothing.</p>
               </div>
             </div>
           </div>
@@ -1845,7 +1871,7 @@
     const timer = setTimeout(() => giveUp.abort(), 10000);
     try {
       const res = await fetch('/setup/state', { cache: 'no-store', signal: giveUp.signal });
-      if (res.status === 401) return locked(res.headers.get('X-Smolcorp-App'));
+      if (res.status === 401) return locked(res.headers.get('X-Smolcorp-App'), res.headers.get('X-Smolcorp-Session-Ended'));
       state = await res.json();
       render();
       syncGuide(asked);
@@ -1879,14 +1905,37 @@
     const key = opened.get('k'), token = opened.get('o');
     if (!key && !token) return;
     const given = key ? { 'X-Smolcorp-Setup-Key': key } : { 'X-Smolcorp-Setup-Once': token };
-    await fetch('/setup/session', { method: 'POST', headers: { ...setupHeaders(false), ...given } }).catch(() => {});
+    const res = await fetch('/setup/session', { method: 'POST', headers: { ...setupHeaders(false), ...given } }).catch(() => null);
+    // The link was used before this page: another program on this computer opened Setup with it first.
+    if (res && res.status === 409) usedFirst(await res.json().catch(() => ({})));
     const then = ['pair', 'unpair', 'viewer', 'guide'].find((action) => opened.has(action));
     // The query stays: ?demo= is the demo's page (loadDemo).
     history.replaceState(null, '', location.pathname + location.search + (then ? `#${then}` : ''));
   }
 
+  /**
+   * The link this page came with was used first by another program: Smolcorp ended that program's session at once.
+   * What it changed meanwhile is listed, so you can put it back. The page stays locked: open Setup again from the menu.
+   */
+  function usedFirst(answer) {
+    if (document.body.dataset.locked) return;
+    document.body.dataset.locked = '1';
+    const note = document.createElement('div');
+    const said = document.createElement('p');
+    said.className = 'hint';
+    said.textContent = answer.message || 'Another program on this computer opened Setup with this link first. Smolcorp ended that session at once. Open Setup again from Smolcorp\'s menu.';
+    const changes = Array.isArray(answer.changed) ? answer.changed : [];
+    const what = document.createElement('p');
+    what.className = 'hint';
+    what.textContent = changes.length ? 'Meanwhile it changed:' : 'It changed nothing before it was ended.';
+    const list = document.createElement('ul');
+    changes.forEach((change) => list.append(Object.assign(document.createElement('li'), { textContent: change })));
+    note.append(said, what, ...(changes.length ? [list] : []));
+    document.querySelector('main').replaceChildren(note);
+  }
+
   /** Without the key, as from an old bookmark or a link from before Smolcorp restarted: where to open the page from. */
-  function locked(app) {
+  function locked(app, ended) {
     if (document.body.dataset.locked) return;
     document.body.dataset.locked = '1';
     const note = document.createElement('p');
@@ -1897,7 +1946,9 @@
       : "This page opens from Smolcorp's menu: Settings… (or Open Setup… in a browser). With no tray, use the link Smolcorp prints as it starts; "
         + 'for a new one, run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again. ')
       + 'A link from before Smolcorp last started, as for the home Wi-Fi, no longer works.'
-      + (demoFromAddress(location.search) ? " Then open the demo's link again: Setup opens at the demo." : '');
+      + (demoFromAddress(location.search) ? " Then open the demo's link again: Setup opens at the demo." : '')
+      // Its session ended because its link was used a second time: by another program, or this page again.
+      + (ended === 'used-first' ? " This page's link was used a second time, by another program or another tab, so Smolcorp ended this page's session to be safe." : '');
     document.querySelector('main').replaceChildren(note);
   }
 
@@ -1974,6 +2025,8 @@
     renderPinned();
     renderBots();
     renderAttention();
+    renderTerminalAsks();
+    renderUsedFirst();
     showInvite();
     hideEmptyGroups();
     showJumps();
@@ -2174,17 +2227,15 @@
   }
 
   /**
-   * Its token, with the manager on or off: what it is, and where "started by hand" writes it, with
-   * Copy path. Never the token. A new one only with the manager on, as the app refuses it while off.
-   * Smolcorp on Linux and Windows has no General Manager started by hand and names no file: the whole
-   * box is hidden there, so neither the switch nor "New GM token" is offered only to say it couldn't.
+   * Its token, with the manager on or off: what it is, and how a General Manager started by hand asks
+   * for it (smolcorp gm login). Never the token, and no file holds it. A new one only with the manager
+   * on, as the app refuses it while off. Smolcorp on Linux and Windows has no General Manager started
+   * by hand: the whole box is hidden there, so neither the switch nor "New GM token" is offered only
+   * to say it couldn't.
    */
   function renderGmToken(m) {
-    const file = m.gmTokenFile || '';
-    $('gm-token-head').hidden = $('gm-token').hidden = !file;
-    if (!file) return;
-    pathLine($('gm-token-file'), m.gmTokenFileShown || file, file);
-    $('gm-token-copy').onclick = () => copyText(file, 'gm-token-copied');
+    $('gm-token-head').hidden = $('gm-token').hidden = !onMac();
+    if (!onMac()) return;
     $('gm-byhand').classList.toggle('on', !!m.gmByHand);
     $('gm-byhand').setAttribute('aria-pressed', String(!!m.gmByHand));
     $('gm-byhand').onclick = async () => {
@@ -4409,6 +4460,81 @@
     const on = !state.wifiTyping;
     if (on && !confirm('Anyone on this Wi-Fi could read what you type. The Tailscale link is private.\n\nTurn on typing over Wi-Fi?')) return;
     post(`/setup/wifityping?on=${on ? 1 : 0}`).then((res) => saidUnder($('wifityping'), res));
+  };
+
+  /**
+   * A program in a terminal asks for a key: smolcorp gm login (the General Manager's token), or smolcorp demo,
+   * status or desks (a tool's key, until Smolcorp quits). Its folder, as it says it, and its code. Allow is offered
+   * only once you tick that the code in your terminal is this one: any program can ask, and the code is how you tell
+   * yours from another's. No key is ever shown here: it goes to that terminal alone.
+   */
+  function renderTerminalAsks() {
+    // Off a Mac, none is let in: why, in the owner's words, as the terminal is told it.
+    $('step-terminal-asks-off').hidden = !state.terminalAsksOff;
+    $('terminal-asks-off').textContent = state.terminalAsksOff || '';
+    const asks = state.terminalAsks || [];
+    const host = $('terminal-asks');
+    host.hidden = !asks.length;
+    if (!changed(host, asks)) return;
+    host.replaceChildren(...asks.map((ask) => {
+      const el = document.createElement('div');
+      el.className = 'pad';
+      // The folder is the asker's own words, so it sits in a box of its own, and the real code alone, large: a folder
+      // can't pass a code-like sentence of its own off as Smolcorp's.
+      el.innerHTML = '<p class="text"><b></b></p><p class="hint where"></p><code class="folder" hidden></code><p class="hint">Its code:</p><span class="code"></span>'
+        + '<p class="hint then"></p><label class="check"><input type="checkbox"> <span></span></label>'
+        + '<button class="btn primary allow" disabled>Allow</button> <button class="btn deny">Don\'t allow</button> <span class="result" role="status"></span>';
+      el.querySelector('b').textContent = ask.kind === 'gm'
+        ? 'A General Manager you start in Terminal (smolcorp gm login) asks for its token.'
+        : 'A command in a terminal (smolcorp demo, status or desks) asks for a key to Setup, until Smolcorp quits.';
+      el.querySelector('.where').textContent = ask.folder ? 'It says it runs in this folder:' : 'It says nothing of where it runs.';
+      el.querySelector('.folder').hidden = !ask.folder;
+      el.querySelector('.folder').textContent = ask.folder || '';
+      el.querySelector('.code').textContent = ask.code;
+      el.querySelector('.then').textContent = ask.kind === 'gm' ? 'It gets a new token: a General Manager already running stops working.' : '';
+      el.querySelector('label span').textContent = `My terminal shows ${ask.code}`;
+      const tick = el.querySelector('input'), allow = el.querySelector('.allow');
+      tick.onchange = () => { allow.disabled = !tick.checked; };
+      const answer = async (yes) => {
+        const res = await fetch(`/setup/terminal/answer?id=${encodeURIComponent(ask.id)}&code=${encodeURIComponent(ask.code)}&answer=${yes ? 'allow' : 'deny'}`,
+          { method: 'POST', headers: setupHeaders() }).catch(() => null);
+        if (res && res.ok) load();
+        else el.querySelector('.result').textContent = await refusal(res, "That couldn't be answered.");
+      };
+      allow.onclick = () => tick.checked && answer(true);
+      el.querySelector('.deny').onclick = () => answer(false);
+      return el;
+    }));
+  }
+
+  /**
+   * A Setup link another program used first (setuplink.go): when, and what its session did, until you clear it. Only
+   * your own channel clears it: Smolcorp's own Settings window on a Mac, the tray's "I've seen it" elsewhere. A page a
+   * link opened may be that very program's, so it can't.
+   */
+  function renderUsedFirst() {
+    const report = state.usedFirst;
+    const host = $('used-first-warning');
+    host.hidden = !report;
+    if (!report || !changed(host, report)) return;
+    const changes = Array.isArray(report.changed) ? report.changed : [];
+    $('used-first-when').textContent = (report.times > 1 ? `It happened ${report.times} times, the last at ${clock(report.at)}. ` : `At ${clock(report.at)}. `)
+      + 'Smolcorp at once ended the session this link opened first. ' + (changes.length ? 'Before it was ended, that session:' : 'That session changed nothing before it was ended.');
+    $('used-first-changes').replaceChildren(...changes.map((change) => Object.assign(document.createElement('li'), { textContent: change })));
+    $('used-first-changes').hidden = !changes.length;
+    const inWindow = report.clearIn === 'window';
+    $('used-first-clear').textContent = (changes.length ? 'Check those settings here, and put back what you didn\'t change. ' : '')
+      + (inWindow ? "This stays until you clear it in Smolcorp's own Settings window."
+        : "This stays until you clear it from Smolcorp's menu: the tray icon, then I've seen it. With no tray, it goes when Smolcorp restarts.");
+    // The button only where it works: Smolcorp's own Settings window (SettingsWindow.swift's smolcorpApp). A browser's
+    // Setup on a Mac is told where to clear it instead. The core still decides, whoever clicks.
+    $('used-first-seen').hidden = !(inWindow && window.smolcorpApp?.window === 'settings');
+    $('used-first-result').textContent = '';
+  }
+  $('used-first-seen').onclick = async () => {
+    const res = await fetch('/setup/used-first/seen', { method: 'POST', headers: setupHeaders() }).catch(() => null);
+    if (res && res.ok) load();
+    else $('used-first-result').textContent = await refusal(res, "That couldn't be cleared.");
   };
 
   /**

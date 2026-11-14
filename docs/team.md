@@ -130,8 +130,13 @@ smolcorp desks                one line a desk, numbered as the office shows them
 Add `--json` to get the answers as Smolcorp serves them, and `smolcorp status
 --help` for the rest.
 
-- **They only read.** They use your setup key, kept in the `setup-key` file in
-  Smolcorp's folder, and send it to this computer only; no command prints it.
+- **They only read.** Each run asks Smolcorp for a key: it prints a
+  four-digit code, Smolcorp shows the same code in its Settings window, and
+  you click **Allow** there once they match. That's on a Mac only for now: on
+  Windows and Linux nothing may say yes to a terminal yet (only your paired
+  phone will, and on Windows Smolcorp's own window), so these commands say so
+  and stop; Setup shows your team instead. The key stays in that
+  command's memory and goes with it: no file holds it, and no command prints it.
   They never use the General Manager's token or the office window's key, so a
   terminal of yours can't pass for the General Manager.
 - **`say`, `hire` and `open` come later.** Typing into a desk, hiring and

@@ -10,6 +10,10 @@
 ## tmux comes with Smolcorp
 - **Open-source notices.** The Mac app now includes tmux 3.8 (ISC licence), with libevent, ncurses, utf8proc and jemalloc built into it. Their licence notices are in the app, and setup links to them (**Open-source notices**).
 
+## Windows and Linux
+- **On Windows, the office window signs in afresh after the update.** The key an earlier window used opens nothing any more, and there's nothing for you to do.
+- **`smolcorp demo`, `status` and `desks` run on a Mac only, for now.** On Windows and Linux nothing may yet let a command in a terminal into Smolcorp, so they stop and say so. See your team and set things up in Setup instead (the tray icon, then **Open Setup…**).
+
 # Smolcorp 1.25.0 (beta)
 
 **Smolcorp gives your AI coding agents a General Manager.** It plans the work with you, hires one agent per task on its own branch, checks the proof, gets a second agent's review, and asks you before anything ships. Watch the whole team in a pixel-art office, from any browser.

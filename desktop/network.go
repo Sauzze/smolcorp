@@ -26,8 +26,9 @@ func phoneAddress() string {
 // which a browser never sends, so it never crosses the network; the phone signs with it to claim it.
 func pairingLink(key string) string { return phoneAddress() + "/#pair=" + key }
 
-// setupLink is the setup page, with a token after #o= that works once, for
-// five minutes: the key is never in a link. The page hands the token over for
+// setupLink is the setup page, with a token after #o= that works once, for a
+// minute off a Mac (setupTokenLifetime): the key is never in a link. A token
+// used twice ends the session it opened first (setuplink.go). The page hands the token over for
 // a session cookie and takes it out of the address. then is what the page does
 // on opening: "pair" or "unpair".
 func (d *Deck) setupLink(then string) string {
@@ -38,9 +39,10 @@ func (d *Deck) setupLink(then string) string {
 }
 
 // openSetup opens the setup page in the browser. The browser is started
-// with the link on its command line, which other people signed in to this
-// computer can read, so the link carries a token that works once, for a
-// couple of minutes, instead of the key: the page swaps it for the cookie.
+// with the link on its command line, which any program of yours can read,
+// so the link carries a token that works once, for a minute, instead of the
+// key: the page swaps it for the cookie, and a token another program used
+// first is reported and its session ended (setuplink.go).
 // openSetupPage opens setup for the office's ⚙︎: a variable, for the tests.
 var openSetupPage = func(d *Deck) error { return d.openSetup("") }
 

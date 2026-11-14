@@ -5,14 +5,16 @@ package desktop
 // to whenever it changes (core_darwin.go). The sessions and how many wait on
 // you, the phones paired (not the office window's own device) with those waiting
 // for the owner to confirm them, the logo, the office's window kept on top,
-// and the portable office.
+// and the portable office; and whether a Setup link was used first by another
+// program (setuplink.go), a warning only the owner's own channel clears.
 type menuState struct {
-	Sessions int          `json:"sessions"`
-	Waiting  int          `json:"waiting"`
-	Phones   int          `json:"phones"`
-	Logo     string       `json:"logo"`
-	OnTop    bool         `json:"onTop"`
-	Portable portableMenu `json:"portable"`
+	Sessions  int          `json:"sessions"`
+	Waiting   int          `json:"waiting"`
+	Phones    int          `json:"phones"`
+	Logo      string       `json:"logo"`
+	OnTop     bool         `json:"onTop"`
+	Portable  portableMenu `json:"portable"`
+	UsedFirst bool         `json:"usedFirst"`
 }
 
 // portableMenu is the portable office as the menu shows it: on, with how it's
@@ -27,7 +29,8 @@ type portableMenu struct {
 func (d *Deck) menuState() menuState {
 	d.mu.Lock()
 	all := d.sessions.All()
-	state := menuState{Sessions: len(all), Phones: phonesKnown(d.access.Phones), Logo: d.config.Logo, OnTop: d.config.AlwaysOnTop}
+	state := menuState{Sessions: len(all), Phones: phonesKnown(d.access.Phones), Logo: d.config.Logo, OnTop: d.config.AlwaysOnTop,
+		UsedFirst: d.access.usedFirst != nil}
 	for _, s := range all {
 		if s.State == Asking {
 			state.Waiting++

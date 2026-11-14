@@ -179,9 +179,10 @@ enum Paths {
     static let recaps = support.appendingPathComponent("recaps", isDirectory: true)
     /// The hook's key, as the header curl sends: see `Access`.
     static let hookHeader = support.appendingPathComponent("hook-header")
-    /// The setup page's key, new at every launch, for tools of your own on
-    /// this Mac: see `DeckRouter`.
-    static let setupKey = support.appendingPathComponent("setup-key")
+    /// The check-only key, new at every launch: it opens Setup's checklist
+    /// (GET /setup/selftest) and nothing else, for `--setup` (SetupCommand).
+    /// The setup key itself is in the engine's memory alone (1.26, SK2).
+    static let selftestKey = support.appendingPathComponent("selftest-key")
     /// 1.0's single key, shared by the phone and the hook. Deleted at launch.
     static let legacyToken = support.appendingPathComponent("token")
 

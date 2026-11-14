@@ -12,7 +12,7 @@ The app tells callers apart by what they send. Every request is local, and has t
 |---|---|---|
 | **page** | the setup page's session cookie | Opened from the menu's one-time link. |
 | **GM** | `x-smolcorp-gm-token: <token>` | The token lives in the GM's environment only. A hire can't use it. Smolcorp keeps it in the Mac's Keychain (on Linux and Windows, the computer's secret store, else a file in Smolcorp's folder: on Linux only you can read it, and on Windows it is as private as that folder), so a hired GM keeps working after Smolcorp restarts or updates. |
-| **tool** | `x-smolcorp-setup-key: <contents of the setup-key file>` | For your own scripts. A hire can read this file, so a tool can do less than the GM. |
+| **tool** | `x-smolcorp-setup-key: <a tool's key>` | For your own scripts. No file holds it: a script asks Smolcorp for one (`POST /terminal/ask?kind=tool`), and gets it once you click Allow in Smolcorp's window after checking its code (see the setup docs). A tool can do less than the GM. The `selftest-key` file opens `GET /setup/selftest` alone, sent as `x-smolcorp-selftest-key`. |
 | nobody | none of these | Answered `401`. |
 
 A caller who isn't allowed gets `403`. A route not in the table keeps 1.23's rule: the page or a tool. A `/setup/gm/` route not in the table is the GM's or the page's, so a new one starts closed.

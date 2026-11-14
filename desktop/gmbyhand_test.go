@@ -22,18 +22,16 @@ func fromPage(t *testing.T, d *Deck, method, target string, headers map[string]s
 	return w.Code, said, w.Body.String()
 }
 
-// tokenInFile is the gm-token file's token, "" for none, and checks it is yours alone (yoursAlone: 0600, or on
-// Windows an access list for you, the system and the administrators only).
-func tokenInFile(t *testing.T) string {
+// tokenNow is the GM's token, in the core's memory, and checks that no file holds it: gm-token is never written
+// (1.26, SK2).
+func tokenNow(t *testing.T, d *Deck) string {
 	t.Helper()
-	if _, err := os.Stat(gmTokenPath()); err != nil {
-		return ""
+	if _, err := os.Stat(gmTokenPath()); err == nil {
+		t.Errorf("a gm-token file was written")
 	}
-	if err := yoursAlone(gmTokenPath()); err != nil {
-		t.Errorf("gm-token isn't yours alone: %v", err)
-	}
-	data, _ := os.ReadFile(gmTokenPath())
-	return validGMToken(string(data))
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.gmToken
 }
 
 // Without the Mac app (Linux, Windows) there is no GM started by hand and no new token: both routes are 404, the
@@ -57,9 +55,9 @@ func TestWithoutTheMacAppThereIsNoGMStartedByHand(t *testing.T) {
 	}
 }
 
-// Under the Mac app: "Allow a General Manager started by hand" keeps the token in gm-token (yours alone), with the
-// manager off too; a GM that uses it is "started by hand", and the live session it names has the GM's role, in the
-// office and on the team. Off takes the file and the GM started by hand away.
+// Under the Mac app: "Allow a General Manager started by hand" makes a token to give at a login, with the manager off
+// too, and no file holds it; a GM that uses it is "started by hand", and the live session it names has the GM's role,
+// in the office and on the team. Off takes the GM started by hand away.
 func TestUnderTheMacAppAGMCanBeStartedByHand(t *testing.T) {
 	isolate(t)
 	withMac(t)
@@ -72,14 +70,14 @@ func TestUnderTheMacAppAGMCanBeStartedByHand(t *testing.T) {
 	if code != http.StatusOK || said["gmByHand"] != true {
 		t.Fatalf("by hand on, with the manager off: %d %v", code, said)
 	}
-	token := tokenInFile(t)
+	token := tokenNow(t, d)
 	if token == "" || !loadConfig().GMByHand {
-		t.Fatalf("no token kept: %q, saved %v", token, loadConfig().GMByHand)
+		t.Fatalf("no token: %v, saved %v", token != "", loadConfig().GMByHand)
 	}
 	d.mu.Lock()
 	manager := d.managerState()
 	d.mu.Unlock()
-	if manager["gmTokenFile"] != gmTokenPath() || manager["gmByHand"] != true || manager["gmStartedByHand"] != false {
+	if manager["gmTokenFile"] != "" || manager["gmByHand"] != true || manager["gmStartedByHand"] != false {
 		t.Errorf("manager state %v", manager)
 	}
 	if said, _ := json.Marshal(manager); strings.Contains(string(said), token) {
@@ -109,18 +107,30 @@ func TestUnderTheMacAppAGMCanBeStartedByHand(t *testing.T) {
 		t.Errorf("the team doesn't show gm-1 as the GM: %v", team["team"])
 	}
 
-	// After a restart: the same token, and the session once it is live again.
+	// After a restart: the old token opens nothing (no file kept it), so the GM started by hand logs in again, and its
+	// session is the GM's from its first request with the new token.
+	d.gmKept.flush(time.Minute)
 	d2 := startDeck(t)
 	d2.mu.Lock()
 	sameToken := d2.isGMToken(token)
 	d2.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "session_id": "gm-1", "cwd": "/work/gm"}, Claude, "tty:/dev/ttys009", "", 2)
+	before := d2.byHandGMSession()
+	d2.mu.Unlock()
+	if sameToken || before != "" {
+		t.Errorf("after a restart: the old token works %v, session %q before a login", sameToken, before)
+	}
+	loggedIn := tokenNow(t, d2)
+	if code, _, _ := fromPage(t, d2, http.MethodGet, "/setup/gm/version", map[string]string{gmTokenHeader: loggedIn, gmSessionHeader: "gm-1"}); code != http.StatusOK {
+		t.Fatalf("the GM's version after its login: %d", code)
+	}
+	d2.mu.Lock()
 	again := d2.byHandGMSession()
 	d2.mu.Unlock()
-	if !sameToken || again != "gm-1" {
-		t.Errorf("after a restart: token kept %v, session %q", sameToken, again)
+	if again != "gm-1" {
+		t.Errorf("after its login, the GM's session is %q", again)
 	}
 
-	// Off: no file, no GM started by hand.
+	// Off: no GM started by hand, and its session's file goes.
 	if code, said, _ := fromPage(t, d, http.MethodPost, "/setup/gm/by-hand?enabled=0", nil); code != http.StatusOK || said["gmByHand"] != false {
 		t.Fatalf("by hand off: %d %v", code, said)
 	}
@@ -136,10 +146,10 @@ func TestUnderTheMacAppAGMCanBeStartedByHand(t *testing.T) {
 	d.mu.Unlock()
 }
 
-// A new GM token (the page's alone, with the manager on): the old one stops working at once, the file has the new
-// one, the answer never carries it, and the GM started by hand is forgotten. A GM hire's token goes in the file, and
-// one taken away (its GM fired) is replaced there, so a GM can always be started by hand while the setting is on.
-func TestANewGMTokenStopsTheOldOneAndTheFileFollows(t *testing.T) {
+// A new GM token (the page's alone, with the manager on): the old one stops working at once, the answer never carries
+// it, no file holds it, and the GM started by hand is forgotten. One taken away (its GM fired) is replaced, so a GM
+// can always be started by hand while the setting is on.
+func TestANewGMTokenStopsTheOldOneAndNoFileHoldsIt(t *testing.T) {
 	isolate(t)
 	withMac(t)
 	d := startDeck(t)
@@ -149,9 +159,9 @@ func TestANewGMTokenStopsTheOldOneAndTheFileFollows(t *testing.T) {
 	}
 	managerOn(d)
 	fromPage(t, d, http.MethodPost, "/setup/gm/by-hand?enabled=1", nil)
-	old := tokenInFile(t)
+	old := tokenNow(t, d)
 	code, said, body := fromPage(t, d, http.MethodPost, "/setup/gm/token/rotate", nil)
-	fresh := tokenInFile(t)
+	fresh := tokenNow(t, d)
 	if code != http.StatusOK || said["rotated"] != true || said["message"] != gmRotated["message"] || fresh == "" || fresh == old || strings.Contains(body, fresh) {
 		t.Errorf("rotate: %d %v (old %v, new %v)", code, said, old != "", fresh != "")
 	}
@@ -163,61 +173,43 @@ func TestANewGMTokenStopsTheOldOneAndTheFileFollows(t *testing.T) {
 	// The GM can't ask for a new one: the page's alone.
 	asGM := serve(t, d, call{method: http.MethodPost, target: "/setup/gm/token/rotate", host: "localhost:7710", from: thisComputer,
 		withoutSetupKey: true, headers: map[string]string{setupHeader: "1", gmTokenHeader: fresh}})
-	if asGM.Code != http.StatusForbidden || tokenInFile(t) != fresh {
-		t.Errorf("the GM's own rotate: %d, token changed %v", asGM.Code, tokenInFile(t) != fresh)
+	if asGM.Code != http.StatusForbidden || tokenNow(t, d) != fresh {
+		t.Errorf("the GM's own rotate: %d, token changed %v", asGM.Code, tokenNow(t, d) != fresh)
 	}
 
 	hired := d.newGMToken()
-	if tokenInFile(t) != hired {
-		t.Error("the hired GM's token isn't the file's")
+	if tokenNow(t, d) != hired {
+		t.Error("the hired GM's token isn't the one in memory")
 	}
 	d.clearGMTokenIf(hired)
-	left := tokenInFile(t)
+	left := tokenNow(t, d)
 	d.mu.Lock()
 	works := d.isGMToken(left)
 	d.mu.Unlock()
 	if left == "" || left == hired || !works {
-		t.Errorf("after the GM went: a new token in the file %v, the same as the fired GM's %v, works %v", left != "", left == hired, works)
+		t.Errorf("after the GM went: a new token %v, the same as the fired GM's %v, works %v", left != "", left == hired, works)
 	}
 }
 
-// With a GM started by hand allowed, a fire whose gm-token file write fails (here, its temp name is taken by a
-// folder) takes the file away, so the Keychain's replacement is read at the next start and the fired GM's token
-// stays dead (RTOK2 N1).
-func TestAFiredGMsTokenFileThatCantBeRewrittenIsTakenAway(t *testing.T) {
-	isolate(t)
-	mac := withMac(t)
-	d := startDeck(t)
-	d.summaryProviders.set(map[summaryProvider]providerState{})
-	managerOn(d)
-	if code, _, _ := fromPage(t, d, http.MethodPost, "/setup/gm/by-hand?enabled=1", nil); code != http.StatusOK {
-		t.Fatalf("by hand on: %d", code)
-	}
-	fired := d.newGMToken()
-	withHiredGM(t, "working")
-	d.gmKept.flush(time.Minute)
-	if tokenInFile(t) != fired {
-		t.Fatal("the hired GM's token isn't the file's")
-	}
-
-	if err := os.Mkdir(gmTokenPath()+".tmp", 0o700); err != nil {
-		t.Fatal(err)
-	}
-	d.clearGMTokenIf(fired)
-	withHiredGM(t, "fired")
-	if !d.gmKept.flush(time.Minute) {
-		t.Fatal("the replacement isn't kept in the store")
-	}
-	replacement := gmTokenNow(d)
-	if kept, _ := mac.keptItem(); replacement == "" || replacement == fired || kept != keptAs(replacement) {
-		t.Fatalf("the store's replacement: made %v", replacement != "")
-	}
-	if tokenInFile(t) == fired {
-		t.Error("the fired GM's token is still in the file")
-	}
-	again := startDeck(t)
-	if worksAsGM(again, fired) || !worksAsGM(again, replacement) {
-		t.Errorf("after a restart, the fired GM's token works %v, the replacement %v", worksAsGM(again, fired), worksAsGM(again, replacement))
+// A gm-token file an earlier version left (or another program wrote) is taken away as the core starts, unread: its
+// token never works, setting on or off (1.26, SK2).
+func TestAnOldTokenFileIsTakenAwayUnread(t *testing.T) {
+	for _, byHand := range []bool{true, false} {
+		isolate(t)
+		withMac(t)
+		config := loadConfig()
+		config.GMByHand = byHand
+		config.save()
+		if err := os.WriteFile(gmTokenPath(), []byte(fakeOtherToken+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		d := startDeck(t)
+		if worksAsGM(d, fakeOtherToken) {
+			t.Errorf("by hand %v: the file's token works", byHand)
+		}
+		if _, err := os.Stat(gmTokenPath()); err == nil {
+			t.Errorf("by hand %v: the file is still there", byHand)
+		}
 	}
 }
 

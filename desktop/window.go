@@ -1,9 +1,9 @@
 package desktop
 
 import (
+	"encoding/json"
 	"fmt"
-	"os"
-	"strings"
+	"slices"
 )
 
 // The office in a window of its own (Windows: window_windows.go; elsewhere the
@@ -74,14 +74,31 @@ func centred(width, height int, s screenRect) WindowState {
 	return WindowState{X: s.Left + (s.Right-s.Left-width)/2, Y: s.Top + (s.Bottom-s.Top-height)/2, Width: width, Height: height}
 }
 
-// officeAddress is the office on this computer's own port, with the window's
-// key after ?t=, as a phone's link carries its key. The key stays inside this
-// process and the window: it is never logged or put on a command line.
+// officeAddress is the office on this computer's own port, for the window: the
+// page alone (?deck, as a phone's), never its key (RT126SK2 B2). A WebView2
+// keeps its address in its profile, a folder of files (its history and the
+// pages to restore), so the key goes to the page in-process instead, by
+// windowKeyScript. With no key (none could be paired), the pairing page: the
+// window opens locked.
 func officeAddress(base, key string) string {
 	if key == "" {
 		return base + "/office"
 	}
-	return base + "/office?t=" + key + "&" + ownWindowMark
+	return base + "/office?deck&" + ownWindowMark
+}
+
+// windowKeyScript is the script the window runs before each page of its own,
+// handed to WebView2 in this process (AddScriptToExecuteOnDocumentCreated, kept
+// in memory, never in the profile): it gives the office its key, on this
+// computer's own office page alone. deck.html reads it before ?t=. "" with no key.
+func windowKeyScript(base, key string) string {
+	if key == "" {
+		return ""
+	}
+	origin, _ := json.Marshal(base)
+	value, _ := json.Marshal(key)
+	return fmt.Sprintf("if (location.origin === %s && location.pathname === '/office') "+
+		"Object.defineProperty(window, 'smolcorpWindowKey', { value: %s, writable: false, enumerable: false });", origin, value)
 }
 
 // ownWindowMark marks the office's own window on this computer in its address, as
@@ -101,23 +118,38 @@ func setupOnLoopbackIP() string {
 	return "Setup opens at " + setupBase() + "/setup, never at localhost. Open it again from Smolcorp's menu."
 }
 
-// ensureWindowKey is the key of the window's own paired device. It is read from
-// the private file next to the other keys; if there is none, or no device holds
-// it any more (Unpair All removed it), a new device is paired and its key kept.
-// If no device can be paired (Pair), it is "" and no key is written: the window
-// opens locked, and the next start tries again. The caller holds the deck's lock.
-func ensureWindowKey(phones *Phones, keyFile string) string {
-	if saved, err := os.ReadFile(keyFile); err == nil {
-		if key := strings.TrimSpace(string(saved)); phones.WithKey(key) != nil {
-			return key
-		}
+// ensureWindowKey is the key of the window's own paired device, held in this
+// process's memory alone (held): the window is handed it in-process, and no
+// file keeps it (SANDBOX-PLAN §3.1, SK2). The first time in a run, or once no
+// device holds it any more (Unpair All removed it), the window's devices from
+// before are let go and a new one is paired. If none can be paired (Pair), it
+// is "": the window opens locked, and its next opening tries again. The caller
+// holds the deck's lock.
+func ensureWindowKey(phones *Phones, held *string) string {
+	if *held != "" && phones.WithKey(*held) != nil {
+		return *held
 	}
+	dropWindowDevices(phones)
 	// Its key goes over this computer's loopback only, bare, and never signs.
-	key := phones.Pair(windowDeviceName, false)
-	if key != "" {
-		_ = writePrivate(keyFile, []byte(key+"\n"))
+	*held = phones.Pair(windowDeviceName, false)
+	return *held
+}
+
+// dropWindowDevices lets go of every device the office window paired, let in
+// or not. NewAccess runs it at each start, on
+// every computer (only Windows makes them): a window's key from the run before
+// opens nothing in this one, even before the window is first opened
+// (RT126SK2R2 B2). A 1.25 window put its key in its address, which WebView2
+// keeps in its history. The rest are saved under a new record key, as a phone
+// removed is (Phones.Remove), so a copy of phones.json from before no longer
+// fits (records.go).
+func dropWindowDevices(phones *Phones) {
+	before := len(phones.All)
+	phones.All = slices.DeleteFunc(phones.All, func(phone PairedPhone) bool { return phone.isWindowDevice() })
+	if len(phones.All) == before {
+		return
 	}
-	return key
+	phones.keep(true)
 }
 
 // phonesOnly counts the phones, not this app's own window.

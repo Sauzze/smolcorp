@@ -18,7 +18,7 @@ final class SetupFreshEyesPageTests: XCTestCase {
 
     // MARK: D. The GM's token
 
-    func testTheTokenBlockSaysWhatItIsWhoGetsItAndWhereTheFileIs() throws {
+    func testTheTokenBlockSaysWhatItIsWhoGetsItAndHowOneStartedByHandAsks() throws {
         let page = try page()
         let block = try part(page, from: #"<div class="box gm-token" id="gm-token""#, to: #"<div id="manager-tools" hidden>"#)
         XCTAssertTrue(block.contains("data-keywords=\"gm general manager token"), "search \"token\" finds it")
@@ -26,17 +26,20 @@ final class SetupFreshEyesPageTests: XCTestCase {
         XCTAssertTrue(block.contains("This page never shows it."))
         XCTAssertTrue(block.contains("A General Manager you hire from Smolcorp (Hire your General Manager, on Easy setup) gets it by itself"))
         XCTAssertTrue(block.contains("For a General Manager you start yourself, turn on <b>Allow a General Manager started by hand</b>"))
-        XCTAssertTrue(block.contains(#"<button class="btn" id="gm-token-copy">Copy path</button>"#))
+        // No file holds it (1.26, SK2): one started by hand asks with smolcorp gm login, and you Allow it here.
+        XCTAssertTrue(block.contains("then start it in Terminal with <code>smolcorp gm login</code>"))
+        XCTAssertTrue(block.contains("check that Terminal shows the same one, then click Allow"))
+        XCTAssertTrue(block.contains("no file holds it"))
+        XCTAssertFalse(block.contains("gm-token-copy"), "no path to copy: there is no file")
         XCTAssertTrue(block.contains(#"id="gm-byhand""#), "the switch sits with the words about it, manager on or off")
         // Find a setting lands on it, and go() lights what it lands on.
         XCTAssertTrue(page.contains(#"<button class="jump" data-go="team" data-at="gm-token"><b>Your General Manager's token</b>"#))
-        // The path, never the token: the state says only where the file is.
+        // Never the token, and no path: there is no file.
         let render = try part(page, from: "function renderGmToken(m)", to: "function renderManagerTools")
-        XCTAssertTrue(render.contains("pathLine($('gm-token-file'), m.gmTokenFileShown || file, file);"))
-        XCTAssertTrue(render.contains("copyText(file, 'gm-token-copied')"))
+        XCTAssertFalse(render.contains("gm-token-file"))
         XCTAssertTrue(render.contains("$('gm-rotate-row').hidden = !m.enabled;"), "a new token only where the app makes one")
-        // Where no file is named (Smolcorp on Linux and Windows, no GM started by hand), nothing of it is offered.
-        XCTAssertTrue(render.contains("$('gm-token-head').hidden = $('gm-token').hidden = !file;\n    if (!file) return;"))
+        // Off a Mac (Smolcorp on Linux and Windows, no GM started by hand), nothing of it is offered.
+        XCTAssertTrue(render.contains("$('gm-token-head').hidden = $('gm-token').hidden = !onMac();\n    if (!onMac()) return;"))
         // Drawn with the manager off too, before renderManager stops there.
         let manager = try part(page, from: "function renderManager()", to: "if (!m.enabled) return;")
         XCTAssertTrue(manager.contains("renderGmToken(m);"))

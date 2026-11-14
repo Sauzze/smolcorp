@@ -180,7 +180,8 @@ func TestTheDemosPageOpensWithALinkTheCommandNeverSees(t *testing.T) {
 			headers: map[string]string{setupHeader: "1", setupTokenHeader: strings.TrimPrefix(link.Fragment, "o=")}})
 		return w.Code
 	}
-	if first, second := session(), session(); first != http.StatusNoContent || second != http.StatusUnauthorized {
+	// A second use is a link another program used first: refused, and the first session ends (setuplink.go).
+	if first, second := session(), session(); first != http.StatusNoContent || second != http.StatusConflict {
 		t.Errorf("the token: %d then %d", first, second)
 	}
 	// Once per demo folder: a second open is refused, and opens nothing.

@@ -3,6 +3,8 @@ package desktop
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -230,17 +232,17 @@ func wantChecks() []string {
 	return append(ids, "phone", "login")
 }
 
-func TestSetupFromATerminalReadsTheChecklistWithTheSetupKey(t *testing.T) {
+func TestSetupFromATerminalReadsTheChecklistWithTheCheckOnlyKey(t *testing.T) {
 	d := newTestDeck(t)
 	server := httptest.NewServer(&router{deck: d})
 	defer server.Close()
 	client := setupClient{base: server.URL, http: server.Client()}
 	// As the app writes it at every start: without it, a terminal has no way in.
-	os.Remove(setupKeyFile)
+	os.Remove(selftestKeyFile)
 	if _, err := client.selfTest(); err == nil {
-		t.Fatal("read the checklist with no setup key written")
+		t.Fatal("read the checklist with no check-only key written")
 	}
-	writeFile(t, setupKeyFile, d.access.SetupKey+"\n")
+	writeFile(t, selftestKeyFile, d.access.SelftestKey+"\n")
 	if !client.answers() {
 		t.Fatal("the test server doesn't answer")
 	}
@@ -248,9 +250,9 @@ func TestSetupFromATerminalReadsTheChecklistWithTheSetupKey(t *testing.T) {
 	if err != nil || len(report.Checks) == 0 {
 		t.Fatalf("the checklist from a terminal: %+v, %v", report, err)
 	}
-	// A terminal only repairs: any other fix, even one that isn't, is the page's.
-	if err := client.fix("teleport"); err == nil || !strings.Contains(err.Error(), "This is for the setup page") {
-		t.Errorf("an unknown fix from a terminal: %v", err)
+	// A tool only repairs: any other fix, even one that isn't, is the page's.
+	if err := toolFix(server, d.access.SetupKey, "teleport"); err == nil || !strings.Contains(err.Error(), "This is for the setup page") {
+		t.Errorf("an unknown fix from a tool: %v", err)
 	}
 	// The page asking for one that doesn't exist is told so.
 	if response := pagePost(t, d, server.URL, "/setup/fix?fix=teleport"); response.StatusCode != http.StatusBadRequest {
@@ -310,9 +312,7 @@ func TestSetupsRepairLeavesAgentsYouDisconnectedUntilYouConnect(t *testing.T) {
 	}
 	server := httptest.NewServer(&router{deck: d})
 	defer server.Close()
-	writeFile(t, setupKeyFile, d.access.SetupKey+"\n")
-	client := setupClient{base: server.URL, http: server.Client()}
-	// Connecting and disconnecting are the page's; setup's repair is a terminal's.
+	// Connecting and disconnecting are the page's; the repair is a tool's (a terminal you allowed).
 	post := func(path string) {
 		t.Helper()
 		response := pagePost(t, d, server.URL, path)
@@ -330,8 +330,8 @@ func TestSetupsRepairLeavesAgentsYouDisconnectedUntilYouConnect(t *testing.T) {
 	if isConnected(Claude) {
 		t.Fatal("Disconnect didn't disconnect")
 	}
-	// What smolcorp setup does for the hooks line.
-	if err := client.fix(fixRepair); err == nil || !strings.Contains(err.Error(), "disconnected") || !strings.Contains(err.Error(), "Connect on the setup page") {
+	// What a tool's repair does for the hooks line.
+	if err := toolFix(server, d.access.SetupKey, fixRepair); err == nil || !strings.Contains(err.Error(), "disconnected") || !strings.Contains(err.Error(), "Connect on the setup page") {
 		t.Errorf("setup's repair after a disconnect said %v, want that they are disconnected and how to connect", err)
 	}
 	if isConnected(Claude) {
@@ -345,7 +345,7 @@ func TestSetupsRepairLeavesAgentsYouDisconnectedUntilYouConnect(t *testing.T) {
 	post("/setup/hooks")
 	post("/setup/hooks?remove=1")
 	post("/setup/hooks")
-	if err := client.fix(fixRepair); err != nil || !isConnected(Claude) {
+	if err := toolFix(server, d.access.SetupKey, fixRepair); err != nil || !isConnected(Claude) {
 		t.Errorf("setup's repair after a Connect: %v, connected %v", err, isConnected(Claude))
 	}
 	if loadConfig().HooksDisconnected {
@@ -382,4 +382,24 @@ func TestLettingInTheHomeWiFiAsksFirstAndSaysHowToGetTheNewLink(t *testing.T) {
 			t.Errorf("the home Wi-Fi confirmation does not say %q", want)
 		}
 	}
+}
+
+// toolFix is a tool's repair, as the route answers it (the fix and auto=1), with key: its error is what the app said.
+func toolFix(server *httptest.Server, key, name string) error {
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/setup/fix?fix="+name+"&auto=1", nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set(setupKeyHeader, key)
+	request.Header.Set(setupHeader, "1")
+	response, err := server.Client().Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= 400 {
+		said, _ := io.ReadAll(io.LimitReader(response.Body, 1000))
+		return errors.New(strings.TrimSpace(string(said)))
+	}
+	return nil
 }

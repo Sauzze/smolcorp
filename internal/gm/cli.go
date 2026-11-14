@@ -13,6 +13,11 @@ const usageText = `Usage: smolcorp gm <command> [--json]
 Asks the Smolcorp running on this computer about the team.
 
 Commands:
+  login [-- <command…>]         start a General Manager by hand (Mac): Smolcorp
+                                asks you in its window, with a code to check
+                                against the one printed here; once you click
+                                Allow, the command (claude unless given) starts
+                                here as your GM, its token in its environment
   team                          who is on the team and what each is doing
   approvals                     who is waiting on a permission prompt, for you
                                 to answer (it only lists; the GM can't answer)
@@ -76,13 +81,13 @@ Commands:
 On Linux and Windows, tile, screens, screen and accounts
 aren't served yet.
 
-To get a new token: on the Mac, ask the owner to rotate it in Smolcorp's setup;
-on Linux and Windows, ask the owner to hire the GM again from Setup.
+To get a new token: on the Mac, ask the owner to rotate it in Smolcorp's setup,
+or start the GM again with login; on Linux and Windows, ask the owner to
+hire the GM again from Setup.
 
 --json prints the app's answer as it was served. The port is $SMOLCORP_PORT
-(default 7710); the token is $SMOLCORP_GM_TOKEN. On the Mac it can also come from
-the app's gm-token file (which exists only if "Allow a GM started by hand" is on
-in Smolcorp's setup); on Linux and Windows the GM hired from Setup has the variable.
+(default 7710); the token is $SMOLCORP_GM_TOKEN, which a GM hired from Setup and
+one started with login have. No file holds it.
 With $SMOLCORP_HIRE_KEY set you are a hire: only send and preview work, signed
 with that key; the GM token is never read or sent.
 
@@ -113,6 +118,8 @@ func run(args []string, env Env, stdout, stderr io.Writer) int {
 		return runMail(cmd, rest, env, stdout, stderr)
 	case "preview":
 		return runPreview(rest, env, stdout, stderr)
+	case "login":
+		return runLogin(rest, env, stdout, stderr)
 	default:
 		return usageError(stderr, fmt.Sprintf("unknown command %q", cmd))
 	}

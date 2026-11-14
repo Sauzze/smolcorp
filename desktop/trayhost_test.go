@@ -230,7 +230,7 @@ func TestTheSetupLinkWordingSaysHowToGetANewLink(t *testing.T) {
 	d := newTestDeck(t)
 	var out bytes.Buffer
 	printSetupLink(&out, d)
-	if want := "It works once, for five minutes. For a new one, choose Open Setup… from the tray icon; with no tray, run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again.\n"; !strings.Contains(out.String(), want) {
+	if want := "It works once, for " + demoWaitWords(setupTokenLifetime) + ". For a new one, choose Open Setup… from the tray icon; with no tray, run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again.\n"; !strings.Contains(out.String(), want) {
 		t.Errorf("printed %q, want it to contain %q", out.String(), want)
 	}
 	lines := strings.Split(noTrayMessage, "\n")

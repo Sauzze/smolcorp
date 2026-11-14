@@ -85,34 +85,28 @@ What Smolcorp sends and never sends, how it keeps strangers out, and using setup
 
 ### Use setup from a script
 
-The setup page is a set of HTTP calls to Smolcorp on this computer, and your
-own scripts can make some of them. Each needs the setup key, which is new each
-time Smolcorp starts and kept in a file only you can read:
+The setup page is a set of HTTP calls to Smolcorp on this computer. No file
+holds a key to them: the setup key lives in Smolcorp's memory only, new each
+time it starts, so nothing that can read your files can use it.
 
-| | The setup key |
-|---|---|
-| Mac | `~/Library/Application Support/AgentDeck/setup-key` |
-| Linux | `~/.config/sauzzedeck-pro/setup-key` |
-| Windows | `%APPDATA%\SauzzeDeck Pro\setup-key` |
+- **The checklist.** `smolcorp setup` (on a Mac, `AgentDeck --setup`) reads it
+  with the check-only key, in the `selftest-key` file in Smolcorp's folder. That
+  key opens `GET /setup/selftest` and nothing else, sent as
+  `X-Smolcorp-Selftest-Key`.
+- **Anything more.** A script asks Smolcorp for a key, as `smolcorp demo`,
+  `status` and `desks` do: `POST /terminal/ask?kind=tool` (with
+  `X-AgentDeck-Setup: 1`) answers a ticket and a four-digit code to show. Setup
+  then shows the ask with the same code, and once you tick that the codes match
+  and click **Allow**, `GET /terminal/ask?ticket=…` answers the key, once. Send
+  it as `X-Smolcorp-Setup-Key`; it works until Smolcorp quits. Only
+  Smolcorp's own Settings window answers an ask, never Setup in a browser, so
+  this works on a Mac alone for now. On Windows and Linux the ask is refused
+  at once, with why: only your paired phone (and on Windows, Smolcorp's own
+  window) may say yes to a terminal, and neither can yet.
 
-Send it as `X-Smolcorp-Setup-Key`. Calls that change something also need
-`X-AgentDeck-Setup: 1`. For example, on a Mac:
-
-```bash
-key=$(cat ~/Library/Application\ Support/AgentDeck/setup-key)
-curl -s -H "X-Smolcorp-Setup-Key: $key" http://localhost:7710/setup/state
-curl -s -X POST -H "X-Smolcorp-Setup-Key: $key" -H "X-AgentDeck-Setup: 1" \
-  http://localhost:7710/setup/pair
-```
-
-Read the key again after Smolcorp restarts.
-
-On a Mac, the key reads setup state, runs the check and repair that `smolcorp
-setup` does, and flips the plain look-and-feel switches (theme, music, dock,
-keep on top). It can't pair or unpair a phone, show a pairing code, hire,
-connect or disconnect agents, change the webhook, bots or layout, change the
-office's shortcut, or turn on anything that spends money or sends data
-elsewhere. Those are for the setup
-page. On Windows and Linux the same limits apply, except that a tool of yours
-can also install this copy and open the firewall for how Smolcorp already
-listens.
+A tool's key reads setup state, runs the repair, and flips the plain
+look-and-feel switches (theme, music, dock, keep on top). It can't pair or
+unpair a phone, show a pairing code, hire, connect or disconnect agents, change
+the webhook, bots or layout, change the office's shortcut, answer an ask, or
+turn on anything that spends money or sends data elsewhere. Those are for the
+setup page.

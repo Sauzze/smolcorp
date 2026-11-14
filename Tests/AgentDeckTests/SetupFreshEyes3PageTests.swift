@@ -42,8 +42,8 @@ final class SetupFreshEyes3PageTests: XCTestCase {
         XCTAssertTrue(page.contains(".gm-token .pad:not(.field) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }"))
         XCTAssertTrue(page.contains(".token-file code { font-size: 12px; user-select: all; flex: 0 1 auto; min-width: 0; max-width: 100%; }"))
         XCTAssertTrue(page.contains(".token-file { display: flex; flex-wrap: wrap;"), "Copy path goes under the path when there's no room")
-        XCTAssertTrue(page.contains("pathLine($('gm-token-file'), m.gmTokenFileShown || file, file);"), "whole on hover; Copy path copies it whole")
-        XCTAssertTrue(page.contains("$('gm-token-copy').onclick = () => copyText(file, 'gm-token-copied');"))
+        // No file holds the token any more (1.26, SK2): no path to show or copy.
+        XCTAssertFalse(page.contains("$('gm-token-copy')"))
     }
 
     // MARK: Floors

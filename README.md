@@ -41,7 +41,7 @@ terminal. Free and open source (MIT).
    each change reviewed by a second agent.
 4. **Approve what ships.** Pushes, merges, releases and deploys wait for you.
 
-To watch all of this on a sample project first, in a folder of its own, run `smolcorp demo`: a browser page opens for the one click that hires its General Manager ([The demo](docs/demo.md)).
+To watch all of this on a sample project first, in a folder of its own, run `smolcorp demo` (on a Mac only, for now): a browser page opens for the one click that hires its General Manager ([The demo](docs/demo.md)).
 
 You can also hire anyone yourself: hold a free desk in the office and pick a
 role. [Your team](docs/team.md) has every role and what the General Manager

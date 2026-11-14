@@ -41,11 +41,14 @@ var (
 	hookKeyFile = filepath.Join(supportDir, "hook-key")
 	// The sessions running, and their keys, kept across a restart.
 	sessionsFile = filepath.Join(supportDir, "sessions.json")
-	// The setup page's key, new at every start, for tools of your own on this computer.
-	setupKeyFile = filepath.Join(supportDir, "setup-key")
-	// The key of the office window's own paired device, private like the hook's.
+	// Where earlier versions kept the setup key and the Windows window's key. Both now live in memory only
+	// (SK2): the files are only ever removed, at each start.
+	setupKeyFile  = filepath.Join(supportDir, "setup-key")
 	windowKeyFile = filepath.Join(supportDir, "window-key")
-	homeDir, _    = os.UserHomeDir()
+	// The check-only key, new at every start: it opens GET /setup/selftest and nothing else, for
+	// `smolcorp setup` and the Mac's --setup (selftestkey.go).
+	selftestKeyFile = filepath.Join(supportDir, "selftest-key")
+	homeDir, _      = os.UserHomeDir()
 	// The hook key as the Mac app's report.sh sends it (curl -H @hook-header), set only under the Mac
 	// app (useSupportDir): "" elsewhere, where nothing reads it.
 	hookHeaderFile = ""
@@ -80,6 +83,7 @@ func useSupportDir(dir string) {
 	sessionsFile = filepath.Join(dir, "sessions.json")
 	setupKeyFile = filepath.Join(dir, "setup-key")
 	windowKeyFile = filepath.Join(dir, "window-key")
+	selftestKeyFile = filepath.Join(dir, "selftest-key")
 	hookHeaderFile = filepath.Join(dir, "hook-header")
 }
 

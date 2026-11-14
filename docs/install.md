@@ -34,8 +34,9 @@ an OK for Windows Firewall or macOS, and pairing your phone.
 
 **Or from a terminal:** `smolcorp setup` on Windows (`smolcorp-cli setup`) and
 Linux, `/Applications/Smolcorp.app/Contents/MacOS/AgentDeck --setup` on a Mac.
-It does the same, prints a checklist, and ends with 0 when nothing is in the
-way.
+It starts Smolcorp if it isn't running, prints the checklist, and ends with 0
+when nothing is in the way. It changes nothing itself: what the checklist finds
+is put right on Smolcorp's setup page (Settings on a Mac).
 
 **On Windows (alpha, in testing):** download **Smolcorp-Windows-x86_64.zip** (or `-arm64`) from the
 [latest release](https://github.com/Sauzze/smolcorp/releases/latest), extract

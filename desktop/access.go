@@ -34,21 +34,40 @@ import (
 type Access struct {
 	Phones  *Phones
 	HookKey string
-	// SetupKey is the setup page's, new at every start: the tray opens the
-	// page with it, and it's kept in a file only you can read, for tools of
-	// your own on this computer.
+	// SetupKey is a tool's key to setup, new at every start and kept in this
+	// process's memory only: no file holds it (SK2). The core's own demo
+	// office and a terminal you allowed (toolKeys) are the only tools.
 	SetupKey string
+	// SelftestKey is the check-only key, new at every start, in a file only
+	// you can read: it opens GET /setup/selftest and nothing else (selftestkey.go).
+	SelftestKey string
+	// toolKeys are the keys handed to a terminal you allowed (terminalask.go):
+	// each opens what the setup key opens, from that process's memory only,
+	// until this app stops.
+	toolKeys []string
 	// Tokens the setup links carry, each good once, until it runs out. The
 	// key itself is never in a link.
 	setupTokens map[string]time.Time
+	// The tokens already used, with the session each opened, until they'd
+	// have run out: a second use is a link another program used first
+	// (setuplink.go).
+	usedSetupTokens map[string]usedSetupToken
 	// The setup page's sessions: random ids, kept in memory only, each opened
-	// by a token. A cookie holds one of these, never the setup key.
-	setupSessions []string
+	// by a token or by Smolcorp's own window. A cookie holds one of these,
+	// never the setup key.
+	setupSessions []setupSession
+	// Sessions ended because their link was used again, and when: their cookie is told why for a while.
+	endedSessions map[string]time.Time
+	// usedFirst: a link was used first, kept until the owner's own channel clears it (setuplink.go).
+	usedFirst *usedFirstReport
 	// WindowKey is the key the Mac app's office window reads the office with,
 	// handed to the app alone (core_darwin.go's office op): new at each start,
 	// never saved, taken only from this computer, and never in a browser's
 	// address. Under the Mac app it is the one window whose tap is the owner's.
 	WindowKey string
+	// windowDeviceKey is the key of the Windows office window's own paired
+	// device (window.go's ensureWindowKey): in memory only, new at each start.
+	windowDeviceKey string
 	// BrowserKey is the key the office in a browser on this computer reads
 	// the office with: the tray's Show Office carries a token of officeTokens,
 	// which the deck swaps for it. It reads the office as the window does, but
@@ -81,20 +100,41 @@ const (
 )
 
 func NewAccess() *Access {
-	return &Access{Phones: loadPhones(), HookKey: loadHookKey(), SetupKey: newSetupKey(), WindowKey: randomKey(),
-		BrowserKey: randomKey(), misses: map[string]int{}, started: processStarted}
+	phones := loadPhones()
+	// The office window's devices from the run before go at once: only this run's window key opens it (window.go).
+	dropWindowDevices(phones)
+	return &Access{Phones: phones, HookKey: loadHookKey(), SetupKey: newSetupKey(), SelftestKey: newSelftestKey(),
+		WindowKey: randomKey(), BrowserKey: randomKey(), misses: map[string]int{}, started: processStarted}
 }
 
 func (a *Access) IsHookKey(candidate string) bool {
 	return candidate != "" && constantTimeEqual(candidate, a.HookKey)
 }
 
+// IsSetupKey is whether candidate is the setup key, or a key a terminal you allowed holds.
 func (a *Access) IsSetupKey(candidate string) bool {
-	return candidate != "" && constantTimeEqual(candidate, a.SetupKey)
+	if candidate == "" {
+		return false
+	}
+	found := constantTimeEqual(candidate, a.SetupKey)
+	for _, key := range a.toolKeys {
+		found = constantTimeEqual(candidate, key) || found
+	}
+	return found
 }
 
-// How long a setup link's token works: long enough to open it from a terminal.
-const setupTokenLifetime = 5 * time.Minute
+// How long a setup link's token works. Off a Mac the browser is started with
+// the link on its command line, which any program of yours can read: a minute,
+// enough for a browser to start, keeps that race short, and setuplink.go makes
+// it seen. Under the Mac app, Settings opens with no command line.
+var setupTokenLifetime = setupLinkLifetime(runtime.GOOS)
+
+func setupLinkLifetime(goos string) time.Duration {
+	if goos == "darwin" {
+		return 5 * time.Minute
+	}
+	return time.Minute
+}
 
 // How long an office link's token works: long enough for a browser to start.
 const officeTokenLifetime = 2 * time.Minute
@@ -105,10 +145,18 @@ const maxSetupSessions = 20
 // NewSetupToken is a token for one link to the setup page.
 func (a *Access) NewSetupToken() string { return newToken(&a.setupTokens, setupTokenLifetime) }
 
-// NewSetupSession opens a session for the setup page, for a cookie to hold.
-func (a *Access) NewSetupSession() string {
+// NewSetupSession opens a session for the setup page, for a cookie to hold:
+// Smolcorp's own window's (core_darwin.go's setup-session).
+func (a *Access) NewSetupSession() string { return a.NewSetupSessionFrom("") }
+
+// NewSetupSessionFrom opens a session for a browser that brought a link's
+// token: the token is remembered with it (setuplink.go). "" is the window's.
+func (a *Access) NewSetupSessionFrom(token string) string {
 	id := randomKey()
-	a.setupSessions = append(a.setupSessions, id)
+	a.setupSessions = append(a.setupSessions, setupSession{id: id, token: token, window: token == ""})
+	if token != "" {
+		a.noteTokenUsed(token, id)
+	}
 	if len(a.setupSessions) > maxSetupSessions {
 		a.setupSessions = a.setupSessions[len(a.setupSessions)-maxSetupSessions:]
 	}
@@ -121,12 +169,7 @@ func (a *Access) IsSetupSession(candidate string) bool {
 	if candidate == "" {
 		return false
 	}
-	for _, id := range a.setupSessions {
-		if constantTimeEqual(candidate, id) {
-			return true
-		}
-	}
-	return false
+	return a.setupSessionOf(candidate) != nil
 }
 
 // RedeemSetupToken says whether candidate is a token not yet used and not
@@ -269,10 +312,12 @@ func (a *Access) Redeem(attempt, address, userAgent string, private bool) (strin
 	return "", false
 }
 
+// newSetupKey is a new setup key, for this process's memory alone. The files
+// earlier versions kept it and the Windows window's key in are taken away (SK2).
 func newSetupKey() string {
-	key := randomKey()
-	_ = writePrivate(setupKeyFile, []byte(key+"\n"))
-	return key
+	_ = os.Remove(setupKeyFile)
+	_ = os.Remove(windowKeyFile)
+	return randomKey()
 }
 
 // loadHookKey is the hook's key, kept across starts. Under the Mac app it is also kept as the Mac's

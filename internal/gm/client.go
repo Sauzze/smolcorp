@@ -4,10 +4,9 @@
 // GM's hands (a Claude Code session) and yours from a terminal.
 //
 // The GM is whoever sends the GM token: the CLI sends it from
-// $SMOLCORP_GM_TOKEN, else from the gm-token file in the app's support
-// folder. But a hire (anyone with $SMOLCORP_HIRE_KEY set) never acts as the
-// GM: it sends its hire key only, and the token file is never opened. The
-// setup-key file is never sent: it can't run the office.
+// $SMOLCORP_GM_TOKEN, which a GM hired from Setup has, and so does one started
+// with `smolcorp gm login` (login.go). No file holds it. A hire (anyone with
+// $SMOLCORP_HIRE_KEY set) never acts as the GM: it sends its hire key only.
 package gm
 
 import (
@@ -17,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -68,11 +66,8 @@ const (
 	maxBody        = 16 << 20
 )
 
-// Names of the token file, the app and its support folders.
-const (
-	tokenFileName = "gm-token"
-	appName       = "Smolcorp"
-)
+// The app's name.
+const appName = "Smolcorp"
 
 // Error is a failure with the exit code the command ends with. Its message
 // never holds the token.
@@ -135,27 +130,13 @@ func (e Env) port() (int, error) {
 	return n, nil
 }
 
-// token is $SMOLCORP_GM_TOKEN, else the gm-token file.
+// token is $SMOLCORP_GM_TOKEN. No file holds it any more (1.26, SK2): a GM started by hand gets it from
+// `smolcorp gm login`.
 func (e Env) token() (string, error) {
 	if t := strings.TrimSpace(e.Getenv(tokenEnv)); t != "" {
 		return validToken(t)
 	}
-	dir, err := e.SupportDir()
-	if err != nil {
-		return "", &Error{Code: exitApp, Msg: err.Error()}
-	}
-	data, err := e.readFile(filepath.Join(dir, tokenFileName))
-	if errors.Is(err, fs.ErrNotExist) || (err == nil && strings.TrimSpace(string(data)) == "") {
-		return "", &Error{Code: exitApp, Cause: errNoToken, Msg: fmt.Sprintf("no GM token: set $%s (a GM hired from %s has it), or turn on 'Allow a GM started by hand' so %s is made in %s.", tokenEnv, appName, tokenFileName, dir)}
-	}
-	if err != nil {
-		var pe *fs.PathError
-		if errors.As(err, &pe) {
-			err = pe.Err
-		}
-		return "", &Error{Code: exitApp, Msg: fmt.Sprintf("can't read the GM token in %s: %v", dir, err)}
-	}
-	return validToken(strings.TrimSpace(string(data)))
+	return "", &Error{Code: exitApp, Cause: errNoToken, Msg: fmt.Sprintf("no GM token: set $%s (a GM hired from %s has it), or start your GM with smolcorp gm login, which asks %s for one in its window.", tokenEnv, appName, appName)}
 }
 
 // validToken refuses a token that couldn't go in a header.

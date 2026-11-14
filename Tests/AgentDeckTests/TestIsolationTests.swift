@@ -7,7 +7,7 @@ final class TestIsolationTests: XCTestCase {
     func testTheSuiteNeverUsesTheRealSupportFolder() {
         XCTAssertTrue(Paths.underTest)
         let real = Paths.realSupport().standardizedFileURL.path
-        for url in [Paths.support, Paths.setupKey, Paths.sessions, Paths.config, Paths.hookHeader] {
+        for url in [Paths.support, Paths.selftestKey, Paths.sessions, Paths.config, Paths.hookHeader] {
             XCTAssertFalse(url.standardizedFileURL.path.hasPrefix(real), "\(url.path) is the real Smolcorp's")
         }
         XCTAssertEqual(Paths.support, Paths.testSupport)

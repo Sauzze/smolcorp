@@ -143,9 +143,10 @@ const noTrayNewLink = "run smolcorp quit (or press Ctrl+C in its terminal), then
 
 // printSetupLink says where setup is, with no tray to open it from: on this
 // computer, or through a tunnel to its port, as ssh -L 7710:localhost:7710.
-// The link works once, for five minutes, and never carries the setup key.
+// The link works once, for a minute off a Mac (setupTokenLifetime), and never carries the setup key.
 func printSetupLink(out io.Writer, deck *Deck) {
-	fmt.Fprintf(out, "Smolcorp's setup: %s\nIt works once, for five minutes. For a new one, choose Open Setup… from the tray icon; with no tray, "+noTrayNewLink+".\n", deck.setupLink(""))
+	fmt.Fprintf(out, "Smolcorp's setup: %s\nIt works once, for %s. For a new one, choose Open Setup… from the tray icon; with no tray, "+noTrayNewLink+".\n",
+		deck.setupLink(""), demoWaitWords(setupTokenLifetime))
 }
 
 // trayHostWait is how long a desktop has to start the panel the tray's icon
@@ -165,6 +166,12 @@ func lookForTrayHost(deck *Deck, out io.Writer, setupOpen bool) {
 		}
 	}
 }
+
+// The tray's "used first" warning and its clear, off a Mac (setuplink.go).
+const (
+	usedFirstMenuTitle = "⚠ Another program used your last Setup link first…"
+	usedFirstSeenTitle = "    I've seen it: clear this warning"
+)
 
 // noTrayMessage is what Smolcorp prints on a desktop with no tray.
 const noTrayMessage = `This desktop has no tray for Smolcorp's icon (on GNOME, the AppIndicator extension adds one).
@@ -201,6 +208,9 @@ type tray struct {
 	code                                  *int // what RunApp returns
 	// "Show Me Around Again": the first-run guide's arrows, from the start.
 	guide *systray.MenuItem
+	// A Setup link used first by another program (setuplink.go): the warning, which opens Setup to see what it
+	// changed, and the owner's "I've seen it", the one place it clears off a Mac.
+	usedFirst, usedFirstSeen *systray.MenuItem
 }
 
 func newTray(deck *Deck, failed <-chan error, code *int) {
@@ -211,6 +221,10 @@ func newTray(deck *Deck, failed <-chan error, code *int) {
 	systray.SetTooltip("Smolcorp")
 	t.count = systray.AddMenuItem("", "")
 	t.count.Disable()
+	t.usedFirst = systray.AddMenuItem(usedFirstMenuTitle, "Setup lists what that program changed")
+	t.usedFirstSeen = systray.AddMenuItem(usedFirstSeenTitle, "Takes the warning away, here and in Setup")
+	t.usedFirst.Hide()
+	t.usedFirstSeen.Hide()
 	systray.AddSeparator()
 	t.office = systray.AddMenuItem("Show Office", "")
 	if hasNativeWindow {
@@ -261,6 +275,13 @@ func (t *tray) update() {
 	}
 	systray.SetTitle(title)
 	systray.SetTooltip(strings.TrimSpace("Smolcorp " + map[bool]string{true: "· " + title + " waiting on you"}[state.Waiting > 0]))
+	if state.UsedFirst {
+		t.usedFirst.Show()
+		t.usedFirstSeen.Show()
+	} else {
+		t.usedFirst.Hide()
+		t.usedFirstSeen.Hide()
+	}
 	if state.Phones > 0 {
 		t.unpair.Show()
 	} else {
@@ -325,6 +346,10 @@ func (t *tray) listen(failed <-chan error) {
 			}
 		case <-t.setup.ClickedCh:
 			t.deck.openSetup("")
+		case <-t.usedFirst.ClickedCh:
+			t.deck.openSetup("")
+		case <-t.usedFirstSeen.ClickedCh:
+			t.deck.clearUsedFirst()
 		case <-t.pair.ClickedCh:
 			// The setup page has a code ready when it opens on #pair.
 			t.deck.openSetup("pair")

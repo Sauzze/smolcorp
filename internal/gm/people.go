@@ -6,19 +6,18 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
-	"path/filepath"
+	"os"
 	"strings"
 	"text/tabwriter"
 )
 
 // `smolcorp status | desks` (1.26, piece X3): the command line for a person at the computer Smolcorp runs on. It is
 // the GM's client (client.go), asking the same app with the one key the owner's own tools hold, and nothing more:
-//   - status and desks read the routes the owner's tool may read (the route table's "tool" column), with the setup-key
-//     file alone. The GM's token is never read or sent from here: a request carrying it would make the app note a GM
-//     "started by hand" (and move the GM's role to the calling session), which a person's read must never do. Nor is
-//     window-key read: on Windows it is a paired device's key, a phone's, which lasts across restarts and can't be
-//     scoped or revoked on its own.
+//   - status and desks read the routes the owner's tool may read (the route table's "tool" column), with a tool's key
+//     the app hands this process once you click Allow in its window, after checking the code printed here (1.26, SK2:
+//     no file holds a key that opens anything; login.go's AskForKey). The key stays in this process's memory and goes
+//     with it. The GM's token is never read or sent from here: a request carrying it would make the app note a GM
+//     "started by hand" (and move the GM's role to the calling session), which a person's read must never do.
 //   - say, open and hire are refused in one line, with no request and no key file read. They wait for X1's scoped
 //     key: a named client minted in Settings, with "type", "open" and "hire" as scopes the owner ticks.
 //     TODO(X1): when that key exists, say (through POST /talk/say, never into a prompt), open (POST /focus) and
@@ -40,14 +39,13 @@ For you, on the computer Smolcorp runs on:
 Not yet: say, hire and open come with app keys in Settings. Until then, type to
 a desk, hire and bring a terminal forward from the office, and hire from Setup.
 
---json prints the app's answer as it was served. status and desks use the
-setup-key file in the app's support folder; no key is ever printed. The port is
-$SMOLCORP_PORT (default 7710).
+--json prints the app's answer as it was served. status and desks ask Smolcorp
+for a key each time: it shows a code in its window, and you click Allow there
+once it matches the one printed here. No key is ever printed or kept in a file.
+The port is $SMOLCORP_PORT (default 7710).
 
 Exit codes: 0 ok, 1 refused or an error from the app, 2 usage, 3 app not running.
 `
-
-const setupKeyFileName = "setup-key"
 
 // notYet is what say, open and hire answer, whatever follows them: they make no request and read no key file.
 var notYet = map[string]string{
@@ -90,7 +88,7 @@ func runPeople(cmd string, args []string, env Env, stdout, stderr io.Writer) int
 	if fs.NArg() > 0 {
 		return peopleUsageError(stderr, fmt.Sprintf("%s takes no argument %q", cmd, fs.Arg(0)))
 	}
-	c, err := newPersonClient(env)
+	c, err := newPersonClient(env, stderr)
 	if err != nil {
 		return finish(err, stderr)
 	}
@@ -99,33 +97,6 @@ func runPeople(cmd string, args []string, env Env, stdout, stderr io.Writer) int
 	}
 	t, raw, err := Team(c)
 	return finish(show(err, *asJSON, stdout, raw, func() error { return renderDesks(stdout, t) }), stderr)
-}
-
-// readKeyFile reads a key kept in the support folder: "" when there is no such file, an error for anything else
-// that goes wrong. A key that couldn't go in a header is no key.
-func readKeyFile(e Env, name string) (string, error) {
-	dir, err := e.SupportDir()
-	if err != nil {
-		return "", &Error{Code: exitApp, Msg: err.Error()}
-	}
-	data, err := e.readFile(filepath.Join(dir, name))
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		var pe *fs.PathError
-		if errors.As(err, &pe) {
-			err = pe.Err
-		}
-		return "", &Error{Code: exitApp, Msg: fmt.Sprintf("can't read %s in %s: %v", name, dir, err)}
-	}
-	key := strings.TrimSpace(string(data))
-	for _, r := range key {
-		if r < 0x21 || r > 0x7e {
-			return "", &Error{Code: exitApp, Msg: fmt.Sprintf("%s in %s is malformed.", name, dir)}
-		}
-	}
-	return key, nil
 }
 
 // refuseHire is what a hire's environment gets from status and desks: a hire isn't a person, and no key is read.
@@ -138,9 +109,10 @@ func refuseHire(e Env) error {
 	return nil
 }
 
-// newPersonClient is the client for status and desks: the owner's setup key from its file, and nothing else. It never
-// reads the GM token or the window key, and it sends no GM session id, so no request from it can pass for the GM.
-func newPersonClient(e Env) (*Client, error) {
+// newPersonClient is the client for status and desks: a tool's key, asked for and allowed in the app's window (its
+// code said in said), and nothing else. It never reads the GM token, and it sends no GM session id, so no request
+// from it can pass for the GM.
+func newPersonClient(e Env, said io.Writer) (*Client, error) {
 	if err := refuseHire(e); err != nil {
 		return nil, err
 	}
@@ -149,12 +121,9 @@ func newPersonClient(e Env) (*Client, error) {
 		return nil, &Error{Code: exitUsage, Msg: err.Error()}
 	}
 	c := newClient(fmt.Sprintf("http://127.0.0.1:%d", port), "")
-	if c.setupKey, err = readKeyFile(e, setupKeyFileName); err != nil {
+	folder, _ := os.Getwd()
+	if c.setupKey, err = AskForKey(e, AskTool, folder, said); err != nil {
 		return nil, err
-	}
-	if c.setupKey == "" {
-		dir, _ := e.SupportDir()
-		return nil, &Error{Code: exitApp, Msg: fmt.Sprintf("no key for Smolcorp here: run this as the person Smolcorp runs for, on that computer (the %s file in %s).", setupKeyFileName, dir)}
 	}
 	return c, nil
 }

@@ -349,7 +349,7 @@ func answerShell(deck *Deck, line []byte) shellAnswer {
 		answer.Key = deck.access.WindowKey
 		deck.mu.Unlock()
 	case "setup-session":
-		answer.Session, answer.Cookie = deck.newSetupSession(), setupCookie()
+		answer.Session, answer.Cookie = deck.newSetupSession(""), setupCookie()
 	case "setup-link":
 		// Only what the app's menus open setup at.
 		switch request.Then {

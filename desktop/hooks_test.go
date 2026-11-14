@@ -936,11 +936,8 @@ func TestTheSetupPageAnswerCarriesTheVoiceNoticeAndRepairNeverTurnsVoiceOn(t *te
 	writeFile(t, settings, `{}`)
 	server := httptest.NewServer(&router{deck: d})
 	defer server.Close()
-	writeFile(t, setupKeyFile, d.access.SetupKey+"\n")
-	client := setupClient{base: server.URL, http: server.Client()}
-
 	// The repair path connects, but leaves voice alone, so there's nothing to tell
-	if err := client.fix(fixRepair); err != nil {
+	if err := toolFix(server, d.access.SetupKey, fixRepair); err != nil {
 		t.Fatal(err)
 	}
 	if _, set := readJSON(t, settings)["voice"]; set {

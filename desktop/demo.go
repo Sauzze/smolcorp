@@ -36,7 +36,8 @@ import (
 //	smolcorp demo --in FOLDER     make the demo folder in FOLDER (default: your home folder)
 //	smolcorp demo --no-open       print the link to the demo's page instead of opening it
 //
-// The demo never hires: the setup key it holds can't (the route table). After your yes it makes the folder,
+// The demo never hires: the tool's key it holds can't (the route table). It gets that key by asking the app, once you
+// click Allow in Smolcorp's window (demooffice.go); no file holds it. After your yes it makes the folder,
 // and Smolcorp opens Setup in your browser at the demo (demopage.go): you check it there and click Hire, which
 // hires the General Manager held to the project. The demo then follows the team.
 

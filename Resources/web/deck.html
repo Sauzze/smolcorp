@@ -309,11 +309,13 @@
   /*
    * A paired phone's key is after # in the page's address, which a browser never sends: each request carries a
    * signature made with it instead (sign.js), so no one on the Wi-Fi can read the key or send a request again.
-   * ?t= is the key itself, which the computer takes only from itself and over Tailscale: the office's own window,
-   * the screen saver, a page saved before.
+   * ?t= is the key itself, which the computer takes only from itself and over Tailscale: the screen saver, a page
+   * saved before. The Windows office window is handed its key by Smolcorp itself, never in its address, which the
+   * window's WebView2 keeps in files (window.go's windowKeyScript): smolcorpWindowKey, read first.
    */
   const phoneKey = new URLSearchParams(location.hash.slice(1)).get('k') || '';
-  const token = phoneKey ? '' : new URLSearchParams(location.search).get('t') || '';
+  const givenKey = typeof window.smolcorpWindowKey === 'string' ? window.smolcorpWindowKey : '';
+  const token = phoneKey ? '' : givenKey || new URLSearchParams(location.search).get('t') || '';
   const signed = phoneKey ? smolcorpSign.signer(phoneKey) : null;
   /** A request's address: signed, or with the key as it came. */
   function address(method, pathname, params = {}, body = '') {
@@ -1874,8 +1876,21 @@
     }
   }
 
-  /** Unpaired on the computer: the pairing page takes over, without the old key. */
+  /**
+   * Unpaired on the computer: the pairing page takes over, without the old key. Not in the office's own window on
+   * Windows (&own), which pairs by itself and is never paired like a phone: with no key that opens the office (its
+   * script didn't take, or Unpair All), it says how to get a new one (RT126SK2R2 nit).
+   */
   function unpaired() {
+    if (ownWindow && !bare) {
+      if (document.body.dataset.unpaired) return;
+      document.body.dataset.unpaired = '1';
+      const said = document.createElement('p');
+      said.style.cssText = 'max-width: 30em; margin: 48px auto; padding: 0 16px; line-height: 1.5;';
+      said.textContent = "Smolcorp's window couldn't be given its key. Close it, then choose Show Office again from Smolcorp's menu.";
+      document.body.replaceChildren(said);
+      return;
+    }
     location.replace(location.pathname);
   }
 

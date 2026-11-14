@@ -27,13 +27,15 @@ type Deck struct {
 	// Held through Start here's GM hire (server.go), never with mu: one at a time.
 	gmHiring sync.Mutex
 	access   *Access
-	gmToken  string // the GM's token made in this run, in memory, and under the Mac app in a file for a GM started by hand (gmbyhand.go)
+	gmToken  string // the GM's token made in this run, in memory; a GM started by hand asks for it (terminalask.go)
 	// gmVerifier is the verifier of a GM token from an earlier run (SHA-256, in hex): all the core keeps between
 	// runs (gmKept), and what it checks the GM's token against while gmToken is "" (gmCheck).
 	gmVerifier string
 	grants     *grantStore    // the owner's asks and grants (grants.go): its own lock, never mu
 	gmKept     *gmTokenKeeper // where the token is kept between runs: the Keychain, a secret store or a file (gmtokenstore.go)
 	gmHand     gmByHandState
+	// What terminals ask for, waiting for the owner's answer in Smolcorp's window (terminalask.go): its own lock.
+	asks terminalAsks
 	// Floors from other Macs (peers_mac.go): the Macs paired here and the code to join with, under mu; where the
 	// Macs this one joined are kept, with their keys (the secret store); joinMu, held through a join, never with mu.
 	macPeers *macPeers
@@ -210,11 +212,13 @@ func NewDeck() *Deck {
 	if settleListenScope(d.config, phonesKnown(d.access.Phones), runtime.GOOS) || recordsFirst() {
 		d.config.save()
 	}
-	// The GM's token kept from the last run (gmtokenstore.go): a GM hired before it, or one started by hand, goes on
-	// working. Read before anything is served, without d.mu; then, under the Mac app, the file of a GM started by hand
-	// (gmbyhand.go), and whatever the token is now is kept, but over an item that couldn't be read.
+	// The GM's token kept from the last run (gmtokenstore.go): a GM hired before it goes on working. Read before
+	// anything is served, without d.mu; then, under the Mac app, what is known of a GM started by hand (gmbyhand.go),
+	// and whatever the token is now is kept, but over an item that couldn't be read. A GM started by hand asks again
+	// after a restart (smolcorp gm login): with no file to win over the store, a store that refused a fired GM's
+	// replacement would otherwise give that GM's token back (1.26, SK2).
 	d.gmKept = newGMTokenKeeper(gmStoreFor(d.mac.host))
-	d.gmVerifier = d.gmKept.restore(readRegistry(registryPath(), false).gmIsHired() || d.byHandAllowed())
+	d.gmVerifier = d.gmKept.restore(readRegistry(registryPath(), false).gmIsHired())
 	d.loadByHandGM()
 	if !d.gmKept.readFailed() {
 		d.keepGMToken()

@@ -329,8 +329,9 @@ func TestANewGMTokenTheKeychainRefusedIsNotGiven(t *testing.T) {
 }
 
 // With a GM started by hand allowed, a GM fired while the Keychain refuses every change never comes back with its
-// token after a restart: the gm-token file, written at once, holds its replacement, and wins over the Keychain's
-// item, which may lag (RTOK B1). The item follows once the Keychain takes changes again.
+// token after a restart, though the Keychain's item still holds it (RTOK B1): no file holds a replacement any more
+// (1.26, SK2), so the kept token is given back only to a hired GM, and a GM started by hand logs in again. The item
+// follows once the Keychain takes changes again.
 func TestAGMFiredWhileTheKeychainRefusesNeverComesBackWithItsToken(t *testing.T) {
 	isolate(t)
 	mac := withMac(t)
@@ -343,34 +344,38 @@ func TestAGMFiredWhileTheKeychainRefusesNeverComesBackWithItsToken(t *testing.T)
 	fired := d.newGMToken()
 	withHiredGM(t, "working")
 	d.gmKept.flush(time.Minute)
-	if kept, _ := mac.keptItem(); kept != keptAs(fired) || tokenInFile(t) != fired {
-		t.Fatalf("the hired GM's token is the Keychain item's %v, the file's %v", kept == fired, tokenInFile(t) == fired)
+	if kept, _ := mac.keptItem(); kept != keptAs(fired) || tokenNow(t, d) != fired {
+		t.Fatalf("the hired GM's token is the Keychain item's %v, the one in memory %v", kept == keptAs(fired), tokenNow(t, d) == fired)
 	}
 
 	mac.refuseWrites("The Keychain is locked.")
 	d.clearGMTokenIf(fired)
 	withHiredGM(t, "fired")
-	replacement := tokenInFile(t)
+	replacement := tokenNow(t, d)
 	if replacement == "" || replacement == fired {
-		t.Fatalf("by hand, after the fire: a replacement in the file %v", replacement != "")
+		t.Fatalf("by hand, after the fire: a replacement %v", replacement != "")
 	}
 	if d.gmKept.flush(10 * time.Millisecond) {
 		t.Error("the keeper says the replacement is kept while the Keychain refuses it")
+	}
+	if kept, _ := mac.keptItem(); kept != keptAs(fired) {
+		t.Fatal("the stand-in's item isn't still the fired GM's")
 	}
 	again := startDeck(t)
 	if worksAsGM(again, fired) {
 		t.Error("after a restart, the fired GM's token works")
 	}
-	if !worksAsGM(again, replacement) || tokenInFile(t) != replacement {
-		t.Errorf("after a restart, the file's replacement works %v, is still the file's %v", worksAsGM(again, replacement), tokenInFile(t) == replacement)
+	ready := tokenNow(t, again)
+	if ready == "" || ready == fired {
+		t.Errorf("after a restart, a token to give at a login %v, the fired GM's %v", ready != "", ready == fired)
 	}
 
 	mac.refuseWrites("")
-	if !again.gmKept.flush(time.Minute) || !d.gmKept.flush(time.Minute) {
+	if !again.gmKept.flush(time.Minute) {
 		t.Fatal("the Keychain is back, and the token still isn't kept")
 	}
-	if kept, _ := mac.keptItem(); kept != keptAs(replacement) {
-		t.Error("the Keychain is back, and its item isn't the replacement")
+	if kept, _ := mac.keptItem(); kept == keptAs(fired) {
+		t.Error("the Keychain is back, and its item is still the fired GM's")
 	}
 }
 
@@ -467,9 +472,9 @@ func TestAWriteTheStoreRefusedIsTriedAgainUntilItIsKept(t *testing.T) {
 	}
 }
 
-// The Mac app has an item it couldn't read (a locked Keychain): with a GM started by hand allowed and no file to fall
-// back on, no token is made in its place and nothing is written over it, as the Swift engine did (RTOK N2). With the
-// file, the file's token is used, still with nothing written. A GM hired then has its token kept as usual.
+// The Mac app has an item it couldn't read (a locked Keychain): with a GM started by hand allowed, no token is made in
+// its place and nothing is written over it, as the Swift engine did (RTOK N2). A gm-token file an earlier version
+// left is never used in its place (1.26, SK2). A GM hired then has its token kept as usual.
 func TestAKeychainItemThatCouldntBeReadIsNeverWrittenOver(t *testing.T) {
 	var answer bridgeAnswer
 	if err := json.Unmarshal([]byte(`{"ok": true, "found": false, "failed": true}`), &answer); err != nil || !answer.Failed {
@@ -492,8 +497,8 @@ func TestAKeychainItemThatCouldntBeReadIsNeverWrittenOver(t *testing.T) {
 	d.mu.Lock()
 	token := d.gmToken
 	d.mu.Unlock()
-	if token != "" || tokenInFile(t) != "" || changed() {
-		t.Fatalf("an item that couldn't be read: a token made %v, a file %v, the item changed %v", token != "", tokenInFile(t) != "", changed())
+	if token != "" || tokenNow(t, d) != "" || changed() {
+		t.Fatalf("an item that couldn't be read: a token made %v, the item changed %v", token != "", changed())
 	}
 
 	if err := os.WriteFile(gmTokenPath(), []byte(fakeOtherToken+"\n"), 0o600); err != nil {
@@ -501,8 +506,8 @@ func TestAKeychainItemThatCouldntBeReadIsNeverWrittenOver(t *testing.T) {
 	}
 	withFile := startDeck(t)
 	withFile.gmKept.flush(time.Minute)
-	if !worksAsGM(withFile, fakeOtherToken) || changed() {
-		t.Fatalf("with the file: its token works %v, the item changed %v", worksAsGM(withFile, fakeOtherToken), changed())
+	if worksAsGM(withFile, fakeOtherToken) || changed() {
+		t.Fatalf("with an old file: its token works %v, the item changed %v", worksAsGM(withFile, fakeOtherToken), changed())
 	}
 
 	hired := withFile.newGMToken()
