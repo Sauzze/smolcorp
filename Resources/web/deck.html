@@ -1890,7 +1890,8 @@
         return;
       }
       const answer = res && res.ok ? await res.json().catch(() => null) : null;
-      office.setPreview(answer && typeof answer.url === 'string' && answer.url ? { id, url: answer.url } : null);
+      // found: the computer found it among the desk's own listening ports, not declared: the big preview says it's a suggestion
+      office.setPreview(answer && typeof answer.url === 'string' && answer.url ? { id, url: answer.url, found: answer.source === 'found' } : null);
     } finally {
       previewAsking = false;
     }
@@ -1898,6 +1899,8 @@
   if (gitHere) setInterval(askPreview, PREVIEW_EVERY);
   /** What a TV clicked says: the picked desk's address, or why there's none. */
   function tvLine(id, url) {
+    // A page the computer won't tell (a spare screen's /office) never had a preview to show
+    if (previewOff) return 'The TV shows a desk\'s preview only in Smolcorp\'s own window';
     if (!id) return 'Pick a desk first: the TV shows what it is building';
     const desk = sessions.find((s) => s.id === id), name = desk ? desk.project || desk.name : 'This desk';
     return url ? `LIVE ${url.replace(/^http:\/\//, '')}: ${name}` : `${name} isn't serving anything on localhost yet`;

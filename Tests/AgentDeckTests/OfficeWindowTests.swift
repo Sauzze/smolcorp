@@ -29,6 +29,39 @@ final class OfficeWindowTests: XCTestCase {
         XCTAssertFalse(OfficeWindow.isOwnPage(nil, of: address))
     }
 
+    /// The TV's big preview (TV3): a frame in the office may show a desk's own
+    /// http://localhost:<port>; the window itself stays the office's.
+    func testOnlyAFrameShowsADesksPage() {
+        let address = URL(string: "http://127.0.0.1:7710/office?window&t=key")!
+        let decide = { (text: String, mainFrame: Bool) in OfficeWindow.decide(URL(string: text), of: address, mainFrame: mainFrame) }
+        // The office's own pages, in the window and in a frame, as before
+        XCTAssertTrue(decide("http://127.0.0.1:7710/office?window&t=key", true))
+        XCTAssertTrue(decide("http://127.0.0.1:7710/events?t=key", false))
+        // A desk's page: in a frame, with its own paths, queries and redirects
+        XCTAssertTrue(decide("http://localhost:3000/", false))
+        XCTAssertTrue(decide("http://localhost:5173/app/login?next=%2F", false))
+        XCTAssertTrue(decide("http://localhost:1/", false))
+        XCTAssertTrue(decide("http://localhost:65535", false))
+        XCTAssertTrue(decide("about:blank", false), "the frame before it loads")
+        // Never the window itself
+        XCTAssertFalse(decide("http://localhost:3000/", true), "the window taken by a desk's page")
+        XCTAssertFalse(decide("about:blank", true))
+        // Never Smolcorp's own ports, nor anything but http://localhost:<port>
+        for text in ["http://localhost:7710/office", "http://localhost:7720/", "http://localhost:7730/",
+                     "http://127.0.0.1:3000/", "http://127.0.0.1:7711/office", "https://localhost:3000/",
+                     "http://localhost/", "http://localhost:0/", "http://localhost:65536/", "http://localhost.example.com:3000/",
+                     "http://user:pass@localhost:3000/", "http://me@localhost:3000/", "ws://localhost:3000/", "file:///etc/hosts", "about:srcdoc",
+                     "data:text/html,hi", "javascript:alert(1)", "https://example.com/"] {
+            XCTAssertFalse(decide(text, false), text)
+        }
+        XCTAssertFalse(OfficeWindow.decide(nil, of: address, mainFrame: false))
+        // The window's own port, when it isn't 7710 (a test copy's)
+        let copy = URL(string: "http://127.0.0.1:47123/office?window&t=key")!
+        XCTAssertFalse(OfficeWindow.decide(URL(string: "http://localhost:47123/office"), of: copy, mainFrame: false))
+        XCTAssertFalse(OfficeWindow.decide(URL(string: "http://localhost:7710/"), of: copy, mainFrame: false), "7710, from a copy too")
+        XCTAssertTrue(OfficeWindow.decide(URL(string: "http://localhost:3000/"), of: copy, mainFrame: false))
+    }
+
     func testAResizeGoesByWhatsDragged() {
         let start = NSSize(width: 640, height: 360)
         // A bottom edge dragged: the height, whatever the width does meanwhile

@@ -69,6 +69,8 @@
  * picked) and the address its TV shows (null with none). The page gives the picked desk's preview with `setPreview`
  * ({ id, url }, or null), and one TV on each floor shows it, "LIVE" and its port on the screen and the address on a tag
  * under it, while that desk is picked; every other TV plays as before. Without `on.tv`, nothing is shown or tapped.
+ * A click on a TV while it's on air opens the preview big over the office too (TV3, TALK_TV), a sandboxed frame of
+ * that address; `found: true` in what setPreview was given says the address was found, not declared: a suggestion.
  *
  * The snapshot's `floors` (before them, its `upstairs`) are the floors over
  * this one, up to six in all, each with its name, its style and the desks on
@@ -96,6 +98,8 @@
   //#include talk/bubble.js
 
   //#include talk/terminal.js
+
+  //#include talk/tv.js
 
   /* ------------------------------------------------------------ the floor */
 
@@ -774,7 +778,7 @@
     const { id, url } = shown;
     const found = /^http:\/\/localhost:([1-9][0-9]{0,4})(\/[\x21-\x7e]*)?$/.exec(url);
     if (!found || Number(found[1]) > 65535 || url.length > 2048 || /[?#\\]/.test(url)) return null;
-    return { id, url, label: url.slice('http://'.length), port: found[1] };
+    return { id, url, label: url.slice('http://'.length), port: found[1], found: shown.found === true };
   }
 
   /** Where each desk is, as the room's shape now and its arrangement put them, and whether it's been put away: upstairs as downstairs, each floor as it's arranged. */
@@ -33647,6 +33651,7 @@
     let talkTimer = null;    // the wait before a hovered bubble's tag shows
     const talkAsked = new Map(); // when hovering last asked for each desk's card, so it isn't asked for more than once a second
     let talkPanels = null;   // the talk bubbles on the page (TALK_BUBBLE.create), where the page gives its network
+    let tvBig = null;        // the TV's big preview (TALK_TV.create), made on the first click on a TV on air
     let roleDown = null;     // the role last tapped, on a held empty desk: { id, at, held }
     let roleOffset = 0;      // how far the roles are slid along, in art pixels
     let rolesAt = null;      // where the roles were last drawn, in art pixels: { roles, box, most }
@@ -34036,6 +34041,7 @@
       talkTimer = null;
       if (talkPanels) talkPanels.remove();
       talkPanels = null;
+      tvBig?.close();
       host = null;
     }
 
@@ -34957,8 +34963,13 @@
       if (target.kind === 'session') return on.select?.(target.id);
       // A pull request's tag opens that pull request, through the page: the computer says what it opens, not the room
       if (target.kind === 'pr') return on.pr?.(target.id);
-      // A TV is the page's to open, for the picked desk, with the address it shows (null if none, or none picked)
-      if (target.kind === 'tv') return on.tv?.(selected || null, onAirNow()?.url || null);
+      // A TV is the page's to open, for the picked desk, with the address it shows (null if none, or none picked); on
+      // air, the room opens that address big over the office too (TV3), in its sandboxed frame
+      if (target.kind === 'tv') {
+        const shown = onAirNow();
+        if (shown && host) (tvBig = tvBig || TALK_TV.create(host.window, talkRoom())).open(shown);
+        return on.tv?.(selected || null, shown?.url || null);
+      }
       const session = pickedHere();
       if (!session) {
         wobbling = { what: target.kind, at: clock() };
@@ -35670,6 +35681,7 @@
         latest = null;
         gaps = [];
         talkPanels?.away();
+        tvBig?.close();
         office.close();
         closeUppers();
         dropArt(canvas);

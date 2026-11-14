@@ -318,6 +318,13 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			w.WriteHeader(http.StatusNotFound) // empty, as the Mac's 404s
 			return
 		}
+		// What another page asks of Setup, a frame of it included (the TV's big preview frames a desk's own page, TV3),
+		// is refused here, before any of Setup's handlers: by the path, for everything under it, so a new route can't
+		// slip past (a list of routes once let /setup/tap's own handler answer a framed page first, STUDIO37).
+		if setupAskedByAnotherPage(r) {
+			writeStatus(w)(http.StatusForbidden, setupFromAnotherPage)
+			return
+		}
 		// Setup and its cookie live on 127.0.0.1 alone: a browser sends a host's cookies to every port of it, and a
 		// desk's own server, whose preview is on localhost (preview.go), must never be sent Setup's. So localhost
 		// (and [::1]) is sent on to 127.0.0.1 before any cookie is set or read; there, a session is never opened, and
@@ -814,6 +821,35 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 
 // setupSessionRefusal is the Mac's text (DeckRouter.swift) in the 401 of POST /setup/session without a menu link's key.
 const setupSessionRefusal = "Only the menu's link opens a setup page."
+
+// setupFromAnotherPage is the 403 of what another page asks of Setup (setupAskedByAnotherPage).
+const setupFromAnotherPage = "Setup answers its own page alone, never another page nor a frame in one."
+
+// setupAskedByAnotherPage is whether a browser says this request to Setup comes from a page other than Setup's own: a
+// Sec-Fetch-Site other than same-origin (or none, an address typed in), or an Origin or a Referer of another origin
+// than the one asked. A page can set none of these itself, and a tool, the GM and a hire send none. Two asks are left
+// to the gates after this one: Setup's page, GET /setup, which any page may open and none can read (it can't be
+// framed, and nothing of it is kept for another page), and any GET at localhost, which is only sent on to 127.0.0.1,
+// where it's asked again.
+func setupAskedByAnotherPage(r *request) bool {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		if r.URL.Path == "/setup" || portSuffix.ReplaceAllString(r.Host, "") != "127.0.0.1" {
+			return false
+		}
+	}
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
+		return true
+	}
+	own := "http://" + r.Host
+	if origin := r.Header.Get("Origin"); origin != "" && origin != own {
+		return true
+	}
+	if referer := r.Header.Get("Referer"); referer != "" {
+		page, err := url.Parse(referer)
+		return err != nil || page.Scheme+"://"+page.Host != own
+	}
+	return false
+}
 
 // callerOf says who is asking, one caller per request, in this order (the same
 // as SetupSessions.caller): the page by its session cookie, a hire by its send

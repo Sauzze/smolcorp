@@ -10,8 +10,9 @@ import (
 // (officeRig, office_talk_test.go), with every filled rectangle and every line of text recorded, so the TV on air is
 // found by its screen's colour and its tag by its words. Skipped without node.
 
-// tvRig is officeRig with four changes: the room's `on.tv` (given only when asked), the room it's furnished as, the
-// office it made, and a recording of what it fills, as [colour, x, y, w, h], and writes.
+// tvRig is officeRig with five changes: the room's `on.tv` (given only when asked), the room it's furnished as, the
+// office it made, a recording of what it fills, as [colour, x, y, w, h], and writes, and a page with elements
+// (tvElements, office_tvbig_test.go) for the big preview.
 func tvRig(t *testing.T) string {
 	t.Helper()
 	rig := officeRig
@@ -22,6 +23,10 @@ func tvRig(t *testing.T) string {
 		{"hint() {}, held() {} };", "hint() {}, held() {} };\n  if (tv) on.tv = (id, url) => calls.push(['tv', id, url]);"},
 		{"layout: {},", "layout: room ? { room } : {},"},
 		{"const r = {\n    calls, canvas,", "const r = {\n    calls, canvas, office,"},
+		// A page the TV's big preview (TV3) can be put on: tvElements for all but the room's canvases.
+		{"const win = {\n  devicePixelRatio: 1, document: { hidden: false, addEventListener() {}, removeEventListener() {}, createElement: spare },",
+			tvElements + "const win = {\n  devicePixelRatio: 1, document: { hidden: false, addEventListener() {}, removeEventListener() {}, body, head,\n" +
+				"    createElement: (tag) => (tag === 'canvas' ? spare() : new El(tag)), getElementById: (id) => head.all().find((c) => c.id === id) || null },"},
 	} {
 		if strings.Count(rig, change[0]) != 1 {
 			t.Fatalf("the test rig changed (%q): update this test", change[0])

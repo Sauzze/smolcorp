@@ -291,15 +291,40 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { refreshShadow() }
 
     /// Only the office's own pages, from this Mac's Smolcorp: the window's
-    /// address carries its key.
+    /// address carries its key. A frame inside the page may also show a
+    /// desk's own dev server, for the TV's big preview (see `decide`).
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(OfficeWindow.isOwnPage(action.request.url, of: address) ? .allow : .cancel)
+        let allowed = OfficeWindow.decide(action.request.url, of: address, mainFrame: action.targetFrame?.isMainFrame ?? true)
+        decisionHandler(allowed ? .allow : .cancel)
+    }
+
+    /// Whether a page may load in the window. The window itself (the main
+    /// frame) shows only the office's own pages. A frame inside it (the TV's
+    /// big preview, talk/tv.js) may also show a desk's page at
+    /// http://localhost:<port>, as the page's CSP lets it, but never at
+    /// Smolcorp's own ports: the window's, 7710, 7720 or 7730, whose offices
+    /// hold their window's key. It may start out blank, too. Anything else in
+    /// a frame, 127.0.0.1 included, is refused.
+    static func decide(_ url: URL?, of address: URL, mainFrame: Bool) -> Bool {
+        if isOwnPage(url, of: address) { return true }
+        guard !mainFrame, let url else { return false }
+        if url.absoluteString == "about:blank" { return true }
+        return isDesksPage(url, of: address)
     }
 
     static func isOwnPage(_ url: URL?, of address: URL) -> Bool {
         guard let url else { return false }
         return url.scheme == "http" && url.host == "127.0.0.1" && url.port == address.port
+    }
+
+    /// A desk's dev server, as the TV's preview frames it: http://localhost
+    /// at a port of its own, with no name or password in the address.
+    static func isDesksPage(_ url: URL, of address: URL) -> Bool {
+        guard url.scheme == "http", url.host == "localhost", url.user == nil, url.password == nil,
+              let port = url.port, (1...65535).contains(port), port != address.port,
+              !TestCopy.livePorts.contains(UInt16(port)) else { return false }
+        return true
     }
 
     func windowDidMove(_ notification: Notification) { saveFrame() }
