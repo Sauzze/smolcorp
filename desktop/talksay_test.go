@@ -280,6 +280,9 @@ func TestATestCopyTypesNothingForTheWindowEither(t *testing.T) {
 // POST /talk/say: the window's key from this computer only. A phone's key is refused in the window's sentence, no
 // key is 401, and /dictate stays a phone's (TestTheOfficeWindowTypesNothing keeps that one).
 func TestTalkSayIsTheWindowsAlone(t *testing.T) {
+	// The proxied and ts.net asks below come through the real `tailscale serve` (a stand-in peer, SN1): even then, the
+	// window's key isn't taken. From a program here they are refused before it (peerowner_test.go).
+	standInTailscalePeer(t)
 	d, f := windowDeck(t)
 	d.mu.Lock()
 	window := d.access.WindowKey

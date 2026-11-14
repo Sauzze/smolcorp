@@ -411,6 +411,12 @@ func TestAKeyFromBeforeSigningDoesntSignOverTheWiFi(t *testing.T) {
 	if got := serve(t, d, call{method: "GET", target: "/paired?t=" + legacy, host: "localhost:7710", from: thisComputer}); got.Code != http.StatusNoContent {
 		t.Errorf("its key on this computer: %d, want 204", got.Code)
 	}
+	// Handed on by the real `tailscale serve` (a stand-in peer, SN1); a program here sending its headers isn't.
+	if got := serve(t, d, call{method: "GET", target: "/paired?t=" + legacy, host: "127.0.0.1:7710", from: thisComputer,
+		headers: map[string]string{"X-Forwarded-For": "100.101.102.103"}}); letIn(got.Code) {
+		t.Errorf("its key from a program here with a proxy's headers: %d, want it refused", got.Code)
+	}
+	standInTailscalePeer(t)
 	if got := serve(t, d, call{method: "GET", target: "/paired?t=" + legacy, host: "127.0.0.1:7710", from: thisComputer,
 		headers: map[string]string{"X-Forwarded-For": "100.101.102.103"}}); got.Code != http.StatusNoContent {
 		t.Errorf("its key over Tailscale: %d, want 204", got.Code)

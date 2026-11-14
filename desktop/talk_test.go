@@ -61,6 +61,9 @@ func talkQuestionOf(text string, multi bool, labels ...string) map[string]any {
 // Only the office's own window, on this computer, with its key: a phone's key is the window's sentence, no key,
 // the GM's token, a hire's key, the hook's key, the setup key or its cookie and a proxied request are refused.
 func TestOnlyTheOfficesOwnWindowReadsTheTalkCard(t *testing.T) {
+	// The proxied and ts.net asks below come through the real `tailscale serve` (a stand-in peer, SN1): even then, the
+	// window's key isn't taken. From a program here they are refused before it (peerowner_test.go).
+	standInTailscalePeer(t)
 	d := newTestDeck(t)
 	phone := pair(t, d)
 	talkHook(d, 1761000541000, map[string]any{"hook_event_name": "SessionStart", "session_id": "s1", "cwd": "/work/s1", "source": "startup"})

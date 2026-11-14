@@ -142,8 +142,8 @@ func TestTheSetupPageOpensOnlyOnThisComputer(t *testing.T) {
 	}
 }
 
-// The Tailscale instructions name the port the page was served from (the server may run on another
-// SMOLCORP_PORT) and a neutral machine name, not a fixed 7710 or "this-mac".
+// The Tailscale instructions show the app's own command (since SN1 it names serve.sock on a Mac, and off it the port
+// the server runs on, which may be another SMOLCORP_PORT) and a neutral machine name, not a fixed 7710 or "this-mac".
 func TestTheTailscaleInstructionsDoNotHardcodeThePortOrTheMac(t *testing.T) {
 	d := newTestDeck(t)
 	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7799", from: thisComputer}).Body.String()
@@ -154,8 +154,8 @@ func TestTheTailscaleInstructionsDoNotHardcodeThePortOrTheMac(t *testing.T) {
 	if strings.Contains(page, "127.0.0.1:7710") {
 		t.Error("the setup page still hardcodes 127.0.0.1:7710 in the tailscale serve command")
 	}
-	if !strings.Contains(page, "127.0.0.1:${location.port") {
-		t.Error("the tailscale serve command does not use the port the page was served from")
+	if !strings.Contains(page, "$('tailnet-command').textContent = h.command;") || strings.Contains(page, "127.0.0.1:${location.port") {
+		t.Error("the tailscale serve command isn't the one the app says")
 	}
 }
 

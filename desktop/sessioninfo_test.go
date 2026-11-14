@@ -438,7 +438,10 @@ func TestOnlyAPairedPhoneOnTheTailnetReadsTheApprovals(t *testing.T) {
 	ask := func(host, from, key string) *httptest.ResponseRecorder {
 		return serve(t, d, call{method: "GET", target: "/approvals?t=" + key, host: host, from: from})
 	}
-	got := ask("my-mac.tail1234.ts.net", thisComputer, phone)
+	// Through the real `tailscale serve` (a stand-in peer, SN1), naming the phone's tailnet address.
+	standInTailscalePeer(t)
+	got := serve(t, d, call{method: "GET", target: "/approvals?t=" + phone, host: "my-mac.tail1234.ts.net", from: thisComputer,
+		headers: map[string]string{"X-Forwarded-For": "100.101.102.103"}})
 	var answer struct {
 		Approvals []map[string]any
 		At        float64
@@ -457,8 +460,13 @@ func TestOnlyAPairedPhoneOnTheTailnetReadsTheApprovals(t *testing.T) {
 			t.Errorf("%s: %d %s", c.name, got.Code, got.Body)
 		}
 	}
-	if got := serve(t, d, call{method: "POST", target: "/approvals?t=" + phone, host: "my-mac.tail1234.ts.net", from: thisComputer}); got.Code != http.StatusNotFound {
+	if got := serve(t, d, call{method: "POST", target: "/approvals?t=" + phone, host: "my-mac.tail1234.ts.net", from: thisComputer,
+		headers: map[string]string{"X-Forwarded-For": "100.101.102.103"}}); got.Code != http.StatusNotFound {
 		t.Errorf("a POST: %d", got.Code)
+	}
+	// A TCP forward (Tailscale's, a ts.net name, no proxy's headers) names nobody: no phone's key is taken from it.
+	if got := ask("my-mac.tail1234.ts.net", thisComputer, phone); letIn(got.Code) {
+		t.Errorf("a TCP forward: %d %s", got.Code, got.Body)
 	}
 }
 

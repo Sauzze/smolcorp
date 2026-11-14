@@ -632,27 +632,32 @@ func (d *Deck) typesFrom(r *request) bool {
 	if r.isLocal || r.isTailnet || fromTailnet(r.Request) {
 		return true
 	}
+	// A TCP forward through Tailscale says nobody's name: it never types (SN1).
+	if r.tailnetForward {
+		return false
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.config.PhoneTextWiFi
 }
 
 // fromTailnet says whether a request came through Tailscale, where reading a terminal is given: to this
-// computer's Tailscale address from another device's (WireGuard carries it encrypted), or passed on by
-// `tailscale serve` on this computer (from its loopback, with a proxy's headers, or on a Mac to a ts.net name, as
-// the Mac app's Request.isTailnet; elsewhere not until SN1, serveHandOnHere). Never the Wi-Fi's plain http, and
-// never a proxy's headers or a ts.net Host sent from anywhere but this computer's own loopback.
+// computer's Tailscale address from another device's (WireGuard carries it encrypted), or passed on by the real
+// `tailscale serve` on this computer (SN1, peerowner.go: through serve.sock, the other end Tailscale's own process,
+// X-Forwarded-For another device of the tailnet; on a Mac only, until serveHandOnHere is on elsewhere). Never the
+// Wi-Fi's plain http, never this computer's loopback, never a proxy's headers or a ts.net Host alone, and never from
+// one of this computer's own addresses: that is a program here.
 func fromTailnet(r *http.Request) bool {
+	if servedByTailscale(r) {
+		return serveHandOnHere() && forwardedForTailnet(r.Header)
+	}
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(remote)
-	if ip == nil {
+	if ip == nil || ip.IsLoopback() {
 		return false
 	}
-	if ip.IsLoopback() {
-		return isProxied(r.Header) || serveHandOnHere() && isTailnetName(portSuffix.ReplaceAllString(r.Host, ""))
-	}
 	local, _ := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
-	if local == nil || ip.To4() == nil || !tailnet.Contains(ip.To4()) {
+	if local == nil || ip.To4() == nil || !tailnet.Contains(ip.To4()) || thisComputersAddress(ip) {
 		return false
 	}
 	host, _, _ := net.SplitHostPort(local.String())

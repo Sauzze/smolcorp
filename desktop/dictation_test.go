@@ -399,6 +399,9 @@ func listenAsk(t *testing.T, d *Deck, query, key, host, from string) *httptest.R
 // no key is 401, the window's key from another device or through a proxy too; nothing is recorded for any of them.
 // The window's own start and stop answer 204; anything but a phase is a 400.
 func TestTalkListenIsTheWindowsAlone(t *testing.T) {
+	// The proxied and ts.net asks below come through the real `tailscale serve` (a stand-in peer, SN1): even then, the
+	// window's key isn't taken. From a program here they are refused before it (peerowner_test.go).
+	standInTailscalePeer(t)
 	d, mac, _ := boxDeck(t)
 	d.mu.Lock()
 	window := d.access.WindowKey

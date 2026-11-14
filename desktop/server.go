@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -100,16 +101,33 @@ func Serve(deck *Deck) error {
 	if err != nil {
 		return err
 	}
+	server := newServer(deck)
+	// serve.sock, where `tailscale serve` hands the deck on (SN1, peerowner.go): on a Mac only. Without it the deck
+	// still serves; only HTTPS through `tailscale serve` is off.
+	if served, err := listenServeSocket(); err != nil {
+		fmt.Fprintf(os.Stderr, "smolcorp: HTTPS through tailscale serve is off (%s: %v)\n", serveSocketName, err)
+	} else if served != nil {
+		defer served.Close()
+		go func() {
+			_ = server.Serve(&cappedListener{Listener: served, byAddress: map[string]int{}, thisComputer: true})
+		}()
+	}
+	return server.Serve(&cappedListener{Listener: listener, byAddress: map[string]int{}})
+}
+
+// newServer is the deck's HTTP server. Each connection is recorded as it's accepted (recordConn), so a request
+// knows whether it came through serve.sock from Tailscale's own process (SN1).
+func newServer(deck *Deck) *http.Server {
 	// No ReadTimeout: it would end the event streams too. Each request's body
 	// gets its own deadline instead, in ServeHTTP, which a stream lifts once
 	// it's let in.
-	server := &http.Server{
+	return &http.Server{
 		Handler:           &router{deck: deck},
 		ReadHeaderTimeout: requestTimeout,
 		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxRequestSize,
+		ConnContext:       recordConn,
 	}
-	return server.Serve(&cappedListener{Listener: listener, byAddress: map[string]int{}})
 }
 
 // cappedListener refuses connections beyond its limits rather than queueing
@@ -120,6 +138,8 @@ type cappedListener struct {
 	mu        sync.Mutex
 	open      int
 	byAddress map[string]int
+	// thisComputer: every connection is this computer's (serve.sock's, each one Tailscale's own process).
+	thisComputer bool
 }
 
 func (l *cappedListener) Accept() (net.Conn, error) {
@@ -138,7 +158,7 @@ func (l *cappedListener) Accept() (net.Conn, error) {
 
 func (l *cappedListener) take(address string) (release func(), ok bool) {
 	ip := net.ParseIP(address)
-	local := ip != nil && ip.IsLoopback()
+	local := l.thisComputer || ip != nil && ip.IsLoopback()
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	limit := maxConnections
@@ -180,12 +200,16 @@ type request struct {
 	*http.Request
 	isLocal             bool // sent from this computer to a local name, not passed on by a proxy
 	isAddressedDirectly bool // to an IP address or a local name, as a phone would
-	// On a Mac (until SN1, serveHandOnHere): handed on by `tailscale serve` on this computer, to a ts.net name or with
-	// a proxy's headers.
-	isTailnet     bool
-	remoteAddress string
-	caller        caller // who is asking setup: set only for /setup and /bots
-	phoneID       string // the paired phone's id, or officeWindowID: set only for a route in the phone table
+	// Handed on by the real `tailscale serve` on this computer (SN1, peerowner.go): through serve.sock, the other end
+	// Tailscale's own process, with a proxy's headers naming another device of the tailnet. On a Mac only, until the
+	// hand-on is turned on elsewhere (serveHandOnHere).
+	isTailnet bool
+	// tailnetForward is a ts.net Host with no proxy's headers, the other end Tailscale's (a TCP forward): nobody says
+	// whom it is for, so it is let in as a phone on the Wi-Fi is, never over Tailscale only, typing or the owner's tap.
+	tailnetForward bool
+	remoteAddress  string
+	caller         caller // who is asking setup: set only for /setup and /bots
+	phoneID        string // the paired phone's id, or officeWindowID: set only for a route in the phone table
 	// windowDevice is whether the key is the paired device the office's window holds on Windows (window.go), whose
 	// key sits in a file on this computer: a phone's for the office, never the owner's tap (accessOwnerTap).
 	windowDevice bool
@@ -229,18 +253,21 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ip := net.ParseIP(remote)
 	fromLoopback, proxied := ip != nil && ip.IsLoopback(), isProxied(r.Header)
 	// On a Mac, as its app reads a request (HTTPServer.swift's Request.addressed): `tailscale serve` hands a phone's
-	// request on from this computer's loopback, with whatever Host the phone sent, so a proxy's hand-on is the
-	// tailnet's, never addressed directly; let in only with the phone's text on. Only from loopback: the same headers
-	// or a ts.net Host sent from the Wi-Fi or the tailnet's own address are nothing. On Linux and Windows, not until
-	// SN1 (serveHandOnHere): there it is refused as in 1.25.
+	// request on with whatever Host the phone sent, so a proxy's hand-on is the tailnet's, never addressed directly;
+	// let in only with the phone's text on. Only through serve.sock, the other end Tailscale's own process (SN1,
+	// peerowner.go): the same headers or a ts.net Host sent by any other program here, over the loopback, from the
+	// Wi-Fi or from the tailnet's own address, are nothing. A proxy's headers on the loopback are still never
+	// addressed directly. On Linux and Windows, not yet (serveHandOnHere): there it is refused as in 1.25.
 	serveHere := serveHandOnHere()
-	fromProxy := serveHere && fromLoopback && proxied
+	handedOn := serveHere && (proxied || isTailnetName(host)) && servedByTailscale(r)
+	fromProxy := serveHere && (fromLoopback && proxied || handedOn)
 	req := &request{
 		Request: r,
 		// A proxy on this computer passes on someone else's request: never this computer's, for setup, the hook or the window's key.
 		isLocal:             fromLoopback && !proxied && (host == "localhost" || host == "127.0.0.1" || host == "[::1]"),
 		isAddressedDirectly: !fromProxy && (host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasPrefix(host, "[") || ipv4Address.MatchString(host)),
-		isTailnet:           fromProxy || serveHere && fromLoopback && isTailnetName(host),
+		isTailnet:           handedOn && proxied && forwardedForTailnet(r.Header),
+		tailnetForward:      handedOn && !proxied,
 		remoteAddress:       remote,
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -470,7 +497,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	d.mu.Lock()
 	phoneText := d.config.PhoneMicEnabled
 	d.mu.Unlock()
-	if !r.isAddressedDirectly && !(r.isTailnet && phoneText) {
+	if !r.isAddressedDirectly && !((r.isTailnet || r.tailnetForward) && phoneText) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}

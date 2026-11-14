@@ -41,10 +41,21 @@ const (
 	tsNothingOn = `{}`
 )
 
-// servingPort is `tailscale serve status --json` with a proxy to a port on this computer.
+// servingPort is `tailscale serve status --json` with a proxy to a port on this computer: on a Mac, the old way
+// (before SN1) for this app's own.
 func servingPort(port int) string {
 	return fmt.Sprintf(`{"TCP":{"443":{"HTTPS":true}},"Web":{"my-pc.tail1234.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:%d"}}}}}`, port)
 }
+
+// servingSocket is `tailscale serve status --json` with a proxy to a unix socket: this app's serve.sock by default,
+// written as @SOCKET@ until the test's deck has its folder (atSocket).
+func servingSocket(path ...string) string {
+	target, _ := json.Marshal("unix:" + append(path, "@SOCKET@")[0])
+	return fmt.Sprintf(`{"TCP":{"443":{"HTTPS":true}},"Web":{"my-pc.tail1234.ts.net:443":{"Handlers":{"/":{"Proxy":%s}}}}}`, target)
+}
+
+// serveOnLine is the Mac's on command since SN1, as setup shows it: to serve.sock.
+func serveOnLine() string { return "tailscale serve --bg --https=443 unix:" + serveSocketPath() }
 
 // withStandInTailscale puts a stand-in `tailscale` where the app looks for it, and the app's own look in place of
 // the tests' not-installed one, and forgets the last answer. It is a Mac's, where Turn it on is let in (until SN1,
@@ -83,6 +94,16 @@ func (s *tailscaleStandIn) say(file, text string) {
 	}
 }
 
+// atSocket puts this app's serve.sock where the stand-in's answers say @SOCKET@: its path is known only once the
+// test's deck has its own folder. Before Tailscale is first looked at, which no deck does as it starts.
+func (s *tailscaleStandIn) atSocket() {
+	for _, file := range []string{"serve.json", "after-on.json", "after-off.json"} {
+		if data, err := os.ReadFile(filepath.Join(s.dir, file)); err == nil {
+			s.say(file, strings.ReplaceAll(string(data), "@SOCKET@", serveSocketPath()))
+		}
+	}
+}
+
 // lines is what the stand-in was asked to run, one line each (a status look isn't a run).
 func (s *tailscaleStandIn) lines() []string {
 	data, _ := os.ReadFile(filepath.Join(s.dir, "ran"))
@@ -116,9 +137,12 @@ func TestPhoneOverHTTPSSaysWhereTailscaleStands(t *testing.T) {
 		{"not signed in", `{"BackendState":"NeedsLogin"}`, tsNothingOn, true, httpsSignedOut, "", false},
 		{"stopped", `{"BackendState":"Stopped","Self":{"DNSName":"my-pc.tail1234.ts.net."}}`, tsNothingOn, true, httpsSignedOut, "https://my-pc.tail1234.ts.net", false},
 		{"serve off", tsSignedIn, tsNothingOn, true, httpsOff, "https://my-pc.tail1234.ts.net", false},
-		{"serve on", tsSignedIn, servingPort(Port), true, httpsOn, "https://my-pc.tail1234.ts.net", false},
+		{"serve on", tsSignedIn, servingSocket(), true, httpsOn, "https://my-pc.tail1234.ts.net", false},
 		// Something else is handed on, not this app: off, and turning it on would replace it.
 		{"serve on for another port", tsSignedIn, servingPort(Port + 1), true, httpsOff, "https://my-pc.tail1234.ts.net", true},
+		{"serve on for another socket", tsSignedIn, servingSocket("/Users/me/other.sock"), true, httpsOff, "https://my-pc.tail1234.ts.net", true},
+		// This app's port, the way before SN1: nothing is let in through it any more, so it's off (TestSetupAsksToTurnItOnAgain).
+		{"serve on the old way", tsSignedIn, servingPort(Port), true, httpsOff, "https://my-pc.tail1234.ts.net", true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := withStandInTailscale(t, c.status, c.serve)
@@ -126,16 +150,20 @@ func TestPhoneOverHTTPSSaysWhereTailscaleStands(t *testing.T) {
 				tailnetCandidates = []string{filepath.Join(s.dir, "no-such-tailscale")}
 			}
 			d := newTestDeck(t)
+			s.atSocket()
 			said := httpsSaid(t, d)
 			if said["status"] != c.want || (c.address == "") != (said["address"] == nil) || c.address != "" && said["address"] != c.address ||
 				said["busy"] != c.busy {
 				t.Errorf("%v, want status %s, address %q, busy %v", said, c.want, c.address, c.busy)
 			}
-			// The one line to copy, with this app's own port, and the line that stops it.
+			// The one line to copy, to this app's own serve.sock, and the line that stops it.
 			if said["notHere"] != nil {
 				t.Errorf("on a Mac: %v", said["notHere"])
 			}
-			if said["command"] != fmt.Sprintf("tailscale serve --bg --https=443 http://127.0.0.1:%d", Port) ||
+			if (said["onAgain"] != nil) != (c.name == "serve on the old way") {
+				t.Errorf("turn it on again: %v", said["onAgain"])
+			}
+			if said["command"] != serveOnLine() ||
 				said["offCommand"] != "tailscale serve --https=443 off" || said["port"] != float64(Port) {
 				t.Errorf("the lines: %v", said)
 			}
@@ -211,9 +239,10 @@ func tapBody(action, command string) string {
 // A tap runs exactly the command the confirmation showed, on this app's own port, and says what it exposes first.
 func TestTurningItOnAndOffRunsExactlyTheCommandItShowedAfterAConfirmation(t *testing.T) {
 	s := withStandInTailscale(t, tsSignedIn, tsNothingOn)
-	s.say("after-on.json", servingPort(Port))
+	s.say("after-on.json", servingSocket())
 	s.say("after-off.json", tsNothingOn)
 	d := newTestDeck(t)
+	s.atSocket()
 	if said := httpsSaid(t, d); said["status"] != httpsOff {
 		t.Fatalf("to begin with: %v", said)
 	}
@@ -224,12 +253,12 @@ func TestTurningItOnAndOffRunsExactlyTheCommandItShowedAfterAConfirmation(t *tes
 		Command string
 		Exposes []string
 	}
-	wantOn := fmt.Sprintf("tailscale serve --bg --https=443 http://127.0.0.1:%d", Port)
+	wantOn := serveOnLine()
 	if code != http.StatusOK || json.Unmarshal([]byte(body), &plan) != nil || plan.Command != wantOn {
 		t.Fatalf("the confirmation: %d %s", code, body)
 	}
 	said := strings.Join(plan.Exposes, " ")
-	for _, part := range []string{fmt.Sprint(Port), "tailnet", "not Funnel", "public internet"} {
+	for _, part := range []string{"private socket", "tailnet", "not Funnel", "public internet"} {
 		if !strings.Contains(strings.ToLower(said), strings.ToLower(part)) {
 			t.Errorf("the confirmation doesn't say %q: %s", part, said)
 		}
@@ -248,6 +277,8 @@ func TestTurningItOnAndOffRunsExactlyTheCommandItShowedAfterAConfirmation(t *tes
 		{"not json", `on`, http.StatusBadRequest},
 		{"another command", tapBody("on", "tailscale funnel --bg 443"), http.StatusConflict},
 		{"another port", tapBody("on", fmt.Sprintf("tailscale serve --bg --https=443 http://127.0.0.1:%d", Port+1)), http.StatusConflict},
+		{"this app's port, the old way", tapBody("on", fmt.Sprintf("tailscale serve --bg --https=443 http://127.0.0.1:%d", Port)), http.StatusConflict},
+		{"another socket", tapBody("on", "tailscale serve --bg --https=443 unix:/Users/me/other.sock"), http.StatusConflict},
 		{"another address", tapBody("on", fmt.Sprintf("tailscale serve --bg --https=443 http://0.0.0.0:%d", Port)), http.StatusConflict},
 		{"the off command for on", tapBody("on", "tailscale serve --https=443 off"), http.StatusConflict},
 		{"an action that isn't one", tapBody("funnel", wantOn), http.StatusBadRequest},
@@ -266,7 +297,7 @@ func TestTurningItOnAndOffRunsExactlyTheCommandItShowedAfterAConfirmation(t *tes
 	if code != http.StatusOK || json.Unmarshal([]byte(body), &after) != nil || after["status"] != httpsOn {
 		t.Fatalf("on: %d %s", code, body)
 	}
-	if got := s.lines(); !slices.Equal(got, []string{fmt.Sprintf("serve --bg --https=443 http://127.0.0.1:%d", Port)}) {
+	if got := s.lines(); !slices.Equal(got, []string{strings.TrimPrefix(serveOnLine(), "tailscale ")}) {
 		t.Fatalf("it ran %q", got)
 	}
 	// On already: no second run.
@@ -289,7 +320,7 @@ func TestTurningItOnAndOffRunsExactlyTheCommandItShowedAfterAConfirmation(t *tes
 	if code != http.StatusOK || json.Unmarshal([]byte(body), &after) != nil || after["status"] != httpsOff {
 		t.Fatalf("off: %d %s", code, body)
 	}
-	if got := s.lines(); !slices.Equal(got, []string{fmt.Sprintf("serve --bg --https=443 http://127.0.0.1:%d", Port), "serve --https=443 off"}) {
+	if got := s.lines(); !slices.Equal(got, []string{strings.TrimPrefix(serveOnLine(), "tailscale "), "serve --https=443 off"}) {
 		t.Errorf("it ran %q", got)
 	}
 	for _, line := range s.lines() {
@@ -302,20 +333,24 @@ func TestTurningItOnAndOffRunsExactlyTheCommandItShowedAfterAConfirmation(t *tes
 // A tap never changes what it shouldn't: nothing when Tailscale isn't here or isn't signed in, and never an off for
 // what's handed on that isn't this app.
 func TestATapRunsNothingWhereTailscaleStandsInTheWay(t *testing.T) {
-	wantOn := fmt.Sprintf("tailscale serve --bg --https=443 http://127.0.0.1:%d", Port)
+	const wantOn = "the on line"
 	for _, c := range []struct {
 		name, status, serve, action, command string
 	}{
 		{"not signed in, on", `{"BackendState":"NeedsLogin"}`, tsNothingOn, "on", wantOn},
-		{"not signed in, off", `{"BackendState":"NeedsLogin"}`, servingPort(Port), "off", "tailscale serve --https=443 off"},
+		{"not signed in, off", `{"BackendState":"NeedsLogin"}`, servingSocket(), "off", "tailscale serve --https=443 off"},
 		{"off with nothing handed on", tsSignedIn, tsNothingOn, "off", "tailscale serve --https=443 off"},
 		// Something else on 443: it isn't this app's to stop.
 		{"off for another port's", tsSignedIn, servingPort(Port + 1), "off", "tailscale serve --https=443 off"},
-		{"on where it already is", tsSignedIn, servingPort(Port), "on", wantOn},
+		{"on where it already is", tsSignedIn, servingSocket(), "on", wantOn},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := withStandInTailscale(t, c.status, c.serve)
 			d := newTestDeck(t)
+			s.atSocket()
+			if c.command == wantOn {
+				c.command = serveOnLine()
+			}
 			if code, text := tap(t, d, callerPage, "", "", tapBody(c.action, c.command)); code != http.StatusConflict || text == "" {
 				t.Errorf("%d %s", code, text)
 			}
@@ -328,7 +363,7 @@ func TestATapRunsNothingWhereTailscaleStandsInTheWay(t *testing.T) {
 		s := withStandInTailscale(t, tsSignedIn, tsNothingOn)
 		tailnetCandidates = []string{filepath.Join(s.dir, "no-such-tailscale")}
 		d := newTestDeck(t)
-		if code, text := tap(t, d, callerPage, "", "", tapBody("on", wantOn)); code != http.StatusConflict || !strings.Contains(text, "isn't installed") {
+		if code, text := tap(t, d, callerPage, "", "", tapBody("on", serveOnLine())); code != http.StatusConflict || !strings.Contains(text, "isn't installed") {
 			t.Errorf("%d %s", code, text)
 		}
 	})
@@ -381,7 +416,7 @@ func TestATapThatTailscaleRefusesSaysWhy(t *testing.T) {
 	s := withStandInTailscale(t, tsSignedIn, tsNothingOn)
 	s.say("fail", "access denied: use 'sudo tailscale', or set the operator")
 	d := newTestDeck(t)
-	code, text := tap(t, d, callerPage, "", "", tapBody("on", fmt.Sprintf("tailscale serve --bg --https=443 http://127.0.0.1:%d", Port)))
+	code, text := tap(t, d, callerPage, "", "", tapBody("on", serveOnLine()))
 	if code != http.StatusBadGateway || !strings.Contains(text, "access denied") {
 		t.Errorf("%d %s", code, text)
 	}
@@ -396,7 +431,7 @@ func TestOnlyTheSetupPageCanTurnPhoneOverHTTPSOnOrOff(t *testing.T) {
 	s := withStandInTailscale(t, tsSignedIn, tsNothingOn)
 	d := newTestDeck(t)
 	gm, hireKey := withGMAndAHire(t, d)
-	wantOn := fmt.Sprintf("tailscale serve --bg --https=443 http://127.0.0.1:%d", Port)
+	wantOn := serveOnLine()
 	for _, who := range []caller{callerTool, callerGM, callerHire, callerNobody} {
 		// No one at all is turned away at the door (401), as for any setup route; the rest are told no (403).
 		refused := http.StatusForbidden
@@ -473,6 +508,10 @@ func TestTheRunnerRefusesAnythingButTheTwoCommands(t *testing.T) {
 		{"serve", "--bg", "--https=8443", fmt.Sprintf("http://127.0.0.1:%d", Port)},
 		{"serve", "--bg", "--funnel", "--https=443", fmt.Sprintf("http://127.0.0.1:%d", Port)},
 		{"serve", "--bg", "--https=443", fmt.Sprintf("http://127.0.0.1:%d", Port), "&&", "id"},
+		// On a Mac, this app's port is the old way (SN1), and another socket isn't this app's.
+		{"serve", "--bg", "--https=443", fmt.Sprintf("http://127.0.0.1:%d", Port)},
+		{"serve", "--bg", "--https=443", "unix:/Users/me/other.sock"},
+		{"serve", "--bg", "--https=443", "unix:" + serveSocketPath(), "&&", "id"},
 		{"serve", "reset"},
 		{"set", "--operator=nobody"},
 		nil,
@@ -525,5 +564,64 @@ func TestThePageAsksBeforeItRunsAnything(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(page), "tailscale funnel") || strings.Contains(page, "serve --funnel") {
 		t.Error("the page runs a funnel")
+	}
+}
+
+// After the update (SN1), a Mac where `tailscale serve` still hands this app's port on, the old way, is told plainly
+// that HTTPS through it has to be turned on again, once, with Turn it on: off, the sentence that says so, and a
+// confirmation that says it replaces the old way. One tap hands it on to serve.sock, and the sentence goes.
+func TestSetupAsksToTurnItOnAgainAfterTheUpdate(t *testing.T) {
+	s := withStandInTailscale(t, tsSignedIn, servingPort(Port))
+	s.say("after-on.json", servingSocket())
+	d := newTestDeck(t)
+	s.atSocket()
+	said := httpsSaid(t, d)
+	if said["status"] != httpsOff || said["onAgain"] != serveOnAgain || said["command"] != serveOnLine() {
+		t.Fatalf("the old way: %v", said)
+	}
+	if !strings.Contains(serveOnAgain, "before this update") || !strings.Contains(serveOnAgain, "Turn it on") || !strings.Contains(serveOnAgain, "once") {
+		t.Errorf("the sentence doesn't say what to do: %s", serveOnAgain)
+	}
+	code, body := pageCall(t, d, "GET", "/setup/tailnet/serve?action=on")
+	var plan struct {
+		Command string
+		Exposes []string
+	}
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &plan) != nil || plan.Command != serveOnLine() {
+		t.Fatalf("the confirmation: %d %s", code, body)
+	}
+	if exposes := strings.Join(plan.Exposes, " "); !strings.Contains(exposes, "before this update") || strings.Contains(exposes, "something else") {
+		t.Errorf("the confirmation: %s", exposes)
+	}
+	code, body = tap(t, d, callerPage, "", "", tapBody("on", plan.Command))
+	var after map[string]any
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &after) != nil || after["status"] != httpsOn || after["onAgain"] != nil {
+		t.Fatalf("on again: %d %s", code, body)
+	}
+	if got := s.lines(); !slices.Equal(got, []string{strings.TrimPrefix(serveOnLine(), "tailscale ")}) {
+		t.Errorf("it ran %q", got)
+	}
+	// Off the Mac, where the hand-on is refused, the port is still what serve is told by: no sentence.
+	macTailscale = false
+	s.say("serve.json", servingPort(Port))
+	forgetTailnet()
+	if said := httpsSaid(t, d); said["status"] != httpsOn || said["onAgain"] != nil {
+		t.Errorf("off the Mac: %v", said)
+	}
+}
+
+// The line setup shows is the one that runs: an argument a shell would split, as the Mac's support folder
+// ("Application Support") is, is in single quotes.
+func TestTheServeLineCopiesIntoAShellWhole(t *testing.T) {
+	for args, want := range map[string]string{
+		"serve --bg --https=443 unix:/Users/me/Library/Application Support/AgentDeck/serve.sock": "tailscale serve --bg --https=443 'unix:/Users/me/Library/Application Support/AgentDeck/serve.sock'",
+		"serve --bg --https=443 unix:/Users/o'neil/serve.sock":                                   `tailscale serve --bg --https=443 'unix:/Users/o'\''neil/serve.sock'`,
+		"serve --bg --https=443 http://127.0.0.1:7710":                                           "tailscale serve --bg --https=443 http://127.0.0.1:7710",
+		"serve --https=443 off": "tailscale serve --https=443 off",
+	} {
+		split := strings.SplitN(args, " ", 4)
+		if got := commandLine(split); got != want {
+			t.Errorf("%q: %s, want %s", split, got, want)
+		}
 	}
 }

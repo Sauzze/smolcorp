@@ -142,4 +142,22 @@ func TestTailscalesAnswersAreReadAsTheMacReadsThem(t *testing.T) {
 			t.Errorf("%s: %v, want %v", status, got, want)
 		}
 	}
+	// Since SN1, on a Mac, a proxy to this deck's serve.sock (`unix:` and its path, exactly), and nothing else.
+	const socket = "/Users/me/Library/Application Support/AgentDeck/serve.sock"
+	for status, want := range map[string]any{
+		`{"Web":{"my-mac.ts.net:443":{"Handlers":{"/":{"Proxy":"unix:/Users/me/Library/Application Support/AgentDeck/serve.sock"}}}}}`:   true,
+		`{"Web":{"my-mac.ts.net:443":{"Handlers":{"/":{"Proxy":"unix:/Users/me/Library/Application Support/AgentDeck/./serve.sock"}}}}}`: true,
+		`{"Web":{"my-mac.ts.net:443":{"Handlers":{"/":{"Proxy":"unix:/Users/me/other.sock"}}}}}`:                                         false,
+		`{"Web":{"my-mac.ts.net:443":{"Handlers":{"/":{"Proxy":"unix:"}}}}}`:                                                             false,
+		`{"Web":{"my-mac.ts.net:443":{"Handlers":{"/":{"Proxy":"/Users/me/Library/Application Support/AgentDeck/serve.sock"}}}}}`:        false,
+		`{"Web":{"my-mac.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:7710"}}}}}`:                                             false,
+		`{}`:     false,
+		`broken`: nil,
+	} {
+		got := servesSocket([]byte(status), socket)
+		switch {
+		case want == nil && got != nil, want != nil && (got == nil || *got != want):
+			t.Errorf("%s: %v, want %v", status, got, want)
+		}
+	}
 }

@@ -1092,13 +1092,15 @@ func TestAPhoneOverTailscaleAndTheWindowAnswer(t *testing.T) {
 		{"window-proxied", http.StatusUnauthorized, grantOpen},
 		{"browser", http.StatusForbidden, grantOpen},
 		{"browser-mac-app", http.StatusForbidden, grantOpen},
-		{"phone-own-tailnet", http.StatusForbidden, grantOpen},
-		{"phone-own-tailnet-mac", http.StatusForbidden, grantOpen},
+		// SN1: from this computer's own Tailscale address, or the loopback with a proxy's header made up, the key
+		// isn't even taken (401): neither is Tailscale's (the own-address door; no Tailscale peer).
+		{"phone-own-tailnet", http.StatusUnauthorized, grantOpen},
+		{"phone-own-tailnet-mac", http.StatusUnauthorized, grantOpen},
 		// RT126FS2 B2: the paired device the Windows window holds, its key in a file here, is never the owner's tap,
 		// with a proxy's header made up or without; nor, off a Mac, a phone's key from the loopback with one.
 		{"window-device", http.StatusForbidden, grantOpen},
-		{"window-device-proxied", http.StatusForbidden, grantOpen},
-		{"phone-proxied-localhost-other", http.StatusForbidden, grantOpen},
+		{"window-device-proxied", http.StatusUnauthorized, grantOpen},
+		{"phone-proxied-localhost-other", http.StatusUnauthorized, grantOpen},
 	} {
 		t.Run(c.caller, func(t *testing.T) {
 			d, phoneKey, id := deckWithAnAsk(t)
@@ -1119,7 +1121,7 @@ func TestAPhoneOverTailscaleAndTheWindowAnswer(t *testing.T) {
 	// The Windows window's device, a window off a Mac and a browser can't read the asks either; the Mac app's window
 	// and a phone over Tailscale can.
 	d, phoneKey, _ := deckWithAnAsk(t)
-	for caller, want := range map[string]int{"window-device": http.StatusForbidden, "window-device-proxied": http.StatusForbidden,
+	for caller, want := range map[string]int{"window-device": http.StatusForbidden, "window-device-proxied": http.StatusUnauthorized,
 		"window": http.StatusForbidden, "browser": http.StatusForbidden, "browser-mac-app": http.StatusForbidden,
 		"window-mac-app": http.StatusOK, "phone-wireguard": http.StatusOK} {
 		if status, _ := probeRoute(t, d, "GET", "/grants", phoneKey, ownerCall(caller)); status != want {

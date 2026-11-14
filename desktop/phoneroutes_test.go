@@ -30,11 +30,15 @@ type routeCaller struct {
 	spoofProto bool
 	// macApp: the deck runs under the Mac app (d.mac.host), as only a Mac's does.
 	macApp bool
+	// tailscale: the caller came through serve.sock, its other end identified as Tailscale's own process (a stand-in
+	// peer, SN1): the real `tailscale serve`. Every other caller from the loopback is a program here.
+	tailscale bool
 }
 
 // routeCallers is everyone who can knock on the routes past the hook: a stranger, a paired phone over the Wi-Fi
 // (signing, with Typing over Wi-Fi on: probeDeck), over Tailscale's WireGuard address and through `tailscale serve`
-// (on a Mac, and on Linux and Windows, where it is refused until SN1: serveHandOnHere), someone sending a proxy's headers or a ts.net name from where only
+// (on a Mac, and on Linux and Windows, where it is refused until its own piece after SN1: serveHandOnHere; each with
+// its connection's other end Tailscale's own process, a stand-in peer), someone sending a proxy's headers or a ts.net name from where only
 // `tailscale serve` on this computer may (from the Wi-Fi, signing as a paired phone there must), the office's own
 // window, the window's key where it isn't the window's, and the paired device the Windows window holds (its key in a
 // file here), from this computer as itself and with a proxy's header made up (RT126FS2 B2).
@@ -42,11 +46,11 @@ var routeCallers = []routeCaller{
 	{name: "stranger", host: deckOnWiFi, from: aPhone},
 	{name: "phone-wifi", host: deckOnWiFi, from: aPhone, key: "phone", signs: true},
 	{name: "phone-wireguard", host: "100.64.1.2:7710", from: "100.101.102.103:50000", local: "100.64.1.2:7710", key: "phone"},
-	{name: "phone-serve-mac", host: "my-mac.tail1234.ts.net", from: thisComputer, key: "phone", proxied: true, mac: true},
-	{name: "phone-serve-mac-text-off", host: "my-mac.tail1234.ts.net", from: thisComputer, key: "phone", proxied: true, mac: true, textOff: true},
-	{name: "phone-serve-linux", host: "my-mac.tail1234.ts.net", from: thisComputer, key: "phone", proxied: true},
-	{name: "phone-serve-linux-text-off", host: "my-mac.tail1234.ts.net", from: thisComputer, key: "phone", proxied: true, textOff: true},
-	{name: "phone-serve-linux-proto", host: "my-mac.tail1234.ts.net", from: thisComputer, key: "phone", spoofProto: true},
+	{name: "phone-serve-mac", host: "my-mac.tail1234.ts.net", from: thisComputer, key: "phone", proxied: true, mac: true, tailscale: true},
+	{name: "phone-serve-mac-text-off", host: "my-mac.tail1234.ts.net", from: thisComputer, key: "phone", proxied: true, mac: true, textOff: true, tailscale: true},
+	{name: "phone-serve-linux", host: "my-mac.tail1234.ts.net", from: thisComputer, key: "phone", proxied: true, tailscale: true},
+	{name: "phone-serve-linux-text-off", host: "my-mac.tail1234.ts.net", from: thisComputer, key: "phone", proxied: true, textOff: true, tailscale: true},
+	{name: "phone-serve-linux-proto", host: "my-mac.tail1234.ts.net", from: thisComputer, key: "phone", spoofProto: true, tailscale: true},
 	{name: "spoof-proto-wifi", host: deckOnWiFi, from: aPhone, key: "phone", signs: true, spoofProto: true},
 	{name: "spoof-tsnet-wifi", host: "my-mac.tail1234.ts.net", from: aPhone, key: "phone", proxied: true, signs: true, spoofProto: true},
 	{name: "spoof-tsnet-wireguard", host: "my-mac.tail1234.ts.net", from: "100.101.102.103:50000", local: "100.64.1.2:7710", key: "phone", proxied: true, spoofProto: true},
@@ -136,6 +140,7 @@ func probeRoute(t *testing.T, d *Deck, method, target, phoneKey string, c routeC
 		r.Header.Set("X-Forwarded-Proto", "https")
 	}
 	macTailscale = c.mac
+	servedUnrecorded = func(*http.Request) bool { return c.tailscale }
 	w := httptest.NewRecorder()
 	(&router{deck: d}).ServeHTTP(w, r)
 	return w.Code, strings.TrimSpace(w.Body.String())
@@ -146,9 +151,9 @@ func probeRoute(t *testing.T, d *Deck, method, target, phoneKey string, c routeC
 // (SECWIFI's switch, off by default, is signed_test.go's).
 func probeDeck(t *testing.T) (*Deck, string) {
 	t.Helper()
-	savedHost, savedMac, savedAddresses, savedOpen := host, macTailscale, tailscaleAddresses, openSetupPage
+	savedHost, savedMac, savedAddresses, savedOpen, savedPeer := host, macTailscale, tailscaleAddresses, openSetupPage, servedUnrecorded
 	t.Cleanup(func() {
-		host, macTailscale, tailscaleAddresses, openSetupPage = savedHost, savedMac, savedAddresses, savedOpen
+		host, macTailscale, tailscaleAddresses, openSetupPage, servedUnrecorded = savedHost, savedMac, savedAddresses, savedOpen, savedPeer
 	})
 	host = nil
 	tailscaleAddresses = func() []string { return []string{"100.64.1.2"} }
@@ -200,7 +205,12 @@ func dumpPhoneRoutes(t *testing.T) string {
 // owner's tap: a paired phone over WireGuard or through `tailscale serve` on a Mac, and no one else) and two callers,
 // the paired device the Windows window holds, as itself and with a made-up proxy header; every other cell is as it was.
 // PH1 adds its photo: POST /photo over Tailscale only (the owner's phone, as /peek; the Wi-Fi and the window 403),
-// POST /talk/photo the window only, and their GETs, which aren't routes.
+// POST /talk/photo the window only, and their GETs, which aren't routes. SN1 moves two columns, and only to refusals:
+// phone-proxied-localhost-other and window-device-proxied (a program here with a proxy's header made up, off a Mac)
+// were taken as over Tailscale; no Tailscale process is at their other end, so their key isn't taken, and every
+// route but the open icons and /peer/ answers them 401 (had 200, 204, 400, 403 or 404). The hand-on through the real
+// `tailscale serve` (phone-serve-mac, a stand-in peer) keeps every cell; phone-serve-linux-proto and every spoof
+// caller stay refused.
 func TestEveryRouteKeepsItsAccessThroughTheMove(t *testing.T) {
 	after := dumpPhoneRoutes(t)
 	if after != phoneRouteAccess {
@@ -210,19 +220,20 @@ func TestEveryRouteKeepsItsAccessThroughTheMove(t *testing.T) {
 }
 
 // The callers each class lets in, of routeCallers: those the router's own checks let reach the table, less those
-// the class keeps out. Through `tailscale serve` is Tailscale's on a Mac; on Linux and Windows it is refused before
-// the table until SN1 (serveHandOnHere). The same headers or ts.net name from the Wi-Fi, or from Tailscale's own address to a name, are no one's but the
-// plain Wi-Fi phone's (spoof-proto-wifi, which is a phone, and not secure) or refused before the table.
+// the class keeps out. Through the real `tailscale serve` is Tailscale's on a Mac; on Linux and Windows it is refused
+// before the table until its own piece after SN1 (serveHandOnHere). The same headers or ts.net name from a program
+// here (SN1), the Wi-Fi, or from Tailscale's own address to a name, are no one's but the plain Wi-Fi phone's
+// (spoof-proto-wifi, which is a phone, and not secure) or refused before the table.
 var classLetsIn = map[access][]string{
 	accessWindow:      {"window"},
-	accessPhone:       {"phone-wifi", "phone-wireguard", "phone-serve-mac", "spoof-proto-wifi", "phone-proxied-localhost-other", "phone-here", "window-device", "window-device-proxied"},
-	accessPhoneSecure: {"phone-wireguard", "phone-serve-mac", "phone-proxied-localhost-other", "window-device-proxied"},
+	accessPhone:       {"phone-wifi", "phone-wireguard", "phone-serve-mac", "spoof-proto-wifi", "phone-here", "window-device"},
+	accessPhoneSecure: {"phone-wireguard", "phone-serve-mac"},
 	accessOwnerTap:    {"phone-wireguard", "phone-serve-mac"},
 	accessPeer:        nil,
 }
 
 // reachTheTable are the callers the router's own checks let reach the table: the rest are refused before it.
-var reachTheTable = []string{"phone-wifi", "phone-wireguard", "phone-serve-mac", "spoof-proto-wifi", "phone-proxied-localhost-other", "phone-here", "window", "window-device", "window-device-proxied"}
+var reachTheTable = []string{"phone-wifi", "phone-wireguard", "phone-serve-mac", "spoof-proto-wifi", "phone-here", "window", "window-device"}
 
 // Each row of the table lets in exactly the callers its class names, tells the others its own refusal, and is in the
 // dump of every route.
@@ -271,9 +282,10 @@ func TestEachRowLetsInItsClassOnly(t *testing.T) {
 }
 
 // Off the Mac, a `tailscale serve` hand-on (a ts.net Host, a proxy's headers or X-Forwarded-Proto alone, from this
-// computer's loopback) is refused as 1.25 refused it, on every route but the open icons, until design B's SN1
-// identifies the peer and closes the loopback hole. Opening it is one reviewed line in serveHandOnHere, with this
-// test and the dump's three columns changed with it.
+// computer's loopback) is refused as 1.25 refused it, on every route but the open icons, even with Tailscale's own
+// process at the other end: SN1 identifies the peer on a Mac only. Opening it is its own piece after SN1 (the peer
+// identified there, then one reviewed line in serveHandOnHere), with this test and the dump's three columns changed
+// with it.
 func TestTheServeHandOnStaysTheMacsUntilSN1(t *testing.T) {
 	if serveHandOnHere() != (runtime.GOOS == "darwin") {
 		t.Fatalf("the hand-on is let in = %v on %s: it is the Mac's only until SN1", serveHandOnHere(), runtime.GOOS)
@@ -349,7 +361,8 @@ func TestARowsLimitsAreItsOwn(t *testing.T) {
 // phone-serve-linux, phone-serve-linux-text-off, phone-serve-linux-proto, spoof-proto-wifi, spoof-tsnet-wifi,
 // spoof-tsnet-wireguard, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi,
 // window-device, window-device-proxied (RT126FS2 B2: the owner's tap refuses both, and off a Mac a phone's key from
-// the loopback with a proxy's header; RT126FS2b N1: and the window, which is no deck under the Mac app here).
+// the loopback with a proxy's header; RT126FS2b N1: and the window, which is no deck under the Mac app here; SN1: a
+// proxy's header made up on the loopback, with no Tailscale process at the other end, is refused its key, 401).
 const phoneRouteAccess = `GET /icon.png: 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-mac-text-off, phone-serve-linux, phone-serve-linux-text-off, phone-serve-linux-proto, spoof-proto-wifi, spoof-tsnet-wifi, spoof-tsnet-wireguard, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi, window-device, window-device-proxied
 GET /favicon-16.png: 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-mac-text-off, phone-serve-linux, phone-serve-linux-text-off, phone-serve-linux-proto, spoof-proto-wifi, spoof-tsnet-wifi, spoof-tsnet-wireguard, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi, window-device, window-device-proxied
 GET /favicon-32.png: 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-mac-text-off, phone-serve-linux, phone-serve-linux-text-off, phone-serve-linux-proto, spoof-proto-wifi, spoof-tsnet-wifi, spoof-tsnet-wireguard, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi, window-device, window-device-proxied
@@ -361,58 +374,58 @@ GET /sounds/keys.m4a: 200 200 200 200 403 403 403 403 200 403 403 200 200 200 20
 GET /office?o=wrong: 200 200 200 200 403 403 403 403 200 403 403 200 200 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi, window-device, window-device-proxied
 GET /: 200 200 200 200 403 403 403 403 200 403 403 200 200 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi, window-device, window-device-proxied
 GET /office: 200 200 200 200 403 403 403 403 200 403 403 200 200 200 200 200 200 200; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi, window-device, window-device-proxied
-GET /paired: 401 204 204 204 403 403 403 403 204 403 403 204 204 204 401 401 204 204; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-GET /events: 401 200 200 200 403 403 403 403 200 403 403 200 200 200 401 401 200 200; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-POST /focus: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-POST /act?action=settings: 401 403 403 403 403 403 403 403 403 403 403 403 403 204 401 401 403 403; let in: window
-GET /hire/window: 401 403 403 403 403 403 403 403 403 403 403 403 403 200 401 401 403 403; let in: window
-POST /hire/window: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
-GET /t3code: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
-POST /t3code/open: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
-POST /act?action=takeover: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
-POST /act?action=handback: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
-POST /act?action=letgo: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-POST /act?action=stop: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-POST /dictate: 401 400 400 400 403 403 403 403 400 403 403 400 400 403 401 401 400 400; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window-device, window-device-proxied
-POST /peek: 401 403 404 404 403 403 403 403 403 403 403 404 403 403 401 401 403 404; let in: phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, window-device-proxied
-POST /choose?option=other: 401 400 400 400 403 403 403 403 400 403 403 400 400 403 401 401 400 400; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window-device, window-device-proxied
-GET /choice: 401 403 404 404 403 403 403 403 403 403 403 404 403 403 401 401 403 404; let in: phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, window-device-proxied
-GET /approvals: 401 403 200 200 403 403 403 403 403 403 403 200 403 403 401 401 403 200; let in: phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, window-device-proxied
-GET /conversation: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
-GET /session/info: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
-GET /desk/git: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
-GET /desk/preview: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
-POST /desk/preview: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
-POST /summary: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 401 401 403 403; let in: nobody
-POST /desk/pr/open: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
-GET /talk: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
-GET /talk/asking: 401 403 403 403 403 403 403 403 403 403 403 403 403 200 401 401 403 403; let in: window
-POST /talk/say: 401 403 403 403 403 403 403 403 403 403 403 403 403 400 401 401 403 403; let in: window
-POST /talk/pick: 401 403 403 403 403 403 403 403 403 403 403 403 403 400 401 401 403 403; let in: window
-POST /talk/listen: 401 403 403 403 403 403 403 403 403 403 403 403 403 400 401 401 403 403; let in: window
-POST /photo: 401 403 404 404 403 403 403 403 403 403 403 404 403 403 401 401 403 404; let in: phone-wireguard, phone-serve-mac, phone-proxied-localhost-other, window-device-proxied
-POST /talk/photo: 401 403 403 403 403 403 403 403 403 403 403 403 403 404 401 401 403 403; let in: window
-GET /dictate: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-GET /peek: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-POST /choice: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-POST /approvals: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-POST /conversation: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-GET /desk/pr/open: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-POST /talk: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-PUT /talk: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-POST /talk/asking: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-GET /talk/say: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-GET /talk/pick: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-GET /talk/listen: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-GET /photo: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-GET /talk/photo: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
+GET /paired: 401 204 204 204 403 403 403 403 204 403 403 401 204 204 401 401 204 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+GET /events: 401 200 200 200 403 403 403 403 200 403 403 401 200 200 401 401 200 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+POST /focus: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+POST /act?action=settings: 401 403 403 403 403 403 403 403 403 403 403 401 403 204 401 401 403 401; let in: window
+GET /hire/window: 401 403 403 403 403 403 403 403 403 403 403 401 403 200 401 401 403 401; let in: window
+POST /hire/window: 401 403 403 403 403 403 403 403 403 403 403 401 403 404 401 401 403 401; let in: window
+GET /t3code: 401 403 403 403 403 403 403 403 403 403 403 401 403 404 401 401 403 401; let in: window
+POST /t3code/open: 401 403 403 403 403 403 403 403 403 403 403 401 403 404 401 401 403 401; let in: window
+POST /act?action=takeover: 401 403 403 403 403 403 403 403 403 403 403 401 403 404 401 401 403 401; let in: window
+POST /act?action=handback: 401 403 403 403 403 403 403 403 403 403 403 401 403 404 401 401 403 401; let in: window
+POST /act?action=letgo: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+POST /act?action=stop: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+POST /dictate: 401 400 400 400 403 403 403 403 400 403 403 401 400 403 401 401 400 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window-device
+POST /peek: 401 403 404 404 403 403 403 403 403 403 403 401 403 403 401 401 403 401; let in: phone-wireguard, phone-serve-mac
+POST /choose?option=other: 401 400 400 400 403 403 403 403 400 403 403 401 400 403 401 401 400 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window-device
+GET /choice: 401 403 404 404 403 403 403 403 403 403 403 401 403 403 401 401 403 401; let in: phone-wireguard, phone-serve-mac
+GET /approvals: 401 403 200 200 403 403 403 403 403 403 403 401 403 403 401 401 403 401; let in: phone-wireguard, phone-serve-mac
+GET /conversation: 401 403 403 403 403 403 403 403 403 403 403 401 403 404 401 401 403 401; let in: window
+GET /session/info: 401 403 403 403 403 403 403 403 403 403 403 401 403 404 401 401 403 401; let in: window
+GET /desk/git: 401 403 403 403 403 403 403 403 403 403 403 401 403 404 401 401 403 401; let in: window
+GET /desk/preview: 401 403 403 403 403 403 403 403 403 403 403 401 403 404 401 401 403 401; let in: window
+POST /desk/preview: 401 403 403 403 403 403 403 403 403 403 403 401 403 404 401 401 403 401; let in: window
+POST /summary: 401 403 403 403 403 403 403 403 403 403 403 401 403 403 401 401 403 401; let in: nobody
+POST /desk/pr/open: 401 403 403 403 403 403 403 403 403 403 403 401 403 404 401 401 403 401; let in: window
+GET /talk: 401 403 403 403 403 403 403 403 403 403 403 401 403 404 401 401 403 401; let in: window
+GET /talk/asking: 401 403 403 403 403 403 403 403 403 403 403 401 403 200 401 401 403 401; let in: window
+POST /talk/say: 401 403 403 403 403 403 403 403 403 403 403 401 403 400 401 401 403 401; let in: window
+POST /talk/pick: 401 403 403 403 403 403 403 403 403 403 403 401 403 400 401 401 403 401; let in: window
+POST /talk/listen: 401 403 403 403 403 403 403 403 403 403 403 401 403 400 401 401 403 401; let in: window
+POST /photo: 401 403 404 404 403 403 403 403 403 403 403 401 403 403 401 401 403 401; let in: phone-wireguard, phone-serve-mac
+POST /talk/photo: 401 403 403 403 403 403 403 403 403 403 403 401 403 404 401 401 403 401; let in: window
+GET /dictate: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+GET /peek: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+POST /choice: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+POST /approvals: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+POST /conversation: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+GET /desk/pr/open: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+POST /talk: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+PUT /talk: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+POST /talk/asking: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+GET /talk/say: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+GET /talk/pick: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+GET /talk/listen: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+GET /photo: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+GET /talk/photo: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
 GET /peer/hello: 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403; let in: nobody
 POST /peer/pair: 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403; let in: nobody
 GET /peer/nowhere: 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-mac-text-off, phone-serve-linux, phone-serve-linux-text-off, phone-serve-linux-proto, spoof-proto-wifi, spoof-tsnet-wifi, spoof-tsnet-wireguard, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi, window-device, window-device-proxied
-GET /nowhere: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
-GET /grants: 401 403 200 200 403 403 403 403 403 403 403 403 403 403 401 401 403 403; let in: phone-wireguard, phone-serve-mac
-POST /grants/answer: 401 403 400 400 403 403 403 403 403 403 403 403 403 403 401 401 403 403; let in: phone-wireguard, phone-serve-mac
-PUT /grants/answer: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401 404 404; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window, window-device, window-device-proxied
+GET /nowhere: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
+GET /grants: 401 403 200 200 403 403 403 403 403 403 403 401 403 403 401 401 403 401; let in: phone-wireguard, phone-serve-mac
+POST /grants/answer: 401 403 400 400 403 403 403 403 403 403 403 401 403 403 401 401 403 401; let in: phone-wireguard, phone-serve-mac
+PUT /grants/answer: 401 404 404 404 403 403 403 403 404 403 403 401 404 404 401 401 404 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-here, window, window-device
 `
 
 // MARK: The switch's route set (FR1's review, N1)

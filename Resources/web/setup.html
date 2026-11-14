@@ -1434,9 +1434,10 @@
         <ol class="serve-here">
           <li>Install Tailscale on this computer and on the phone, and sign in to both with the same account.</li>
           <li>In Tailscale's admin console, under DNS, check that MagicDNS and HTTPS Certificates are on.</li>
-          <li>In Terminal on this computer, run:<br><code class="address" id="tailnet-command">tailscale serve --bg --https=443 http://127.0.0.1:&lt;port&gt;</code></li>
+          <li>In Terminal on this computer, run:<br><code class="address" id="tailnet-command">tailscale serve --bg --https=443 unix:&lt;Smolcorp's folder&gt;/serve.sock</code></li>
           <li>On the phone, open <span class="address" id="tailnet-url">https://&lt;this-computer&gt;.&lt;your-tailnet&gt;.ts.net</span> and pair with a code, as usual.</li>
         </ol>
+        <p class="hint serve-here" hidden>Use Tailscale from tailscale.com. Smolcorp refuses what the Mac App Store version hands on: that version runs as you, so Smolcorp can't tell it apart from any other program on this computer.</p>
         <p class="hint serve-here" id="tailnet-found"></p>
         <div id="tailnet-scan" hidden>
           <div class="or">or scan to pair over Tailscale</div>
@@ -2862,8 +2863,7 @@
       : 'If you set up Tailscale for it, stop that too: <code>tailscale serve --https=443 off</code> in Terminal.';
     const url = m.enabled && m.tailnet;
     $('tailnet-url').textContent = url || `https://<${onMac() ? 'this-mac' : 'this-computer'}>.<your-tailnet>.ts.net`;
-    // The port this page was served from is the one the server listens on, so the command names it.
-    $('tailnet-command').textContent = `tailscale serve --bg --https=443 http://127.0.0.1:${location.port || 80}`;
+    // The command to run comes from the app (drawHttps): since SN1 it names serve.sock, which only the app knows.
     $('tailnet-found').textContent = url ? wording(`Tailscale says this computer is ${url}`) : '';
     // The same pairing code, at the tailnet address: only while there's a code and an address.
     const code = state.pairing && state.pairing.code;
@@ -2905,7 +2905,8 @@
       on: h.address ? `On, at ${h.address}` : 'On.',
     };
     const here = !h.notHere;
-    $('https-state').textContent = here ? wording(words[h.status] || '') : h.notHere;
+    // HTTPS through `tailscale serve` was on before this update, the old way (SN1): it has to be turned on again, once.
+    $('https-state').textContent = here ? (h.onAgain || wording(words[h.status] || '')) : h.notHere;
     $('https-status').classList.toggle('on', here && h.status === 'on');
     for (const el of document.querySelectorAll('#tailnet .serve-here')) el.hidden = !here;
     // Off the Mac only the line that stops it is shown, and only while Tailscale still hands this app on.

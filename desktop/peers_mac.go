@@ -258,7 +258,8 @@ func (d *Deck) servePeer(w http.ResponseWriter, r *request) bool {
 // fromAnotherMac says whether a request came the one way another Mac's does: dialled by dialPeer from another
 // device's Tailscale address straight to this computer's, so WireGuard carried it, and sent to that address, not a
 // name. Never from loopback, whatever handed it on there (`tailscale serve`, a proxy forwarding the Wi-Fi, a hire),
-// never with a proxy's headers, never to a ts.net name: on every system, even with a key or the code. Not
+// never with a proxy's headers, never to a ts.net name, never from one of this computer's own addresses (SN1's
+// own-address door): on every system, even with a key or the code. Not
 // fromTailnet, which lets a phone in through `tailscale serve` as well; a Mac never comes that way.
 func fromAnotherMac(r *http.Request) bool {
 	if isProxied(r.Header) {
@@ -267,7 +268,7 @@ func fromAnotherMac(r *http.Request) bool {
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	from := net.ParseIP(remote)
 	local, _ := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
-	if from == nil || from.To4() == nil || !tailnet.Contains(from.To4()) || local == nil {
+	if from == nil || from.To4() == nil || !tailnet.Contains(from.To4()) || thisComputersAddress(from) || local == nil {
 		return false
 	}
 	address, _, _ := net.SplitHostPort(local.String())

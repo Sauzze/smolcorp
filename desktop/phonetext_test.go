@@ -835,7 +835,9 @@ func TestThePeekOverTailscaleOnceASecond(t *testing.T) {
 	d.mu.Lock()
 	key := d.access.Phones.Pair("Phone", true)
 	d.mu.Unlock()
-	// As `tailscale serve` hands a request on: from this computer's loopback, with a proxy's headers.
+	// As `tailscale serve` hands a request on: through serve.sock, with a proxy's headers, the other end Tailscale's
+	// own process (a stand-in peer, SN1, as which a loopback request the router is asked directly stands).
+	standInTailscalePeer(t)
 	r := httptest.NewRequest(http.MethodPost, "/peek?session=s1", nil)
 	r.Host, r.RemoteAddr = "127.0.0.1:7710", "127.0.0.1:50000"
 	r.Header.Set(hookKeyHeader, key)
@@ -857,9 +859,12 @@ func TestThePeekOverTailscaleOnceASecond(t *testing.T) {
 }
 
 func TestTailscaleIsToItsAddressFromATailnetAddress(t *testing.T) {
-	saved := tailscaleAddresses
+	saved, savedPeer, savedMac := tailscaleAddresses, servedUnrecorded, macTailscale
 	tailscaleAddresses = func() []string { return []string{"100.64.1.2"} }
-	t.Cleanup(func() { tailscaleAddresses = saved })
+	t.Cleanup(func() { tailscaleAddresses, servedUnrecorded, macTailscale = saved, savedPeer, savedMac })
+	tailscale := false
+	servedUnrecorded = func(r *http.Request) bool { return tailscale && asServeSockIs(r) }
+	macTailscale = true
 	ask := func(remote, local string, header map[string]string) bool {
 		r := httptest.NewRequest(http.MethodPost, "/peek", nil)
 		r.RemoteAddr = remote
@@ -880,18 +885,46 @@ func TestTailscaleIsToItsAddressFromATailnetAddress(t *testing.T) {
 	if ask("192.168.1.30:5000", "192.168.1.20", nil) || ask("127.0.0.1:5000", "127.0.0.1", nil) {
 		t.Error("the Wi-Fi, or this computer, isn't Tailscale")
 	}
-	if !ask("127.0.0.1:5000", "127.0.0.1", map[string]string{"X-Forwarded-For": "100.101.102.103"}) {
+	// SN1's own-address door: this computer's own Tailscale address to itself is a program here.
+	if ask("100.64.1.2:5000", "100.64.1.2", nil) {
+		t.Error("this computer's own Tailscale address, to itself")
+	}
+	// From the loopback, a proxy's headers alone are any program's here (SN1): refused.
+	for _, header := range []map[string]string{{"X-Forwarded-For": "100.101.102.103"}, {"Forwarded": "for=100.101.102.103"},
+		{"X-Forwarded-Proto": "https"}, {"X-Forwarded-Host": "my-mac.tail1234.ts.net"}, {"Tailscale-User-Login": "owner@example.com"}} {
+		if ask("127.0.0.1:5000", "127.0.0.1", header) {
+			t.Errorf("a program here with %v", header)
+		}
+	}
+	// The real `tailscale serve` through serve.sock (a stand-in peer, with no address, as a unix socket's request has
+	// none, or the loopback's), naming another device: let in, on a Mac only until the hand-on is turned on
+	// elsewhere; naming this computer itself, or with no X-Forwarded-For, refused.
+	tailscale = true
+	if !ask("", "", map[string]string{"X-Forwarded-For": "100.101.102.103"}) || !ask("127.0.0.1:5000", "127.0.0.1", map[string]string{"X-Forwarded-For": "100.101.102.103"}) {
 		t.Error("tailscale serve's hand-on")
+	}
+	if ask("127.0.0.1:5000", "127.0.0.1", map[string]string{"X-Forwarded-For": "100.64.1.2"}) {
+		t.Error("tailscale serve's hand-on for this computer itself")
+	}
+	if ask("127.0.0.1:5000", "127.0.0.1", map[string]string{"X-Forwarded-Proto": "https"}) || ask("127.0.0.1:5000", "127.0.0.1", nil) {
+		t.Error("Tailscale's own process, naming nobody")
+	}
+	macTailscale = false
+	if ask("127.0.0.1:5000", "127.0.0.1", map[string]string{"X-Forwarded-For": "100.101.102.103"}) {
+		t.Error("tailscale serve's hand-on off the Mac")
 	}
 }
 
 // On a Mac, Tailscale's adapter is a utunN like any VPN's: it's told by its addresses, 100.64/10 with
 // Tailscale's own IPv6 range. And `tailscale serve` hands the phone's request on to its ts.net name, let in
-// as the Mac app lets it in: from this computer's loopback, with the phone's text on (on a Mac only until SN1).
+// as the Mac app lets it in: with the phone's text on (on a Mac only, until the hand-on is turned on elsewhere), and
+// since SN1 only through serve.sock from Tailscale's own process (a stand-in peer), naming another device.
 func TestOnAMacTailscaleIsToldByItsAddressesAndServedByItsName(t *testing.T) {
-	saved := macTailscale
-	t.Cleanup(func() { macTailscale = saved })
+	saved, savedPeer := macTailscale, servedUnrecorded
+	t.Cleanup(func() { macTailscale, servedUnrecorded = saved, savedPeer })
 	macTailscale = true
+	tailscale := true
+	servedUnrecorded = func(r *http.Request) bool { return tailscale && asServeSockIs(r) }
 	ip := net.ParseIP
 	utun := []net.IP{ip("fe80::1"), ip("100.101.102.103"), ip("fd7a:115c:a1e0::1234")}
 	for _, c := range []struct {
@@ -915,10 +948,14 @@ func TestOnAMacTailscaleIsToldByItsAddressesAndServedByItsName(t *testing.T) {
 	d.mu.Lock()
 	key := d.access.Phones.Pair("Phone", true)
 	d.mu.Unlock()
+	forwardedFor := "100.101.102.103"
 	peek := func(host, remote string) (int, string) {
 		r := httptest.NewRequest(http.MethodPost, "/peek?session=s1", nil)
 		r.Host, r.RemoteAddr = host, remote
 		r.Header.Set(hookKeyHeader, key)
+		if forwardedFor != "" {
+			r.Header.Set("X-Forwarded-For", forwardedFor)
+		}
 		w := httptest.NewRecorder()
 		(&router{deck: d}).ServeHTTP(w, r)
 		return w.Code, strings.TrimSpace(w.Body.String())
@@ -926,19 +963,38 @@ func TestOnAMacTailscaleIsToldByItsAddressesAndServedByItsName(t *testing.T) {
 	if status, body := peek("my-mac.tail1234.ts.net", "127.0.0.1:50000"); status != http.StatusOK || body != `{"lines":["❯ hello"]}` {
 		t.Fatalf("tailscale serve's hand-on: %d %s", status, body)
 	}
-	// Refused before the peek is counted: a ts.net name from elsewhere, another name, the phone's text off.
-	for _, c := range [][2]string{{"my-mac.tail1234.ts.net", "100.101.102.103:5000"}, {"my-mac.example.net", "127.0.0.1:50000"}, {"ts.net", "127.0.0.1:50000"}} {
+	// Refused before the peek is counted: a ts.net name from elsewhere, the phone's text off.
+	for _, c := range [][2]string{{"my-mac.tail1234.ts.net", "100.101.102.103:5000"}} {
 		if status, _ := peek(c[0], c[1]); status != http.StatusForbidden {
 			t.Errorf("%v: %d", c, status)
 		}
 	}
+	// SN1: the same from a program here (not Tailscale's), or for this computer itself, is refused at the door; a
+	// TCP forward (Tailscale's, a ts.net name, no proxy's headers) names nobody, so a phone's key isn't taken from it.
+	tailscale = false
+	if status, _ := peek("my-mac.tail1234.ts.net", "127.0.0.1:50000"); status != http.StatusForbidden {
+		t.Errorf("a program here with tailscale serve's headers: %d", status)
+	}
+	tailscale, forwardedFor = true, "100.64.1.2"
+	savedAddresses := tailscaleAddresses
+	tailscaleAddresses = func() []string { return []string{"100.64.1.2"} }
+	if status, _ := peek("my-mac.tail1234.ts.net", "127.0.0.1:50000"); status != http.StatusForbidden {
+		t.Errorf("tailscale serve's hand-on for this computer itself: %d", status)
+	}
+	tailscaleAddresses = savedAddresses
+	forwardedFor = ""
+	if status, _ := peek("my-mac.tail1234.ts.net", "127.0.0.1:50000"); status != http.StatusUnauthorized {
+		t.Errorf("a TCP forward: %d", status)
+	}
+	forwardedFor = "100.101.102.103"
 	d.mu.Lock()
 	d.config.PhoneMicEnabled = false
 	d.mu.Unlock()
 	if status, _ := peek("my-mac.tail1234.ts.net", "127.0.0.1:50000"); status != http.StatusForbidden {
 		t.Errorf("the phone's text off: %d", status)
 	}
-	// Elsewhere than a Mac, as in 1.25: a ts.net name isn't let in, until SN1 (serveHandOnHere).
+	// Elsewhere than a Mac, as in 1.25: a ts.net name isn't let in, even from Tailscale's own process, until the
+	// hand-on is turned on there (serveHandOnHere).
 	d.mu.Lock()
 	d.config.PhoneMicEnabled = true
 	d.mu.Unlock()
@@ -966,11 +1022,14 @@ func TestAProxiedRequestIsntThisComputers(t *testing.T) {
 		(&router{deck: d}).ServeHTTP(w, r)
 		return w.Code
 	}
-	for _, mac := range []bool{true, false} {
+	// SN1: on a Mac, a proxy's header from a program here is refused at the door (the hand-on is the tailnet's,
+	// never addressed directly, and no Tailscale process names whom it is for); elsewhere it is addressed directly,
+	// and the window's key isn't taken.
+	for mac, want := range map[bool]int{true: http.StatusForbidden, false: http.StatusUnauthorized} {
 		saved := macTailscale
 		macTailscale = mac
-		if status := ask(http.MethodPost, "/peek?session=s1", true); status != http.StatusUnauthorized {
-			t.Errorf("mac=%v: the window's key with a proxy's header: %d", mac, status)
+		if status := ask(http.MethodPost, "/peek?session=s1", true); status != want {
+			t.Errorf("mac=%v: the window's key with a proxy's header: %d, want %d", mac, status, want)
 		}
 		if status := ask(http.MethodGet, "/setup", true); status != http.StatusNotFound {
 			t.Errorf("mac=%v: setup with a proxy's header: %d", mac, status)
