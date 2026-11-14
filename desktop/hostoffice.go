@@ -90,8 +90,8 @@ func (d *Deck) addMacControls(entry map[string]any, s *Session) {
 		return
 	}
 	can := d.mac.abilities[s.Tab]
-	// A launcher's window takes keys, lines and the stop from this program itself.
-	if kind, _, _ := splitTab(s.Tab); kind == "launcher" {
+	// A launcher's window, and an ACP desk (acptab.go), take keys, lines and the stop from this program itself.
+	if kind, _, _ := splitTab(s.Tab); kind == "launcher" || kind+":" == acpDeskPrefix {
 		can = tabAbilities{Keys: true, Text: true, Fire: true}
 	}
 	entry["keys"], entry["fire"] = can.Keys, can.Fire

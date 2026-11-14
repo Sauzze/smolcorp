@@ -17,8 +17,8 @@ import (
 // transcript in Claude Code's shape (acptranscript.go).
 //
 // This is the session's plumbing only. Nothing starts an ACP desk yet: hiring one (ACP5) starts the agent, through
-// the sandbox's runner, and hands its client in; typing into it is its Tab's (ACP2); a permission ask is answered
-// by the owner's tap alone (ACP3). The desk answers no file or terminal request (N4): it is neither an
+// the sandbox's runner, and hands its client in; typing into it is its Tab's (acptab.go); a permission ask is
+// answered by the owner's tap alone (ACP3). The desk answers no file or terminal request (N4): it is neither an
 // acp.FileHandler nor an acp.TerminalHandler, so the agent is told the client can't, and asking gets
 // "method not found".
 //
@@ -60,6 +60,7 @@ const (
 var (
 	errACPNotOpen    = errors.New("the ACP desk has no session open")
 	errACPBusy       = errors.New("the ACP desk is already in a turn")
+	errACPAsking     = errors.New("the ACP desk's agent is asking something")
 	errACPNotItsTurn = errors.New("an ask outside the desk's own session and turn")
 )
 
@@ -87,6 +88,9 @@ type acpDesk struct {
 	mu         sync.Mutex
 	session    string // the agent's own id for its session: for the wire and the transcript only
 	turn       bool   // a prompt is out, as the caller sees it
+	asks       int    // the agent's asks shown and not over yet: only ever while a turn is out
+	renewing   bool   // a new conversation is being started (acptab.go): no prompt goes meanwhile
+	draft      string // the words typed into the desk and not sent yet, as a terminal's input line (acptab.go)
 	ended      bool
 	queue      []acpItem
 	queueBytes int // the queue's updates and the batch the worker is on, by size
@@ -135,18 +139,41 @@ func (desk *acpDesk) open(ctx context.Context) error {
 // prompt sends text as a turn and waits for its end, one turn at a time.
 func (desk *acpDesk) prompt(ctx context.Context, text string) (acp.StopReason, error) {
 	desk.mu.Lock()
-	session := desk.session
+	session, err := desk.begin(text)
+	desk.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	return desk.run(ctx, session, text)
+}
+
+// mayPrompt says why a prompt can't go now, or nil: no session, the agent asking, a turn out or a new conversation
+// starting. An ask only ever comes while a turn is out, so a desk asking is always busy too: asking is said first.
+// With desk.mu held.
+func (desk *acpDesk) mayPrompt() error {
 	switch {
-	case session == "" || desk.ended:
-		desk.mu.Unlock()
-		return "", errACPNotOpen
-	case desk.turn:
-		desk.mu.Unlock()
-		return "", errACPBusy
+	case desk.session == "" || desk.ended:
+		return errACPNotOpen
+	case desk.asks > 0:
+		return errACPAsking
+	case desk.turn || desk.renewing:
+		return errACPBusy
+	}
+	return nil
+}
+
+// begin opens a turn for text, if one may go now, and gives the session it goes to. With desk.mu held.
+func (desk *acpDesk) begin(text string) (string, error) {
+	if err := desk.mayPrompt(); err != nil {
+		return "", err
 	}
 	desk.turn = true
 	desk.push(acpItem{kind: "session/prompt", text: text})
-	desk.mu.Unlock()
+	return desk.session, nil
+}
+
+// run sends the turn begin opened, and waits for its end.
+func (desk *acpDesk) run(ctx context.Context, session, text string) (acp.StopReason, error) {
 	reason, err := desk.conn.Prompt(ctx, session, []acp.ContentBlock{acp.Text(text)})
 	desk.mu.Lock()
 	desk.turn = false
@@ -209,6 +236,7 @@ func (desk *acpDesk) RequestPermission(ctx context.Context, req acp.PermissionRe
 	desk.mu.Lock()
 	ours := !desk.ended && desk.turn && req.SessionID != "" && req.SessionID == desk.session
 	if ours {
+		desk.asks++
 		desk.push(acpItem{kind: "session/request_permission", ask: req.ToolCall})
 	}
 	desk.mu.Unlock()
@@ -216,6 +244,9 @@ func (desk *acpDesk) RequestPermission(ctx context.Context, req acp.PermissionRe
 		return acp.PermissionOutcome{}, errACPNotItsTurn
 	}
 	<-ctx.Done()
+	desk.mu.Lock()
+	desk.asks--
+	desk.mu.Unlock()
 	return acp.PermissionOutcome{}, ctx.Err()
 }
 
@@ -288,7 +319,9 @@ func (desk *acpDesk) take(w *acpWork, items []acpItem) bool {
 		event := map[string]any{"hook_event_name": item.kind}
 		switch item.kind {
 		case "session/new":
-			w.transcript = item.opened
+			// A new conversation's (acptab.go) closes the one before: its stragglers are another session's now.
+			w.transcript.close(item.at)
+			w.transcript, w.turnOpen, w.kinds = item.opened, false, map[string]string{}
 		case "session/prompt":
 			w.turnOpen = true
 			w.transcript.user(item.text, item.at)

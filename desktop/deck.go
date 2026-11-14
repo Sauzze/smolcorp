@@ -52,6 +52,8 @@ type Deck struct {
 	cloud     *cloudDesks
 	streams   map[*eventStream]string // each open stream, with the phone that opened it
 	launchers map[string]*launcherTab
+	// ACP desks (acpdesk.go), by their own acp: tab name: their Tabs are found here (acptab.go).
+	acpDesks map[string]*acpDesk
 	// The looks at a launcher's window waiting for an answer, by launcher and
 	// look number: see launcherlook.go.
 	looks map[string]chan PaneState
@@ -209,7 +211,7 @@ func NewDeck() *Deck {
 	heldGuard(filepath.Join(supportDir, hireGuardFile))
 	d := &Deck{
 		access: NewAccess(), config: loadConfig(), sessions: NewSessions(),
-		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{},
+		streams: map[*eventStream]string{}, launchers: map[string]*launcherTab{}, acpDesks: map[string]*acpDesk{},
 		keyOf: map[string]int{}, floorOf: map[string]int{}, seatOf: map[string]Seat{}, lastReturn: map[string]time.Time{}, voiceNotes: map[string]voiceNote{}, lastPeek: map[string]time.Time{}, lastChoiceLook: map[string]time.Time{}, hires: map[string]*pendingHire{}, sessionsFile: sessionsFile, work: make(chan func(), 64), OnChange: func() {},
 		webhookSends: make(chan func(), webhookQueue), events: newEventLog(supportDir, eventsFileMost),
 		rounds: deckRounds{stopped: make(chan struct{})},
@@ -1350,6 +1352,10 @@ func (d *Deck) tab(name string) Tab {
 		}
 		return nil
 	}
+	// An ACP desk's is the core's own (acptab.go): never a terminal's, and never the Mac app's.
+	if kind+":" == acpDeskPrefix {
+		return d.acpTab(name)
+	}
 	// Under the Mac app, what macOS alone can do goes to it: see macTab.
 	if tab := hostTab(name, kind, id, socket); tab != nil {
 		return tab
@@ -1453,6 +1459,7 @@ func (d *Deck) inTab(name string, op func(Tab) error) (int, string) {
 	}
 	result := make(chan error, 1)
 	d.work <- func() { result <- op(tab) }
+	var refusal acpRefusal
 	switch err := <-result; {
 	case errors.Is(err, errAgentGone):
 		d.mu.Lock()
@@ -1472,6 +1479,8 @@ func (d *Deck) inTab(name string, op func(Tab) error) (int, string) {
 		return http.StatusConflict, "Couldn't stop the agent, so its tab is left open."
 	case errors.Is(err, errAgentBehind):
 		return http.StatusConflict, notFrontFg
+	case errors.As(err, &refusal):
+		return http.StatusConflict, string(refusal)
 	case err != nil:
 		return http.StatusNotFound, "Tab not found"
 	}
@@ -1730,6 +1739,12 @@ func (d *Deck) PerformFrom(phone, action, id string, query url.Values) (int, str
 	// Claude Code ends the turn when its prompt is put away, and no hook says so: see StoppedAsking.
 	asking := session.State == Asking && agent == Claude
 	d.mu.Unlock()
+	// An ACP desk's Esc, Reject and New conversation go through its protocol, never as keys (acptab.go).
+	if strings.HasPrefix(tab, acpDeskPrefix) {
+		if status, message, ok := d.acpAct(action, tab, agent, busy); ok {
+			return status, message
+		}
+	}
 
 	// Accept and send are both Enter. They are separate controls on the phone
 	// because they mean different things, as do reject and esc, which are

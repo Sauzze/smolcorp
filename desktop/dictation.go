@@ -72,7 +72,8 @@ type dictationNote struct {
 // a terminal's tab it knows (RGAPA B2); there the mic is the agent's voice key, as before. With the lock held.
 // (A launcher's desk may still dictate into its input box in the window: dictateToBox.)
 func (d *Deck) dictatesFor(tab string, agent Agent) bool {
-	if kind, _, _ := splitTab(tab); kind == "launcher" {
+	// An ACP desk takes words only through typeText's rules (acptab.go): the window's box, whose words /talk/say types.
+	if kind, _, _ := splitTab(tab); kind == "launcher" || kind+":" == acpDeskPrefix {
 		return false
 	}
 	return d.dictationOn() && (!agent.HasVoice() || d.config.DictationForClaude || d.config.DictationCleanup)
@@ -240,6 +241,9 @@ func (d *Deck) typeDictation(run *dictationRun, text string) {
 			return nil
 		}
 		switch tab := t.(type) {
+		case acpTab: // never: see dictatesFor
+			failed = errUnsupported
+			return errUnsupported
 		case macTab:
 			if tab.pane == nil {
 				answer, err := ask(tab.host, bridgeRequest{Action: "insert", Tab: tab.name, Agent: run.agent, Text: text})

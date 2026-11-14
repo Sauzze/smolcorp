@@ -844,7 +844,8 @@ func (t macTab) close(agent Agent, strict bool) error {
 
 // hostTab is the tab the Mac app drives for name, or nil without one.
 func hostTab(name, kind, id, socket string) Tab {
-	if host == nil {
+	// An ACP desk has no terminal for the Mac app to drive: its Tab is the core's own (acptab.go).
+	if host == nil || kind+":" == acpDeskPrefix {
 		return nil
 	}
 	tab := macTab{name: name, host: host}

@@ -295,10 +295,11 @@ var (
 )
 
 // typesText says whether this app types the phone's text into a tab named so, without asking the Mac app:
-// a tmux, WezTerm or kitty pane, or a launcher's window. Under the Mac app, its drivers' table says (hostoffice.go).
+// a tmux, WezTerm or kitty pane, a launcher's window, or an ACP desk (acptab.go). Under the Mac app, its drivers'
+// table says (hostoffice.go).
 func typesText(name string) bool {
 	kind, _, _ := splitTab(name)
-	return kind == "tmux" || kind == "wezterm" || kind == "kitty" || kind == "launcher"
+	return kind == "tmux" || kind == "wezterm" || kind == "kitty" || kind == "launcher" || kind+":" == acpDeskPrefix
 }
 
 // takesLinesAtAll is false for a tab whose terminal can never take several lines as one paste: WezTerm's
@@ -324,6 +325,8 @@ func (d *Deck) phoneText(name string, t Tab, agent Agent, words string, lines bo
 		return hostPhoneText(tab.host, tab.name, agent, words, deskState)
 	case commandTab:
 		return tab.phoneText(words, lines)
+	case acpTab:
+		return tab.phoneText(words)
 	}
 	return pasteFailed, errUnsupported
 }
@@ -466,6 +469,7 @@ func (d *Deck) typeText(from textFrom, text, id string, send *bool) (int, string
 // phone doesn't put the words back in its box: they may be in the terminal already.
 func phoneTextFailure(err error) (int, string, bool) {
 	var refusal appRefusal
+	var acpNo acpRefusal
 	switch {
 	case err == nil, errors.Is(err, errAgentGone), errors.Is(err, errAgentBehind):
 		return 0, "", false
@@ -475,6 +479,8 @@ func phoneTextFailure(err error) (int, string, bool) {
 		return http.StatusBadGateway, pasteUnsaid, true
 	case errors.As(err, &refusal):
 		return http.StatusConflict, string(refusal), true
+	case errors.As(err, &acpNo): // an ACP desk's no, as it says it (acptab.go): nothing went
+		return http.StatusConflict, string(acpNo), true
 	}
 	return 0, "", false
 }
