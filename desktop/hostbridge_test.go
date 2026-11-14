@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
@@ -297,5 +298,18 @@ func TestStoppingADeckWaitsForTheEffortItQueued(t *testing.T) {
 	w.d.mu.Unlock()
 	if effort != "high" {
 		t.Errorf("the effort: %q", effort)
+	}
+}
+
+// The items the core asks the Mac app for are bridgeSecrets, every one and no other, as HostBridge.swift's secrets
+// are (HostBridgeTests checks the app's side): the Macs this one joined among them (FL0), or a Mac couldn't join.
+func TestTheCoreAsksTheAppForItsOwnItemsOnly(t *testing.T) {
+	asked := []string{summaryKeyItem, gmTokenItem, peerKeysItem}
+	for _, item := range viewerItems {
+		asked = append(asked, item)
+	}
+	slices.Sort(asked)
+	if items := slices.Sorted(slices.Values(bridgeSecrets)); !slices.Equal(asked, items) {
+		t.Errorf("the core asks for %v, the app's items are %v", asked, items)
 	}
 }

@@ -36,6 +36,7 @@
 #                   account reads that file too.
 #   test-viewer-key-id, -key, -write-secret
 #                   the portable office's id, key and write secret
+#   test-peer-keys  the Macs this copy joined for floors, keys and all
 #   (the push key is never read in a test copy: it has none)
 #
 # For ✨ Summary without a key or a bill, point it at a stand-in for

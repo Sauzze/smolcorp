@@ -1532,6 +1532,9 @@ final class HostBridge {
                     "viewer-id": viewerItem(.id),
                     "viewer-key": viewerItem(.key),
                     "viewer-write-secret": viewerItem(.writeSecret),
+                    // The Macs this one joined, keys and all (desktop/peers_mac_join.go): one item, read only as the
+                    // app added it, and none only when the Keychain says so (`PeerKeys`).
+                    "peer-keys": PeerKeys.defaultStore().secret,
                 ],
                 loginItem: loginItem,
                 testCopy: testCopy,

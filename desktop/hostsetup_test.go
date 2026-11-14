@@ -338,6 +338,15 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 			_, err := store.get(viewerSecretAccount)
 			return store.notFound(err), err
 		},
+		// FL0: the Macs this one joined, keys and all, in the app's own item: the list read, and one with a Mac more kept.
+		"the Macs this one joined, from the Keychain": func(h hostBridge) (any, error) { return readJoined(peerKeyStoreFor(h)) },
+		"the Macs this one joined, kept in the Keychain": func(h hostBridge) (any, error) {
+			saved, _ := json.Marshal([]joinedMac{
+				{Address: "100.64.0.9:7710", Name: "Mini", JoinedAt: time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC), Key: "fake-peer-key-mini"},
+				{Address: "100.101.102.103:7710", Name: "Studio", JoinedAt: time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC), Key: "fake-peer-key-studio"},
+			})
+			return nil, peerKeyStoreFor(h).write(string(saved))
+		},
 		"the portable office's id, kept": func(h hostBridge) (any, error) {
 			return nil, viewerStoreFor(h).set(viewerIDAccount, "ZyXwVuTsRqPoNmLkJiHgFe")
 		},
@@ -511,6 +520,8 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"the portable office's id, from the Keychain":              "AbCdEfGhIjKlMnOpQrStUv",
 		"the portable office's key, none yet":                      true,
 		"the portable office's write secret, there but unreadable": false,
+		"the Macs this one joined, from the Keychain": []joinedMac{{Address: "100.101.102.103:7710", Name: "Studio",
+			JoinedAt: time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC), Key: "fake-peer-key-studio"}},
 		"where you are, for the portable office: idle, locked, and the unlocks and wakes seen": macPresence{idle: 2500 * time.Millisecond,
 			unlocks: 3, wakes: 1},
 		"the GM's token, from the Keychain item the Swift engine kept it in": "fake-gm-token-from-1-24-0000000000000000000",

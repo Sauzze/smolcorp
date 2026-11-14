@@ -29,7 +29,8 @@ final class HostBridgeTests: XCTestCase {
     }
 
     private var kept: [String: String] = ["summary-key": "fake-summary-key", "viewer-id": "AbCdEfGhIjKlMnOpQrStUv",
-                                          "gm-token": "fake-gm-token-from-1-24-0000000000000000000"]
+                                          "gm-token": "fake-gm-token-from-1-24-0000000000000000000",
+                                          "peer-keys": #"[{"address":"100.101.102.103:7710","name":"Studio","joinedAt":"2026-11-14T09:00:00Z","key":"fake-peer-key-studio"}]"#]
     private var login = false
     /// Where the stand-ins' tab actions run, as the terminals' queue.
     private let terminals = DispatchQueue(label: "test.terminals")
@@ -67,6 +68,10 @@ final class HostBridgeTests: XCTestCase {
                 "gm-token": HostBridge.Secret(read: { [unowned self] in kept["gm-token"] },
                                               write: { [unowned self] in kept["gm-token"] = $0; return true },
                                               delete: { [unowned self] in kept["gm-token"] = nil }),
+                // The Macs this one joined (FL0), a stand-in for PeerKeys' store.
+                "peer-keys": PeerKeys(read: { [unowned self] in kept["peer-keys"] }, absent: { [unowned self] in kept["peer-keys"] == nil },
+                                      write: { [unowned self] in kept["peer-keys"] = $0; return true },
+                                      remove: { [unowned self] in kept["peer-keys"] = nil }).secret,
             ],
             loginItem: (get: { [unowned self] in login }, set: { [unowned self] in login = $0 }),
             queue: { [terminals] _ in terminals },
@@ -679,8 +684,37 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertFalse(isOK(ask(["action": "secret-write", "item": "viewer-key", "value": "x"])), "not kept")
         XCTAssertFalse(isOK(ask(["action": "secret-write", "item": "summary-key", "value": "a\nb"])))
         XCTAssertFalse(isOK(ask(["action": "secret-delete", "item": "viewer-key"])))
-        XCTAssertEqual(Set(HostBridge.Actions.mac.secrets.keys), ["summary-key", "gm-token", "viewer-id", "viewer-key", "viewer-write-secret"],
+        XCTAssertEqual(Set(HostBridge.Actions.mac.secrets.keys), ["summary-key", "gm-token", "viewer-id", "viewer-key", "viewer-write-secret", "peer-keys"],
                        "as desktop/hostbridge.go's bridgeSecrets")
+    }
+
+    /// FL0: the Macs this one joined, keys and all (desktop/peers_mac_join.go's peer-keys). None is "found": false, so
+    /// a first join keeps a list of one; one there that the app won't read (another program changed it, or the
+    /// Keychain can't be read now) is the app's no, so the core sends no code and never writes a list over it; and a
+    /// list is removed this way, so one that failed its check can be let go.
+    func testTheMacsJoinedSayNoneOnlyWhenThereIsNone() {
+        let list = #"[{"address":"100.64.0.9:7710","name":"Mini","joinedAt":"2026-11-14T10:00:00Z","key":"fake-peer-key-mini"}]"#
+        var actions = self.actions
+        var held: String?, there = false
+        actions.secrets["peer-keys"] = PeerKeys(read: { held }, absent: { !there }, write: { held = $0; there = true; return true },
+                                                remove: { held = nil; there = false }).secret
+        let none = ask(["action": "secret-read", "item": "peer-keys"], actions: actions)
+        XCTAssertTrue(isOK(none))
+        XCTAssertEqual(none["found"] as? Bool, false)
+        XCTAssertTrue(isOK(ask(["action": "secret-write", "item": "peer-keys", "value": list], actions: actions)))
+        XCTAssertEqual(ask(["action": "secret-read", "item": "peer-keys"], actions: actions)["value"] as? String, list)
+        // There, but its value won't be read.
+        held = nil
+        let unreadable = ask(["action": "secret-read", "item": "peer-keys"], actions: actions)
+        XCTAssertFalse(isOK(unreadable))
+        XCTAssertEqual(unreadable["error"] as? String, "It couldn't be read.")
+        XCTAssertNil(unreadable["value"])
+        XCTAssertTrue(isOK(ask(["action": "secret-delete", "item": "peer-keys"], actions: actions)))
+        XCTAssertFalse(there)
+        XCTAssertEqual(ask(["action": "secret-read", "item": "peer-keys"], actions: actions)["found"] as? Bool, false)
+        // The Mac's own: none only when there is none, and removable.
+        XCTAssertNotNil(HostBridge.Actions.mac.secrets["peer-keys"]?.absent)
+        XCTAssertNotNil(HostBridge.Actions.mac.secrets["peer-keys"]?.delete)
     }
 
     /// The portable office's items, as the Swift engine kept them (RM7 B1): none is "found": false, so the core

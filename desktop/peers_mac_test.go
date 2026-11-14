@@ -759,3 +759,51 @@ func TestPeerRowsAreUnderPeerOnly(t *testing.T) {
 		t.Errorf("peer rows: %v", peerRows)
 	}
 }
+
+// FL0: under the Mac app, the Macs this one joined and their keys go in its own item, peer-keys, over the bridge, and
+// in no file of the support folder. An item there that the app won't read (another program changed it, so its dates
+// moved or its seal doesn't fit, or the Keychain can't be read now) is never taken for none: the join is refused
+// before the code is sent, and the list kept isn't written over with only the next Mac.
+func TestUnderTheMacAppTheMacsJoinedAreTheAppsItem(t *testing.T) {
+	m := newTwoMacs(t, otherMac, tailHome+":0")
+	mac := &macStandIn{}
+	m.joiner.mu.Lock()
+	m.joiner.peerKeys = peerKeyStoreFor(mac)
+	m.joiner.mu.Unlock()
+	if got := m.join(t, m.address, m.code(t)); got.Code != http.StatusOK {
+		t.Fatalf("joining: %d %s", got.Code, got.Body)
+	}
+	mac.mu.Lock()
+	kept := mac.secrets[peerKeysItem]
+	mac.mu.Unlock()
+	var joined []joinedMac
+	if err := json.Unmarshal([]byte(kept), &joined); err != nil || len(joined) != 1 || joined[0].Key == "" || joined[0].Address != m.address {
+		t.Fatalf("the app's item holds %q", kept)
+	}
+	_ = filepath.WalkDir(supportDir, func(path string, entry fs.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() {
+			if data, _ := os.ReadFile(path); bytes.Contains(data, []byte(joined[0].Key)) {
+				t.Errorf("%s holds the key", path)
+			}
+		}
+		return nil
+	})
+
+	mac.mu.Lock()
+	mac.unreadable = []string{peerKeysItem}
+	mac.mu.Unlock()
+	code := m.code(t)
+	m.dialled = nil
+	if got := m.join(t, m.address, code); got.Code != http.StatusServiceUnavailable || len(m.dialled) != 0 {
+		t.Errorf("joining with the item unreadable: %d %s, dialled %v", got.Code, got.Body, m.dialled)
+	}
+	mac.mu.Lock()
+	after := mac.secrets[peerKeysItem]
+	mac.mu.Unlock()
+	if after != kept {
+		t.Errorf("the list was written over: %q", after)
+	}
+	if state := m.joiner.peersState(); state["storeReadable"] != false || len(state["joined"].([]map[string]any)) != 0 {
+		t.Errorf("setup says %v", state)
+	}
+}

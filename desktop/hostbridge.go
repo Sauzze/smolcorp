@@ -306,9 +306,11 @@ const (
 )
 
 // bridgeSecrets are the Keychain items the app owns that the engine may ask
-// for: the ✨ Summary API key, the GM's token, and the portable office's id,
-// key and write secret. In a test copy the app keeps them in files of its own.
-var bridgeSecrets = []string{"summary-key", "gm-token", "viewer-id", "viewer-key", "viewer-write-secret"}
+// for: the ✨ Summary API key, the GM's token, the portable office's id, key
+// and write secret, and the Macs this one joined with their keys (peer-keys:
+// read only as the app added it, and "none" only when there is none). In a
+// test copy the app keeps them in files of its own.
+var bridgeSecrets = []string{"summary-key", "gm-token", "viewer-id", "viewer-key", "viewer-write-secret", peerKeysItem}
 
 // ask sends request and turns a refusal into an error.
 func ask(h hostBridge, request bridgeRequest) (bridgeAnswer, error) {
