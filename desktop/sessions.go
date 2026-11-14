@@ -209,17 +209,34 @@ func (s *Sessions) All() []*Session {
 
 func (s *Sessions) Get(id string) *Session { return s.byID[id] }
 
-// Apply returns whether anything changed. startedIn is the folder the agent
-// was started in, when the hook knows it: an event's cwd is wherever the agent
-// is now.
+// Apply takes a hook's event, and returns whether anything changed. startedIn
+// is the folder the agent was started in, when the hook knows it: an event's
+// cwd is wherever the agent is now.
 func (s *Sessions) Apply(event map[string]any, agent Agent, tab, startedIn string, at float64) bool {
+	id, _ := event["session_id"].(string)
+	// t3: ids are the desks of hires in T3 Code (t3desks.go): no hook event takes one. acp: ids and tabs are the
+	// core's ACP desks' (acpdesk.go): no hook event takes one, nor lands in one's tab, where it would take its place.
+	if strings.HasPrefix(id, t3DeskPrefix) || strings.HasPrefix(id, acpDeskPrefix) || strings.HasPrefix(tab, acpDeskPrefix) {
+		return false
+	}
+	return s.apply(event, agent, tab, startedIn, at)
+}
+
+// ApplyACP takes an ACP desk's event (acpdesk.go), and returns whether anything changed. The desk's session is
+// keyed by the desk's own tab, an acp: name the core chose, never by the session id its agent chose: an agent
+// that names another desk's session reaches only its own.
+func (s *Sessions) ApplyACP(event map[string]any, agent Agent, tab, startedIn string, at float64) bool {
+	if id, _ := event["session_id"].(string); !agent.IsACP() || !strings.HasPrefix(tab, acpDeskPrefix) || id != tab {
+		return false
+	}
+	return s.apply(event, agent, tab, startedIn, at)
+}
+
+// apply is Apply's, and ApplyACP's, once each has checked whose event it is.
+func (s *Sessions) apply(event map[string]any, agent Agent, tab, startedIn string, at float64) bool {
 	id, _ := event["session_id"].(string)
 	name, _ := event["hook_event_name"].(string)
 	if id == "" || name == "" {
-		return false
-	}
-	// t3: ids are the desks of hires in T3 Code (t3desks.go): no hook event takes one.
-	if strings.HasPrefix(id, t3DeskPrefix) {
 		return false
 	}
 	folder, _ := event["cwd"].(string)
@@ -757,14 +774,21 @@ const (
 	headlessQuietWithPID = 60 * 60_000
 )
 
+// heldByCore is whether the session is an ACP desk's (acpdesk.go): the core holds its agent through a client of its
+// own, and its tab, which is also its id, is no terminal's. Its end comes from that client alone, never from a look
+// at tabs. Any other session of an ACP agent's still ages out as every other does.
+func (s *Session) heldByCore() bool {
+	return s.Agent.IsACP() && strings.HasPrefix(s.ID, acpDeskPrefix) && s.Tab == s.ID
+}
+
 // Prune drops sessions whose tab has gone: an agent killed along with its
 // tab never sends SessionEnd. Each is remembered for a while, in case it's
 // heard from again: see revive. A headless run has no tab to close, and is
-// never dropped here: see PruneGone.
+// never dropped here: see PruneGone. Nor is an ACP desk's session: see heldByCore.
 func (s *Sessions) Prune(alive func(tab string) bool, now float64) bool {
 	changed := false
 	for _, session := range s.All() {
-		if !session.Headless() && !alive(session.Tab) {
+		if !session.Headless() && !session.heldByCore() && !alive(session.Tab) {
 			s.drop(session, now)
 			changed = true
 		}
@@ -777,7 +801,7 @@ func (s *Sessions) Prune(alive func(tab string) bool, now float64) bool {
 func (s *Sessions) PruneIDs(gone map[string]string, now float64) bool {
 	changed := false
 	for _, session := range s.All() {
-		if tab, ok := gone[session.ID]; ok && session.Tab == tab && !session.Headless() {
+		if tab, ok := gone[session.ID]; ok && session.Tab == tab && !session.Headless() && !session.heldByCore() {
 			s.drop(session, now)
 			changed = true
 		}
@@ -789,10 +813,14 @@ func (s *Sessions) PruneIDs(gone map[string]string, now float64) bool {
 // it was, and headless runs once they have been quiet for headlessQuiet, or
 // headlessQuietWithPID where their process is known: either may have been
 // killed before SessionEnd. Each is remembered for a while, as for a closed
-// tab, and comes back if it's heard from again.
+// tab, and comes back if it's heard from again. An ACP desk's session is
+// never dropped here, as in Prune: see heldByCore.
 func (s *Sessions) PruneGone(gone func(pid int) bool, now float64) bool {
 	changed := false
 	for _, session := range s.All() {
+		if session.heldByCore() {
+			continue
+		}
 		quiet := now - session.LastEventAt
 		if session.PID > 0 && gone(session.PID) ||
 			session.Headless() && (session.PID <= 0 && quiet > headlessQuiet || session.PID > 0 && quiet > headlessQuietWithPID) {

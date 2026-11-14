@@ -82,8 +82,10 @@ func (s *Sessions) Saved() []savedSession {
 func (s *Sessions) Restore(saved []savedSession, fresh bool) bool {
 	restored := false
 	for _, entry := range saved {
-		// t3: ids are the desks of hires in T3 Code, made from the registry alone: none comes back as a session.
-		if _, known := s.byID[entry.ID]; known || entry.ID == "" || entry.Tab == "" || strings.HasPrefix(entry.ID, t3DeskPrefix) {
+		// t3: ids are the desks of hires in T3 Code, made from the registry alone: none comes back as a session. Nor
+		// does an acp: one, an ACP desk's (acpdesk.go), which lives only as long as the core holds its agent.
+		if _, known := s.byID[entry.ID]; known || entry.ID == "" || entry.Tab == "" || strings.HasPrefix(entry.ID, t3DeskPrefix) ||
+			strings.HasPrefix(entry.ID, acpDeskPrefix) || strings.HasPrefix(entry.Tab, acpDeskPrefix) {
 			continue
 		}
 		if _, ended := s.endedAt[entry.ID]; ended {

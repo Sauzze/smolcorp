@@ -492,6 +492,11 @@ func (d *Deck) IngestFrom(event map[string]any, reported, tab, startedIn string,
 	if canonical == nil {
 		return
 	}
+	// An acp: id or tab is an ACP desk's (acpdesk.go), which only its desk speaks for: a hook event naming one is
+	// dropped whole, before Apply, so it neither sets that session's pid or parent nor files a line in its name.
+	if id, _ := canonical["session_id"].(string); strings.HasPrefix(id, acpDeskPrefix) || strings.HasPrefix(tab, acpDeskPrefix) {
+		return
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	// A hire in T3 Code's own Claude Code, heard through your hooks: never a desk, nor anyone else's. Its events

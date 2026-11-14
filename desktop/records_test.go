@@ -497,6 +497,8 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		keptGMTokenName: verifier,
 		// SK2's check-only key for `smolcorp setup`: it opens the self-test and nothing else.
 		"selftest-key": checkOnly,
+		// ACP1: the ACP desks' transcripts, what was said (acptranscript.go). They grant nothing.
+		acpTranscriptFolder: notSecret,
 	}
 	d, mac, phoneKey, _ := macDeck(t)
 	sendKey := withAHire(t)
@@ -508,6 +510,12 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 	d.gmKept.flush(time.Minute)
 	if err := holdGuard(filepath.Join(supportDir, hireGuardFile), []byte(`{"version":1}`)); err != nil {
 		t.Fatal(err)
+	}
+	if transcript, err := newACPTranscript(supportDir, "s1"); err != nil {
+		t.Fatal(err)
+	} else {
+		transcript.user("hello", time.Now())
+		transcript.close(time.Now())
 	}
 	if kept, _ := mac.keptItem(); kept != keptAs(token) {
 		t.Errorf("the GM's Keychain item holds %q, not the token's verifier", kept)
