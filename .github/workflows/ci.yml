@@ -340,3 +340,58 @@ jobs:
             missing=1
           fi
           [ "$status" -eq 0 ] && [ "$missing" -eq 0 ]
+
+  windows-jail:
+    # SA-W1, Windows' jail spike (internal/sandbox): a hire's restricted token and integrity level, its processes'
+    # access list, its job and the deny entries on its files. GitHub's runner is an administrator holding
+    # SeDebugPrivilege, which opens any process, so those tests skip in the job above. Here they run as a standard
+    # user this job makes, with SMOLCORP_SANDBOX_REQUIRED=1 so a skip fails, and each test must say PASS by name.
+    name: Windows jail, as a standard user
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: The jail's tests pass as a standard user
+        shell: powershell
+        run: |
+          $dir = 'C:\smolcorp-jail'
+          $user = 'smolcorpjail'
+          New-Item -ItemType Directory -Force -Path "$dir\tmp" | Out-Null
+          go test -c -o "$dir\sandbox.test.exe" ./internal/sandbox
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # A standard user, in Users only, with a password made for this run.
+          $password = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N') + 'aA1!') -AsPlainText -Force
+          New-LocalUser -Name $user -Password $password -PasswordNeverExpires | Out-Null
+          Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
+          icacls $dir /grant "${user}:(OI)(CI)F" | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # The redirection goes before echo: in "echo 0> file", cmd reads the 0 as a handle number and the file
+          # stays empty.
+          @(
+            '@echo off',
+            "set TMP=$dir\tmp",
+            "set TEMP=$dir\tmp",
+            'set SMOLCORP_SANDBOX_REQUIRED=1',
+            "`"$dir\sandbox.test.exe`" -test.v -test.count=1 -test.run TestAJail > `"$dir\out.txt`" 2>&1",
+            ">`"$dir\status.txt`" echo %ERRORLEVEL%"
+          ) | Set-Content -Encoding Ascii "$dir\run.cmd"
+          $credential = New-Object System.Management.Automation.PSCredential($user, $password)
+          Start-Process -FilePath cmd.exe -ArgumentList '/c', "`"$dir\run.cmd`"" -Credential $credential `
+            -WorkingDirectory $dir -LoadUserProfile -WindowStyle Hidden -Wait
+          Get-Content "$dir\out.txt"
+          $status = (Get-Content "$dir\status.txt" | Out-String).Trim()
+          $missing = $false
+          foreach ($name in @(
+              'TestAJailedHireCantOpenTheCoreTheGMAnotherHireOrYourOtherPrograms',
+              'TestAJailedHireCantReadTheSupportFolderOrChangeTheProtectedFiles',
+              'TestAJailedHireStaysInItsJob',
+              'TestAJailRefusesAProgramThatBringsItsOwnTokenParentOrBreakaway')) {
+            if (-not (Select-String -Path "$dir\out.txt" -Pattern "^--- PASS: $name \(" -Quiet)) {
+              Write-Output "::error::$name didn't pass as a standard user: it failed, was skipped or didn't run"
+              $missing = $true
+            }
+          }
+          if ($status -ne '0' -or $missing) { exit 1 }
