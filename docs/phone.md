@@ -182,3 +182,62 @@ typed by the same rules as [Typing from the phone](#typing-from-the-phone).
 
 Over plain http on your Wi-Fi, holding the mic uses the Mac's mic, as above.
 On Windows and Linux, the phone's own mic isn't offered.
+
+## HTTPS through tailscale serve (Mac and Linux)
+
+Over HTTPS, the deck opens at this computer's `ts.net` name from anywhere your
+phone is signed in to Tailscale, and the phone's own mic works. Setup's **Use
+from anywhere** says where Tailscale stands, and **Turn it on…** runs the one
+line Smolcorp needs, after showing you exactly what it runs and what it opens to
+your tailnet. Only your own devices reach it, and a phone still needs a pairing
+code. Don't use Funnel: that puts the deck on the public internet.
+
+`tailscale serve` hands the deck on through a private socket, `serve.sock`, in
+Smolcorp's folder, never through its port. Smolcorp checks that what connects
+there really is Tailscale, and anything that arrives over the port with
+Tailscale's headers counts as just another program on your computer.
+
+- **On the Mac,** use Tailscale from tailscale.com. The Mac App Store version
+  runs as you, so Smolcorp can't tell it apart from any other program on your
+  Mac, and refuses what it hands on. The line is
+  `tailscale serve --bg --https=443 unix:<Smolcorp's folder>/serve.sock`, and
+  setup shows it in full.
+- **On Linux,** Smolcorp takes what connects to the socket as root, as
+  tailscaled runs. Any program running as root could do the same, as it can do
+  anything else on your computer. Changing what Tailscale serves takes root
+  too, so setup shows the line with `sudo` in front:
+  `sudo tailscale serve --bg --https=443 unix:<Smolcorp's folder>/serve.sock`.
+  If **Turn it on…** says Tailscale didn't do it, run that line in a terminal:
+  it asks for your password, then does that one thing. Setup also mentions
+  making yourself Tailscale's operator (`sudo tailscale set --operator=$USER`)
+  so the button works without sudo, but only as an option: every program you run
+  could then change Tailscale's settings (serve, funnel and the rest), not
+  only Smolcorp.
+- **On Windows,** Smolcorp still refuses what `tailscale serve` hands on.
+  Open the deck at this computer's own Tailscale address instead.
+- **After updating to 1.26,** if HTTPS through `tailscale serve` was on before,
+  turn it on again, once: it pointed at the port, which no longer counts.
+  Setup says so, and **Turn it on…** does it. On Linux, unless you're
+  Tailscale's operator, run the `sudo` line above instead.
+- **To stop it,** run `tailscale serve --https=443 off` (with `sudo` on Linux),
+  or tap **Turn it off…**.
+
+### If the phone shows 502 Bad Gateway
+
+A 502 means Tailscale reached your computer, but Smolcorp didn't take what it
+handed on. Setup may still say it's on, since it reads Tailscale's settings. It
+is one of three things:
+
+1. **Smolcorp couldn't open `serve.sock` as it started.** Quit Smolcorp and
+   open it again.
+2. **Smolcorp refused who connected.** On the Mac, that's Tailscale from the
+   Mac App Store: install it from tailscale.com, then tap **Turn it on…** again.
+   On Linux, it's a tailscaled that doesn't run as root, one in a container, or
+   a `/proc` mounted with `hidepid`, which hides tailscaled from Smolcorp. Run
+   tailscaled as root, as Tailscale's own packages do, with `/proc` as it comes.
+3. **Tailscale can't reach the socket in Smolcorp's folder.** On Linux, a
+   tailscaled kept out of your home folder (a systemd unit with
+   `ProtectHome=`, or the snap) can't. Turn HTTPS through `tailscale serve`
+   off, and open the deck at this computer's Tailscale address meanwhile.
+
+Each of these fails closed: the phone gets nothing, and nothing else gets in.

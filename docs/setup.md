@@ -60,15 +60,18 @@ What Smolcorp sends and never sends, how it keeps strangers out, and using setup
   beyond a fixed limit, so a misbehaving device can't swamp it.
 - **The setup page only opens on your computer, from Smolcorp's menu.** Other
   devices can't reach it, and other websites can't press its buttons. The menu
-  opens it with a link that works once, for five minutes, so other programs on
-  your computer, and other people signed in to it, can't use it either. The
-  setup key, which is in a file only you can read, is no longer a cookie, and a
-  saved link with the key in it no longer opens setup. Your own scripts can
-  still send the key as the `X-Smolcorp-Setup-Key` header, for what's listed
-  under [Use setup from a script](#use-setup-from-a-script).
+  opens it with a link that works once: for five minutes on a Mac, and for one
+  minute on Windows and Linux. If another program on your computer opens it
+  first, Smolcorp ends that program's session at once and your page says so.
+  The setup key lives in Smolcorp's memory only, never in a file, and a saved
+  link no longer opens setup. Your own scripts can get a key of their own, for
+  what's listed under [Use setup from a script](#use-setup-from-a-script).
+- **Smolcorp's keys stay out of reach of the agents it starts.** How, what you'll
+  notice, and what it can't stop are in
+  [Keys, records and the guard](keys-and-guard.md).
 - **On Windows, "a file only you can read" means your profile's folder.**
-  Smolcorp sets no permissions of its own on its files there (the setup key,
-  the agents' key, the guard's list): they're as private as `%APPDATA%`, which
+  Smolcorp sets no permissions of its own on its files there (the agents' key,
+  the guard's list): they're as private as `%APPDATA%`, which
   Windows lets only you, administrators and the system read. Fenced hires
   also have deny rules that keep them away from these files. On the Mac and
   Linux, Smolcorp writes them so only you can read them.

@@ -1552,6 +1552,7 @@ final class HostBridge {
                         ] as [String: Any],
                         "running": Keystrokes.runningApps(except: apps),
                         "terminalCommand": TerminalCommand.json(),
+                        "signingKeyUnlocked": SigningKey.fact(testCopy: testCopy),
                     ]
                 },
                 installCheck: { SelfTest.installCheck(testCopy: testCopy) },

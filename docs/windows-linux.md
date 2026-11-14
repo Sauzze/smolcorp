@@ -147,7 +147,7 @@ page opens in your browser.
   before you run the new installer.)
 - On GNOME, the tray icon needs the AppIndicator extension, which Ubuntu
   includes. Without it, Smolcorp still runs, and prints a setup link as it
-  starts. The link works once, for five minutes; for a new one, run
+  starts. The link works once, for one minute; for a new one, run
   `smolcorp quit` (or press Ctrl+C in its terminal) and start Smolcorp again.
 - On a machine without a desktop, such as one you reach over SSH, run
   `smolcorp serve`. It prints the setup page's link as it starts. Open it

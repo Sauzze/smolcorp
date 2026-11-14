@@ -261,8 +261,22 @@ func (d *Deck) macChecks(phones int, waiting string) []check {
 	if facts != nil {
 		checks = append(checks, accessibilityCheck(facts.Accessibility))
 	}
-	return append(checks, macNetworkCheck(tailscaleAddresses()), phoneCheck(phones, waiting),
+	checks = append(checks, macNetworkCheck(tailscaleAddresses()), phoneCheck(phones, waiting),
 		macLoginCheck(d.openAtLogin(), facts != nil && facts.TestCopy))
+	if facts != nil && facts.SigningKeyUnlocked != nil && *facts.SigningKeyUnlocked {
+		checks = append(checks, signingKeyCheck())
+	}
+	return checks
+}
+
+// signingKeyCheck is the line shown while the key Smolcorp is signed with sits unlocked on this Mac (SANDBOX-PLAN
+// §3.7). It's advice, and worded so: the app looks only in the keychains of the search list, which any program of
+// yours can change, so its silence proves nothing. There's no fix to press: moving the key is the owner's own step.
+func signingKeyCheck() check {
+	return check{ID: "signing", Status: checkTodo, Title: "Smolcorp's signing key is locked away",
+		Detail: "The key Smolcorp is signed with is unlocked on this Mac, so another program could sign a fake Smolcorp " +
+			"that reads Smolcorp's secrets. If you build Smolcorp yourself, keep that key in a keychain of its own that " +
+			"locks after each build: see Keys, records and the guard in Smolcorp's docs."}
 }
 
 // macNetworkCheck is how a phone reaches this Mac, in the Mac's words, by Tailscale's addresses here.

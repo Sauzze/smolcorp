@@ -78,8 +78,19 @@ func (d *Deck) selfTest() []check {
 			checks = append(checks, *firewall)
 		}
 	}
-	checks = append(checks, phoneCheck(phones, waiting), loginCheck(isOpenAtLogin(), hasTray()))
+	checks = append(checks, phoneCheck(phones, waiting), loginCheck(isOpenAtLogin(), hasTray()), limitsCheck())
 	return checks
+}
+
+// limitsCheck is what Smolcorp can't keep from a program of yours on this computer, said where you set it up
+// (SANDBOX-PLAN §5, owner's Q7): worth knowing, and nothing to do. Off a Mac nothing seals the records or the guard's
+// file, and the secret store and a desk's environment are open to every program you run.
+func limitsCheck() check {
+	return check{ID: "limits", Status: checkInfo, Title: "What another program of yours can still do",
+		Detail: "While Smolcorp is stopped, a program running as you can change its files: add a phone, or loosen the " +
+			"guard for hires started later. Smolcorp takes the change at its next start, and a program can make that " +
+			"start happen by stopping it. Programs of yours can also read the API key from this computer's secret store, " +
+			"and a desk's keys from its environment. See Keys, records and the guard in Smolcorp's docs."}
 }
 
 // ready is whether nothing in checks is in the way: a step still to take

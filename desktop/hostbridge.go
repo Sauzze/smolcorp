@@ -244,6 +244,10 @@ type macFacts struct {
 	Terminal  terminalCmd  `json:"terminalCommand"`
 	// The office's keys held now and the layout in use (officekey.go).
 	OfficeKey *macOfficeKey `json:"officeKey,omitempty"`
+	// Whether the certificate this app is signed with has its signing key in an unlocked keychain of the search
+	// list (SANDBOX-PLAN §3.7): advice for the self-test's signing line. Absent for an ad hoc app, a test copy, or an
+	// app from before 1.26's SD1.
+	SigningKeyUnlocked *bool `json:"signingKeyUnlocked,omitempty"`
 }
 
 // macDictation is Apple's speech recognition on this Mac: whether it can

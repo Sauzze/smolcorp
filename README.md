@@ -98,6 +98,8 @@ install, building it yourself, and what each setup step does are in
 - [Your phone](docs/phone.md): pairing, the keys, typing and voice
 - [Setup, privacy and security](docs/setup.md): what's sent and what never
   is, and setup from a script
+- [Keys, records and the guard](docs/keys-and-guard.md): what keeps
+  Smolcorp's keys from the agents it starts, and what it can't stop
 - [Windows and Linux](docs/windows-linux.md): what differs, who can reach
   Smolcorp, building it yourself
 - [Portable office, summaries and other tools](docs/extras.md)

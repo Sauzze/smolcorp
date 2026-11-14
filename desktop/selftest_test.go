@@ -229,7 +229,7 @@ func wantChecks() []string {
 	if firewallCheck(listenAll) != nil {
 		ids = append(ids, "firewall")
 	}
-	return append(ids, "phone", "login")
+	return append(ids, "phone", "login", "limits")
 }
 
 func TestSetupFromATerminalReadsTheChecklistWithTheCheckOnlyKey(t *testing.T) {

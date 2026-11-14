@@ -330,3 +330,73 @@ final class InstanceLock {
 
     deinit { release() }
 }
+
+/// Setup's advice on the key Smolcorp is signed with (SANDBOX-PLAN §3.7, SD1): whether an identity for this app's own
+/// signing certificate sits in an unlocked keychain of the search list. While it does, any program of yours can sign
+/// a changed Smolcorp that meets this app's requirement, and so reads its items. Only certificates are compared: no
+/// private key is used, and nothing is asked with a prompt. The search list is any program's to change, so a no proves
+/// nothing, and Setup words the line as advice. Through the gate like every Keychain call: shut, it says nothing.
+enum SigningKey {
+    /// This app's leaf signing certificate, or nil for an ad hoc or unsigned build.
+    static func ownCertificate() -> Data? {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let certificates = (info as? [String: Any])?[kSecCodeInfoCertificates as String] as? [SecCertificate],
+              let leaf = certificates.first else { return nil }
+        return SecCertificateCopyData(leaf) as Data
+    }
+
+    /// Whether an identity whose certificate is `certificate` is in one of `keychains` that is unlocked (the search
+    /// list's, without `keychains`). Nil when the gate is shut or the search list can't be read: not said, rather than no.
+    static func unlocked(_ certificate: Data, in keychains: [SecKeychain]? = nil, open: Bool? = nil) -> Bool? {
+        var found: Bool?
+        _ = KeychainGate.call(when: open ?? KeychainGate.isOpen) {
+            var list = keychains
+            if list == nil {
+                var searched: CFArray?
+                guard SecKeychainCopySearchList(&searched) == errSecSuccess else { return errSecNoSuchKeychain }
+                list = searched as? [SecKeychain]
+            }
+            let unlocked = (list ?? []).filter { keychain in
+                var status: SecKeychainStatus = 0
+                return SecKeychainGetStatus(keychain, &status) == errSecSuccess && status & UInt32(kSecUnlockStateStatus) != 0
+            }
+            found = false
+            guard !unlocked.isEmpty else { return errSecSuccess }
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassIdentity, kSecMatchSearchList as String: unlocked,
+                kSecReturnRef as String: true, kSecMatchLimit as String: kSecMatchLimitAll,
+                kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
+            ]
+            var rows: CFTypeRef?
+            let status = SecItemCopyMatching(query as CFDictionary, &rows)
+            guard status == errSecSuccess, let identities = rows as? [SecIdentity] else { return status }
+            found = identities.contains { identity in
+                var leaf: SecCertificate?
+                guard SecIdentityCopyCertificate(identity, &leaf) == errSecSuccess, let leaf else { return false }
+                return SecCertificateCopyData(leaf) as Data == certificate
+            }
+            return errSecSuccess
+        }
+        return found
+    }
+
+    private static let cacheLock = NSLock()
+    private static var cached: (at: Date, unlocked: Bool?)?
+
+    /// Setup's fact `signingKeyUnlocked`, asked every few seconds: looked at again at most once a minute. Null for an
+    /// ad hoc build, and always for a test copy or under the tests, which leave the Keychain alone.
+    static func fact(testCopy: Bool) -> Any {
+        guard !testCopy, !Paths.underTest else { return NSNull() }
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        if let cached, Date().timeIntervalSince(cached.at) < 60 { return cached.unlocked.map { $0 as Any } ?? NSNull() }
+        let unlocked = ownCertificate().flatMap { self.unlocked($0) }
+        cached = (Date(), unlocked)
+        return unlocked.map { $0 as Any } ?? NSNull()
+    }
+}

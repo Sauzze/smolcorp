@@ -47,6 +47,11 @@ the firewall's options. On Windows the server answers only on this PC and on
 Tailscale's address, so the phone must be on Tailscale too: see
 [Who can reach Smolcorp](windows-linux.md#who-can-reach-smolcorp-windows-and-linux).
 
+**The phone shows 502 Bad Gateway at the `ts.net` address.** Tailscale
+reached your computer, but Smolcorp didn't take what `tailscale serve` handed
+on. It's one of three things, each with its fix: see
+[If the phone shows 502 Bad Gateway](phone.md#if-the-phone-shows-502-bad-gateway).
+
 **The roles, or HIRE, don't come out.** Turn on **Let the office hire and fire**
 on the setup page, and choose a folder for new hires. They show only on a free
 desk, or a pinned project's. With no roles

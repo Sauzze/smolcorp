@@ -1252,7 +1252,7 @@
           <p class="hint">For a General Manager you start yourself, turn on <b>Allow a General Manager started by hand</b> below, then start it in Terminal with <code>smolcorp gm login</code>. Smolcorp asks you here, with a code: check that Terminal shows the same one, then click Allow. The token goes to that General Manager alone, and no file holds it.</p>
         </div>
         <div class="field pad">
-          <span class="text">Allow a General Manager started by hand<br><small class="hint">Lets <code>smolcorp gm login</code> ask you for a token here, at each start. Each one gets a new token, and the one before stops working.</small></span>
+          <span class="text">Allow a General Manager started by hand<br><small class="hint">Lets <code>smolcorp gm login</code> ask you for a token here, at each start. Each one gets a new token, and the one before stops working. With no General Manager hired, Smolcorp keeps none across a restart: after it starts again, run <code>smolcorp gm login</code> again.</small></span>
           <button class="switch" id="gm-byhand" aria-label="Allow a General Manager started by hand"></button>
         </div>
         <div class="field pad" id="gm-rotate-row" hidden>
@@ -1464,6 +1464,14 @@
         <p class="hint serve-here serve-mac" hidden>Use Tailscale from tailscale.com. Smolcorp refuses what the Mac App Store version hands on: that version runs as you, so Smolcorp can't tell it apart from any other program on this computer.</p>
         <p class="hint serve-here serve-linux" hidden>On Linux, Smolcorp takes what connects as root, as tailscaled runs: any program running as root could do the same, as it can do anything on this computer. Changing what Tailscale serves takes root too, so if Turn it on says Tailscale didn't do it, run the line above in Terminal. It starts with <code>sudo</code>: it asks for your password, then runs that one line and nothing else.</p>
         <p class="hint serve-here serve-linux" hidden>Optional: for Turn it on to work without sudo, you can make yourself Tailscale's operator with <code>sudo tailscale set --operator=$USER</code>. This lets every program you run change Tailscale's settings (serve, funnel and the rest), not only Smolcorp.</p>
+        <div class="hint serve-here" id="serve-502">If your phone shows <strong>502 Bad Gateway</strong>, Tailscale reached this computer but Smolcorp didn't take what it handed on, even if it says On above. It's one of three things:
+          <ol>
+            <li>Smolcorp couldn't open its private socket as it started. Quit Smolcorp and open it again.</li>
+            <li class="serve-here serve-mac" hidden>Tailscale is the Mac App Store version, which Smolcorp refuses. Install it from tailscale.com, then tap Turn it on again.</li>
+            <li class="serve-here serve-linux" hidden>Smolcorp refused who connected: a tailscaled that doesn't run as root, one in a container, or <code>/proc</code> mounted with <code>hidepid</code>. Run tailscaled as root, as Tailscale's own packages do.</li>
+            <li>Tailscale can't reach the socket in Smolcorp's folder<span class="serve-here serve-linux" hidden> (a tailscaled kept out of your home folder, such as the snap or a unit with <code>ProtectHome=</code>)</span>. Turn it off, and open the deck at this computer's Tailscale address meanwhile.</li>
+          </ol>
+        </div>
         <p class="hint serve-here" id="tailnet-found"></p>
         <div id="tailnet-scan" hidden>
           <div class="or">or scan to pair over Tailscale</div>
@@ -1551,7 +1559,7 @@
     </div>
     <div class="group" id="guard-section" hidden>
       <h2>Guard</h2>
-      <p class="hint">Commands the General Manager and the Claude Code hires it manages are refused, whatever they're asked. A Claude Code hire made with the manager off, and hires of Codex, Gemini CLI, OpenCode and Grok, don't get the guard: they run with their own settings. Each group is on until you switch it off. A group you switch off is dropped from Claude's own deny rules too, not only from the guard: you allowed it, so Smolcorp no longer blocks it.</p>
+      <p class="hint">Commands the General Manager and the Claude Code hires it manages are refused, whatever they're asked. A Claude Code hire made with the manager off, and hires of Codex, Gemini CLI, OpenCode and Grok, don't get the guard: they run with their own settings. Each group is on until you switch it off. A group you switch off is dropped from Claude's own deny rules too, not only from the guard: you allowed it, so Smolcorp no longer blocks it. Smolcorp keeps the guard you set here: while it runs, a change made to the guard's file by hand or by another program can only add rules, and your next save here drops it. On Windows and Linux, a change made while Smolcorp is stopped counts from its next start.</p>
       <div class="box steps switches" id="guard-groups"></div>
       <div class="box guard-extra" id="guard-extra" data-search="Guard" data-keywords="guard refuse block hire push deploy publish command pattern">
         <input type="text" id="guard-pattern" spellcheck="false" placeholder="Another command to refuse, such as terraform import" aria-label="Another command to refuse">
@@ -3126,7 +3134,9 @@
     // What Smolcorp can check of the agents it starts, and an unsigned Claude Code waiting for your yes.
     $('hire-unchecked').textContent = h.agentsChecked
       ? "Smolcorp checks Claude Code from Anthropic's installer before each start. Claude Code installed with npm, Codex, Gemini CLI and OpenCode aren't signed, so Smolcorp can't tell if another program changed them."
-      : "Agents' programs aren't signed in a way this computer can check, so Smolcorp can't tell if another program changed them.";
+      : "Agents' programs aren't signed in a way this computer can check, so Smolcorp can't tell if another program changed them."
+        // Windows: npm's claude.cmd goes through cmd.exe, whose 8,191 characters can't carry a desk's settings (SG1).
+        + (state.platform === 'windows' ? " A desk needs Claude Code from Anthropic's own installer here: Claude Code installed with npm can't take a desk's settings on Windows, so it's refused." : '');
     $('hire-prompts').hidden = !onMac();
     $('claude-unsigned').hidden = !h.claudeUnsigned;
     $('claude-unsigned-line').textContent = h.claudeUnsigned
@@ -4237,7 +4247,9 @@
         paintEngine();
       });
     }
-    $('hs-apikey-notice').textContent = 'Billed to your API key. The hire can read this key.';
+    // Off a Mac the key is in the secret store, which every program you run can read (SANDBOX-PLAN §5.6, SD1).
+    $('hs-apikey-notice').textContent = onMac() ? 'Billed to your API key. The hire can read this key.'
+      : "Billed to your API key. The hire can read this key, and so can any program of yours: it's in this computer's secret store.";
     showHireFence();
     $('hs-questions').replaceChildren(...(role.questions || []).map((q, i) => {
       const label = document.createElement('label');
@@ -7611,7 +7623,8 @@
     renderStartHere(report);
     renderAttention();
     if (!gmPreflightAsked) checkGmPreflight();
-    if (report.checks.some((c) => c.status !== 'ok' && c.status !== 'info')) startTimer = setTimeout(loadStartHere, 15000);
+    // The signing-key step is the owner's own, with nothing to press: it doesn't keep the check coming back (RT126SD1).
+    if (report.checks.some((c) => c.status !== 'ok' && c.status !== 'info' && c.id !== 'signing')) startTimer = setTimeout(loadStartHere, 15000);
   }
 
   function showStartHereFailed() {

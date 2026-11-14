@@ -299,6 +299,28 @@ func TestTheSelfTestHasTheMacsLinesUnderTheMacApp(t *testing.T) {
 	if c := d.selfTest()[at+4]; c.Status != checkOK || c.Detail != "It's in the menu bar from the moment you log in." {
 		t.Errorf("the login item on: %+v", c)
 	}
+	// The key Smolcorp is signed with, unlocked on this Mac: a line of advice last, with nothing to press (SD1). Locked,
+	// or not said (an ad hoc app, a test copy, an app from before): no line.
+	for _, unlocked := range []*bool{nil, new(bool)} {
+		mac.set(func(m *macStandIn) { m.facts.SigningKeyUnlocked = unlocked })
+		for _, check := range d.selfTest() {
+			if check.ID == "signing" {
+				t.Errorf("a signing line with the key not said unlocked (%v): %+v", unlocked, check)
+			}
+		}
+	}
+	yes := true
+	mac.set(func(m *macStandIn) { m.facts.SigningKeyUnlocked = &yes })
+	checks = d.selfTest()
+	signing := checks[len(checks)-1]
+	if signing.ID != "signing" || signing.Status != checkTodo || signing.Fix != "" ||
+		!strings.Contains(signing.Detail, "another program could sign a fake Smolcorp") || !strings.Contains(signing.Detail, "Keys, records and the guard") {
+		t.Errorf("the signing key unlocked: %+v", signing)
+	}
+	if ready(checks[:len(checks)-1]) != ready(checks) {
+		t.Error("advice about the signing key stands in the way of being ready")
+	}
+	mac.set(func(m *macStandIn) { m.facts.SigningKeyUnlocked = nil })
 	// No facts from the app: no Accessibility line rather than a made-up one.
 	mac.refusing(map[string]string{"facts": "The Mac didn't answer in time."})
 	for _, check := range d.selfTest() {

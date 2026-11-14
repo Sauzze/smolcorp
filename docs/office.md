@@ -39,7 +39,8 @@ The setup page also has:
 Open the setup page any time from the menu bar (**Settings…** on a Mac, **Open
 Setup…** in the tray on Windows and Linux), or by opening Smolcorp again from
 Applications. A bookmark of the page won't open it: the menu opens it with a
-link that works once, for five minutes.
+link that works once: for five minutes on a Mac, one minute on Windows and
+Linux.
 
 On a Mac, the office's corner key is **⚙︎ Settings**, and setup's General →
 Window has **Keep the office on top of other windows** and, below it,
