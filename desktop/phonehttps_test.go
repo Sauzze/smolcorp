@@ -584,7 +584,11 @@ func turnItOnAgainOn(t *testing.T, system string) {
 	d := newTestDeck(t)
 	s.atSocket()
 	said := httpsSaid(t, d)
-	if said["status"] != httpsOff || said["onAgain"] != serveOnAgain || said["command"] != serveOnLine() {
+	shown := serveOnLine()
+	if system == "linux" {
+		shown = "sudo " + shown
+	}
+	if said["status"] != httpsOff || said["onAgain"] != serveOnAgain || said["command"] != shown {
 		t.Fatalf("the old way: %v", said)
 	}
 	if !strings.Contains(serveOnAgain, "before this update") || !strings.Contains(serveOnAgain, "Turn it on") || !strings.Contains(serveOnAgain, "once") {
@@ -635,19 +639,70 @@ func TestTheServeLineCopiesIntoAShellWhole(t *testing.T) {
 }
 
 // Setup's lines about who Smolcorp takes through serve.sock are each system's own: the Mac App Store's on the Mac
-// alone, and on Linux alone that what connects as root is taken, so any program running as root could be, with the
-// one line that lets the owner run `tailscale serve` without sudo (OLD-SERVE1).
+// alone, and on Linux alone that what connects as root is taken, so any program running as root could be (OLD-SERVE1).
+// On Linux the way to turn it on by hand is the line above, with its sudo; making the owner Tailscale's operator comes
+// second, as an option, with what it lets every program do (OLD-SERVE1F). Both lines to run are the app's own, so
+// they start with sudo on Linux (TestOnLinuxTheLinesToRunStartWithSudo).
 func TestTheServeLinesAreEachSystemsOwn(t *testing.T) {
 	d := newTestDeck(t)
 	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
+	sudoLine := `<p class="hint serve-here serve-linux" hidden>On Linux, Smolcorp takes what connects as root, as tailscaled runs: any program running as root could do the same, as it can do anything on this computer. Changing what Tailscale serves takes root too, so if Turn it on says Tailscale didn't do it, run the line above in Terminal. It starts with <code>sudo</code>: it asks for your password, then runs that one line and nothing else.</p>`
+	operatorLine := `<p class="hint serve-here serve-linux" hidden>Optional: for Turn it on to work without sudo, you can make yourself Tailscale's operator with <code>sudo tailscale set --operator=$USER</code>. This lets every program you run change Tailscale's settings (serve, funnel and the rest), not only Smolcorp.</p>`
 	for _, want := range []string{
 		`<p class="hint serve-here serve-mac" hidden>Use Tailscale from tailscale.com. Smolcorp refuses what the Mac App Store version hands on`,
-		`<p class="hint serve-here serve-linux" hidden>On Linux, Smolcorp takes what connects as root, as tailscaled runs: any program running as root could do the same`,
-		"<code>sudo tailscale set --operator=$USER</code>",
+		sudoLine,
+		operatorLine,
 		"el.hidden = !here || el.classList.contains('serve-mac') && !onMac() || el.classList.contains('serve-linux') && state.platform !== 'linux';",
+		"$('tailnet-command').textContent = h.command;",
+		"$('tailnet-off-command').textContent = h.offCommand;",
+		`To stop serving: <code id="tailnet-off-command">`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the setup page lacks %q", want)
 		}
+	}
+	// The operator setting is said once, second, after the sudo line, and nowhere else.
+	if strings.Count(page, "--operator") != 1 || strings.Index(page, operatorLine) < strings.Index(page, sudoLine) {
+		t.Error("the operator setting isn't only the option said second")
+	}
+}
+
+// On Linux, setup's lines to run in a terminal are the one serve line and the stop line, in full, with sudo: changing
+// what Tailscale serves takes root there, and nothing assumes the owner is Tailscale's operator (OLD-SERVE1F). The
+// tap still runs the command as the owner, without sudo, as the confirmation shows it: a line with sudo is never
+// taken or run, and where the owner isn't the operator, Tailscale's refusal is said with the status left as it was.
+// On a Mac the lines have no sudo (TestPhoneOverHTTPSSaysWhereTailscaleStands).
+func TestOnLinuxTheLinesToRunStartWithSudo(t *testing.T) {
+	s := withStandInTailscale(t, tsSignedIn, tsNothingOn)
+	macTailscale, linuxTailscale = false, true
+	d := newTestDeck(t)
+	said := httpsSaid(t, d)
+	if said["status"] != httpsOff || said["notHere"] != nil || said["command"] != "sudo "+serveOnLine() ||
+		said["offCommand"] != "sudo tailscale serve --https=443 off" {
+		t.Fatalf("the lines: %v", said)
+	}
+	code, body := pageCall(t, d, "GET", "/setup/tailnet/serve?action=on")
+	var plan struct{ Command string }
+	if code != http.StatusOK || json.Unmarshal([]byte(body), &plan) != nil || plan.Command != serveOnLine() {
+		t.Fatalf("the confirmation: %d %s", code, body)
+	}
+	if code, text := tap(t, d, callerPage, "", "", tapBody("on", "sudo "+serveOnLine())); code != http.StatusConflict {
+		t.Errorf("the line with sudo, tapped: %d %s", code, text)
+	}
+	if got := s.lines(); len(got) != 0 {
+		t.Fatalf("it ran %q", got)
+	}
+	// Not the operator: Tailscale says no, and that is what the tap says.
+	s.say("fail", "access denied: use 'sudo tailscale', or set the operator")
+	code, text := tap(t, d, callerPage, "", "", tapBody("on", plan.Command))
+	if code != http.StatusBadGateway || !strings.Contains(text, "Tailscale didn't do it: access denied") {
+		t.Errorf("not the operator: %d %s", code, text)
+	}
+	if got := s.lines(); !slices.Equal(got, []string{strings.TrimPrefix(serveOnLine(), "tailscale ")}) {
+		t.Errorf("it ran %q", got)
+	}
+	forgetTailnet()
+	if said := httpsSaid(t, d); said["status"] != httpsOff || said["command"] != "sudo "+serveOnLine() {
+		t.Errorf("after: %v", said)
 	}
 }

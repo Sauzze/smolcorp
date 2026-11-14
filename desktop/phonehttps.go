@@ -102,6 +102,19 @@ func commandLine(args []string) string {
 	return "tailscale " + strings.Join(shown, " ")
 }
 
+// terminalLine is a command as setup shows it to run in Terminal. On Linux, changing what `tailscale serve` hands on
+// takes root (or Tailscale's operator setting), so the line starts with sudo: the one line Smolcorp needs, run once as
+// root, and nothing more. Setup never asks the owner to become Tailscale's operator, which would let every program of
+// theirs change Tailscale's settings; that is an opt-in setup explains second (OLD-SERVE1F). The tap still runs the
+// command as the owner, without sudo (commandLine): it works only where the owner chose to be the operator, and
+// otherwise says Tailscale's own refusal.
+func terminalLine(args []string) string {
+	if linuxTailscale {
+		return "sudo " + commandLine(args)
+	}
+	return commandLine(args)
+}
+
 // shellPlain is an argument a shell passes on as it is.
 var shellPlain = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
 
@@ -109,8 +122,9 @@ var shellPlain = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
 // (oldWay): HTTPS through it has to be turned on again, once.
 const serveOnAgain = "HTTPS through tailscale serve was on before this update. Smolcorp now takes it only through a private socket, so turn it on again, once: tap Turn it on."
 
-// phoneHTTPSState is setup's Phone over HTTPS: where Tailscale stands, the address with serve on, the lines, and,
-// where the hand-on isn't let in (Windows, until its own piece), the sentence that says so (null on a Mac and on Linux).
+// phoneHTTPSState is setup's Phone over HTTPS: where Tailscale stands, the address with serve on, the lines to run in
+// Terminal (with sudo on Linux: terminalLine), and, where the hand-on isn't let in (Windows, until its own piece), the
+// sentence that says so (null on a Mac and on Linux).
 // onAgain is the sentence that asks for it to be turned on again, once, while serve hands the app on the old way.
 func (d *Deck) phoneHTTPSState(found tailnetAnswer) map[string]any {
 	var address, notHere, onAgain any
@@ -128,8 +142,8 @@ func (d *Deck) phoneHTTPSState(found tailnetAnswer) map[string]any {
 		"status":     found.httpsStatus(),
 		"address":    address,
 		"port":       Port,
-		"command":    commandLine(serveOnArgs()),
-		"offCommand": commandLine(serveOffArgs()),
+		"command":    terminalLine(serveOnArgs()),
+		"offCommand": terminalLine(serveOffArgs()),
 		"busy":       found.busy,
 		"onAgain":    onAgain,
 	}
