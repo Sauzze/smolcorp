@@ -155,7 +155,12 @@ final class BriefTests: XCTestCase {
         XCTAssertTrue(try brief("builder").contains("in light and dark wherever the project has both"))
         XCTAssertTrue(try brief("designer").contains("in light and dark wherever the project has both"))
         XCTAssertTrue(try brief("lawyer").contains("**This isn't legal advice**"))
-        for id in ["reviewer", "bughunter", "security-auditor", "perf-auditor", "thinker", "planner", "lawyer", "pilot", "postman", "accountant"] {
+        XCTAssertTrue(try brief("minimanager").contains("you hire no one yourself"))
+        XCTAssertTrue(try brief("minimanager").contains("**wait for the user's OK** before you ask for a single hire"))
+        XCTAssertTrue(try brief("gm").contains("as a new part of its brief (`smolcorp gm brief <hire> --file <file>`), never as a message"))
+        XCTAssertTrue(try brief("minimanager").contains("reaches an employee only as a new part of its brief"))
+        for id in ["reviewer", "bughunter", "security-auditor", "perf-auditor", "thinker", "planner", "lawyer", "pilot", "postman", "accountant",
+                   "gm", "minimanager"] {
             XCTAssertEqual(BriefTemplate.frontMatter(try brief(id)).values["read_only"], "true", id)
         }
     }

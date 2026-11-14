@@ -213,6 +213,17 @@ struct Role: Codable, Equatable {
             OK. Keep the mockups next to your brief and leave the project's own code alone. Never push, merge, publish or \
             deploy unless I tell you to.
             """, badge: "star"),
+        Role(id: "minimanager", name: "Mini Manager", agent: "claude", model: "opus", effort: "high", questions: [
+            "What's the goal for this run, and what's out of scope?",
+            "Who already works on it (people, agents, folders, branches), and who hires the people it needs?",
+            "What do you want to approve yourself, beyond push, publish, deploy, spending and deleting? What counts as proof that a piece is done?",
+        ], instructions: """
+            Run one project for me. First settle the goal with me and plan it in pieces one person can finish and \
+            prove, then show me the plan and wait for my OK. You don't write the project's code and you don't hire anyone: \
+            write each piece's brief and ask the General Manager, or me, for each hire. Check each piece's proof yourself \
+            and have a second agent review it before you call it done. Keep a board of the team, the proof and what needs \
+            me. Never push, merge, publish or deploy, and never pass an approval on as if it came from me.
+            """, badge: "flag"),
     ]
 
     /// The shipped roles each version came with, by id, in order: a config

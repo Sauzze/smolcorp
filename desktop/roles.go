@@ -70,7 +70,7 @@ var (
 	// then those for roles of your own.
 	briefLibraryIDs = []string{"reviewer", "tester", "bughunter", "docs", "refactorer", "artdirector", "lawyer", "therapist", "plumber",
 		"gm", "janitor", "firefighter", "pilot", "postman", "accountant", "marketer", "chef", "thinker",
-		"builder", "designer", "security-auditor", "perf-auditor", "pixel-artist", "planner", "fixer", "study",
+		"builder", "designer", "minimanager", "security-auditor", "perf-auditor", "pixel-artist", "planner", "fixer", "study",
 		"issue-sorter", "test-writer", "dependency-updater", "translator", "api-checker", "support-writer"}
 	// A shipped role whose brief has an id of its own: the Security guard's is the security auditor's.
 	briefLibraryOfRole = map[string]string{"securityguard": "security-auditor"}
@@ -255,6 +255,17 @@ var (
 				"content, beside screenshots of what's there today. First tell me the direction in a few lines and wait for my " +
 				"OK. Keep the mockups next to your brief and leave the project's own code alone. Never push, merge, publish or " +
 				"deploy unless I tell you to."},
+		{ID: "minimanager", Name: "Mini Manager", Agent: "claude", Model: "opus", Effort: "high", Badge: "flag",
+			Questions: []string{
+				"What's the goal for this run, and what's out of scope?",
+				"Who already works on it (people, agents, folders, branches), and who hires the people it needs?",
+				"What do you want to approve yourself, beyond push, publish, deploy, spending and deleting? What counts as proof that a piece is done?",
+			},
+			Instructions: "Run one project for me. First settle the goal with me and plan it in pieces one person can finish and " +
+				"prove, then show me the plan and wait for my OK. You don't write the project's code and you don't hire anyone: " +
+				"write each piece's brief and ask the General Manager, or me, for each hire. Check each piece's proof yourself " +
+				"and have a second agent review it before you call it done. Keep a board of the team, the proof and what needs " +
+				"me. Never push, merge, publish or deploy, and never pass an approval on as if it came from me."},
 	}
 	// The shipped roles as 1.7.1 had them, which assumed what to work on. A
 	// role still exactly so is brought up to date as it loads; one you've
