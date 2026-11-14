@@ -94,3 +94,69 @@ func TestWhichClaudeCodeTheOwnerHasIsProtectedForTheGMAndAHire(t *testing.T) {
 		}
 	}
 }
+
+// MEM1: neither the GM nor a hire may name the GM's memory (desktop/memory.go's gm-memory), by any spelling or
+// pattern: only the core writes it, and the GM reads it only through the core's routes. Only the refusal is checked:
+// nothing is read or written.
+func TestTheGMsMemoryIsProtectedForTheGMAndAHire(t *testing.T) {
+	lines := []string{
+		"cat ~/Library/Application\\ Support/AgentDeck/gm-memory/manifest.json",
+		"cp /tmp/x.md ~/.config/smolcorp/gm-memory/",
+		"ls \"$HOME/Library/Application Support/AgentDeck/gm-memory\"",
+		"echo note >> ~/.config/smolcorp/gm-memory/0123.md",
+		// Other spellings: cased, quoted, escaped, by a pattern, Windows' folder and PowerShell, a script.
+		"cat ~/.config/smolcorp/GM-Memory/manifest.json",
+		"cat ~/.config/smolcorp/gm'-mem'ory/manifest.json",
+		"cat ~/.config/smolcorp/gm\\-memory/manifest.json",
+		"cat ~/.config/smolcorp/gm-mem*/manifest.json",
+		"cat ~/.config/smolcorp/gm-m?mory/manifest.json",
+		"cat ~/.config/smolcorp/gm-[m]emory/manifest.json",
+		"cat ~/Library/Application\\ Support/AgentDeck/g*mory/manifest.json",
+		"cat ~/Library/Application\\ Support/AgentDeck/*/manifest.json",
+		// Under the support folder, a pattern that fills in the folder's name, however few of its letters it writes
+		// out, as for the other kept names there (RT126MEM1 B2).
+		"cat ~/Library/Application\\ Support/AgentDeck/gm*/*.md",
+		"ls ~/Library/Application\\ Support/AgentDeck/g*",
+		"cat ~/.config/smolcorp/g*/0123.md",
+		"cat ~/.config/smolcorp/*mem*/*.md",
+		"cat ~/.config/smolcorp/?m-*/*.md",
+		"cat ~/.config/smolcorp/*/*.md",
+		"cat ~/Library/Application\\ Support/AgentDeck/*/0123.md",
+		"cat ~/.config/smolcorp/{*,x/y}/*.md",
+		"Get-Content $env:APPDATA\\Smolcorp\\g*\\*.md",
+		// From inside the support folder, where no path before says so: three of its letters written out.
+		"cat gm-mem*/0123.md",
+		"cat g*mory/manifest.json",
+		"ls gm-m?mory",
+		"Get-Content $env:APPDATA\\Smolcorp\\gm-memory\\manifest.json",
+		"python3 -c 'print(open(\"/home/u/.config/smolcorp/gm-memory/manifest.json\").read())'",
+	}
+	for name, groups := range map[string][]Group{"a hire": DefaultGroups(), "the GM": ForGM(DefaultGroups())} {
+		for _, line := range lines {
+			if Check(line, groups) == nil {
+				t.Errorf("%s: let through: %s", name, line)
+			}
+		}
+	}
+	// The lexer hands on a brace's words one by one, so a / in a bracket or a group reaches skeletonParts only past
+	// it: there the bracket or group stays whole in its part, where it may stand for the folder.
+	for word, want := range map[string]int{"smolcorp/x/*.md": 3, "smolcorp/{*,x/y}/*.md": 3, "smolcorp/[x/y]*/*.md": 3, "smolcorp/{*/*.md": 2} {
+		sk := skeletonOf(word, nil)
+		if parts := skeletonParts(&sk); len(parts) != want {
+			t.Errorf("%s: %d parts, not %d", word, len(parts), want)
+		}
+	}
+	// Reading the code that keeps it, or the GM's own command, is neither.
+	for _, line := range []string{"cat desktop/memory.go", "grep -n memoryFolder desktop/*.go", "go test -run Memory ./desktop/",
+		"ls Sources/AgentDeck/*.swift", "cat docs/*/README.md", "ls web/*/manifest.json",
+		"cat ~/Projects/smolcorp/docs/*.md", "ls ~/.config/smolcorp/*.md", "cat $HOME/Projects/smolcorp/desktop/*.go"} {
+		if r := Check(line, DefaultGroups()); r != nil {
+			t.Errorf("refused %q: %v", line, r)
+		}
+	}
+	for _, line := range []string{"smolcorp gm memory", "smolcorp gm memory show tests"} {
+		if r := Check(line, ForGM(DefaultGroups())); r != nil {
+			t.Errorf("the GM refused %q: %v", line, r)
+		}
+	}
+}

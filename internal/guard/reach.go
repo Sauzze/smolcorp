@@ -351,7 +351,7 @@ var matchTargets = func() (t struct{ name, path []skTarget }) {
 		target(0, piece{any: true}, piece{text: "/"}, piece{start: true}, piece{text: ".claude"}),
 		target(0, piece{any: true}, piece{text: "/"}, piece{start: true}, piece{text: ".claude/settings.json"}),
 	}
-	for _, kept := range keptTargets.files[3] {
+	for _, kept := range append(slices.Clone(keptTargets.files[3]), keptTargets.below[3]...) {
 		t.path = append(t.path, kept.tg)
 	}
 	return t

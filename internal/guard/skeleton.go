@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -646,6 +647,16 @@ func keptFiles() []string {
 // never one.
 var keptFolder = []string{".claude", ".claude/settings.json", ".claude/settings.local.json"}
 
+// keptBelow are the kept files that are folders (protectedNames: the GM's memory), each with the file in it read
+// where the path before could be the support folder. A run may stand for a /, and there no letter of a kept file
+// need be written out, so any pattern there would fill a folder and what is below it in (package*.json,
+// setup-k?y): a folder, alone or with a path below it (gm-mem*/manifest.json), is filled in only with three of its
+// letters written out, wherever the path is; and where the path could be the support folder, so is the file in
+// it, three letters of the file's stem written out (*/manifest.json). There, too, each path part after the support
+// folder's is read on its own against the folder's real name (keptTargets.part, skeletonParts), with no letter of it
+// written out, as the other kept names are there: gm*, g*, *mem*, ?m-* and * fill it in, *.md doesn't.
+var keptBelow = map[string]string{"gm-memory": "manifest.json"}
+
 // namedTarget is a name the guard keeps and a target that stands for it.
 type namedTarget struct {
 	name string
@@ -654,15 +665,24 @@ type namedTarget struct {
 
 // keptTargets are skeletonNames' targets: files[n] each kept file with n of its letters written out, at the start
 // of the word or after a /; support, a path that could hold the support folder's name, three of its letters
-// written out, with a part after it; folder, Claude Code's settings and their folder.
+// written out, with a part after it; supportPart, one path part that holds the support folder's name, three of its
+// letters written out; below[n], what is below each kept folder, at least three of its letters written out
+// (keptBelow); part, each kept folder's name as one whole path part, none of its letters written out; folder,
+// Claude Code's settings and their folder.
 var keptTargets = func() (k struct {
-	files   map[int][]namedTarget
-	support []skTarget
-	folder  []namedTarget
+	files       map[int][]namedTarget
+	below       map[int][]namedTarget
+	part        []namedTarget
+	support     []skTarget
+	supportPart []skTarget
+	folder      []namedTarget
 }) {
-	k.files = map[int][]namedTarget{}
+	k.files, k.below = map[int][]namedTarget{}, map[int][]namedTarget{}
 	for _, least := range []int{0, 1, 3} {
 		for _, name := range keptFiles() {
+			if _, folder := keptBelow[name]; folder {
+				continue
+			}
 			stem, ext := strings.CutSuffix(name, ".json")
 			suffix := ""
 			if ext {
@@ -671,9 +691,24 @@ var keptTargets = func() (k struct {
 			k.files[least] = append(k.files[least], namedTarget{name, target(least, piece{any: true}, piece{text: "/"}, piece{start: true},
 				piece{text: stem, counted: true}, piece{text: suffix})})
 		}
+		for name, file := range keptBelow {
+			if stem, ext, _ := strings.Cut(file, "."); least == 0 {
+				// Its stem's letters, not the .json any file has (package*.json).
+				k.files[0] = append(k.files[0], namedTarget{name, target(3, piece{any: true}, piece{text: "/"}, piece{start: true},
+					piece{text: name + "/"}, piece{text: stem, counted: true}, piece{text: "." + ext})})
+			}
+			k.below[least] = append(k.below[least],
+				namedTarget{name, target(max(least, 3), piece{any: true}, piece{text: "/"}, piece{start: true}, piece{text: name, counted: true})},
+				namedTarget{name, target(max(least, 3), piece{any: true}, piece{text: "/"}, piece{start: true}, piece{text: name, counted: true},
+					piece{text: "/"}, piece{any: true})})
+		}
+	}
+	for name := range keptBelow {
+		k.part = append(k.part, namedTarget{name, target(0, piece{text: name})})
 	}
 	for _, word := range supportWords {
 		k.support = append(k.support, target(3, piece{any: true}, piece{text: word, counted: true}, piece{any: true}, piece{text: "/"}, piece{any: true}))
+		k.supportPart = append(k.supportPart, target(3, piece{any: true}, piece{text: word, counted: true}, piece{any: true}))
 	}
 	for _, name := range keptFolder {
 		k.folder = append(k.folder, namedTarget{name, target(0, piece{any: true}, piece{text: "/"}, piece{start: true}, piece{text: name})})
@@ -699,7 +734,7 @@ func skeletonNames(sk *skeleton, least int, budget *int) []string {
 	if !sk.dot && total < min(least, 3) {
 		return nil
 	}
-	fill := func(tg *skTarget) bool {
+	fillIn := func(sk *skeleton, tg *skTarget) bool {
 		if !sk.could(tg) {
 			return false
 		}
@@ -713,22 +748,78 @@ func skeletonNames(sk *skeleton, least int, budget *int) []string {
 		}
 		return fills(sk, tg)
 	}
-	files := keptTargets.files[least]
+	fill := func(tg *skTarget) bool { return fillIn(sk, tg) }
+	files, support := keptTargets.files[least], false
 	for i := range keptTargets.support {
 		if fill(&keptTargets.support[i]) {
-			files = keptTargets.files[0]
+			files, support = keptTargets.files[0], true
 			break
 		}
 	}
 	var out []string
-	for _, list := range [][]namedTarget{files, keptTargets.folder} {
+	for _, list := range [][]namedTarget{files, keptTargets.below[least], keptTargets.folder} {
 		for i := range list {
-			if fill(&list[i].tg) {
+			// A kept folder is named by its own target and by the file below it's kept with (keptBelow): once.
+			if !slices.Contains(out, list[i].name) && fill(&list[i].tg) {
 				out = append(out, list[i].name)
 			}
 		}
 	}
+	if !support {
+		return out
+	}
+	// Where the path could be the support folder: each part after the one that holds its name (every part, when no
+	// one part does: the name written across a \ or a run), read against each kept folder's name as a whole part.
+	// A word too long to read atom by atom has no parts to read: it fills in each folder, as it does every name.
+	parts := skeletonParts(sk)
+	from := 0
+	for i := range parts {
+		if slices.ContainsFunc(keptTargets.supportPart, func(tg skTarget) bool { return fillIn(&parts[i], &tg) }) {
+			from = i + 1
+			break
+		}
+	}
+	for _, folder := range keptTargets.part {
+		if slices.Contains(out, folder.name) {
+			continue
+		}
+		if sk.long || slices.ContainsFunc(parts[from:], func(part skeleton) bool { return fillIn(&part, &folder.tg) }) {
+			out = append(out, folder.name)
+		}
+	}
 	return out
+}
+
+// skeletonParts are a skeleton's path parts, each a skeleton of its own: split at each / outside a bracket or a
+// group, since one inside may stand in a part of its own ({*,x/y}), where the whole bracket or group stays one part.
+// A bracket or a group that never closes keeps the rest of the word in its part.
+func skeletonParts(sk *skeleton) []skeleton {
+	var parts []skeleton
+	var part skeleton
+	brackets, groups := 0, 0
+	for _, a := range sk.atoms {
+		switch a.kind {
+		case aOpen:
+			brackets++
+		case aClose:
+			brackets = max(brackets-1, 0)
+		case aGroup:
+			groups++
+		case aEnd:
+			groups = max(groups-1, 0)
+		case aSlash:
+			if brackets == 0 && groups == 0 {
+				parts, part = append(parts, part), skeleton{}
+				continue
+			}
+		}
+		part.atoms = append(part.atoms, a)
+		if a.kind == aLit && a.r < utf8.RuneSelf {
+			part.letters[a.r]++
+		}
+		part.dot = part.dot || a.dot || a.kind == aLit && a.r == '.' && a.start
+	}
+	return append(parts, part)
 }
 
 // PatternCouldFill says whether a path pattern, read as its skeleton with every character outside quotes, could

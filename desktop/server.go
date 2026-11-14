@@ -2421,7 +2421,7 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 	if who == callerPage {
 		recordsSaid = recordsText(recordsState(), recordsStale())
 		recordsReset = recordsResetConfirm(recordsState(), recordsStale())
-		recordsDropped = recordsDroppedText()
+		recordsDropped = strings.TrimSpace(recordsDroppedText() + " " + d.memory.asideText())
 	}
 	// Every key a project can be pinned to, even those the phone doesn't
 	// show: with Auto, a pin there adds keys up to it; with a fixed number,

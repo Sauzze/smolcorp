@@ -22,8 +22,8 @@ import (
 )
 
 // Sealed records (SANDBOX-PLAN §3.2, SK1). Every file that says who is let in, or what they may do, is a sealed
-// record: phones.json, mac-peers.json, registry.json's permissions, config.json's security settings and the core's
-// copy of the guard. On a Mac each carries an HMAC-SHA-256 of what it holds under the record key: 32 random bytes
+// record: phones.json, mac-peers.json, registry.json's permissions, config.json's security settings, the core's
+// copy of the guard, and the GM's memory's manifest (memory.go). On a Mac each carries an HMAC-SHA-256 of what it holds under the record key: 32 random bytes
 // in one Keychain item of the Mac app's, in the login keychain opened by its path, which only the app reads and
 // hands to this core over the bridge. A program running as the owner can write these files, but not seal them, so
 // what it writes counts for nothing. The core reads each record once, as it starts, holds it in memory, and from
@@ -279,9 +279,10 @@ func interruptedRotation(items []bridgeRecordKey) bool {
 	return false
 }
 
-// sealedRecordNames are the files that carry a seal of their own, in the support folder.
+// sealedRecordNames are the files that carry a seal of their own, in the support folder: the GM's memory's manifest
+// in its own folder (memory.go).
 func sealedRecordNames() []string {
-	return []string{"phones.json", "mac-peers.json", "registry.json", "config.json"}
+	return []string{"phones.json", "mac-peers.json", "registry.json", "config.json", memoryManifestName}
 }
 
 // sealedOnDisk is whether any record in the support folder carries a seal, or the guard's seal is there.
@@ -793,6 +794,9 @@ func (d *Deck) settleRecords() {
 		keepWriter("mac-peers.json", d.macPeers.writer())
 	}
 	keepWriter("config.json", d.config.writer())
+	if _, err := os.Lstat(filepath.Join(d.memory.dir, memoryManifestFile)); err == nil {
+		keepWriter(memoryManifestName, d.memory.writer())
+	}
 	frontDeskMu.Lock()
 	// A file that couldn't be read is never written over by a rotation (RT126SK1R3 N4): the core holds an empty
 	// registry for it, and the file is set aside as registry.broken.json at the next edit, so it can be mended.
@@ -848,6 +852,8 @@ func (d *Deck) resetRecords() error {
 	d.gmToken = ""
 	d.gmTokenChanged()
 	d.config.save()
+	// The GM's memory as the core holds it (memory.go): every note after a check that passed, none after one that failed.
+	_ = d.memory.save()
 	frontDeskMu.Lock()
 	// As an edit: a file that couldn't be read is set aside as registry.broken.json first, never saved over
 	// (RT126SK1R3 N4).

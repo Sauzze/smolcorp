@@ -499,6 +499,8 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		"selftest-key": checkOnly,
 		// ACP1: the ACP desks' transcripts, what was said (acptranscript.go). They grant nothing.
 		acpTranscriptFolder: notSecret,
+		// MEM1: the GM's memory (memory.go), its manifest sealed, each note's file counted by its hash in it.
+		memoryFolder: sealed,
 	}
 	d, mac, phoneKey, _ := macDeck(t)
 	sendKey := withAHire(t)
@@ -517,6 +519,7 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		transcript.user("hello", time.Now())
 		transcript.close(time.Now())
 	}
+	keptNote(t, d, memoryNote("Tests run with pnpm"))
 	if kept, _ := mac.keptItem(); kept != keptAs(token) {
 		t.Errorf("the GM's Keychain item holds %q, not the token's verifier", kept)
 	}
@@ -532,6 +535,23 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		if !ok {
 			t.Errorf("%s has no class in the inventory", name)
 			continue
+		}
+		if name == memoryFolder {
+			// Its files: no key in any, and the manifest's seal fits.
+			files, _ := os.ReadDir(filepath.Join(supportDir, name))
+			for _, file := range files {
+				data, _ := os.ReadFile(filepath.Join(supportDir, name, file.Name()))
+				for what, key := range keys {
+					if bytes.Contains(data, []byte(key)) {
+						t.Errorf("%s/%s holds %s", name, file.Name(), what)
+					}
+				}
+			}
+			if data, err := os.ReadFile(filepath.Join(supportDir, memoryManifestName)); err != nil || len(files) != 2 {
+				t.Errorf("the GM's memory: %d files, %v", len(files), err)
+			} else if seal, ok := sealOfFile(memoryManifestName, data); !ok || !seal.fits(recordKey()) {
+				t.Errorf("%s is a sealed record without a seal that fits", memoryManifestName)
+			}
 		}
 		if entry.IsDir() {
 			continue

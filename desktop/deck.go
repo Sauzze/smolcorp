@@ -153,6 +153,8 @@ type Deck struct {
 	mail *mailOutbox
 	// The owner's words to the GM, in memory only, for a rule to quote (ownerwords.go): its own lock, taken with or without mu.
 	owner ownerWords
+	// The GM's memory, a sealed record held from the start (memory.go): its own lock, taken with or without mu.
+	memory *gmMemory
 	// A look in the bots' mailboxes is out (see botmailbox.go).
 	looking sync.Mutex
 	// What the GM asked the app to watch, kept in the support folder (see watchers.go).
@@ -263,6 +265,7 @@ func NewDeck() *Deck {
 	d.t3Desks = newT3Desks(registry)
 	// Floors from other Macs: those paired here, from the support folder; those joined, in the secret store.
 	d.macPeers = loadMacPeers(macPeersFile())
+	d.memory = loadMemory(filepath.Join(supportDir, memoryFolder))
 	d.settleRecords()
 	d.peerKeys = peerKeyStoreFor(d.mac.host)
 	d.pushKeys = newPushKeys(pushKeyStoreFor(d.mac.host))

@@ -249,6 +249,8 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 	for _, n := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json", "grants-key", "grants.jsonl", "grants.jsonl.tmp", "phones-seal", "claude-install", "claude-install.tmp"} {
 		want = append(want, "Read(//s/"+n+")")
 	}
+	// The GM's memory (MEM1), as a file and a folder, and what's in it.
+	want = append(want, "Edit(//s/gm-memory)", "Edit(//s/gm-memory/**)", "Read(//s/gm-memory/**)")
 	if !slices.Equal(got, want) {
 		t.Fatalf("rules differ:\n got %q\nwant %q", got, want)
 	}

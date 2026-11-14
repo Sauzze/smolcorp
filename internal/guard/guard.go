@@ -247,10 +247,12 @@ var fullFolds = strings.NewReplacer(
 // (claude-install: desktop/agentcheck.go), whose "npm" would let an unsigned
 // Claude Code start where a signed one ran, and the push key where a computer
 // with no secret store keeps it, which signs what rings those phones
-// (push-key-kept: desktop/pushkey.go). A pattern that fills in a file's name
-// (gm-t*) comes out of the lexer as the name itself.
+// (push-key-kept: desktop/pushkey.go); and the GM's memory (gm-memory:
+// desktop/memory.go), which only the core writes, and the GM reads only
+// through the core's routes. A pattern that fills in a file's name (gm-t*)
+// comes out of the lexer as the name itself.
 var always = []string{"gm-token", "SMOLCORP_GM_TOKEN", "disableAllHooks", "grants-key", "grants.jsonl",
-	"phones.json", "phones-seal", "claude-install", "push-key-kept"}
+	"phones.json", "phones-seal", "claude-install", "push-key-kept", "gm-memory"}
 
 func namesAlways(text string) string {
 	low := Fold(text)

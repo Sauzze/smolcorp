@@ -366,6 +366,13 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 	for _, name := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", hireGuardFile, "phones.json", "sessions.json", "config.json", "registry.json", "grants-key", "grants.jsonl", "grants.jsonl.tmp", phoneSealName, claudeInstallName, claudeInstallTemp} {
 		rules = append(rules, "Read("+root+"/"+name+")")
 	}
+	// The GM's memory (memory.go): only the core writes it, and the GM reads it through the core's routes alone. As a
+	// file and as a folder, whether or not it is there yet.
+	for _, rule := range []string{"Edit(" + root + "/" + memoryFolder + ")", "Edit(" + root + "/" + memoryFolder + "/**)", "Read(" + root + "/" + memoryFolder + "/**)"} {
+		if !has(rules, rule) {
+			rules = append(rules, rule)
+		}
+	}
 	// The GM's token, kept in a file on a computer whose secret store can't keep it (gmtokenstore.go), and the file
 	// it is written through: on Linux and Windows always, whether or not it is there yet, since a GM hired after this
 	// hire makes it. A Mac never keeps it there, so its fence is unchanged. So is the push key (pushkey.go), which
