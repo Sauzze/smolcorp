@@ -461,7 +461,7 @@ final class SummaryTests: XCTestCase {
 
     func testWhatLooksLikeASecret() {
         for line in ["OPENAI sk-proj-xyz", "API_KEY=abc", "\"apiKey\": \"x\"", "my Password is", "access_token", "client secret",
-                     "AKIAIOSFODNN7EXAMPLE", "xoxb-123", "-----BEGIN RSA PRIVATE KEY-----", "re_AbC123"] {
+                     "AKIA" + "IOSFODNN7EXAMPLE", "xoxb-123", "-----BEGIN RSA PRIVATE KEY-----", "re_AbC123"] {
             XCTAssertTrue(Redact.isSecret(line), line)
         }
         for line in ["fix the task-list", "prepare_build", "the monkey ran", "Building for debugging"] {

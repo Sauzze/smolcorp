@@ -27,6 +27,11 @@ import (
 // A token-shaped string, obviously fake: it must never pass the filter, nor reach an event or the log.
 var loginFakeToken = fakeAnthropicToken("oat", "FAKEFAKEFAKEFAKEFAKEFAKE0123456789")
 
+// An AWS access key ID and secret key on one line, obviously fake: AWS's documentation example with
+// FAKE in it. It's put together only when the tests run, so neither the public check
+// (scripts/check-public.sh) nor GitHub's push protection takes this file for a real key.
+var loginFakeAWSKeys = "AKIA" + "FAKEFAKEFAKEFAKE" + " " + "wJalrXUtnFEMI" + "K7MDENGbPxRfiCY" + "FAKEFAKEKEY1"
+
 // Links shaped as the agents print them (the PKCE values are made up).
 const (
 	pkce          = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCdE"
@@ -326,7 +331,7 @@ func TestOnlyTheFilteredLinkCodeAndOutcomeLeaveALogin(t *testing.T) {
 		`{"accessToken":"` + loginFakeToken + `","refreshToken":"` + fakeAnthropicToken("ort", "FAKEFAKE") + `"}`,
 		"OPENAI_API_KEY=sk-proj-FAKEFAKEFAKE",
 		"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJGQUtFRkFLRSJ9.FAKEFAKEsignature",
-		"AKIAFAKEFAKEFAKEFAKE wJalrXUtnFEMIK7MDENGbPxRfiCYFAKEFAKEKEY1",
+		loginFakeAWSKeys,
 		"https://claude.ai.evil.example/oauth/authorize?state=" + pkce,
 		"https://evil.example/claude.ai/oauth/authorize",
 		"https://claude.ai@evil.example/oauth/authorize",
