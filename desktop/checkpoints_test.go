@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -1059,43 +1060,34 @@ func TestASubmodulesHeadIsNeverTakenFromTheRepoAboveIt(t *testing.T) {
 	}
 }
 
-// slowRefWrites stands in for a slow disk: a git first in the PATH that runs the real one with the blank hooks path
-// swapped for a folder whose reference-transaction hook sleeps (at "prepared", the locks held) as many seconds as a
-// flag file says, while there is one. Writing the flag is what makes the next ref write slow. The real git is exec'd, so a signal reaches it.
-func slowRefWrites(t *testing.T) (slow func(seconds int)) {
+// slowRefWrites stands in for a slow disk: each write of a ref (a create or a delete) waits as long as slow last said,
+// after the look at the folder pinned.
+func slowRefWrites(t *testing.T) (slow func(d time.Duration)) {
+	t.Helper()
+	var wait atomic.Int64
+	cpBeforeRefWrite = func() { time.Sleep(time.Duration(wait.Load())) }
+	t.Cleanup(func() { cpBeforeRefWrite = nil })
+	return func(d time.Duration) { wait.Store(int64(d)) }
+}
+
+// refWriteBefore runs action (shell) once, at the next write of a ref, between the look at the folder pinned and the
+// write: the worst moment, which no git wrapper reaches now that no git writes a ref. arm arms it; fired says it ran.
+func refWriteBefore(t *testing.T, action string) (arm func(), fired func() bool) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("shell scripts")
 	}
-	real, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("no git here")
-	}
-	root := physical(t.TempDir())
-	hooks, flag := filepath.Join(root, "hooks"), filepath.Join(root, "slow")
-	if err := os.MkdirAll(hooks, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	hook := "#!/bin/sh\nif [ \"$1\" = prepared ] && [ -f '" + flag + "' ]; then exec sleep \"$(cat '" + flag + "')\"; fi\n"
-	if err := os.WriteFile(filepath.Join(hooks, "reference-transaction"), []byte(hook), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	wrapper := "#!/bin/sh\nn=$#\nwhile [ $n -gt 0 ]; do\n  a=$1; shift\n  case \"$a\" in core.hooksPath=*) a='core.hooksPath=" + hooks + "';; esac\n  set -- \"$@\" \"$a\"\n  n=$((n-1))\ndone\nexec '" + real + "' \"$@\"\n"
-	bin := filepath.Join(root, "bin")
-	if err := os.MkdirAll(bin, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(wrapper), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return func(seconds int) {
-		if seconds > 0 {
-			_ = os.WriteFile(flag, []byte(strconv.Itoa(seconds)), 0o644)
-		} else {
-			_ = os.Remove(flag)
+	var armed, done atomic.Bool
+	cpBeforeRefWrite = func() {
+		if armed.CompareAndSwap(true, false) {
+			if out, err := exec.Command("sh", "-c", action).CombinedOutput(); err != nil {
+				t.Errorf("%v %s", err, out)
+			}
+			done.Store(true)
 		}
 	}
+	t.Cleanup(func() { cpBeforeRefWrite = nil })
+	return func() { done.Store(false); armed.Store(true) }, done.Load
 }
 
 // locksIn lists the lock files of a git folder.
@@ -1112,17 +1104,15 @@ func locksIn(t *testing.T, dir string) []string {
 	return locks
 }
 
-// A write that runs past its deadline is stopped so that git removes its locks: the owner's own git must still work.
-func TestARefWriteStoppedByItsDeadlineLeavesNoLockForTheOwner(t *testing.T) {
+// The store writes its refs itself (T126CK1), as git does: no lock file is left, the owner's own git works on them as
+// on its own, and refs git packed are counted (the next number is past them) and dropped from packed-refs, loose or not.
+func TestTheRefsTheStoreWritesAreGitsOwnAndLeaveNoLock(t *testing.T) {
 	cpScratch(t)
-	slow := slowRefWrites(t)
 	dir := aGitRepo(t)
 	store := newCheckpoints()
 	for i := 0; i < 3; i++ {
 		newSnap(t, store, cpDesk(dir), "x")
 	}
-	defer func(d time.Duration) { checkpointRefTimeout = d }(checkpointRefTimeout)
-	checkpointRefTimeout = 700 * time.Millisecond
 	ownersGitWorks := func(what string) {
 		t.Helper()
 		if locks := locksIn(t, dir); len(locks) != 0 {
@@ -1130,49 +1120,56 @@ func TestARefWriteStoppedByItsDeadlineLeavesNoLockForTheOwner(t *testing.T) {
 		}
 		gitRepoCmd(t, dir, "branch", "zzz")
 		gitRepoCmd(t, dir, "branch", "-D", "zzz") // takes the packed-refs lock too
-		gitRepoCmd(t, dir, "pack-refs", "--all")
-	}
-	// A create that sleeps while it holds its locks.
-	slow(60)
-	started := time.Now()
-	if cp, note := store.snapshot(cpDesk(dir), "slow"); cp.ID != "" || !strings.Contains(note, "took too long") || time.Since(started) > 20*time.Second {
-		t.Errorf("%+v %q after %s", cp, note, time.Since(started))
+		gitRepoCmd(t, dir, "fsck", "--no-dangling")
 	}
 	ownersGitWorks("a create")
-	// A delete likewise (the snapshot's own prune, and keepOnly, and forget).
-	if note := store.keepOnly(cpDesk(dir), 1); !strings.Contains(note, "took too long") {
-		t.Errorf("%q", note)
-	}
-	ownersGitWorks("a prune")
-	if note := store.forget(cpDesk(dir)); !strings.Contains(note, "took too long") {
-		t.Errorf("%q", note)
-	}
-	ownersGitWorks("a forget")
-	// The desk is not stuck: the next snapshot is the next number, and the drops go through.
-	slow(0)
-	if cp := newSnap(t, store, cpDesk(dir), "fast"); cp.N != 4 {
+	gitRepoCmd(t, dir, "pack-refs", "--all")
+	if cp := newSnap(t, store, cpDesk(dir), "after a pack"); cp.N != 4 {
 		t.Errorf("%+v", cp)
 	}
 	if note := store.keepOnly(cpDesk(dir), 1); note != "" {
 		t.Error(note)
 	}
-	if list, _ := store.list(cpDesk(dir)); len(list) != 1 || list[0].N != 4 {
-		t.Errorf("%v", list)
+	list, _ := store.list(cpDesk(dir))
+	if len(list) != 1 || list[0].N != 4 {
+		t.Fatalf("%v", list)
+	}
+	packed, err := os.ReadFile(filepath.Join(dir, ".git", "packed-refs"))
+	if err != nil || strings.Contains(string(packed), "refs/smolcorp") || !strings.Contains(string(packed), "refs/heads/main") {
+		t.Errorf("%v %q", err, packed)
+	}
+	ownersGitWorks("a prune")
+	// Packed only, its folder gone (pack-refs removes it); then packed and loose at once. Each goes whole.
+	folder := filepath.Join(dir, ".git", "refs", "smolcorp", "checkpoints", "s1")
+	for _, loose := range []bool{false, true} {
+		gitRepoCmd(t, dir, "pack-refs", "--all")
+		if loose {
+			writeRepoFile(t, folder, "1", list[0].ID+"\n") // git's own update-ref writes no loose copy of a packed ref's value
+		}
+		if note := store.forget(cpDesk(dir)); note != "" {
+			t.Error(note)
+		}
+		if refs := cpRefs(t, dir); refs != "" {
+			t.Errorf("%q", refs)
+		}
+		if _, err := os.Lstat(folder); err == nil {
+			t.Error("the desk's empty folder of refs was left")
+		}
+		ownersGitWorks("a forget")
+		list = []Checkpoint{newSnap(t, store, cpDesk(dir), "again")}
 	}
 }
 
-// A ref write gets its own deadline: a snapshot whose own time is spent by the time it writes still ends by writing its
-// ref, as the write is not given what was left.
+// A ref write runs on no deadline of the snapshot's: a snapshot whose own time is spent by the time it writes (a slow
+// disk) still ends by writing its ref.
 func TestAWriteDoesNotRunOnWhatIsLeftOfTheSnapshotsTime(t *testing.T) {
 	cpScratch(t)
 	slow := slowRefWrites(t)
 	dir := aGitRepo(t)
 	store := newCheckpoints()
 	defer func(d time.Duration) { checkpointTimeout = d }(checkpointTimeout)
-	defer func(d time.Duration) { checkpointRefTimeout = d }(checkpointRefTimeout)
-	checkpointTimeout = 4 * time.Second // the steps before the write are well inside it; the write (5 s) is not
-	checkpointRefTimeout = 20 * time.Second
-	slow(5)
+	checkpointTimeout = 3 * time.Second // the steps before the write are well inside it; the write (4 s) is not
+	slow(4 * time.Second)
 	cp, note := store.snapshot(cpDesk(dir), "slow write")
 	if note != "" || cp.N != 1 {
 		t.Fatalf("%+v %q", cp, note)
@@ -1334,7 +1331,7 @@ func TestASeparateGitFolderAndALinkedWorktreeAreSnapshottedAsTheirOwn(t *testing
 	}
 }
 
-// N3 and N4: a drop that runs out of time says so in its own words, and stops between deletes when its time is spent.
+// N3: a drop that runs out of time says so in its own words, and stops between deletes when its time is spent.
 func TestADropIsBoundedAsAWholeAndSaysItInItsOwnWords(t *testing.T) {
 	cpScratch(t)
 	slow := slowRefWrites(t)
@@ -1343,9 +1340,7 @@ func TestADropIsBoundedAsAWholeAndSaysItInItsOwnWords(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		newSnap(t, store, cpDesk(dir), "x")
 	}
-	defer func(d time.Duration) { checkpointRefTimeout = d }(checkpointRefTimeout)
-	checkpointRefTimeout = 20 * time.Second
-	slow(1) // each delete takes a second and goes through
+	slow(time.Second) // each delete takes a second and goes through
 	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
 	defer cancel()
 	started := time.Now()
@@ -1357,16 +1352,11 @@ func TestADropIsBoundedAsAWholeAndSaysItInItsOwnWords(t *testing.T) {
 	if list, _ := store.list(cpDesk(dir)); len(list) <= 1 || len(list) >= 8 {
 		t.Errorf("%d checkpoints are left: some were dropped, and the drop stopped", len(list))
 	}
-	// One that is stopped by a write's own deadline answers with the same words, not a snapshot's.
-	checkpointRefTimeout = 500 * time.Millisecond
-	slow(60)
-	if note := store.keepOnly(cpDesk(dir), 1); note != dropTooLong {
-		t.Errorf("%q", note)
-	}
 }
 
-// N5: a reftable repo's one lock, on its list of tables, is named like a loose ref's.
-func TestAReftableLockIsSaidInWords(t *testing.T) {
+// A reftable repo, whose refs the store can't write by hand through the folder pinned (T126CK1), is refused in words
+// before any work, and nothing is written in it. Its refs can still be read.
+func TestAReftableRepoIsRefusedInWords(t *testing.T) {
 	cpScratch(t)
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git here")
@@ -1379,11 +1369,17 @@ func TestAReftableLockIsSaidInWords(t *testing.T) {
 	gitRepoCmd(t, dir, "add", ".")
 	gitRepoCmd(t, dir, "commit", "-q", "-m", "first")
 	store := newCheckpoints()
-	newSnap(t, store, cpDesk(dir), "one")
-	writeRepoFile(t, dir, ".git/reftable/tables.list.lock", "")
-	cp, note := store.snapshot(cpDesk(dir), "two")
-	if cp.ID != "" || !strings.Contains(note, "reftable/tables.list.lock") {
+	if cp, note := store.snapshot(cpDesk(dir), "one"); cp.ID != "" || note != errReftable.Error() {
 		t.Errorf("%+v %q", cp, note)
+	}
+	if refs := cpRefs(t, dir); refs != "" {
+		t.Errorf("%q", refs)
+	}
+	if list, note := store.list(cpDesk(dir)); len(list) != 0 || note != "" {
+		t.Errorf("%v %q", list, note)
+	}
+	if note := store.forget(cpDesk(dir)); note != "" {
+		t.Errorf("%q", note)
 	}
 }
 
@@ -1582,10 +1578,11 @@ func anEvilRepo(t *testing.T, h *hostileRepo) string {
 
 // B6: the desk's .git is swapped for a gitfile or a link to another repo at the worst moments: just before a command
 // (and left so, which the look before the write sees), or for the command's run only, put back as soon as it ends,
-// which no look before or after can see. Nothing of that repo runs, it gets no ref and no object (the commit is only
-// ever in the desk's store, put there through the folder pinned), and a swap that is still there is said in words.
+// which no look before or after can see. The ref write (no git now) is swapped at its worst moment, after the look at
+// the folder pinned. Nothing of that repo runs, it gets no ref and no object (every write goes through the folder
+// pinned), and a swap that is still there is said in words.
 func TestADotGitSwappedForAnotherRepoAtAnyMomentSendsNothingThere(t *testing.T) {
-	for _, moment := range []string{"read-tree", "add", "commit-tree", "update-ref"} {
+	for _, moment := range []string{"read-tree", "add", "commit-tree", "the ref write"} {
 		for _, kind := range []string{"gitfile", "link"} {
 			for _, around := range []bool{false, true} {
 				for _, mode := range cpAttrModes {
@@ -1619,9 +1616,14 @@ func TestADotGitSwappedForAnotherRepoAtAnyMomentSendsNothingThere(t *testing.T) 
 						evilObjects := gitRepoCmd(t, evil, "count-objects") // after the control's own
 						var arm func()
 						var fired func() bool
-						if around {
+						switch {
+						case moment == "the ref write" && around: // swapped and put back between the look and the write
+							arm, fired = refWriteBefore(t, swap+"; "+putBack)
+						case moment == "the ref write":
+							arm, fired = refWriteBefore(t, swap)
+						case around:
 							arm, fired = gitAround(t, moment, swap, putBack)
-						} else {
+						default:
 							arm, fired = gitBefore(t, moment, swap)
 						}
 						withAttrSource(t, mode.on)
@@ -1960,11 +1962,11 @@ func TestTheObjectsAndTheRefGoToTheDesksOwnRepoWhateverElseSays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	arm, fired := gitBefore(t, "update-ref", "printf '%s\\n' '"+filepath.Join(other, ".git")+"' > '"+commondir+"'")
+	arm, fired := refWriteBefore(t, "printf '%s\\n' '"+filepath.Join(other, ".git")+"' > '"+commondir+"'")
 	arm()
 	cp = newSnap(t, store, checkpointDesk{Session: "w1", Folder: linked}, "commondir")
 	if !fired() {
-		t.Fatal("the wrapper never ran")
+		t.Fatal("the rewrite never ran")
 	}
 	if err := os.WriteFile(commondir, was, 0o644); err != nil {
 		t.Fatal(err)
@@ -2154,5 +2156,78 @@ func TestThePathspecSwitchesInTheAppsEnvironmentChangeNothing(t *testing.T) {
 	}
 	if ran := h.ran(); len(ran) != 0 {
 		t.Errorf("the store ran: %v", ran)
+	}
+}
+
+// RT126CK1 B1: core.sharedRepository read as git reads it (git_config_perm), for the values the store follows; any
+// other is refused.
+func TestCoreSharedRepositoryIsReadAsGitReadsIt(t *testing.T) {
+	if perm, ok := cpSharedPerm("", false); perm != 0 || !ok {
+		t.Errorf("unset: %o %v", perm, ok)
+	}
+	for value, want := range map[string]int{
+		"": 0, "umask": 0, "false": 0, "FALSE": 0, "no": 0, "off": 0, "0": 0, "000": 0,
+		"group": 0o660, "true": 0o660, "Yes": 0o660, "on": 0o660, "1": 0o660, "01": 0o660,
+		"all": 0o664, "world": 0o664, "everybody": 0o664, "2": 0o664,
+		"0600": -0o600, "0640": -0o640, "0660": -0o660, "0644": -0o644, "0700": -0o600, "0777": -0o666, "640": -0o640,
+	} {
+		if perm, ok := cpSharedPerm(value, true); perm != want || !ok {
+			t.Errorf("%q: %o %v, want %o", value, perm, ok, want)
+		}
+	}
+	// Git reads "1k" and "08" as true and "-1" as a mode; it refuses "Group", "UMASK", "0440" and "10" (the octal 8).
+	for _, value := range []string{"Group", "UMASK", "1k", "08", "-1", " 0640", "0640 ", "0440", "10", "0o640", "0x1b0", "123456789"} {
+		if perm, ok := cpSharedPerm(value, true); ok {
+			t.Errorf("%q was taken, as %o", value, perm)
+		}
+	}
+}
+
+// RT126CK1 B1: the modes git's calc_shared_perm and adjust_shared_perm give a file or a folder just made (with umask
+// 022 or 077), worked out by hand from git's source.
+func TestTheSharedModesAreGits(t *testing.T) {
+	for _, c := range []struct {
+		shared int
+		made   fs.FileMode
+		folder bool
+		want   fs.FileMode
+	}{
+		{0o660, 0o644, false, 0o664},
+		{0o660, 0o600, false, 0o660},
+		{0o660, 0o755, true, 0o775 | fs.ModeSetgid},
+		{0o660, 0o700, true, 0o770 | fs.ModeSetgid},
+		{0o664, 0o644, false, 0o664},
+		{0o664, 0o755, true, 0o775 | fs.ModeSetgid},
+		{-0o600, 0o644, false, 0o600},
+		{-0o600, 0o755, true, 0o700},
+		{-0o640, 0o644, false, 0o640},
+		{-0o640, 0o755, true, 0o750 | fs.ModeSetgid},
+		{-0o640, 0o700, true, 0o750 | fs.ModeSetgid},
+		{-0o600, 0o755 | fs.ModeSetgid, true, 0o700 | fs.ModeSetgid}, // a setgid folder's new folder keeps it, as in git
+		{0o660, 0o444, false, 0o444},                                 // no write for the owner: none is given
+	} {
+		made := c.made
+		if c.folder {
+			made |= fs.ModeDir
+		}
+		if got := cpSharedMode(c.shared, made, c.folder); got != c.want {
+			t.Errorf("shared %o, made %v: %v, want %v", c.shared, c.made, got, c.want)
+		}
+	}
+}
+
+// RT126CK1 B1: a core.sharedRepository that git takes but the store can't follow exactly ("1k", which git reads as
+// true) is refused in words, and nothing is written.
+func TestACoreSharedRepositoryTheStoreCantFollowIsRefused(t *testing.T) {
+	cpScratch(t)
+	desk := aGitRepo(t)
+	gitRepoCmd(t, desk, "config", "core.sharedRepository", "1k")
+	gitRepoCmd(t, desk, "rev-parse", "HEAD") // git takes it
+	cp, note := newCheckpoints().snapshot(cpDesk(desk), "refused")
+	if cp.ID != "" || !strings.Contains(note, "core.sharedRepository") {
+		t.Errorf("the snapshot: %+v %q", cp, note)
+	}
+	if _, err := os.Lstat(filepath.Join(desk, ".git", "refs", "smolcorp")); err == nil {
+		t.Error("a folder of checkpoint refs was made")
 	}
 }

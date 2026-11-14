@@ -12,8 +12,10 @@ func hideGitWindow(cmd *exec.Cmd) {
 }
 
 // stopGitGently is for the others: Windows can't ask a process to stop, so a deadline kills git as it always did.
-// What keeps the owner's repo clear of a lock file there is that every ref write has a short deadline of its own.
+// The checkpoint store writes its refs itself, never through a git, so no git of its own ever holds a ref's lock there.
 func stopGitGently(*exec.Cmd) {}
 
-// cpOpenData is a plain open on Windows, which has no fifos to wait on; cpReadData then judges the file opened.
-func cpOpenData(path string) (*os.File, error) { return os.Open(path) }
+// cpDataFlags are a plain open on Windows, which has no fifos to wait on; cpReadData then judges the file opened.
+const cpDataFlags = os.O_RDONLY
+
+func cpOpenData(path string) (*os.File, error) { return os.OpenFile(path, cpDataFlags, 0) }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,18 +61,22 @@ import (
 //     look, the refs are read and written in the common git folder named by itself (so not even a linked worktree's
 //     commondir file is read for them), and a repo whose working folder isn't the desk's (core.worktree, a .git file
 //     naming a git folder of somewhere else) is refused (settle);
-//   - no git ever writes an object through a path a swapped .git could send elsewhere: the snapshot's objects are
-//     written in its private store, and the store itself puts them in the repo's, through the common git folder opened
-//     once and checked to be the very folder settle pinned (an open folder, not a path, so a .git renamed and put back in
-//     between can't redirect it). So the commit exists in the desk's repo and nowhere else, and the one git write left by
-//     path, update-ref, can't land in another repo: git refuses a ref to a commit its repo doesn't have. Every write of a
-//     ref also checks the desk's .git is still the one looked at, and says so in words when it isn't.
+//   - no git ever writes in the repo (T126CK1). The snapshot's objects are written in its private store; the store
+//     itself puts them in the repo's, and writes and drops its refs there, by hand (createRef, deleteRef: git's own
+//     way for a loose ref, its lock file made new and renamed in). Each write goes through the common git folder opened
+//     (os.Root) and checked to be the very one settle pinned, by what the open folder says it is (its device and inode,
+//     and those of its objects folder), never through a path: a .git swapped for another repo, even for a moment while
+//     a write runs, can't send it there. (A git given the path, update-ref, looks the path up again for each file it
+//     touches, so a swap in the middle of its run wrote a ref, or the folders for one, in the other repo.) A .git that
+//     isn't the one pinned, before a write or right after a ref is put in, is refused: nothing is kept, and it is said
+//     in words and in the log. A reftable repo, whose refs the store can't write by hand, is refused in words. In a repo
+//     shared by core.sharedRepository, each folder and ref the store makes gets the mode git would give it (cpSharedMode);
+//     a value of that setting the store can't follow exactly as git does is refused in words.
 //
 // Never blocking the desk: one call runs at most checkpointTimeout, and at most checkpointJobs snapshots run at once
-// (one waits for its turn inside that time, and a second for the same desk waits for the first). Every write of a ref
-// has a short deadline of its own (checkpointRefTimeout), never what is left of the snapshot's, and a git that runs
-// past a deadline is stopped with SIGTERM so it removes its lock files (execGit). A lock file found after a failed
-// write is said in words, never taken for the repo being wedged. A repo with more
+// (one waits for its turn inside that time, and a second for the same desk waits for the first). A write of a ref runs
+// no git, so it needs no deadline and leaves no lock file of its own behind. A lock file found in its way is said in
+// words, never taken for the repo being wedged. A repo with more
 // files or bytes than the caps, a git that is missing or too old, a repo config with a key the store doesn't know, any
 // step that fails: each is skipped, and the answer says why in words for the owner. Nothing is half made: a failed step
 // leaves no ref (a snapshot that missed a file would make a later undo wrong, so none is kept). C2 should still call
@@ -88,12 +93,11 @@ const (
 
 // The limits of the store; variables so a test can lower them.
 var (
-	checkpointTimeout    = 45 * time.Second // one snapshot, its wait for a free slot included
-	checkpointRefTimeout = 10 * time.Second // one write of a ref (create, delete): its own, not the snapshot's leftovers
-	checkpointDeskWait   = 50 * time.Second // how long fire and prune wait for a snapshot of the desk that is running (its cap and a little)
-	checkpointsKept      = 40               // per desk; a turn takes two (its start and its end), so about twenty turns
-	checkpointMaxFiles   = 20000            // files a snapshot would read; more and it is skipped
-	checkpointMaxBytes   = int64(300 << 20) // and the sum of their sizes
+	checkpointTimeout  = 45 * time.Second // one snapshot, its wait for a free slot included
+	checkpointDeskWait = 50 * time.Second // how long fire and prune wait for a snapshot of the desk that is running (its cap and a little)
+	checkpointsKept    = 40               // per desk; a turn takes two (its start and its end), so about twenty turns
+	checkpointMaxFiles = 20000            // files a snapshot would read; more and it is skipped
+	checkpointMaxBytes = int64(300 << 20) // and the sum of their sizes
 )
 
 var checkpointID = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
@@ -204,12 +208,14 @@ type cpRepo struct {
 	refs   []string // --git-dir of the commands that read or write the checkpoint refs: the common folder itself
 	call   gitCall  // the global options and the config for every command
 
-	dotGit    string      // the .git that made the desk's folder a repo, and what it was when looked at (B6)
-	dotGitWas os.FileInfo // (nil when only the git folder is known)
-	commonWas os.FileInfo // the common git folder as an open folder saw it in settle: the one objects are put in (nil: none)
-	format    string      // the repo's hash: sha1 or sha256
-	compat    string      // extensions.compatobjectformat, if the repo has one
-	keep      [][2]string // the repo's settings that shape what a snapshot holds (cpKeptKeys), carried into its private git folder
+	dotGit     string      // the .git that made the desk's folder a repo, and what it was when looked at (B6)
+	dotGitWas  os.FileInfo // (nil when only the git folder is known)
+	commonWas  os.FileInfo // the common git folder as an open folder saw it in open: the one every write goes in (nil: none)
+	objectsWas os.FileInfo // and its objects folder, then: an inode used again by a new folder isn't the repo pinned
+	format     string      // the repo's hash: sha1 or sha256
+	compat     string      // extensions.compatobjectformat, if the repo has one
+	keep       [][2]string // the repo's settings that shape what a snapshot holds (cpKeptKeys), carried into its private git folder
+	shared     int         // its core.sharedRepository as git reads it (cpSharedPerm): 0 when the umask decides the modes
 }
 
 // git runs a command with the repo's settings; extra is environment for that one command.
@@ -232,27 +238,19 @@ func (r *cpRepo) gitIn(ctx context.Context, dir string, bind, extra []string, ar
 	return execGit(ctx, env, argv...)
 }
 
-// writeRef runs a command that writes a ref on a deadline of its own, short, and not what is left of the snapshot's: a
-// slow disk must not leave a write for the last milliseconds of a snapshot, where being stopped means a lock file.
-// Before it, the desk's .git is looked at again: a .git swapped for another (a gitfile or a link to a repo of a hire's,
-// say) since the store first looked is refused in words, and nothing is written (errDotGitMoved). It is looked at once
-// more after the write, for a swap in the moment between the look and git's start: git then wrote in the repo the new
-// .git names, which only takes a ref whose commit it has (update-ref checks that), so not the snapshot's, which is in
-// the desk's own store; the answer is the same words.
-func (r *cpRepo) writeRef(args ...string) ([]byte, int, error) {
-	if r.moved() {
-		return nil, 0, errDotGitMoved
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), checkpointRefTimeout)
-	defer cancel()
-	out, status, err := r.refGit(ctx, args...)
-	if r.moved() {
-		return out, status, errDotGitMoved
-	}
-	return out, status, err
-}
+var (
+	errDotGitMoved   = cpSkip("This desk's .git changed while its checkpoints were being kept, so nothing was written.")
+	errReftable      = cpSkip("This repo keeps its refs in a reftable, which the checkpoints can't write safely, so none was taken.")
+	errPackedLocked  = cpSkip(lockWords("packed-refs.lock"))
+	errRefsNotFolder = cpSkip("This repo's .git folder has a link or a file where a folder of the checkpoints' refs goes, so none was written there.")
+)
 
-var errDotGitMoved = cpSkip("This desk's .git changed while its checkpoints were being kept, so nothing was written.")
+// cpSay puts a line in the app's log; a variable so a test can read it.
+var cpSay = func(text string) { log.Printf("smolcorp: checkpoints: %s", text) }
+
+// cpBeforeRefWrite, when a test sets it, runs between the look at the folder pinned and a write of a ref through it:
+// the worst moment for a swap, and a stand-in for a slow disk.
+var cpBeforeRefWrite func()
 
 // moved says the desk's .git is no longer the one the store looked at in open (gone, or another file or folder).
 func (r *cpRepo) moved() bool {
@@ -263,22 +261,441 @@ func (r *cpRepo) moved() bool {
 	return err != nil || !os.SameFile(now, r.dotGitWas)
 }
 
-// locked says a lock file of ref is there (a ref's own, "<ref>.lock", is the one a create or a delete of it takes).
-func (r *cpRepo) locked(ref string) bool {
-	_, err := os.Lstat(filepath.Join(r.common, filepath.FromSlash(ref)+".lock"))
-	return err == nil
+// pinFolder is what a common git folder is, as an open folder of it says (not a path looked up a second time): the
+// folder itself and its objects folder.
+func pinFolder(path string) (folder, objects os.FileInfo, err error) {
+	root, err := os.OpenRoot(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer root.Close()
+	if folder, err = root.Stat("."); err == nil {
+		objects, err = root.Lstat("objects")
+	}
+	return folder, objects, err
 }
 
-// lockFound is the lock file, by its place in the git folder, that stands in the way of a write of ref: the ref's own
-// or the one of packed-refs (a delete takes it too), or a reftable repo's one list of tables. "" when there is none.
-// After a failed write only: a lock is also what a git of the owner holds for a moment while it works.
-func (r *cpRepo) lockFound(ref string) string {
-	for _, name := range []string{ref, "packed-refs", "reftable/tables.list"} {
-		if r.locked(name) {
-			return name + ".lock"
+// pinned opens the repo's common git folder for a write, and gives it back only if it is the one pinned in open (the
+// open folder and its objects folder are the very ones) and the desk's .git is still the one looked at. Anything else
+// is errDotGitMoved, said in the log too. Every write goes through the folder given back, never through a path.
+func (r *cpRepo) pinned() (*os.Root, error) {
+	if r.commonWas == nil || r.objectsWas == nil {
+		return nil, errors.New("no pinned git folder")
+	}
+	if root, err := os.OpenRoot(r.common); err == nil {
+		here, errHere := root.Stat(".")
+		objects, errObjects := root.Lstat("objects")
+		if errHere == nil && errObjects == nil && os.SameFile(here, r.commonWas) && os.SameFile(objects, r.objectsWas) && !r.moved() {
+			return root, nil
+		}
+		root.Close()
+	}
+	r.sayMoved()
+	return nil, errDotGitMoved
+}
+
+func (r *cpRepo) sayMoved() {
+	cpSay("the .git of " + cmpOr(r.top, r.common) + " is no longer the repo this desk's checkpoints were pinned to, so nothing was written in it")
+}
+
+// refRoot is pinned for a write of a ref, which a reftable repo can't take by hand (errReftable).
+func (r *cpRepo) refRoot() (*os.Root, error) {
+	root, err := r.pinned()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := root.Lstat("reftable"); err == nil {
+		root.Close()
+		return nil, errReftable
+	}
+	if cpBeforeRefWrite != nil {
+		cpBeforeRefWrite()
+	}
+	return root, nil
+}
+
+// writable is a look at the folder pinned in the middle of a snapshot, before any work is written: a swap still there
+// is said now, and a reftable repo is refused before the work.
+func (r *cpRepo) writable() error {
+	root, err := r.pinned()
+	if err == nil {
+		defer root.Close()
+		if _, there := root.Lstat("reftable"); there == nil {
+			err = errReftable
 		}
 	}
-	return ""
+	return err
+}
+
+// createRef puts a new ref of the desk's, prefix<n> → oid, in the folder pinned, at one past the highest number there
+// (a ref, loose or packed, or a lock file a git left at a number, which is skipped). Never over a ref that is there. A
+// .git that changed by the time the ref is in takes it out again: nothing is kept, and it is said (errDotGitMoved).
+func (r *cpRepo) createRef(prefix, oid string) (int, error) {
+	root, err := r.refRoot()
+	if err != nil {
+		return 0, err
+	}
+	defer root.Close()
+	folder := filepath.FromSlash(strings.TrimSuffix(prefix, "/"))
+	if err := cpMakeFolders(root, folder, r.shared); err != nil {
+		return 0, err
+	}
+	packed, err := cpPacked(root)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, line := range packed {
+		if num, ok := strings.CutPrefix(line[1], prefix); ok {
+			n = max(n, cpRefNumber(num))
+		}
+	}
+	dir, err := root.Open(folder)
+	if err != nil {
+		return 0, err
+	}
+	entries, err := dir.ReadDir(-1)
+	dir.Close()
+	if err != nil {
+		return 0, err
+	}
+	for _, entry := range entries {
+		n = max(n, cpRefNumber(strings.TrimSuffix(entry.Name(), ".lock")))
+	}
+	n++
+	ref := prefix + strconv.Itoa(n)
+	if err := cpPlaceRef(root, ref, oid, r.shared); err != nil {
+		return 0, err
+	}
+	if r.moved() {
+		_ = cpDropRef(root, ref, oid, r.shared)
+		r.sayMoved()
+		return 0, errDotGitMoved
+	}
+	return n, nil
+}
+
+func cpRefNumber(name string) int {
+	n, err := strconv.Atoi(name)
+	if err != nil || n < 1 || strconv.Itoa(n) != name {
+		return 0
+	}
+	return n
+}
+
+// deleteRef drops a ref of the desk's from the folder pinned, only while it still holds oid (loose, packed, or both).
+func (r *cpRepo) deleteRef(ref, oid string) error {
+	root, err := r.refRoot()
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return cpDropRef(root, ref, oid, r.shared)
+}
+
+// cpSharedPerm reads core.sharedRepository as git does (git_config_perm), for the values the store follows exactly:
+// 0 when the umask decides the modes (unset, umask, false, 0), 0660 for a repo shared with its group (group, true, 1),
+// 0664 for one shared with everybody (all, world, everybody, 2), and -mode for a mode every file is set to (an octal
+// one such as 0640; git refuses one that leaves the owner without read and write). ok is false for any other value
+// (git reads some of them, "1k" or "08" as true, say): the repo is refused rather than given modes that might not be git's.
+func cpSharedPerm(value string, set bool) (perm int, ok bool) {
+	if !set {
+		return 0, true
+	}
+	switch value {
+	case "umask", "": // git reads "" as the octal 0
+		return 0, true
+	case "group":
+		return 0o660, true
+	case "all", "world", "everybody":
+		return 0o664, true
+	}
+	if cpSharedOctal.MatchString(value) {
+		mode, _ := strconv.ParseInt(value, 8, 32)
+		switch {
+		case mode == 0:
+			return 0, true
+		case mode == 1:
+			return 0o660, true
+		case mode == 2:
+			return 0o664, true
+		case mode&0o600 != 0o600:
+			return 0, false
+		}
+		return -int(mode & 0o666), true
+	}
+	switch strings.ToLower(value) {
+	case "true", "yes", "on":
+		return 0o660, true
+	case "false", "no", "off":
+		return 0, true
+	}
+	return 0, false
+}
+
+var cpSharedOctal = regexp.MustCompile(`^[0-7]{1,8}$`)
+
+// cpModeBits are the bits of a mode that chmod sets.
+const cpModeBits = fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky
+
+// cpSharedMode is the mode git gives a file or a folder it just made with mode, in a repo shared as shared says
+// (cpSharedPerm, not 0): its calc_shared_perm, and for a folder adjust_shared_perm's extra (each read bit gives the
+// matching search bit, and setgid when the group gets anything, so what is made in it stays the group's).
+func cpSharedMode(shared int, mode fs.FileMode, folder bool) fs.FileMode {
+	perm, tweak := int(mode.Perm()), max(shared, -shared)
+	if perm&0o200 == 0 {
+		tweak &^= 0o222
+	}
+	if perm&0o100 != 0 {
+		tweak |= (tweak & 0o444) >> 2
+	}
+	if shared < 0 {
+		perm = tweak
+	} else {
+		perm |= tweak
+	}
+	if folder {
+		perm |= (perm & 0o444) >> 2
+	}
+	result := fs.FileMode(perm) | mode&(cpModeBits&^fs.ModePerm)
+	if folder && perm&0o060 != 0 {
+		result |= fs.ModeSetgid
+	}
+	return result
+}
+
+// cpMakeFolders makes the folders of folder (below the git folder) that aren't there yet, as git makes a ref's: in a
+// repo that isn't shared, with the mode of its refs folder (and the umask); in a shared one, 0777 and the umask, then
+// set past the umask to the mode git gives it (cpSharedMode). One that is a link, or a file, is refused (errRefsNotFolder):
+// even a link that stays in the git folder would put the ref somewhere else, a branch say.
+func cpMakeFolders(root *os.Root, folder string, shared int) error {
+	refs, err := root.Stat("refs")
+	if err != nil {
+		return err
+	}
+	mode := refs.Mode().Perm()
+	if shared != 0 {
+		mode = 0o777
+	}
+	path := ""
+	for _, part := range strings.Split(filepath.ToSlash(folder), "/") {
+		path = filepath.Join(path, part)
+		err := root.Mkdir(path, mode)
+		if errors.Is(err, fs.ErrExist) {
+			if info, err := root.Lstat(path); err != nil {
+				return err
+			} else if !info.IsDir() {
+				return errRefsNotFolder
+			}
+			continue
+		}
+		if err == nil && shared != 0 {
+			var info os.FileInfo
+			if info, err = root.Lstat(path); err == nil {
+				if want := cpSharedMode(shared, info.Mode(), true); want != info.Mode()&cpModeBits {
+					err = root.Chmod(path, want)
+				}
+			}
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// cpLock takes a lock file of git's ("<name>.lock", made new): a git of the owner's that holds it is waited on by no
+// one, and is said in words. In a shared repo it is set at once to the mode git gives a lock file (cpSharedMode), so
+// the file it is renamed to has it.
+func cpLock(root *os.Root, name string, shared int) (*os.File, error) {
+	file, err := cpCreate(root, name+".lock", shared)
+	if errors.Is(err, fs.ErrExist) {
+		return nil, cpSkip(lockWords(filepath.ToSlash(name) + ".lock"))
+	}
+	return file, err
+}
+
+// cpCreate makes a new file of git's (a lock, packed-refs.new) as git's tempfiles are made: 0666 and the umask, and in
+// a shared repo set at once to the mode git gives it (cpSharedMode). Never over a file that is there (fs.ErrExist).
+func cpCreate(root *os.Root, name string, shared int) (*os.File, error) {
+	file, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+	if err != nil || shared == 0 {
+		return file, err
+	}
+	info, err := file.Stat()
+	if err == nil {
+		if want := cpSharedMode(shared, info.Mode(), false); want != info.Mode()&cpModeBits {
+			err = file.Chmod(want)
+		}
+	}
+	if err != nil {
+		file.Close()
+		_ = root.Remove(name)
+		return nil, err
+	}
+	return file, nil
+}
+
+// cpPlaceRef writes a new loose ref as git does: its lock made new, the id written in it, renamed to the ref. A ref of
+// that name already there, loose or packed, is never overwritten.
+func cpPlaceRef(root *os.Root, ref, oid string, shared int) error {
+	name := filepath.FromSlash(ref)
+	file, err := cpLock(root, name, shared)
+	if err != nil {
+		return err
+	}
+	placed := false
+	defer func() {
+		if !placed {
+			_ = root.Remove(name + ".lock")
+		}
+	}()
+	_, err = file.WriteString(oid + "\n")
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	packed, err := cpPacked(root)
+	if err != nil {
+		return err
+	}
+	if _, err := root.Lstat(name); !errors.Is(err, fs.ErrNotExist) || slices.ContainsFunc(packed, func(line [2]string) bool { return line[1] == ref }) {
+		return errors.New("the ref is there already")
+	}
+	if err := root.Rename(name+".lock", name); err != nil {
+		return err
+	}
+	placed = true
+	return nil
+}
+
+// cpDropRef deletes a ref as git does: its own lock taken, then packed-refs' lock, then its reflog, packed-refs without
+// its line and its loose file go, and its folder if left empty. Only while it holds oid; one already gone is fine.
+func cpDropRef(root *os.Root, ref, oid string, shared int) error {
+	name := filepath.FromSlash(ref)
+	if err := cpMakeFolders(root, filepath.Dir(name), shared); err != nil { // a packed ref's folder may be gone
+		return err
+	}
+	lock, err := cpLock(root, name, shared)
+	if err != nil {
+		return err
+	}
+	lock.Close()
+	err = cpDropLocked(root, ref, oid, shared)
+	_ = root.Remove(name + ".lock")
+	if err == nil {
+		_ = root.Remove(filepath.Dir(name)) // the desk's own folder of refs, once empty (no other desk's)
+	}
+	return err
+}
+
+func cpDropLocked(root *os.Root, ref, oid string, shared int) error {
+	name := filepath.FromSlash(ref)
+	loose, err := cpRootData(root, name, 1<<10)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return err
+	case strings.TrimSpace(string(loose)) != oid:
+		return errAnotherCommit
+	}
+	// packed-refs under its lock, always, as git's own delete does, and held until the loose file is gone: a pack-refs
+	// of the owner's running meanwhile would otherwise pack the ref again as its loose file goes.
+	lock, err := cpLock(root, "packed-refs", shared)
+	if err != nil {
+		return err
+	}
+	lock.Close()
+	defer root.Remove("packed-refs.lock")
+	data, err := cpRootData(root, "packed-refs", cpPackedMax)
+	if errors.Is(err, fs.ErrNotExist) {
+		data, err = nil, nil
+	}
+	var kept []string
+	packed, dropping := "", false
+	for _, line := range strings.SplitAfter(string(data), "\n") {
+		fields := strings.Fields(line)
+		peeled := strings.HasPrefix(line, "^")
+		if dropping && peeled {
+			continue
+		}
+		if dropping = !peeled && len(fields) == 2 && fields[1] == ref; dropping {
+			packed = fields[0]
+		} else {
+			kept = append(kept, line)
+		}
+	}
+	switch {
+	case err != nil:
+		return err
+	case loose == nil && packed != oid && packed != "":
+		return errAnotherCommit
+	}
+	// As git's own delete: the reflog first (a ref left with no reflog is better than the other way round), then
+	// packed-refs without the ref, then the loose file; the lock goes last. Gone already is fine.
+	_ = root.Remove(filepath.Join("logs", name))
+	if packed != "" {
+		if err := cpWritePacked(root, strings.Join(kept, ""), shared); err != nil {
+			return err
+		}
+	}
+	if loose != nil {
+		return root.Remove(name)
+	}
+	return nil
+}
+
+// cpWritePacked puts text in packed-refs as git does, while its lock is held: written to packed-refs.new (made new, at
+// git's mode for it in a shared repo, else at packed-refs' own mode), then renamed in.
+func cpWritePacked(root *os.Root, text string, shared int) error {
+	info, err := root.Stat("packed-refs")
+	if err != nil {
+		return err
+	}
+	file, err := cpCreate(root, "packed-refs.new", shared)
+	if err != nil {
+		return err
+	}
+	if shared == 0 {
+		err = file.Chmod(info.Mode().Perm())
+	}
+	if err == nil {
+		_, err = file.WriteString(text)
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = root.Rename("packed-refs.new", "packed-refs")
+	}
+	if err != nil {
+		_ = root.Remove("packed-refs.new")
+	}
+	return err
+}
+
+var errAnotherCommit = errors.New("the ref holds another commit now")
+
+const cpPackedMax = 64 << 20 // bytes of packed-refs read; a bigger one fails the write in words
+
+// cpPacked is the refs of packed-refs, [id, name] each (none when there is no such file).
+func cpPacked(root *os.Root) ([][2]string, error) {
+	data, err := cpRootData(root, "packed-refs", cpPackedMax)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var refs [][2]string
+	for _, line := range strings.Split(string(data), "\n") {
+		if fields := strings.Fields(line); len(fields) == 2 && !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "^") {
+			refs = append(refs, [2]string{fields[0], fields[1]})
+		}
+	}
+	return refs, nil
 }
 
 // lockWords says a lock file is in the way, for the owner: it fails the snapshot or the drop with a word, and is not
@@ -327,7 +744,15 @@ func (s *checkpointStore) open(ctx context.Context, desk checkpointDesk, wantTre
 	}
 	repo.format = lines[len(lines)-1]
 	if byGitDir {
-		repo.common = filepath.FromSlash(lines[0])
+		// The folder is gone, so no .git can be swapped in it: the common git folder is pinned as it is now.
+		common, err := filepath.EvalSymlinks(filepath.FromSlash(lines[0]))
+		if err != nil {
+			return nil, cpSkip("This desk's folder is gone, so no checkpoint was taken.")
+		}
+		repo.common = common
+		if repo.commonWas, repo.objectsWas, err = pinFolder(common); err != nil {
+			return nil, cpSkip("This desk's folder is gone, so no checkpoint was taken.")
+		}
 	} else if err := repo.settle(ctx, desk.Folder, lines[0], lines[1], lines[2]); err != nil {
 		return nil, err
 	}
@@ -342,6 +767,16 @@ func (s *checkpointStore) open(ctx context.Context, desk checkpointDesk, wantTre
 	}
 	repo.call.config = append(repo.call.config, blanks...)
 	repo.keep, repo.compat = cpKept(list)
+	shared, set := "", false
+	for _, kept := range repo.keep {
+		if kept[0] == "core.sharedrepository" {
+			shared, set = kept[1], true
+		}
+	}
+	if repo.shared, set = cpSharedPerm(shared, set); !set {
+		return nil, cpSkip("No checkpoint was taken: this repo's git config sets core.sharedRepository to a value the store can't follow as git does " +
+			"(it follows umask, group, all, world, everybody, true, false, 0, 1, 2 and a mode such as 0640).")
+	}
 	_, knownFormat := gitEmptyTrees[repo.format]
 	if _, knownCompat := gitEmptyTrees[repo.compat]; !knownFormat || (repo.compat != "" && !knownCompat) {
 		return nil, cpSkip("This repo's kind of hash isn't one the store knows, so no checkpoint was taken.")
@@ -382,12 +817,13 @@ func (r *cpRepo) settle(ctx context.Context, folder, top, gitDir, common string)
 			return unreadable
 		}
 	}
-	// The common git folder, pinned: what an open folder of it says it is. The objects only ever go into that folder.
-	was, err := openFolderID(r.common)
+	// The common git folder, pinned: what an open folder of it (and of its objects folder) says it is. Every write only
+	// ever goes into that folder (pinned).
+	was, objects, err := pinFolder(r.common)
 	if err != nil {
 		return unreadable
 	}
-	r.commonWas = was
+	r.commonWas, r.objectsWas = was, objects
 	// A core.worktree that points at another repo: the top it names has to be a folder of this same repo, or the store
 	// would snapshot the other one.
 	out, status, err := r.gitIn(ctx, r.top, nil, nil, "rev-parse", "--path-format=absolute", "--git-common-dir")
@@ -503,6 +939,19 @@ func cpReadData(path string, max int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return cpReadOpen(file, max)
+}
+
+// cpRootData is cpReadData through an open git folder: name is looked up in it, and never leads out of it.
+func cpRootData(root *os.Root, name string, max int64) ([]byte, error) {
+	file, err := root.OpenFile(name, cpDataFlags, 0)
+	if err != nil {
+		return nil, err
+	}
+	return cpReadOpen(file, max)
+}
+
+func cpReadOpen(file *os.File, max int64) ([]byte, error) {
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
@@ -623,16 +1072,6 @@ func cpSweep() {
 	}
 }
 
-// openFolderID is what a folder is, as an open folder of it says (not a path looked up a second time).
-func openFolderID(path string) (os.FileInfo, error) {
-	root, err := os.OpenRoot(path)
-	if err != nil {
-		return nil, err
-	}
-	defer root.Close()
-	return root.Stat(".")
-}
-
 var hexName = regexp.MustCompile(`^[0-9a-f]+$`)
 
 // importObjects puts the objects a snapshot wrote in its private store (from) into the repo's own (B6). The repo's
@@ -643,17 +1082,11 @@ var hexName = regexp.MustCompile(`^[0-9a-f]+$`)
 // read the store's folder (a repo shared with its group stays so), and a new fan-out folder takes the store's mode.
 // Only loose objects are carried: a pack, or anything else in the private store, fails the snapshot.
 func (r *cpRepo) importObjects(from string) error {
-	if r.commonWas == nil {
-		return errors.New("no pinned git folder")
-	}
-	common, err := os.OpenRoot(r.common)
+	common, err := r.pinned()
 	if err != nil {
-		return errDotGitMoved
+		return err
 	}
 	defer common.Close()
-	if here, err := common.Stat("."); err != nil || !os.SameFile(here, r.commonWas) {
-		return errDotGitMoved
-	}
 	store, err := common.OpenRoot("objects")
 	if err != nil {
 		return err
@@ -950,6 +1383,10 @@ func (s *checkpointStore) take(ctx context.Context, desk checkpointDesk, label s
 			return failed(nil)
 		}
 	}
+	// The repo is still the one pinned, before any work is written (a swap still there is said now).
+	if err := repo.writable(); err != nil {
+		return failed(err)
+	}
 	// The private git folder, its index and its store: a new folder in the app's support folder, which only the app
 	// writes (B8), gone when the snapshot is.
 	s.swept.Do(cpSweep)
@@ -1009,30 +1446,11 @@ func (s *checkpointStore) take(ctx context.Context, desk checkpointDesk, label s
 	if err := repo.importObjects(work.objects); err != nil {
 		return failed(err)
 	}
-	prefix := checkpointRefs + sessionRefName(desk.Session) + "/"
-	existing, note := s.read(ctx, repo, desk)
-	if note != "" {
-		return Checkpoint{}, nil, cpSkip(note)
-	}
-	n := 1
-	if len(existing) > 0 {
-		n = existing[len(existing)-1].N + 1
-	}
-	// A lock file left at a number (a git killed at the wrong moment, by something else) would fail every later snapshot
-	// of the desk: that number is skipped.
-	for i := 0; i < 100 && repo.locked(prefix+strconv.Itoa(n)); i++ {
-		n++
-	}
-	// The old value is "nothing": a ref that is already there is never overwritten.
-	ref := prefix + strconv.Itoa(n)
-	if _, status, err := repo.writeRef("update-ref", ref, commit, strings.Repeat("0", len(commit))); err != nil || status != 0 {
-		if errors.Is(err, errDotGitMoved) {
-			return failed(err)
-		}
-		if lock := repo.lockFound(ref); lock != "" {
-			return Checkpoint{}, nil, cpSkip(lockWords(lock))
-		}
-		return failed(err)
+	// The ref, at the next number of the desk's, as the folder pinned holds them (not as a read by path said them: a
+	// swap during it could have shown another repo's).
+	n, err := repo.createRef(checkpointRefs+sessionRefName(desk.Session)+"/", commit)
+	if err != nil { // no git ran: the store's own write failed (a link out of the git folder, say)
+		return Checkpoint{}, nil, cpWhy(err, "The checkpoint couldn't be written in this repo's .git folder, so none was kept.")
 	}
 	s.mu.Lock()
 	s.where[desk.Session] = repo.common
@@ -1154,30 +1572,18 @@ func (s *checkpointStore) pruneIn(ctx context.Context, repo *cpRepo, desk checkp
 			}
 			break
 		}
-		ref := prefix + strconv.Itoa(cp.N)
-		_, status, err := repo.writeRef("update-ref", "-d", ref, cp.ID)
-		if err == nil && status == 0 {
+		err := repo.deleteRef(prefix+strconv.Itoa(cp.N), cp.ID)
+		if err == nil {
 			continue
 		}
-		if errors.Is(err, errDotGitMoved) { // nothing more is written in a repo that may not be the desk's now
-			if first == "" {
-				first = err.Error()
-			}
-			break
+		if first == "" {
+			first = cpWhy(err, "An old checkpoint couldn't be dropped from this repo's .git folder.").Error()
 		}
 		// One ref that can't go (a lock file of its own left on it) leaves the others to go, so a desk is never stuck
-		// with more and more. A deadline, or the lock of packed-refs, stops the whole drop: the rest would fail the same.
-		lock := repo.lockFound(ref)
-		if first == "" {
-			if lock != "" {
-				first = lockWords(lock)
-			} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-				first = dropTooLong
-			} else {
-				first = cpWhy(err, "Git couldn't drop an old checkpoint.").Error()
-			}
-		}
-		if err != nil || lock == "packed-refs.lock" || lock == "reftable/tables.list.lock" {
+		// with more and more. A .git that isn't the one pinned (nothing more is written in a repo that may not be the
+		// desk's now), a reftable, the lock of packed-refs, or a link where the desk's folder of refs goes stops the
+		// whole drop: the rest would fail the same.
+		if errors.Is(err, errDotGitMoved) || errors.Is(err, errReftable) || errors.Is(err, errPackedLocked) || errors.Is(err, errRefsNotFolder) {
 			break
 		}
 	}

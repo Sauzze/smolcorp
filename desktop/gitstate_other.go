@@ -17,9 +17,9 @@ func stopGitGently(cmd *exec.Cmd) {
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 }
 
-// cpOpenData opens a small data file of a git folder for the checkpoint store, in a way that never waits: a fifo with no
+// cpDataFlags open a small data file of a git folder for the checkpoint store in a way that never waits: a fifo with no
 // writer opens at once (O_NONBLOCK), and a terminal never becomes the app's (O_NOCTTY). cpReadData then judges the file
 // opened.
-func cpOpenData(path string) (*os.File, error) {
-	return os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOCTTY, 0)
-}
+const cpDataFlags = os.O_RDONLY | syscall.O_NONBLOCK | syscall.O_NOCTTY
+
+func cpOpenData(path string) (*os.File, error) { return os.OpenFile(path, cpDataFlags, 0) }
