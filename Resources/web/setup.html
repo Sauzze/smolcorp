@@ -2174,7 +2174,14 @@
     return `The fence (Claude Code's deny rules and the guard) ${covers} Other hires, and ${others}`;
   }
 
-  /** The Manager panel: the switch, and, once it is on, whether a General Manager is hired and how big the team is. */
+  // The team's last answer drawn (its ask's number), and whether it said a General Manager was started by hand
+  // (null until it has answered, or once the manager is off or the team couldn't be read).
+  let teamDrawn = 0, teamAsked = 0, teamByHand = null;
+  /**
+   * The Manager panel: the switch, and, once it is on, whether a General Manager is hired and how big the team is.
+   * Drawn again on every refresh: what the team said last stays shown until it answers again, never emptied
+   * meanwhile, or the page would get shorter for a moment and the browser scroll up to fit it.
+   */
   function renderManager() {
     // The hire sheet's fence line follows the manager switch while the sheet is open (a no-op when it's closed).
     showHireFence();
@@ -2188,26 +2195,40 @@
       gmKnown = true;
     }
     if (!m) return;
-    showStartGM(!!m.gmStartedByHand); // the flag alone for now; the team below knows if a hired GM is there
+    // Until the team answers, what it said last; the flag alone before its first answer. The team below knows if a hired GM is there.
+    showStartGM(m.enabled && teamByHand !== null ? teamByHand : !!m.gmStartedByHand);
     mark('step-manager', m.enabled);
     $('manager').classList.toggle('on', m.enabled);
     renderGmToken(m);
     $('gm-fence').textContent = fenceLine();
     const line = $('manager-team');
-    line.textContent = '';
-    $('manager-screens').hidden = true;
-    $('manager-tools').hidden = true;
+    // Off: no team, and nothing it said is kept. On: what it said last stays shown until it answers again.
+    if (!m.enabled) {
+      teamByHand = null;
+      line.textContent = '';
+      $('manager-screens').hidden = true;
+      $('manager-tools').hidden = true;
+    }
     if (!m.enabled) return;
     renderScreens();
-    // The team can't be read: the state says whether a GM is hired, and the flag whether one was started by hand.
+    // An answer older than the one drawn, come back late, is left: it would draw the team as it was.
+    const asked = ++teamAsked;
+    const late = () => asked < teamDrawn;
+    // The team can't be read: no team shown; the state says whether a GM is hired, and the flag whether one was started by hand.
     const teamUnread = () => {
+      if (late()) return;
+      teamDrawn = asked;
+      teamByHand = null;
+      line.textContent = '';
+      $('manager-tools').hidden = true;
       gmHired = !!state.gmHired;
       gmKnown = true;
       showStartGM(!!(state.manager && state.manager.gmStartedByHand));
     };
     fetch('/setup/gm/team', { cache: 'no-store', headers: setupHeaders() }).then((res) => (res.ok ? res.json() : null)).then((team) => {
-      if (!state.manager || !state.manager.enabled) return;
+      if (!state.manager || !state.manager.enabled || late()) return;
       if (!team) return teamUnread();
+      teamDrawn = asked;
       const rows = (team.team || []).filter((r) => r.state !== 'fired' && r.state !== 'failed');
       const hired = rows.some((r) => r.role === 'gm' && r.registered);
       // A GM started by hand: the app names its session (a live row with the gm role and no hire), or, from
@@ -2218,6 +2239,7 @@
         + (others === 1 ? '1 employee on the team.' : `${others} employees on the team.`);
       gmHired = hired;
       gmKnown = true;
+      teamByHand = byHand;
       showStartGM(byHand);
       renderManagerTools(team.team || []);
     }).catch(teamUnread);
@@ -8852,7 +8874,8 @@
     // From "Show Me Around Again" in the menu.
     guideFromAddress();
   }).then(loadDemo).then(loadFirstFolder).then(loadStartHere).then(loadViewer).then(loadBriefs).then(loadGuard);
-  setInterval(() => { if (!document.querySelector('.over')) load(); }, 1500);
+  // Every 1.5 s; a test of the page sets it shorter before the page runs (desktop/setup_scroll_refresh_test.go).
+  setInterval(() => { if (!document.querySelector('.over')) load(); }, Math.max(100, Number(window.smolcorpSetupRefresh) || 1500));
   // The viewer's state, for its switch and "last sent": often while it's on.
   setInterval(() => { if (viewer && (viewer.on || document.hasFocus())) loadViewer(); }, 5000);
 </script>
