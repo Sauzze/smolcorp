@@ -778,7 +778,8 @@ func TestAPhotoGoesOnceItsDeskHasReadIt(t *testing.T) {
 
 // readDenied says whether rules, a hire's deny rules, keep its Read tool (and so Grep and Glob, which leave out what
 // Read can't open) away from file, for a hire whose home is home: Claude Code's rule paths, ~/ from the home, // from
-// the root and **/ anywhere, matched as gitignore matches (* within a folder's name, ** across folders).
+// the root and **/ anywhere, matched as gitignore matches (* within a folder's name, ** across folders). Paths are
+// compared as rules write them: on Windows the drive is a folder (absoluteRulePath).
 func readDenied(rules []string, home, file string) bool {
 	for _, rule := range rules {
 		pattern, ok := strings.CutPrefix(rule, "Read(")
@@ -788,7 +789,7 @@ func readDenied(rules []string, home, file string) bool {
 		pattern = strings.TrimSuffix(pattern, ")")
 		switch {
 		case strings.HasPrefix(pattern, "~/"):
-			pattern = filepath.ToSlash(home) + pattern[1:]
+			pattern = absoluteRulePath(home)[1:] + pattern[1:]
 		case strings.HasPrefix(pattern, "//"):
 			pattern = pattern[1:]
 		case strings.HasPrefix(pattern, "**/"):
@@ -813,7 +814,7 @@ func readDenied(rules []string, home, file string) bool {
 			}
 		}
 		expression.WriteString("$")
-		if regexp.MustCompile(expression.String()).MatchString(filepath.ToSlash(file)) {
+		if regexp.MustCompile(expression.String()).MatchString(absoluteRulePath(file)[1:]) {
 			return true
 		}
 	}
@@ -974,5 +975,82 @@ func TestAHireCantFindAPhotosPathInAnyPromptStore(t *testing.T) {
 	}
 	if _, err := os.ReadFile(path); err == nil {
 		t.Error("the path found in the plan still opens the photo after its desk read it")
+	}
+}
+
+// FXCMDLEN: a desk's settings ride in its command line, which holds at most 32767 characters on Windows, so the prompt
+// stores' rules don't grow with the accounts in ~/.claude* (one rule per store covers ~/.claude and every
+// ~/.claude-<name> at once), and an account elsewhere adds one rule per store, written short: from ~ in the home
+// folder, by its last two folders outside it. Every account's stores are still denied to Read and Edit; its plans and
+// pictures, and a project's own folders of the same names, are not.
+func TestPromptStoreRulesCoverEveryAccountAtOnce(t *testing.T) {
+	saved := homeDir
+	homeDir = t.TempDir()
+	t.Cleanup(func() { homeDir = saved })
+	outside := t.TempDir()
+	defaultAccount, work, alt := filepath.Join(homeDir, ".claude"), filepath.Join(homeDir, ".claude-work"), filepath.Join(homeDir, ".claude-alt")
+	elsewhere, far := filepath.Join(homeDir, "accounts", "home"), filepath.Join(outside, "claude", "old")
+	// The disk's root, or on Windows the temp folder's drive (C:\), which rules write as a folder (//c).
+	root, drive := string(filepath.Separator), ""
+	if volume := filepath.VolumeName(outside); volume != "" {
+		root, drive = volume+root, strings.ToLower(volume[:1])+"/"
+	}
+	for dir, want := range map[string]string{
+		defaultAccount: "", work: "", alt: "",
+		elsewhere:                            "~/accounts/home",
+		filepath.Join(work, "nested"):        "~/.claude-work/nested",
+		far:                                  "//" + drive + "**/claude/old",
+		filepath.Join(root, "claude"):        "//" + drive + "claude",
+		filepath.Join(root, "claude", "old"): "//" + drive + "claude/old",
+		root:                                 strings.TrimSuffix("//"+drive, "/"),
+	} {
+		got, ok := claudeStoreFolder(dir)
+		if got != want || ok != (want != "") {
+			t.Errorf("%s: %q %v, want %q", dir, got, ok, want)
+		}
+	}
+	if got, ok := claudeStoreFolder("accounts/home"); ok {
+		t.Errorf("a relative folder: %q", got)
+	}
+	if runtime.GOOS == "windows" {
+		if got, _ := claudeStoreFolder(`D:\Data\claude\old`); got != "//d/**/claude/old" {
+			t.Errorf("on Windows: %q", got)
+		}
+	}
+	none := promptStoreRules(nil)
+	if got := promptStoreRules([]claudeProfile{{Name: "default", Dir: defaultAccount}, {Name: "work", Dir: work}, {Name: "alt", Dir: alt}}); !reflect.DeepEqual(got, none) {
+		t.Errorf("the ~/.claude* accounts added rules:\n%q\nwant\n%q", got, none)
+	}
+	accounts := []claudeProfile{{Name: "default", Dir: defaultAccount}, {Name: "work", Dir: work}, {Name: "alt", Dir: alt},
+		{Name: "home", Dir: elsewhere}, {Name: "old", Dir: far}, {Name: "again", Dir: elsewhere}}
+	deny := promptStoreRules(accounts)
+	if want := len(none) + 2*2*len(claudePromptStores); len(deny) != want {
+		t.Errorf("%d rules, want %d", len(deny), want)
+	}
+	var edits []string
+	for _, rule := range deny {
+		if pattern, ok := strings.CutPrefix(rule, "Edit("); ok {
+			edits = append(edits, "Read("+pattern)
+		}
+	}
+	for _, account := range accounts {
+		for _, store := range []string{"history.jsonl", "history.jsonl.tmp.42", "paste-cache/5f3a.txt", "projects/-work-api/s1.jsonl",
+			"file-history/s1/3e1f@v1", "todos/s1.json", "sessions/4242.json", "debug/s1.txt", "backups/.claude.json.backup.1", ".claude.json"} {
+			file := filepath.Join(account.Dir, filepath.FromSlash(store))
+			if !readDenied(deny, homeDir, file) || !readDenied(edits, homeDir, file) {
+				t.Errorf("%s isn't denied to Read and Edit", file)
+			}
+		}
+		for _, kept := range []string{"plans/calm-river.md", "image-cache/s1/1.png", "uploads/a.pdf"} {
+			if file := filepath.Join(account.Dir, filepath.FromSlash(kept)); readDenied(deny, homeDir, file) || readDenied(edits, homeDir, file) {
+				t.Errorf("%s is denied", file)
+			}
+		}
+	}
+	for _, kept := range []string{filepath.Join(homeDir, "code", "projects", "api", "main.go"), filepath.Join(homeDir, "accounts", "projects", "x.md"),
+		filepath.Join(homeDir, "notes", "history.jsonl"), filepath.Join(outside, "claude", "logs", "a.log")} {
+		if readDenied(deny, homeDir, kept) || readDenied(edits, homeDir, kept) {
+			t.Errorf("%s is denied", kept)
+		}
 	}
 }

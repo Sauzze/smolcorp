@@ -3,10 +3,12 @@ package desktop
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -304,6 +306,70 @@ func TestADesksSettingsFitInACommandLine(t *testing.T) {
 		t.Errorf("the settings are %d characters quoted", quoted)
 	}
 	t.Logf("a default hire's settings: %d characters, %d quoted", len(line), len(line)+strings.Count(line, `"`))
+}
+
+// RT126CMDLEN B1: each Claude account kept outside ~/.claude* adds its own deny rules, about 2,000 characters, so
+// setup's 8 accounts in folders elsewhere make settings Windows can't start a desk with. On Windows that hire is
+// refused before it starts, in a sentence that names those accounts and says what to do; the same accounts as
+// ~/.claude-<name> fit, and no other system refuses anything.
+func TestAWindowsDeskWhoseSettingsDontFitIsRefusedNamingItsAccounts(t *testing.T) {
+	r := newHireSettingsRig(t)
+	saved := homeDir
+	homeDir = filepath.Join(r.root, "home") // a stand-in home: nothing is made in it, the rules only name it
+	t.Cleanup(func() { homeDir = saved })
+	elsewhere := []claudeProfile{{Name: "default", Dir: filepath.Join(homeDir, ".claude")}}
+	tidy := slices.Clone(elsewhere)
+	for i := 1; i <= 7; i++ {
+		name := "client" + strconv.Itoa(i)
+		elsewhere = append(elsewhere, claudeProfile{Name: name, Dir: filepath.Join(homeDir, "Documents", "Claude accounts", "client-"+strconv.Itoa(i)+"-northwind")})
+		tidy = append(tidy, claudeProfile{Name: name, Dir: filepath.Join(homeDir, ".claude-client-"+strconv.Itoa(i)+"-northwind")})
+	}
+	write := func(system string, profiles []claudeProfile) (string, error) {
+		return r.write("abc123", func(o *hireSettingsOptions) {
+			o.System, o.Profiles = system, profiles
+			o.Run = func(string, []string) (int, string, bool) {
+				return 0, `{"groups":` + strings.TrimPrefix(guard.GroupsArgument(guard.DefaultGroups()), `{"groups":`), true
+			}
+		})
+	}
+	quoted := func(line string) int { return len(exeLine("--settings="+line, nil)) }
+
+	_, err := write("windows", elsewhere)
+	var refusal *hireRefusal
+	if !errors.As(err, &refusal) || refusal.Status != 409 {
+		t.Fatalf("8 accounts elsewhere on Windows: %v", err)
+	}
+	want := "Windows can't start this desk: the Claude accounts client1, client2, client3, client4, client5, client6 and client7 are kept " +
+		"outside a ~/.claude-<name> folder, which makes its settings too long, so move them to ~/.claude-<name> folders or remove " +
+		"some under Claude accounts in Settings, then hire again."
+	if refusal.Message != want {
+		t.Errorf("the refusal says %q", refusal.Message)
+	}
+	for _, system := range []string{"darwin", "linux"} {
+		line, err := write(system, elsewhere)
+		if err != nil {
+			t.Fatalf("%s refused: %v", system, err)
+		}
+		if system == "linux" && quoted(line) <= exeLongest {
+			t.Fatalf("the accounts don't push it over: %d", quoted(line))
+		}
+		t.Logf("%s, 8 accounts elsewhere: %d quoted", system, quoted(line))
+	}
+	line, err := write("windows", tidy)
+	if err != nil {
+		t.Fatalf("8 ~/.claude-<name> accounts on Windows: %v", err)
+	}
+	t.Logf("windows, 8 ~/.claude-<name> accounts: %d quoted", quoted(line))
+
+	// One account elsewhere is named alone; settings too long with none elsewhere still say what to do.
+	if err := settingsTooLong(strings.Repeat("x", exeLongest), elsewhere[:2], "windows"); err == nil ||
+		!strings.HasSuffix(err.Error(), ": the Claude account client1 is kept outside a ~/.claude-<name> folder, which makes its settings too long, "+
+			"so move it to one or remove it under Claude accounts in Settings, then hire again.") {
+		t.Errorf("one account: %v", err)
+	}
+	if err := settingsTooLong(strings.Repeat("x", exeLongest), tidy, "windows"); err == nil || !strings.Contains(err.Error(), "turn off some guard rules") {
+		t.Errorf("no account elsewhere: %v", err)
+	}
 }
 
 // B4: a rule the owner adds in Settings reaches a desk already running at its next call (the file adds it); a

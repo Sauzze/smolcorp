@@ -414,6 +414,8 @@ type hireSettingsOptions struct {
 	IsExec     func(string) bool
 	// Shell is the shell the Bash tool is pinned to; "" asks pinnedShell.
 	Shell string
+	// System is Go's name for the system the desk starts on; "" is this one.
+	System string
 }
 
 // hireSettingsLine is hire HireID's settings as its Claude Code takes them in its
@@ -430,7 +432,36 @@ func hireSettingsLine(o hireSettingsOptions) (string, error) {
 	if encoder.Encode(object) != nil {
 		return "", &hireRefusal{Status: 500, Message: "Couldn't make the hire's settings, so Smolcorp won't start it unguarded."}
 	}
-	return strings.TrimSuffix(line.String(), "\n"), nil
+	settings := strings.TrimSuffix(line.String(), "\n")
+	if err := settingsTooLong(settings, o.Profiles, cmpOr(o.System, runtime.GOOS)); err != nil {
+		return "", err
+	}
+	return settings, nil
+}
+
+// settingsTooLong refuses, on Windows only, settings Windows couldn't start a desk with: they ride in its command
+// line (--settings=<json>, quoted as Windows takes it), which holds at most 32767 characters. Each Claude account
+// kept outside ~/.claude* adds about 2,000 of them (promptStoreRules), so the sentence names those accounts.
+func settingsTooLong(settings string, profiles []claudeProfile, system string) error {
+	if system != "windows" || len(exeLine("--settings="+settings, nil)) <= exeLongest {
+		return nil
+	}
+	var names []string
+	for _, profile := range profiles {
+		if _, ok := claudeStoreFolder(profile.Dir); ok {
+			names = append(names, cmpOr(profile.Name, profile.Dir))
+		}
+	}
+	if len(names) == 0 {
+		return &hireRefusal{Status: 409, Message: "Windows can't start this desk: its settings are too long, so turn off some guard rules in Settings, then hire again."}
+	}
+	accounts, fix := "the Claude account "+names[0]+" is", "move it to one or remove it"
+	if len(names) > 1 {
+		accounts = "the Claude accounts " + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1] + " are"
+		fix = "move them to ~/.claude-<name> folders or remove some"
+	}
+	return &hireRefusal{Status: 409, Message: "Windows can't start this desk: " + accounts + " kept outside a ~/.claude-<name> folder, " +
+		"which makes its settings too long, so " + fix + " under Claude accounts in Settings, then hire again."}
 }
 
 // hireSettingsObject is what hire HireID's settings hold (deny rules, the guard as a
@@ -475,7 +506,7 @@ func hireSettingsObject(o hireSettingsOptions) (map[string]any, error) {
 			others = append(others, name)
 		}
 	}
-	deny := hireDenyRules(o.HireID, groups, o.Support, o.Profiles, others, names(o.Support), runtime.GOOS)
+	deny := hireDenyRules(o.HireID, groups, o.Support, o.Profiles, others, names(o.Support), cmpOr(o.System, runtime.GOOS))
 	deny = append(deny, photoFenceRules(o.Support, o.Profiles, deny)...)
 	var reporting map[string]any
 	if o.ReportPort != 0 {

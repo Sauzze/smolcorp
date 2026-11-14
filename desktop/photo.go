@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 )
@@ -534,20 +535,21 @@ var otherPromptStores = []string{
 }
 
 // promptStoreRules deny a hire's tools every prompt store (claudePromptStores, otherPromptStores), reading and
-// changing alike: in ~/.claude and every ~/.claude-<name>, its .claude.json beside them, and each profile's folder. A
-// Read rule keeps Grep and Glob out too: Claude Code leaves what it denies out of their search.
+// changing alike. A desk's settings ride in its command line, which holds at most 32767 characters on Windows, so
+// they are few whatever the number of accounts: one per store for ~/.claude and every ~/.claude-<name> at once
+// (~/.claude*/), with its .claude.json beside them, and more only for an account whose folder is elsewhere
+// (claudeStoreFolder). A Read rule keeps Grep and Glob out too: Claude Code leaves what it denies out of their search.
 func promptStoreRules(profiles []claudeProfile) []string {
 	patterns := []string{"~/.claude*.json*"}
-	for _, store := range claudePromptStores {
-		patterns = append(patterns, "~/.claude*/"+store)
-	}
+	folders := []string{"~/.claude*"}
 	for _, profile := range profiles {
-		dir := filepath.Clean(profile.Dir)
-		if !filepath.IsAbs(dir) || strings.ContainsRune(dir, 0) {
-			continue
+		if folder, ok := claudeStoreFolder(profile.Dir); ok && !slices.Contains(folders, folder) {
+			folders = append(folders, folder)
 		}
+	}
+	for _, folder := range folders {
 		for _, store := range claudePromptStores {
-			patterns = append(patterns, absoluteRulePath(dir)+"/"+store)
+			patterns = append(patterns, folder+"/"+store)
 		}
 	}
 	patterns = append(patterns, otherPromptStores...)
@@ -556,6 +558,43 @@ func promptStoreRules(profiles []claudeProfile) []string {
 		rules = append(rules, "Read("+pattern+")", "Edit("+pattern+")")
 	}
 	return rules
+}
+
+// claudeStoreFolder is how a hire's rules name the folder of an account (a CLAUDE_CONFIG_DIR, which can be any
+// folder) beside ~/.claude*/: none for ~/.claude or a ~/.claude-<name>, which that covers; from ~ for one elsewhere in
+// the home folder (~/accounts/work); and for one outside it, whose full path can be of any length, by its last two
+// folders anywhere on its drive (//**/claude/work, //d/**/claude/work on Windows), which takes in that folder and
+// any other of the same two names. ok is false for a folder that isn't a full path. Claude Code roots ~ at the hire's
+// HOME, which no launch sets, so it is homeDir: a launcher that set another would have to name these folders in full.
+func claudeStoreFolder(dir string) (folder string, ok bool) {
+	dir = filepath.Clean(dir)
+	if !filepath.IsAbs(dir) || strings.ContainsRune(dir, 0) {
+		return "", false
+	}
+	if home := filepath.Clean(homeDir); filepath.IsAbs(home) {
+		if rel, err := filepath.Rel(home, dir); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+			rel = filepath.ToSlash(rel)
+			switch {
+			case rel == ".":
+				return "~", true
+			case !strings.Contains(rel, "/") && strings.HasPrefix(rel, ".claude"):
+				return "", false
+			}
+			return "~/" + rel, true
+		}
+	}
+	path := strings.TrimPrefix(absoluteRulePath(dir), "//")
+	drive := ""
+	if len(dir) >= 2 && dir[1] == ':' {
+		drive, path, _ = strings.Cut(path, "/")
+		drive += "/"
+	}
+	names := strings.Split(path, "/")
+	if len(names) <= 2 {
+		// A drive's or the disk's root (D:\, /) without its last slash: the store is written after one.
+		return strings.TrimSuffix(absoluteRulePath(dir), "/"), true
+	}
+	return "//" + drive + "**/" + strings.Join(names[len(names)-2:], "/"), true
 }
 
 // photoReadTools are the tools that open a file, as each agent names them: Claude Code's Read, Gemini CLI's

@@ -921,7 +921,7 @@
             </div></div>
             <p id="accounts-next" role="status" hidden>Added. <button class="btn primary" id="accounts-back">Back to Easy setup → Hire your General Manager</button></p>
             <p class="note" id="accounts-problem" role="alert" hidden></p>
-            <p class="accounts-fine">Each account is a folder of its own (CLAUDE_CONFIG_DIR).<span id="accounts-hooks"> One you add reports to Smolcorp too, while your agents are connected.</span></p>
+            <p class="accounts-fine">Each account is a folder of its own (CLAUDE_CONFIG_DIR).<span id="accounts-hooks"> One you add reports to Smolcorp too, while your agents are connected.</span><span id="accounts-windows" hidden> On Windows, keep extra accounts as ~/.claude-&lt;name&gt;: each one in another folder makes every desk's start about 2,000 characters longer, and with about 5 of them a desk may not start.</span></p>
           </div>
         </div>
         <div class="step" id="step-launcher" hidden>
@@ -3287,6 +3287,8 @@
     $('accounts-next').hidden = !accountAdded || gmHired || $('start-gm').hidden;
     // A test copy's hires report through its own hook, whatever an account holds: nothing to say about connecting.
     $('accounts-hooks').hidden = testCopy();
+    // A desk's settings ride in its command line, which Windows keeps short: every account outside ~/.claude* lengthens it.
+    $('accounts-windows').hidden = state.platform !== 'windows';
   }
   async function saveAccounts(profiles) {
     $('accounts-problem').hidden = true;
