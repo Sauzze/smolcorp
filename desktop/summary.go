@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -582,15 +583,26 @@ func clipStart(text string, most int) string {
 	return label + "…" + string(runes[len(runes)-keep:])
 }
 
-// Lines that look like they hold a secret, taken out before anything is sent.
-var secretLine = []*regexp.Regexp{
-	regexp.MustCompile(`(^|[^A-Za-z0-9_-])sk-[A-Za-z0-9]`), // Anthropic, OpenAI and others' keys
-	regexp.MustCompile(`(^|[^A-Za-z0-9_-])re_[A-Za-z0-9]`), // Resend
-	regexp.MustCompile(`(?i)key['"]?\s*[=:]`),              // API_KEY=…, "apiKey": …
+// Lines that look like they hold a secret, taken out before anything is sent: a secret's own shape, or a word
+// that names one.
+var secretLine = slices.Concat(secretShapes, secretLabels)
+
+// secretLabels are the words that name a secret. A summary takes out every line with one, value or not; a GM
+// memory note may say them ("never put a token in a brief"), and is refused only when a value follows
+// (memorycheck.go).
+var secretLabels = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)key['"]?\s*[=:]`), // API_KEY=…, "apiKey": …
 	regexp.MustCompile(`(?i)passw(or)?d`),
 	regexp.MustCompile(`(?i)token`),
 	regexp.MustCompile(`(?i)secret`),
 	regexp.MustCompile(`(?i)bearer\s`),
+}
+
+// secretShapes are a secret's value by its own look, whatever the words around it: refused in a GM memory note
+// too (memorycheck.go), with hasAWSSecret.
+var secretShapes = []*regexp.Regexp{
+	regexp.MustCompile(`(^|[^A-Za-z0-9_-])sk-[A-Za-z0-9]`), // Anthropic, OpenAI and others' keys
+	regexp.MustCompile(`(^|[^A-Za-z0-9_-])re_[A-Za-z0-9]`), // Resend
 	regexp.MustCompile(`(^|[^A-Za-z0-9])(ghp|gho|github_pat|xox[abpr]|AKIA)[A-Za-z0-9_-]`),
 	regexp.MustCompile(`(^|[^A-Za-z0-9_])(sk|rk|pk)_(live|test)_[A-Za-z0-9]`), // Stripe
 	regexp.MustCompile(`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.`),           // a JWT
