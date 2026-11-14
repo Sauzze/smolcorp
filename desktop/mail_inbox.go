@@ -35,10 +35,10 @@ func (d *Deck) mailIntoInbox(h Hire, text string, commit func() bool) (result ma
 	}
 	d.mu.Lock()
 	on, saved := d.config.MailInboxSocket, d.config.ClaudeProfiles
-	ids := []string{}
+	ids, heard := []string{}, 0
 	for _, s := range d.sessions.All() {
 		if inboxSession(s, h, gms) {
-			ids = append(ids, s.ID)
+			ids, heard = append(ids, s.ID), s.PID
 		}
 	}
 	d.mu.Unlock()
@@ -47,19 +47,30 @@ func (d *Deck) mailIntoInbox(h Hire, text string, commit func() bool) (result ma
 	}
 	var dirs []string
 	for _, p := range claudeAccountList(saved) {
-		dirs = append(dirs, filepath.Join(p.Dir, "sessions"))
+		dirs = append(dirs, p.Dir)
 	}
 	socket, version := claudeInbox(ids[0], dirs)
 	if socket == "" || !mailVersionAtLeast(version, mailInboxSince) {
 		return mailResult{}, false
 	}
+	// The socket a session file names is the desk's only if the desk's own process listens on it (SA-X5).
+	// Checked before the try is counted: a socket that isn't the desk's is as if there were none.
+	desk := mailDeskPID(mailHireTmux(h), heard)
+	if desk <= 1 {
+		return mailResult{}, false
+	}
+	conn, why := mailInboxDial(socket, desk)
+	if why != "" {
+		return mailResult{}, false
+	}
+	defer conn.Close()
 	if d.mailDeckAsking(h) {
 		return mailResult{Outcome: mailWaiting, Note: "waiting: at a question"}, true
 	}
 	if !commit() {
 		return mailResult{Outcome: mailTrouble, Note: "The outbox couldn't be written, so nothing was typed."}, true
 	}
-	if mailInboxPost(socket, mailInboxLine(text)) == "" {
+	if mailInboxWrite(conn, mailInboxLine(text)) == "" {
 		return mailResult{Outcome: mailSent, Typed: true}, true
 	}
 	return mailResult{}, false
@@ -75,16 +86,27 @@ func inboxSession(s *Session, h Hire, gms []Hire) bool {
 	return works(place, h) && !slices.ContainsFunc(gms, func(gm Hire) bool { return works(place, gm) })
 }
 
-// claudeInbox is the inbox socket and Claude Code version the session file of session id names, in the first of
-// dirs that has one; "" without. Only the .json files are read, and only those fields: never the keys beside them.
+// mailDeskPID is the pid of the desk's own process, as the core knows it, 0 when it doesn't: for a desk on its own
+// tmux server, the process its pane runs (the one SG2's start ticket was redeemed by, which execs the agent: its pid
+// is the agent's); for a hire in a window of its own, which the sandbox never covers, the pid its hook said.
+func mailDeskPID(server *hireTmux, heard int) int {
+	if server == nil {
+		return heard
+	}
+	if pid, ok := server.panePID(); ok {
+		return pid
+	}
+	return 0
+}
+
+// claudeInbox is the inbox socket and Claude Code version the session file of session id names, in the sessions
+// folder of the first of the Claude folders dirs that has one; "" without. Only the .json files are read, through
+// the core's reader (hirefile.go: no link, one name, a size cap), and only those fields: never the keys beside them.
 func claudeInbox(id string, dirs []string) (socket, version string) {
 	for _, dir := range dirs {
-		files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
+		files, _ := filepath.Glob(filepath.Join(dir, "sessions", "*.json"))
 		for _, file := range files {
-			if info, err := os.Stat(file); err != nil || info.Size() > claudeSessionMostBytes {
-				continue
-			}
-			data, err := os.ReadFile(file)
+			data, err := readHireFile(dir, file, claudeSessionMostBytes)
 			if err != nil {
 				continue
 			}
@@ -143,22 +165,41 @@ func mailInboxLine(text string) []byte {
 	return out.Bytes()
 }
 
-// mailInboxPost writes line to the Unix socket at path: "" once all of it is written, else why not. Only a socket
-// of this user's is written to.
-func mailInboxPost(path string, line []byte) string {
+// mailInboxPost writes line to the Unix socket at path: "" once all of it is written, else why not (mailInboxDial).
+func mailInboxPost(path string, line []byte, desk int) string {
+	conn, why := mailInboxDial(path, desk)
+	if why != "" {
+		return why
+	}
+	defer conn.Close()
+	return mailInboxWrite(conn, line)
+}
+
+// mailInboxDial connects to the Unix socket at path, or says why not. Only a socket of this user's is connected to,
+// and kept only when the process at its other end is desk, by the pid the kernel gives for it (LOCAL_PEERPID,
+// SO_PEERCRED: the process that listened), before a byte is sent. The caller closes it.
+func mailInboxDial(path string, desk int) (net.Conn, string) {
 	info, err := os.Lstat(path)
 	if err != nil {
-		return "its socket isn't there"
+		return nil, "its socket isn't there"
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if info.Mode()&os.ModeSocket == 0 || !ok || int(stat.Uid) != os.Getuid() {
-		return "that isn't a socket of yours"
+		return nil, "that isn't a socket of yours"
 	}
 	conn, err := net.DialTimeout("unix", path, 3*time.Second)
 	if err != nil {
-		return "refused: " + err.Error()
+		return nil, "refused: " + err.Error()
 	}
-	defer conn.Close()
+	if pid, err := peerPid(conn); err != nil || pid != desk {
+		conn.Close()
+		return nil, "that socket isn't the desk's own"
+	}
+	return conn, ""
+}
+
+// mailInboxWrite writes line to conn: "" once all of it is written, else how far it got.
+func mailInboxWrite(conn net.Conn, line []byte) string {
 	_ = conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 	if n, err := conn.Write(line); err != nil || n != len(line) {
 		return "cut off after " + strconv.Itoa(n) + " of " + strconv.Itoa(len(line)) + " bytes"

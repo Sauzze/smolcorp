@@ -446,13 +446,14 @@ const modelLookInterval = time.Second
 func dressSubagent(event map[string]any, session *Session) bool {
 	id, _ := event["agent_id"].(string)
 	i := slices.IndexFunc(session.Subagents, func(s Subagent) bool { return s.ID == id })
-	if id == "" || session.Transcript == "" || i < 0 || session.Subagents[i].Model != "" ||
+	// An id is one name: one with a separator or a dot-dot would walk to another file of the place (RT126SAX5).
+	if id == "" || strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") || session.Transcript == "" || i < 0 || session.Subagents[i].Model != "" ||
 		time.Since(session.Subagents[i].lookedForModelAt) < modelLookInterval {
 		return false
 	}
 	session.Subagents[i].lookedForModelAt = time.Now()
 	folder := strings.TrimSuffix(session.Transcript, filepath.Ext(session.Transcript))
-	model := firstModel(filepath.Join(folder, "subagents", "agent-"+id+".jsonl"))
+	model := firstModel(transcriptPlace(session.Transcript), filepath.Join(folder, "subagents", "agent-"+id+".jsonl"))
 	if model == "" {
 		return false
 	}
@@ -466,9 +467,10 @@ const transcriptReach = 256 * 1024
 
 // lastModel and firstModel read Claude Code's transcripts: a line of JSON for
 // each message, and each reply names the model that wrote it. Only that name
-// is read, from the end of a conversation or the start of a subagent's.
+// is read, from the end of a conversation or the start of a subagent's, through
+// the core's reader (hirefile.go): a subagent's below its session's place.
 func lastModel(path string) string {
-	lines := transcriptLines(path, true)
+	lines := transcriptLines(transcriptPlace(path), path, true)
 	for i := len(lines) - 1; i >= 0; i-- {
 		if model := modelOf(lines[i]); model != "" {
 			return model
@@ -477,8 +479,8 @@ func lastModel(path string) string {
 	return ""
 }
 
-func firstModel(path string) string {
-	for _, line := range transcriptLines(path, false) {
+func firstModel(place, path string) string {
+	for _, line := range transcriptLines(place, path, false) {
 		if model := modelOf(line); model != "" {
 			return model
 		}
@@ -486,19 +488,12 @@ func firstModel(path string) string {
 	return ""
 }
 
-func transcriptLines(path string, fromEnd bool) [][]byte {
-	if path == "" {
-		return nil
-	}
-	file, err := os.Open(path)
+func transcriptLines(place, path string, fromEnd bool) [][]byte {
+	file, info, err := openHireFile(place, path)
 	if err != nil {
 		return nil
 	}
 	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return nil
-	}
 	size, start := info.Size(), int64(0)
 	if fromEnd && size > transcriptReach {
 		start = size - transcriptReach

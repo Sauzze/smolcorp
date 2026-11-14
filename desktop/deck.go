@@ -548,6 +548,10 @@ func (d *Deck) ingestAs(desks hookDesks, desk string, event map[string]any, repo
 			return false
 		}
 	}
+	// A transcript is taken by its place only (N2, hirefile.go): one named anywhere else is never read.
+	if path, _ := canonical["transcript_path"].(string); path != "" && !d.transcriptKnown(path) {
+		delete(canonical, "transcript_path")
+	}
 	changed := d.sessions.Apply(canonical, agent, tab, startedIn, at)
 	d.logEvent(canonical, agent, at)
 	// A prompt of the GM's session: the owner's words where the core didn't type them (ownerwords.go). Never logged.

@@ -63,7 +63,7 @@ func inboxSocket(t *testing.T) (string, <-chan string) {
 
 func TestTheInboxIsWrittenOnlyThroughAUsersOwnSocket(t *testing.T) {
 	path, got := inboxSocket(t)
-	if why := mailInboxPost(path, []byte("one\n")); why != "" {
+	if why := mailInboxPost(path, []byte("one\n"), os.Getpid()); why != "" {
 		t.Fatalf("post: %s", why)
 	}
 	if line := <-got; line != "one\n" {
@@ -71,10 +71,10 @@ func TestTheInboxIsWrittenOnlyThroughAUsersOwnSocket(t *testing.T) {
 	}
 	file := filepath.Join(t.TempDir(), "plain")
 	os.WriteFile(file, nil, 0o600)
-	if why := mailInboxPost(file, []byte("one\n")); why != "that isn't a socket of yours" {
+	if why := mailInboxPost(file, []byte("one\n"), os.Getpid()); why != "that isn't a socket of yours" {
 		t.Errorf("a plain file: %q", why)
 	}
-	if why := mailInboxPost(file+"-gone", []byte("one\n")); why != "its socket isn't there" {
+	if why := mailInboxPost(file+"-gone", []byte("one\n"), os.Getpid()); why != "its socket isn't there" {
 		t.Errorf("nothing there: %q", why)
 	}
 }
@@ -91,6 +91,7 @@ func inboxHire(t *testing.T, on bool, version, socket string) (*Deck, Hire) {
 	d.mu.Unlock()
 	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s-rex", "cwd": folder},
 		Claude, "tty:/dev/ttys009", "", nowMillis())
+	d.sessions.Get("s-rex").PID = os.Getpid() // its hook's pid: the stand-in sockets listen in this test's process
 	sessions := filepath.Join(homeDir, ".claude", "sessions")
 	os.MkdirAll(sessions, 0o700)
 	data, _ := json.Marshal(map[string]any{"pid": 4242, "sessionId": "s-rex", "name": "rex", "messagingSocketPath": socket, "version": version})
@@ -154,6 +155,7 @@ func TestTheInboxIsNeverASessionInTheHiresFolderButNotItsWorktreeNorTheGMs(t *te
 		d.sessions.Apply(map[string]any{"hook_event_name": "SessionEnd", "session_id": "s-rex"}, Claude, "tty:/dev/ttys009", "", nowMillis())
 		d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s-rex", "cwd": h.Worktree},
 			Claude, "tty:/dev/ttys010", "", nowMillis()+1)
+		d.sessions.Get("s-rex").PID = os.Getpid()
 		if result := d.mailTypeIntoHire(h, "hello", func() bool { return true }); result.Outcome != mailSent {
 			t.Fatalf("its session in its worktree: %+v", result)
 		}

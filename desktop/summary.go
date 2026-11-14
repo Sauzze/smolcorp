@@ -111,20 +111,13 @@ type latestMessage struct {
 }
 
 // readTranscriptTail is the tail of the transcript at path, or false if
-// there's none to read.
+// there's none to read. Read through the core's reader (hirefile.go).
 func readTranscriptTail(path string) (transcriptExtract, bool) {
-	if path == "" {
-		return transcriptExtract{}, false
-	}
-	file, err := os.Open(path)
+	file, info, err := openTranscript(path)
 	if err != nil {
 		return transcriptExtract{}, false
 	}
 	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return transcriptExtract{}, false
-	}
 	start := int64(0)
 	if info.Size() > summaryReach {
 		start = info.Size() - summaryReach

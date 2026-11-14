@@ -225,6 +225,7 @@ func (t *tally) add(reply countedReply, sign int) {
 // what's been added, whole lines only, and only the lines a tally takes are parsed.
 type transcriptFollower struct {
 	path     string
+	at       string // the place it is read through (hirefile.go); "" for a session's own, by its path
 	tally    tally
 	offset   int64
 	pending  []byte
@@ -245,16 +246,19 @@ var (
 	followerTimestamp = []byte(`"timestamp"`)
 )
 
+// place is where the follower's transcript is read through: a subagent's, its session's place.
+func (f *transcriptFollower) place() string { return cmpOr(f.at, transcriptPlace(f.path)) }
+
 // update reads what's new. A file that got shorter is read again from its start.
 func (f *transcriptFollower) update() {
 	f.lastUsed = time.Now()
-	file, info, err := openRegular(f.path)
+	file, info, err := openHireFile(f.place(), f.path)
 	if err != nil {
 		return
 	}
 	defer file.Close()
 	if info.Size() < f.offset {
-		*f = transcriptFollower{path: f.path, lastUsed: f.lastUsed}
+		*f = transcriptFollower{path: f.path, at: f.at, lastUsed: f.lastUsed}
 	}
 	if info.Size() <= f.offset {
 		return
@@ -533,13 +537,14 @@ func (s *sessionInfos) report(desk infoDesk, now float64, home string) map[strin
 	apiKey := false
 	own := "" // the transcript this report follows: never the one to let go
 	if desk.agent == Claude && desk.transcript != "" {
-		t := s.follow(desk.transcript)
+		place := transcriptPlace(desk.transcript)
+		t := s.follow(place, desk.transcript)
 		own = desk.transcript
 		subagents := strings.TrimSuffix(desk.transcript, filepath.Ext(desk.transcript)) + string(filepath.Separator) + "subagents"
 		if entries, err := os.ReadDir(subagents); err == nil {
 			for _, entry := range entries {
 				if entry.Type().IsRegular() && strings.HasSuffix(entry.Name(), ".jsonl") {
-					t.takeSubagent(s.follow(filepath.Join(subagents, entry.Name())))
+					t.takeSubagent(s.follow(place, filepath.Join(subagents, entry.Name())))
 				}
 			}
 		}
@@ -561,10 +566,10 @@ func (s *sessionInfos) report(desk infoDesk, now float64, home string) map[strin
 	return infoCard(desk, read, account, billing, now)
 }
 
-func (s *sessionInfos) follow(path string) tally {
+func (s *sessionInfos) follow(place, path string) tally {
 	follower := s.followers[path]
 	if follower == nil {
-		follower = &transcriptFollower{path: path}
+		follower = &transcriptFollower{path: path, at: place}
 		s.followers[path] = follower
 	}
 	follower.update()

@@ -507,26 +507,16 @@ func cmpOr(a, b string) string {
 
 // statusLine is the last line with words in it of the STATUS.md a hire keeps,
 // in its folder or its .team folder, cut to 200 characters; "" without one.
-// Only a plain file's last few kilobytes are read; a pipe or any other kind
-// of file is passed over.
+// Only a plain file's last few kilobytes are read, through the core's reader
+// (hirefile.go): a link, a hard link, a pipe or any other kind of file is
+// passed over.
 func statusLine(folder string) string {
 	if !filepath.IsAbs(folder) && !strings.HasPrefix(folder, "/") {
 		return ""
 	}
 	for _, name := range []string{"STATUS.md", filepath.Join(".team", "STATUS.md")} {
-		path := filepath.Join(folder, name)
-		// Look before opening, as the Mac does (links followed): opening a FIFO
-		// would block for good.
-		if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		file, err := os.Open(path)
+		file, info, err := openHireFile(folder, filepath.Join(folder, name))
 		if err != nil {
-			continue
-		}
-		info, err := file.Stat()
-		if err != nil || !info.Mode().IsRegular() {
-			file.Close()
 			continue
 		}
 		offset := max(0, info.Size()-4096)

@@ -106,12 +106,9 @@ var conversationReads sync.Mutex
 
 // readConversation is the page of the transcript at path that ends where
 // before is (a line's start, from an earlier page), or at the end. False with
-// no file.
+// no file. Read through the core's reader (hirefile.go).
 func readConversation(path string, before *int64, most int) (conversationPage, bool) {
-	if path == "" {
-		return conversationPage{}, false
-	}
-	file, info, err := openRegular(path)
+	file, info, err := openTranscript(path)
 	if err != nil {
 		return conversationPage{}, false
 	}
@@ -434,7 +431,7 @@ func (d *Deck) conversation(id string, before, known *int64) (int, any) {
 	}
 	conversationReads.Lock()
 	defer conversationReads.Unlock()
-	if info, err := os.Stat(path); err == nil && before == nil && known != nil && *known == info.Size() {
+	if info, ok := transcriptInfo(path); ok && before == nil && known != nil && *known == info.Size() {
 		return http.StatusNoContent, ""
 	}
 	page, ok := readConversation(path, before, conversationPageMost)

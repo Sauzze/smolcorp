@@ -257,7 +257,11 @@ func (d *Deck) restore(running []savedSession, places savedDeck, fresh bool) {
 	if len(running) == 0 {
 		return
 	}
-	for _, entry := range running {
+	for i, entry := range running {
+		// Saved before transcripts were taken by place, or since moved out of the owner's Claude folders: not read.
+		if !d.transcriptKnown(entry.Transcript) {
+			running[i].Transcript = ""
+		}
 		if key, ok := places.Keys[entry.ID]; ok && key >= 0 && key < mostKeys {
 			if _, has := d.keyOf[entry.ID]; !has {
 				d.keyOf[entry.ID] = key

@@ -322,11 +322,15 @@ func (o *officeTeam) waitForGM(ctx context.Context, f demoFolder) error {
 	}
 }
 
-// follow prints each change in the demo's team until the GM's report is there.
+// demoReportMost is the most of the GM's report that is printed: a report the size of a book isn't one.
+const demoReportMost = 1 << 20
+
+// follow prints each change in the demo's team until the GM's report is there. The report is the GM's to write, so
+// it is read through the core's reader (hirefile.go): never a link to a file of yours printed here.
 func (o *officeTeam) follow(ctx context.Context, f demoFolder, out io.Writer) error {
 	shown, failed := map[string]string{}, 0
 	for {
-		if data, err := os.ReadFile(f.report()); err == nil {
+		if data, err := readHireFile(f.root, f.report(), demoReportMost); err == nil {
 			fmt.Fprintf(out, "\nThe General Manager's report (%s):\n\n%s\n", f.report(), strings.TrimSpace(string(data)))
 			return nil
 		}

@@ -572,8 +572,9 @@ func TestAPhotoIsInNoEventsOrSummaries(t *testing.T) {
 	d.mu.Unlock()
 	events := string(must(json.Marshal(d.events.snapshot())))
 	file, _ := os.ReadFile(filepath.Join(supportDir, "events.jsonl"))
-	// The transcript as Claude Code writes it: the prompt, the Read and its result, and the agent naming the file.
-	transcript := filepath.Join(t.TempDir(), "s1.jsonl")
+	// The transcript as Claude Code writes it, where it writes it (the account's projects folder, so the deck takes it
+	// and reads it by its place): the prompt, the Read and its result, and the agent naming the file.
+	transcript := filepath.Join(homeDir, ".claude", "projects", "-work-api", "s1.jsonl")
 	lines := []map[string]any{
 		{"type": "user", "uuid": "u1", "message": map[string]any{"role": "user", "content": photoLookAt + path}},
 		{"type": "assistant", "uuid": "a1", "message": map[string]any{"role": "assistant", "content": []any{
@@ -589,11 +590,14 @@ func TestAPhotoIsInNoEventsOrSummaries(t *testing.T) {
 		raw = append(raw, data)
 		jsonl = append(append(jsonl, data...), '\n')
 	}
-	if err := os.WriteFile(transcript, jsonl, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, transcript, string(jsonl))
 	summary := extractTranscript(raw, summaryBudget, nil, nil).Text
-	page, _ := readConversation(transcript, nil, conversationPageMost)
+	// The conversation as its route serves it: the turn's end names the transcript, and the deck reads it from there.
+	d.Ingest(map[string]any{"hook_event_name": "Stop", "session_id": "s1", "cwd": "/work/api", "transcript_path": transcript}, "claude", "launcher:L1", "", 80)
+	status, page := d.conversation("s1", nil, nil)
+	if status != http.StatusOK {
+		t.Fatalf("the conversation wasn't read: %d %v", status, page)
+	}
 	conversation := string(must(json.Marshal(page)))
 	for what, text := range map[string]string{"the events log": events, "the events file": string(file), "the phone's snapshot": phone,
 		"the viewer's snapshot": viewer, "the prompt's label": label, "the desk's activity": activity, "the summary": summary,

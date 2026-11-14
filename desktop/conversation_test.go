@@ -247,7 +247,7 @@ func TestAToolsWholeOutputIsSkippedNotRead(t *testing.T) {
 }
 
 func TestAHalfWrittenLastLineIsLeftForLater(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "half.jsonl")
+	path := filepath.Join(projectsFolder(t), "half.jsonl")
 	_ = os.WriteFile(path, []byte(convUser("done")+"\n"+`{"type":"user","message":{"ro`), 0o600)
 	if got := convTexts(convPage(t, path, nil, conversationPageMost)); !reflect.DeepEqual(got, []string{"done"}) {
 		t.Fatalf("%q", got)
@@ -255,7 +255,7 @@ func TestAHalfWrittenLastLineIsLeftForLater(t *testing.T) {
 }
 
 func TestNoFileIsNoPage(t *testing.T) {
-	for _, path := range []string{"", filepath.Join(t.TempDir(), "missing.jsonl")} {
+	for _, path := range []string{"", filepath.Join(projectsFolder(t), "missing.jsonl")} {
 		if _, ok := readConversation(path, nil, conversationPageMost); ok {
 			t.Errorf("a page of %q", path)
 		}

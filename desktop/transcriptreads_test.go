@@ -33,7 +33,7 @@ func TestAHooksBillingNoteNeverWaitsOnTheCardsReads(t *testing.T) {
 
 // N3: a line with no newline that is longer than the line limit ends the page at the reach, and the next page goes on.
 func TestTheReachIsKeptInsideOneOverLongLine(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "s.jsonl")
+	path := filepath.Join(projectsFolder(t), "s.jsonl")
 	data := convUser("first") + strings.Repeat("x", int(conversationReach)+3*conversationLineMost)
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)

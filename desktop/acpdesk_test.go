@@ -365,11 +365,12 @@ func TestAnACPSessionEndsWithItsClientOnly(t *testing.T) {
 // by its tab.
 func TestAnACPAgentCantNameAnotherDesksSession(t *testing.T) {
 	d := newTestDeck(t)
+	victim := filepath.Join(projectsFolder(t), "victim.jsonl") // in the owner's Claude folder, so the deck takes it (SA-X5)
 	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": "victim-0001", "cwd": "/w",
-		"source": "startup", "transcript_path": "/victim.jsonl"}, "claude", "%7", "/w", nowMillis())
+		"source": "startup", "transcript_path": victim}, "claude", "%7", "/w", nowMillis())
 	unchanged := func(when string) {
 		t.Helper()
-		if s := sessionByID(d, "victim-0001"); s == nil || s.Agent != Claude || s.Tab != "%7" || s.Transcript != "/victim.jsonl" || s.State != Idle {
+		if s := sessionByID(d, "victim-0001"); s == nil || s.Agent != Claude || s.Tab != "%7" || s.Transcript != victim || s.State != Idle {
 			t.Errorf("%s, the other desk's session is %+v", when, s)
 		}
 	}

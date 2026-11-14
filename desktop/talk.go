@@ -3,7 +3,6 @@ package desktop
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -200,8 +199,8 @@ func talkLastOf(path string) (int64, string) {
 	if path == "" {
 		return 0, ""
 	}
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
+	info, ok := transcriptInfo(path)
+	if !ok {
 		return 0, ""
 	}
 	talkLasts.Lock()

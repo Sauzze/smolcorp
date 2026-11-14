@@ -278,23 +278,23 @@ func reply(model string) string {
 }
 
 func TestTheModelIsReadFromATranscript(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "s1.jsonl")
+	path := filepath.Join(projectsFolder(t), "s1.jsonl")
 	writeFile(t, path, strings.Join([]string{
 		`{"type": "user", "message": {"role": "user", "content": "hi"}}`,
 		reply("claude-haiku-5-5"), reply("claude-opus-5-5"), reply("<synthetic>"), `not json`, "",
 	}, "\n"))
-	if got := firstModel(path); got != "claude-haiku-5-5" {
+	if got := firstModel(transcriptPlace(path), path); got != "claude-haiku-5-5" {
 		t.Errorf("first model %q, want claude-haiku-5-5", got)
 	}
 	if got := lastModel(path); got != "claude-opus-5-5" {
 		t.Errorf("last model %q, want claude-opus-5-5: an API error's notice isn't a model's", got)
 	}
-	if lastModel(filepath.Join(t.TempDir(), "none.jsonl")) != "" || firstModel("") != "" {
+	if lastModel(filepath.Join(projectsFolder(t), "none.jsonl")) != "" || firstModel("", "") != "" {
 		t.Error("a transcript that isn't there named a model")
 	}
 
 	// A long tool output: only the end is read, from the first whole line.
-	long := filepath.Join(t.TempDir(), "long.jsonl")
+	long := filepath.Join(projectsFolder(t), "long.jsonl")
 	writeFile(t, long, reply("claude-haiku-5-5")+"\n"+`{"output": "`+strings.Repeat("x", transcriptReach)+`"}`+"\n"+reply("claude-sonnet-5-5")+"\n")
 	if got := lastModel(long); got != "claude-sonnet-5-5" {
 		t.Errorf("last model of a long transcript %q, want claude-sonnet-5-5", got)
@@ -302,7 +302,7 @@ func TestTheModelIsReadFromATranscript(t *testing.T) {
 }
 
 func TestASubagentsTranscriptIsReadAtMostOnceASecond(t *testing.T) {
-	folder := t.TempDir()
+	folder := projectsFolder(t)
 	s := NewSessions()
 	s.Apply(event("UserPromptSubmit", "transcript_path", filepath.Join(folder, "s1.jsonl")), Claude, tab, "", 100)
 	s.Apply(event("SubagentStart", "agent_id", "a1", "agent_type", "Explore"), Claude, tab, "", 200)

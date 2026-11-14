@@ -25,24 +25,13 @@ func visibleCost(capture string) string {
 }
 
 // recapFile opens rel inside dir for the recap, or nil: only a plain file with
-// one name, reached without leaving dir. A hire writes its own folder, so a
-// link there (at any depth) could point anywhere the user can read, and a pipe
-// would hold the fire for good: os.Root refuses a part that leaves dir,
-// O_NONBLOCK keeps a pipe from blocking the open, O_NOFOLLOW refuses a link as
-// the last part, and a hard link (more than one name) is refused as the
-// watchers do.
+// one name, reached without leaving dir and through no link. A hire writes its
+// own folder, so a link there (at any depth) could point anywhere the user can
+// read, and a pipe would hold the fire for good: read through the core's
+// reader (hirefile.go).
 func recapFile(dir, rel string) *os.File {
-	root, err := os.OpenRoot(dir)
+	f, _, err := openHireFile(dir, filepath.Join(dir, rel))
 	if err != nil {
-		return nil
-	}
-	defer root.Close()
-	f, err := openWatched(root, rel)
-	if err != nil {
-		return nil
-	}
-	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() || fileLinks(f, info) > 1 {
-		f.Close()
 		return nil
 	}
 	return f

@@ -67,7 +67,7 @@ func assertNoPartOfTheKey(t *testing.T, text, what string) {
 
 func transcriptFile(t *testing.T, lines ...string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "session.jsonl")
+	path := filepath.Join(projectsFolder(t), "session.jsonl")
 	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

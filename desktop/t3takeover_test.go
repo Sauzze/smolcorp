@@ -154,6 +154,14 @@ type t3TakeOverRig struct {
 	pausedAt func()
 }
 
+// ownersHome makes the rig's home the owner's for the test, so the deck takes its transcript as one of the owner's
+// default account (SA-X5: a transcript is taken by its place only). Called after newTestDeck, which sets its own.
+func (k *t3TakeOverRig) ownersHome(t *testing.T) {
+	saved := homeDir
+	homeDir = k.home
+	t.Cleanup(func() { homeDir = saved })
+}
+
 func newT3TakeOverRig(t *testing.T, flags ...string) *t3TakeOverRig {
 	t.Helper()
 	r := newT3Rig(t)
@@ -918,6 +926,7 @@ func TestT3TakeOverAndHandBackThroughTheDeckAndItsRoutes(t *testing.T) {
 	t3Kept.status, t3Kept.at = t3Status{}, time.Time{}
 	t3Kept.Unlock()
 	d := newTestDeck(t)
+	k.ownersHome(t) // after the deck's own test home
 	d.mu.Lock()
 	d.config.T3CodeEnabled = true
 	d.mu.Unlock()
@@ -1194,6 +1203,7 @@ func TestT3TakeOverLetsGoOfItsDeskAndSlotWhenItPanics(t *testing.T) {
 	t3Kept.status, t3Kept.at = t3Status{}, time.Time{}
 	t3Kept.Unlock()
 	d := newTestDeck(t)
+	k.ownersHome(t) // after the deck's own test home
 	d.mu.Lock()
 	d.config.T3CodeEnabled = true
 	d.mu.Unlock()
@@ -1242,6 +1252,7 @@ func TestT3TakeOverAndAFireOfOneHireNeverRunAtOnce(t *testing.T) {
 	t3Kept.status, t3Kept.at = t3Status{}, time.Time{}
 	t3Kept.Unlock()
 	d := newTestDeck(t)
+	k.ownersHome(t) // after the deck's own test home
 	d.mu.Lock()
 	d.config.T3CodeEnabled = true
 	d.mu.Unlock()
