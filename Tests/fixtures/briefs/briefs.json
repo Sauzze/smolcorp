@@ -304,7 +304,7 @@
         "Where do the words live: a folder, a file, or only on the screens?",
         "Should you only list problems, or also write the missing words? Any word list to follow, or words that must stay as they are?"
       ],
-      "summary" : "Checks or writes an app's words in another language, so they read as a native speaker's, and lists what a person must still review."
+      "summary" : "Checks or writes an app's words in another language so they read as a native speaker's, and lists what a person must still review."
     },
     {
       "id" : "api-checker",
@@ -3627,7 +3627,7 @@
     {
       "firstMessage" : "Read `~/Support/briefs/1-translator-20270115-0800.md` and follow it: it's your brief, as my Translator. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
       "id" : "translator",
-      "markdown" : "ef043ca91988b0c5a765e6eb4874a03ec36a79375c8b4a6378dd36e5ffb70cee",
+      "markdown" : "ef7171c62fa436e6dec16a6caebe2fa5d5dad72d9884aafe48dd0b2d814240e2",
       "role" : {
         "agent" : "claude",
         "badge" : "",
@@ -3647,7 +3647,7 @@
           "Should you only list problems, or also write the missing words? Any word list to follow, or words that must stay as they are?"
         ]
       },
-      "template" : "edc04a81b11824afb2e41e752363119c772f2b0fe1c8c05306a740b6a8edec1e"
+      "template" : "67b801181bb872f1c06faff108ecdbb9e60d70a3f48047ef8fcbe4936f9bd59c"
     },
     {
       "firstMessage" : "Read `~/Support/briefs/1-api-checker-20270115-0800.md` and follow it: it's your brief, as my API checker. As it says, your first reply must only ask me its questions, all together; wait for my answers before you read code or run commands.",
