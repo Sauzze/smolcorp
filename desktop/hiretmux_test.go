@@ -109,14 +109,26 @@ func TestOnlyOurSocketsAreOwned(t *testing.T) {
 func TestStartIsDetachedInTheFolderOnItsOwnSocket(t *testing.T) {
 	r := newRecorder()
 	h, socket := fakeHireTmux(t, r, 0)
-	r.output = "%0 " + socket
-	pane, got, ok := h.start("/work/app", "/bin/zsh", "/x/hire.sh")
-	if !ok || pane != "%0" || got != socket {
-		t.Fatalf("start gave %q %q %v", pane, got, ok)
+	r.output = "%0 4242 " + socket
+	pane, got, pid, ok := h.start("/work/app", []string{"/x/smolcorp", "desk-start", "/s/desk-start", "42", "ticket"})
+	if !ok || pane != "%0" || got != socket || pid != 4242 {
+		t.Fatalf("start gave %q %q %d %v", pane, got, pid, ok)
 	}
-	want := []string{"-S", socket, "new-session", "-d", "-P", "-F", "#{pane_id} #{socket_path}",
-		"-s", "hire", "-c", "/work/app", "/bin/zsh", "-lic", "exec '/x/hire.sh'"}
+	// Its words as they are: tmux runs several without a shell, so no login shell and no start file runs (SG2). The
+	// pid of the process it started is said by the same call (the desk's ticket is for that process: RT126SG2 B1).
+	want := []string{"-S", socket, "new-session", "-d", "-P", "-F", "#{pane_id} #{pane_pid} #{socket_path}",
+		"-s", "hire", "-c", "/work/app", "/x/smolcorp", "desk-start", "/s/desk-start", "42", "ticket"}
 	if len(r.asked) != 1 || !reflect.DeepEqual(r.asked[0], want) {
+		t.Errorf("asked %q, want %q", r.asked, want)
+	}
+}
+
+// RT126SG2 B1, §4 g6: a hire's real tmux reads none of the owner's start files. Every call is given -f with no
+// file, which only the call starting the server reads; a stand-in runner is left as it is.
+func TestAHiresRealTmuxReadsNoStartFile(t *testing.T) {
+	r := newRecorder()
+	withoutStartFile(r.run)([]string{"-S", "/s/x", "has-session"})
+	if want := []string{"-f", os.DevNull, "-S", "/s/x", "has-session"}; len(r.asked) != 1 || !reflect.DeepEqual(r.asked[0], want) {
 		t.Errorf("asked %q, want %q", r.asked, want)
 	}
 }
@@ -124,11 +136,17 @@ func TestStartIsDetachedInTheFolderOnItsOwnSocket(t *testing.T) {
 func TestStartFailsWhenTmuxDoes(t *testing.T) {
 	r := newRecorder()
 	h, _ := fakeHireTmux(t, r, 0)
-	for _, c := range []recorder{{status: 1, ran: true}, {output: "garbage", ran: true}, {output: "%0 ", ran: true}, {output: "0 /s", ran: true}, {}} {
+	for _, c := range []recorder{{status: 1, ran: true}, {output: "garbage", ran: true}, {output: "%0 ", ran: true}, {output: "0 /s", ran: true},
+		{output: "%0 /s", ran: true}, {output: "%0 x /s", ran: true}, {output: "%0 1 /s", ran: true}, {output: "%0 42 ", ran: true}, {}} {
 		*r = c
-		if _, _, ok := h.start("/w", "/bin/sh", "x"); ok {
+		if _, _, _, ok := h.start("/w", []string{"/bin/sh", "x"}); ok {
 			t.Errorf("start succeeded on %+v", c)
 		}
+	}
+	// One word would be run by tmux's shell: never asked.
+	*r = recorder{output: "%0 42 /s", ran: true}
+	if _, _, _, ok := h.start("/w", []string{"/x/hire.sh"}); ok || len(r.asked) != 0 {
+		t.Errorf("a one-word start was asked: %q", r.asked)
 	}
 }
 
@@ -201,8 +219,8 @@ func TestEndNamesTheSessionAndNeverKillsTheServerByName(t *testing.T) {
 func TestEveryCallNamesOurSocket(t *testing.T) {
 	r := newRecorder()
 	h, socket := fakeHireTmux(t, r, 0)
-	r.output = "%0 " + socket
-	h.start("/w", "/bin/sh", "x")
+	r.output = "%0 4242 " + socket
+	h.start("/w", []string{"/bin/sh", "x"})
 	h.alive()
 	h.capture(3)
 	h.paneState()
@@ -333,7 +351,7 @@ func TestARealSessionOnItsOwnSocket(t *testing.T) {
 	if err := os.WriteFile(agent, []byte("#!/bin/sh\necho 'fake agent is up'\nexec cat\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	pane, socket, ok := h.start(folder, "/bin/sh", agent)
+	pane, socket, _, ok := h.start(folder, []string{"/bin/sh", agent})
 	if !ok {
 		t.Fatal("start failed")
 	}

@@ -90,26 +90,23 @@ var claudeFoundAt = func() string {
 }
 
 // claudeSignIn asks program whether it's signed in on the account whose config folder is configDir ("" for
-// ~/.claude's), as a hire starts it: through your login shell, with the hire's environment, so a key or a cloud
-// provider your shell's files set counts. A variable, for the tests.
+// ~/.claude's), as a desk starts it, with the hire's environment, so a key or a cloud provider in it counts. A
+// variable, for the tests.
 var claudeSignIn = func(program, configDir string) signIn {
-	command := signInCommand(program, configDir)
+	// A Claude Code that isn't Anthropic's is never run (agentcheck.go): it can't say.
+	if checkAgentProgram(string(Claude), program) != nil {
+		return signInUnknown
+	}
+	command := signInCommand(program)
 	return signInFrom(quickRun(command[0], command[1:], signInEnvironment(configDir)).output)
 }
 
-// signInCommand is `claude auth status --json` the way a hire's command is run (startHire, inLoginShell), on
-// the account the GM's hire would work on: its start script sets CLAUDE_CONFIG_DIR to the account's folder, or
-// clears it for ~/.claude's (configDir ""), after your shell's files have run, so this does the same there (the
-// Mac's GMPreflight.signInArguments). Windows has no login shell: the environment says it (signInEnvironment).
-func signInCommand(program, configDir string) []string {
-	if runtime.GOOS == "windows" {
-		return []string{program, "auth", "status", "--json"}
-	}
-	account := []string{"-u", "CLAUDE_CONFIG_DIR"}
-	if configDir != "" {
-		account = []string{"CLAUDE_CONFIG_DIR=" + configDir}
-	}
-	return inLoginShell(append(append([]string{"env"}, account...), program, "auth", "status", "--json"))
+// signInCommand is `claude auth status --json`, run as a desk's Claude Code is started: the program itself, no
+// login shell (SANDBOX-PLAN §3.4, SG2), on the account the GM's hire would work on, which signInEnvironment names
+// (CLAUDE_CONFIG_DIR set to the account's folder, or cleared for ~/.claude's, configDir ""). Checked before it
+// runs, as every Claude Code the core starts (spawnCapped).
+func signInCommand(program string) []string {
+	return []string{program, "auth", "status", "--json"}
 }
 
 // signInEnvironment is the hire's environment without CLAUDE_CONFIG_DIR, as the launcher drops it for the GM, and

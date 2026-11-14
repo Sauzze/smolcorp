@@ -122,7 +122,7 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 
 | Method | Path | Callers | Request | Answer | Statuses | Fixture | Go |
 |---|---|---|---|---|---|---|---|
-| POST | `/setup/hiring` | gm, page | `?enabled=&folder=&agent=&terminal=&tmux=` | the setup state | 200, 400, 409 (Go: off while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | setup.json | differs |
+| POST | `/setup/hiring` | gm, page | `?enabled=&folder=&agent=&terminal=&tmux=`; `?claudeUnsigned=1` the page alone (1.26, RT126SG2 B2: an unsigned Claude Code refused after a signed one ran is the one to start from now on; `hiring.claudeUnsigned` in `/setup/state` names it) | the setup state | 200, 400, 403 (`claudeUnsigned` from anyone but the page), 409 (Go: off while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | setup.json | differs |
 | POST | `/setup/hiring/choose` | page | `?pick=1&for=floor` | the setup state; pick: `{picked}` | 200 | none: opens the system's folder picker | served (the system's picker; under the Mac app, its folder panel through the bridge) |
 | GET | `/setup/hire-folder` | page, tool | `?check=` | `{exists, fix, folder, home, problem, suggested}` | 200 | setup.json | served |
 | POST | `/setup/hire-folder` | gm, page | `?folder=&create=1` | as GET | 200, 400 | setup.json | served |
@@ -610,6 +610,8 @@ has until the Go app serves it; the Swift engine's twin is in the history before
 
 | In | Where | Go | Why | Owner |
 |---|---|---|---|---|
+| `setup-state` | `.hiring.agentsChecked` | extra | whether this computer checks agents' programs (a Mac checks Claude Code's signature, RT126SG2 B2), which the Swift engine never did | stays: Go-only, the page's line under Let the office hire and fire; the Mac runs the Go core |
+| `setup-state` | `.hiring.claudeUnsigned` | extra | an unsigned Claude Code refused after a signed one ran, for the owner to confirm (RT126SG2 B2), which the Swift engine never had | stays: Go-only, the page's alone to confirm; the Mac runs the Go core |
 | `setup-state` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |
@@ -617,6 +619,8 @@ has until the Go app serves it; the Swift engine's twin is in the history before
 | `setup-state` | `.phones[].beforeSigning` | extra | a phone paired before 1.25, whose key crossed the Wi-Fi in clear (FXSEC B1), which the Swift engine never had | stays: Go-only, the page's Paired phones; the Mac runs the Go core |
 | `setup-state` | `.phones[].pairedAgain` | extra | a phone of its name paired since, so setup offers to remove the old entry (FXSEC B1) | stays: Go-only, the page's Paired phones; the Mac runs the Go core |
 | `setup-state` | `.summary.noStore` | extra | says there's no secret store for the key, which a Mac always has | stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false |
+| `setup-state-tool` | `.hiring.agentsChecked` | extra | whether this computer checks agents' programs (a Mac checks Claude Code's signature, RT126SG2 B2), which the Swift engine never did | stays: Go-only, the page's line under Let the office hire and fire; the Mac runs the Go core |
+| `setup-state-tool` | `.hiring.claudeUnsigned` | extra | an unsigned Claude Code refused after a signed one ran, for the owner to confirm (RT126SG2 B2), which the Swift engine never had | stays: Go-only, the page's alone to confirm; the Mac runs the Go core |
 | `setup-state-tool` | `.hiring.managedBeta` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state-tool` | `.hiring.managedWindows` | extra | the launcher's hire beta (Windows) | stays: Go-only, the launcher's hire beta; the page doesn't read it |
 | `setup-state-tool` | `.mailBeta` | extra | mail to a hire is beta on Windows | stays: Go-only, the page doesn't read it |

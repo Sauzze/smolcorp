@@ -1051,7 +1051,8 @@ func (d *Deck) runSummaryAgent(provider summaryProvider, system, prompt string) 
 	if program == "" {
 		program = summaryProgram(provider)
 	}
-	if program == "" {
+	// Checked again right before it runs: the file may have changed since setup looked (agentcheck.go).
+	if program == "" || checkAgentProgram(string(provider), program) != nil {
 		return "", cliMissing
 	}
 	expected := state.kind

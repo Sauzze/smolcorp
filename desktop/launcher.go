@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -198,6 +199,12 @@ func launch(run *launcherRun) int {
 		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 		return 127
 	}
+	// The agent found is checked as every agent CLI the core starts is (agentcheck.go; SANDBOX-PLAN §3.4, g7): a
+	// hire can write the folders it's found in. A refused one never runs (RT126SG2 B3).
+	if err := checkAgentProgram(string(agentNamed(args[0])), program); err != nil {
+		fmt.Fprintf(os.Stderr, "smolcorp: %v No desk was started.\n", err)
+		return 126
+	}
 	if run.role != "" && program != args[0] && len(programArgs) > 0 && programArgs[0] == "/c" {
 		if programArgs, err = forCmd(programArgs); err != nil {
 			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
@@ -230,6 +237,11 @@ func launch(run *launcherRun) int {
 	cmd := terminal.Command(program, programArgs...)
 	useCmdLine(cmd, program, programArgs)
 	cmd.Env = append(os.Environ(), "SMOLCORP_SESSION="+id)
+	if run.hire != "" {
+		// A hire's window may have run your shell's start files before this (the terminal's own shell): what they
+		// set to wrap or switch off its hooks isn't passed on (§4 g10).
+		cmd.Env = slices.DeleteFunc(cmd.Env, func(variable string) bool { name, _, _ := strings.Cut(variable, "="); return wrapsHooks(name) })
+	}
 	if startEnv != nil {
 		// On the agent's process alone.
 		cmd.Env = startEnvironment(cmd.Env, *startEnv, runtime.GOOS == "windows")
@@ -315,10 +327,17 @@ func exeLine(program string, args []string) string {
 	return line
 }
 
-// resolveProgram finds the agent on PATH. On Windows, npm installs agents as
+// resolveProgram finds the agent on PATH, or where the core finds agents (programNamed: your login shell's PATH,
+// asked with nothing of yours around it, and the folders their installers use), since a hire's window no longer
+// starts it through your login shell (RT126SG2 B3). On Windows, npm installs agents as
 // .cmd scripts, which a pseudo-console can't start by themselves.
 func resolveProgram(name string, args []string) (string, []string, error) {
 	path, err := exec.LookPath(name)
+	if err != nil && !strings.ContainsRune(name, filepath.Separator) {
+		if found := programNamed(name); found != "" {
+			path, err = found, nil
+		}
+	}
 	if err != nil {
 		return "", nil, fmt.Errorf("%s isn't installed, or isn't on your PATH", name)
 	}

@@ -103,19 +103,28 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 	if testPort != 0 {
 		start.TestPort, start.TestSupportDir = testPort, supportDir
 	}
-	script, err := start.script()
+	plan, err := start.plan()
 	if err != nil {
 		return "", err
 	}
-	file, err := writeStartScriptAs(hireFolder(supportDir, h.ID), resumeScriptPrefix+"*.sh", script)
+	if refusal := ownSealRefusal(); refusal != nil {
+		return "", errors.New(refusal.Message)
+	}
+	// Its own folder, its owner's alone, as the engine makes it.
+	if err := os.MkdirAll(hireFolder(supportDir, h.ID), 0o700); err != nil {
+		return "", errors.New("its own folder couldn't be made.")
+	}
+	// Its start goes to its pane alone, by a ticket (deskstart.go): no script, no shell.
+	command, err := deskStarts.issue(o.CLI, h.ID, tmux, plan, o.Key)
 	if err != nil {
-		return "", errors.New("its start script couldn't be written.")
+		return "", err
 	}
 	// In the folder the session started in (its worktree), never the project the registry names.
-	_, socket, ok := tmux.start(startedIn(h), loginShell(), file)
+	_, socket, started, ok := tmux.start(startedIn(h), command)
 	if !ok {
-		_ = os.Remove(file)
+		deskStarts.forget(h.ID)
 		return "", errors.New("tmux didn't start it.")
 	}
+	deskStarts.pin(h.ID, started)
 	return socket, nil
 }

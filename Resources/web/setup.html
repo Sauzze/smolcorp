@@ -1194,6 +1194,11 @@
               <select id="hire-terminal" aria-label="The terminal hires open in" hidden></select>
               <label class="hire-tmux" id="hire-tmux-label" hidden><input type="checkbox" id="hire-tmux"> Start inside tmux</label>
             </div>
+            <p class="choice-line" id="hire-unchecked"></p>
+            <div id="claude-unsigned" hidden>
+              <p class="note" id="claude-unsigned-line" role="alert"></p>
+              <button class="btn" id="claude-unsigned-confirm">Use this copy</button>
+            </div>
             <p class="note" id="hiring-problem" role="alert" hidden></p>
           </div>
           <button class="switch" id="hiring" aria-label="Let the office hire and fire"></button>
@@ -3108,6 +3113,14 @@
     $('hire-terminal').replaceChildren(...terminals.map((t) => new Option(`Opens in ${t.name}`, t.id, false, t.id === h.terminal)));
     $('hire-tmux-label').hidden = !h.hasTmux;
     $('hire-tmux').checked = !!h.tmux;
+    // What Smolcorp can check of the agents it starts, and an unsigned Claude Code waiting for your yes.
+    $('hire-unchecked').textContent = h.agentsChecked
+      ? "Smolcorp checks Claude Code from Anthropic's installer before each start. Claude Code installed with npm, Codex, Gemini CLI and OpenCode aren't signed, so Smolcorp can't tell if another program changed them."
+      : "Agents' programs aren't signed in a way this computer can check, so Smolcorp can't tell if another program changed them.";
+    $('claude-unsigned').hidden = !h.claudeUnsigned;
+    $('claude-unsigned-line').textContent = h.claudeUnsigned
+      ? `Claude Code changed to an unsigned copy (${h.claudeUnsigned}), so no desk starts on it. Use it only if you installed it yourself, with npm; if not, reinstall Claude Code with Anthropic's installer.`
+      : '';
     $('hire-tmux-label').title = state.launcher
       ? 'The agent runs in a tmux session of its own, which carries on when its window closes: tmux attach shows it again.'
       : "The agent runs in a tmux session of its own, so its keys and mic work from the phone in any terminal.";
@@ -3511,6 +3524,7 @@
   $('hire-agent').onchange = () => post(`/setup/hiring?agent=${$('hire-agent').value}`);
   $('hire-terminal').onchange = () => post(`/setup/hiring?terminal=${$('hire-terminal').value}`);
   $('hire-tmux').onchange = () => post(`/setup/hiring?tmux=${$('hire-tmux').checked ? 1 : 0}`);
+  $('claude-unsigned-confirm').onclick = () => post('/setup/hiring?claudeUnsigned=1');
   $('dictation').onclick = () => post(`/setup/dictation?enabled=${$('dictation').classList.contains('on') ? 0 : 1}`);
   $('dictation-language').onchange = () => post(`/setup/dictation?language=${$('dictation-language').value}`);
   $('dictation-claude').onchange = () => post(`/setup/dictation?claude=${$('dictation-claude').checked ? 1 : 0}`);

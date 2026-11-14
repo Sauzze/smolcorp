@@ -923,12 +923,15 @@ func whereAppFinds(program string) string {
 
 // openHire opens command in folder: in a window of terminal, or in a tmux
 // session of its own, shown in a window of terminal when there is one.
+// command is the launcher (`smolcorp launch`), started as it is, never
+// through a login shell of Smolcorp's: the launcher finds the agent and
+// checks it (RT126SG2 B3, SANDBOX-PLAN §4 g6, g7).
 func openHire(command []string, folder string, terminal hireOpener, hasTerminal, inTmux bool) error {
 	if !inTmux {
-		return openWindow(terminal, folder, inLoginShell(command))
+		return openWindow(terminal, folder, command)
 	}
 	name := "smolcorp-" + strings.ToLower(newID()[:8])
-	made, err := runTmux(tmuxSessionArguments(name, folder, inLoginShell(command))...)
+	made, err := runTmux(tmuxSessionArguments(name, folder, command)...)
 	if err != nil {
 		return err
 	}
@@ -1039,6 +1042,9 @@ func (d *Deck) hireState(apiKey apiKeyOffer) map[string]any {
 		"managedWindows": d.config.HireManagedWindows && launcherHires, "managedBeta": launcherHires,
 		// The API-key account for a hire, as the Mac's: offered only with a key where Summaries keep it.
 		"apiKey": apiKey.state(),
+		// Whether agents' programs are checked here (a Mac checks Claude Code's signature), and an unsigned Claude
+		// Code refused since a signed one ran, for the owner to confirm (agentcheck.go), or "".
+		"agentsChecked": claudeSignaturesChecked, "claudeUnsigned": claudeInstalls.waiting(),
 	}
 }
 

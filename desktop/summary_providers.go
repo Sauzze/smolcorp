@@ -845,6 +845,10 @@ func (p *summaryProviders) checkProvider(provider summaryProvider) providerState
 	if program == "" {
 		return providerState{kind: providerMissing, reason: "not installed"}
 	}
+	// A Claude Code that isn't Anthropic's is never run, not even for its help (agentcheck.go).
+	if err := checkAgentProgram(string(provider), program); err != nil {
+		return providerState{kind: providerMissing, reason: err.Error()}
+	}
 	env := summaryEnvironment(os.Environ())
 	help := p.helpText(provider, program, env)
 	for _, flag := range summaryFlags(provider) {

@@ -287,3 +287,27 @@ func TestAnEmptyProgramIsNeverLookedFor(t *testing.T) {
 		t.Error("an empty program started a login shell")
 	}
 }
+
+// RT126SG2 B3: a hire's window starts the launcher with no login shell, so the launcher finds the agent where the
+// core does when its own PATH lacks it: the folders your login shell's PATH names (asked apart, as the core asks).
+func TestTheLauncherFindsAnAgentWhereTheCoreDoes(t *testing.T) {
+	isolate(t)
+	folder := t.TempDir()
+	agent := filepath.Join(folder, "sg2-stand-in-agent")
+	writeFile(t, agent, "#!/bin/sh\n")
+	if err := os.Chmod(agent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", "/usr/bin:/bin")
+	noLoginShell(t)
+	if _, _, err := resolveProgram("sg2-stand-in-agent", nil); err == nil {
+		t.Fatal("found with nothing naming its folder")
+	}
+	loginPathMu.Lock()
+	loginPath = []string{folder}
+	loginPathMu.Unlock()
+	found, _, err := resolveProgram("sg2-stand-in-agent", []string{"x"})
+	if resolved, _ := filepath.EvalSymlinks(agent); err != nil || found != resolved {
+		t.Errorf("found %q %v, want %q", found, err, resolved)
+	}
+}

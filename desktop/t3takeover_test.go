@@ -1050,7 +1050,7 @@ func TestT3TakeOverRunsWithItsPinnedArgumentListsOnly(t *testing.T) {
 
 func TestT3ResumeScriptGoesOnWithTheSessionOnItsOwnSettings(t *testing.T) {
 	script, err := hireStart{Role: Role{ID: "dev", Name: "Dev", Agent: "claude", Model: "claude-haiku-5-5", Effort: "high"},
-		Resume: t3TakeOverSession, DefaultAccount: true, Settings: "/s/settings.json", CLIDir: "/opt/smolcorp/bin", Ports: "4100-4103", SendKey: "k"}.script()
+		Resume: t3TakeOverSession, DefaultAccount: true, Settings: "/s/settings.json", CLIDir: "/opt/smolcorp/bin", Ports: "4100-4103", SendKey: "k"}.startText()
 	if err != nil {
 		t.Fatal(err)
 	}

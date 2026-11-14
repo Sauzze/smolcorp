@@ -63,5 +63,8 @@ func runWithTempSupport(m *testing.M) int {
 	tailnetCandidates = nil
 	// No test runs the claude installed here to learn its version: a stand-in new enough (claudeversion.go).
 	claudeVersion = func() (string, bool) { return "2.1.323 (Claude Code)", true }
+	// Nor is a stand-in claude refused for its signature (agentcheck.go): the rows that check the refusal put the
+	// real check back, on stand-ins of their own.
+	agentSignatureCheck = func(string) error { return nil }
 	return m.Run()
 }

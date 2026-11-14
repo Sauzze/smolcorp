@@ -43,7 +43,7 @@ func (f *fakeTmux) run(args []string) (string, int, bool) {
 		f.up = true
 		// A real server's socket is a socket file, which cleanup checks for.
 		listenAt(f.t, args[1])
-		return "%1 " + args[1], 0, true
+		return "%1 4242 " + args[1], 0, true
 	case "has-session":
 		if f.up {
 			return "", 0, true
@@ -89,15 +89,14 @@ func (r *engineRig) request(roleID string) engineRequest {
 		GMToken: func() string { return "fake-gm-token-1" }}
 }
 
-// script is the start script a hire was given.
+// script is the start a hire's ticket holds, as planText reads it.
 func (r *engineRig) script(h Hire) string {
 	r.t.Helper()
-	files, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, h.ID), "hire-*.sh"))
-	if len(files) != 1 {
-		r.t.Fatalf("start scripts: %v", files)
+	plan, ok := issuedPlan(h.ID)
+	if !ok {
+		r.t.Fatalf("no start ticket for %s", h.ID)
 	}
-	data, _ := os.ReadFile(files[0])
-	return string(data)
+	return planText(plan)
 }
 
 func registered(t *testing.T) []Hire { t.Helper(); return readRegistry(registryPath(), false).hires }
@@ -160,8 +159,8 @@ func TestAnAPIKeyHireThroughTheEngineAlwaysApprovesItsKeyTail(t *testing.T) {
 	if !isApproved("0123456789ABCDEFGHIJ", data) || !isTrusted(hire.Worktree, data) {
 		t.Fatalf("the API-key hire's key tail or worktree isn't in .claude.json: %s", data)
 	}
-	if script := r.script(hire); !strings.Contains(script, "secret-tool lookup") || strings.Contains(script, placeTestKey) {
-		t.Errorf("the key should be read from the secret store, never written down:\n%s", script)
+	if plan, _ := issuedPlan(hire.ID); !plan.APIKey || strings.Contains(planText(plan), placeTestKey) {
+		t.Errorf("the key should be read from the secret store when the pane asks, never held before:\n%s", planText(plan))
 	}
 	// With no key in the store nothing is made.
 	r2 := newEngineRig(t)
@@ -880,7 +879,7 @@ func TestUnderTheMacAppAnAPIKeyHireGetsTheKeyThroughTheBridgeAndNowhereElse(t *t
 		t.Fatalf("not offered: registry %+v, tmux %q, asked %q", registered(t), r.tmux.asked, mac.asked)
 	}
 
-	// Offered: hired, its tail approved, the key in its start script alone.
+	// Offered: hired, its tail approved, the key in its start ticket alone, never in a file.
 	mac.offered = true
 	if w := page(true); w.Code != http.StatusOK {
 		t.Fatalf("offered: %d %s", w.Code, w.Body)
@@ -893,17 +892,14 @@ func TestUnderTheMacAppAnAPIKeyHireGetsTheKeyThroughTheBridgeAndNowhereElse(t *t
 		t.Errorf("the key's tail isn't approved: %s", data)
 	}
 	script := r.script(hires[0])
-	if !strings.Contains(script, "export ANTHROPIC_API_KEY='"+fakeHireKey+"'") || strings.Contains(script, "secret-tool") {
-		t.Errorf("the script doesn't export the Mac app's key:\n%s", script)
+	if !strings.Contains(script, "export ANTHROPIC_API_KEY='"+fakeHireKey+"'") || strings.Contains(script, "secret store") {
+		t.Errorf("the start doesn't set the Mac app's key:\n%s", script)
 	}
-	scripts, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hires[0].ID), "hire-*.sh"))
-	for _, path := range append(scripts, hireFolder(supportDir, hires[0].ID)) {
-		if info, err := os.Stat(path); err != nil || info.Mode().Perm()&0o077 != 0 {
-			t.Errorf("%s isn't its owner's alone: %v %v", path, info.Mode(), err)
-		}
+	if info, err := os.Stat(hireFolder(supportDir, hires[0].ID)); err != nil || info.Mode().Perm()&0o077 != 0 {
+		t.Errorf("the hire's own folder isn't its owner's alone: %v %v", info, err)
 	}
 
-	// Refused once its script is written (tmux won't start), and never started: both take their scripts away.
+	// Refused once its ticket is made (tmux won't start), and never started: both take their tickets away.
 	r.tmux.starts = false
 	if w := page(true); w.Code != http.StatusInternalServerError {
 		t.Errorf("tmux down: %d %s", w.Code, w.Body)
@@ -920,8 +916,13 @@ func TestUnderTheMacAppAnAPIKeyHireGetsTheKeyThroughTheBridgeAndNowhereElse(t *t
 	if want := []string{"api-key-offer", "api-key-offer", "api-key-read", "api-key-offer", "api-key-read", "api-key-offer", "api-key-read"}; !slices.Equal(mac.asked, want) {
 		t.Errorf("asked of the Mac app %q, want %q", mac.asked, want)
 	}
-	if found := filesHolding(t, fakeHireKey, supportDir, homeDir, r.o.Worktrees); len(found) != 1 || found[0] != scripts[0] {
-		t.Errorf("files holding the key %q, want only %q", found, scripts)
+	if found := filesHolding(t, fakeHireKey, supportDir, homeDir, r.o.Worktrees); len(found) != 0 {
+		t.Errorf("files holding the key %q, want none", found)
+	}
+	for _, id := range []string{hires[1].ID} {
+		if _, left := issuedPlan(id); left {
+			t.Errorf("the hire that never started left its ticket")
+		}
 	}
 	for _, args := range append(r.tmux.asked, h.windows...) {
 		if strings.Contains(strings.Join(args, " "), fakeHireKey) {

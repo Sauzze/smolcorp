@@ -81,7 +81,7 @@ func TestAHiresSessionOutlivesItsWindow(t *testing.T) {
 	if err := os.WriteFile(agent, []byte("#!/bin/sh\nexec cat\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, ok := h.start(folder, "/bin/sh", agent); !ok {
+	if _, _, _, ok := h.start(folder, []string{"/bin/sh", agent}); !ok {
 		t.Fatal("start failed")
 	}
 	t.Cleanup(func() { h.endServer() })

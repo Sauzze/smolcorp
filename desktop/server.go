@@ -444,6 +444,8 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			pid, _ = strconv.Atoi(text)
 		}
 		event := decodeJSON(r.Body)
+		// Each hook event looks at Smolcorp's own programs: a change is caught by the next start (ownseal.go).
+		ownFiles.noteEvent()
 		// ⓘ Info: whether the agent's environment has an API key or a cloud provider, never the key.
 		infos.noteBilling(r.Header.Get("X-AgentDeck-Billing"), stringValue(event["session_id"]))
 		d.IngestFrom(event, r.Header.Get("X-AgentDeck-Agent"), r.Header.Get("X-AgentDeck-Tab"),
@@ -1667,6 +1669,17 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// Every part is checked before any is kept, so a wrong one changes
 	// nothing. An empty folder clears it.
 	case r.Method == http.MethodPost && path == "/setup/hiring":
+		// An unsigned Claude Code, after a signed one, is confirmed on the page alone: never by the GM or a tool,
+		// which a hire could be (agentcheck.go, RT126SG2 B2).
+		if query.Has("claudeUnsigned") {
+			if r.caller != callerPage {
+				writeStatus(w)(http.StatusForbidden, "Only the setup page can confirm an unsigned Claude Code.")
+				return
+			}
+			claudeInstalls.confirm()
+			writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+			return
+		}
 		folder := strings.TrimSpace(query.Get("folder"))
 		if folder != "" {
 			checked, ok := existingFolder(folder)

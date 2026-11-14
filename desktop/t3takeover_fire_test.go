@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -93,9 +94,18 @@ func TestT3TheResumeNamesItsScriptAndGivesItsSocket(t *testing.T) {
 	if err != nil || socket == "" || !r.tmux.up {
 		t.Fatalf("%q %v", socket, err)
 	}
-	scripts, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hire.ID), resumeScriptPrefix+"*.sh"))
-	if len(scripts) != 1 {
+	// No script: its start is its ticket's, and its pane runs desk-start with that ticket alone (SG2).
+	if scripts, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hire.ID), "*.sh")); len(scripts) != 0 {
 		t.Errorf("resume scripts: %q", scripts)
+	}
+	plan, ok := issuedPlan(hire.ID)
+	if !ok || !strings.Contains(strings.Join(plan.Words, " "), t3TakeOverSession) {
+		t.Errorf("its ticket: %v %q", ok, plan.Words)
+	}
+	key := plan.Changes[slices.IndexFunc(plan.Changes, func(c envChange) bool { return c.Name == hireKeyEnvironment })].Value
+	last := r.tmux.asked[len(r.tmux.asked)-1]
+	if i := slices.Index(last, "desk-start"); i < 0 || len(last) != i+4 || key == "" || strings.Contains(strings.Join(last, " "), key) {
+		t.Errorf("its pane's command: %q", last)
 	}
 	if after := registered(t)[0]; after.TmuxSocket != before.TmuxSocket {
 		t.Errorf("written here: %+v", after)

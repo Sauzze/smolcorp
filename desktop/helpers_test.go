@@ -107,17 +107,30 @@ func scriptSettings(script string) string {
 	}
 }
 
-// startedSettings are the settings hire hireID's start script gives its Claude Code, "" if none.
-func startedSettings(t *testing.T, hireID string) string {
-	t.Helper()
-	files, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hireID), "hire-*.sh"))
-	for _, file := range files {
-		data, _ := os.ReadFile(file)
-		if settings := scriptSettings(string(data)); settings != "" {
-			return settings
+// planText is a desk's start plan as the tests read it: one change a line (unset NAME, export NAME='value', the
+// PATH's first folder, the API key read from the secret store), then the command, each word shell-quoted. It is
+// never run, nor written anywhere: a desk's start reaches its pane only through its ticket (deskstart.go).
+func planText(p deskPlan) string {
+	var text strings.Builder
+	for _, change := range p.Changes {
+		if change.Unset {
+			text.WriteString("unset " + change.Name + "\n")
+		} else {
+			text.WriteString("export " + change.Name + "=" + shellQuoted(change.Value) + "\n")
 		}
 	}
-	return ""
+	if p.PathFirst != "" {
+		text.WriteString("export PATH=" + shellQuoted(p.PathFirst) + ":\"$PATH\"\n")
+	}
+	if p.APIKey {
+		text.WriteString("ANTHROPIC_API_KEY read from the secret store\n")
+	}
+	words := []string{shellQuoted(p.Agent)}
+	for _, word := range p.Words {
+		words = append(words, shellQuoted(word))
+	}
+	text.WriteString("exec " + strings.Join(words, " ") + "\n")
+	return text.String()
 }
 
 // launcherSettings are the settings a launcher hire hireID's start environment holds for its Claude Code, as its
@@ -131,4 +144,13 @@ func launcherSettings(d *Deck, hireID string) string {
 		}
 	}
 	return ""
+}
+
+// startText is h's plan as planText reads it, or why there is none.
+func (h hireStart) startText() (string, error) {
+	plan, err := h.plan()
+	if err != nil {
+		return "", err
+	}
+	return planText(plan), nil
 }

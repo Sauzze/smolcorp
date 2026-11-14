@@ -103,7 +103,7 @@ func loginShellPath() []string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	// A marker before it, as a shell's start-up files can print things of their own
-	out, err := exec.CommandContext(ctx, shell, "-lic", `printf '\n<path>%s' "$PATH"`).Output()
+	out, err := lookupCommand(ctx, shell, "-lic", `printf '\n<path>%s' "$PATH"`).Output()
 	if err != nil && len(out) == 0 {
 		return nil
 	}
@@ -115,6 +115,30 @@ func loginShellPath() []string {
 	return slices.DeleteFunc(filepath.SplitList(strings.TrimSpace(string(out)[i+len("<path>"):])), func(folder string) bool {
 		return !filepath.IsAbs(folder)
 	})
+}
+
+// lookupCommand is a login shell run only to learn where programs are (SANDBOX-PLAN §3.4, SG2; RT126S2 D2): your
+// shell's start files run in it, and a hire can write those. So it gets nothing of Smolcorp's: no key, no token,
+// no variable from Smolcorp's own environment, only who you are, your home and the system's own PATH, no input,
+// and your home as its folder. What it says only finds programs; an agent found is checked before it runs
+// (agentcheck.go). On a Mac, ST1's smolcorp-spawn will start it with responsibility disclaimed, so it holds none of
+// Smolcorp's grants; that helper isn't in this build yet.
+func lookupCommand(ctx context.Context, shell string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, shell, args...)
+	cmd.Env = lookupEnvironment()
+	cmd.Dir = homeDir
+	return cmd
+}
+
+// lookupEnvironment is all a lookup's shell is given.
+func lookupEnvironment() []string {
+	env := []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "TERM=dumb"}
+	for _, name := range []string{"HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE"} {
+		if value, ok := os.LookupEnv(name); ok {
+			env = append(env, name+"="+value)
+		}
+	}
+	return env
 }
 
 // pathShell is the shell asked for its PATH: yours, else the Mac's own (zsh,

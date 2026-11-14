@@ -73,7 +73,7 @@ func TestOnlyTheGMsScriptMayHoldTheTokenAndNeverWithASendKey(t *testing.T) {
 		"another role":      {Role: Role{ID: "janitor", Name: "Janitor", Agent: "claude"}, Message: "x", GMToken: "fake-gm-token-1"},
 		"the GM with a key": {Role: Role{ID: "gm", Name: "GM", Agent: "claude"}, Message: "x", GMToken: "fake-gm-token-1", SendKey: "k"},
 	} {
-		if script, err := start.script(); err == nil {
+		if script, err := start.startText(); err == nil {
 			t.Errorf("%s: a script was made:\n%s", name, script)
 		}
 	}

@@ -135,7 +135,7 @@ func TestEveryCheckReadsAnACPRoleAsNotClaude(t *testing.T) {
 		t.Errorf("a test copy's hire of an ACP agent: %v", err)
 	}
 	// And its start script is never made: it would exec "acp:gemini" as a program.
-	if script, err := (hireStart{Role: Role{ID: "navigator", Agent: "acp:gemini"}}).script(); err == nil || script != "" {
+	if script, err := (hireStart{Role: Role{ID: "navigator", Agent: "acp:gemini"}}).startText(); err == nil || script != "" {
 		t.Errorf("a start script for an ACP role: %q, %v", script, err)
 	}
 }

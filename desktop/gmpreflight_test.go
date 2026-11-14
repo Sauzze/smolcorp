@@ -633,23 +633,12 @@ func TestTheGMHireTurnsHiringOnAndBackOffIfItFails(t *testing.T) {
 	}
 }
 
-// Asked as the hire starts Claude Code: the same command shape (your login shell where there's one) and the
-// same environment, keys and cloud providers kept, as the Mac asks it (GMPreflight.signInArguments). The GM
-// works on ~/.claude's account, so CLAUDE_CONFIG_DIR is cleared, from the app's environment and after your
-// shell's files, as the GM's start script and the launcher clear it.
+// Asked as a desk starts Claude Code: the program itself, never through your login shell (SG2), with the same
+// environment, keys and cloud providers kept. The GM works on ~/.claude's account, so CLAUDE_CONFIG_DIR is
+// cleared from the app's environment, as the GM's start and the launcher clear it.
 func TestTheSignInIsAskedAsTheHireStartsIt(t *testing.T) {
-	command := signInCommand("/x/bin/claude", "")
-	if runtime.GOOS == "windows" {
-		if !slices.Equal(command, []string{"/x/bin/claude", "auth", "status", "--json"}) {
-			t.Errorf("sign-in command %q", command)
-		}
-	} else {
-		if !slices.Equal(command, inLoginShell([]string{"env", "-u", "CLAUDE_CONFIG_DIR", "/x/bin/claude", "auth", "status", "--json"})) {
-			t.Errorf("sign-in command %q", command)
-		}
-		if command[0] != loginShell() || command[1] != "-lic" {
-			t.Errorf("sign-in not through the login shell: %q", command)
-		}
+	if command := signInCommand("/x/bin/claude"); !slices.Equal(command, []string{"/x/bin/claude", "auth", "status", "--json"}) {
+		t.Errorf("sign-in command %q", command)
 	}
 	t.Setenv("ANTHROPIC_API_KEY", "k-fake")
 	t.Setenv("SMOLCORP_SESSION", "s1")
@@ -819,7 +808,7 @@ func TestStartHereAndGeneralAgreeAndPointAtTheFix(t *testing.T) {
 // hire's refusal, 400, before anything is looked at; Claude Code's sign-in is asked on that account's folder, and
 // its hooks are that account's.
 func TestTheGMPreflightLooksAtTheAccountNamed(t *testing.T) {
-	d, _, at, _ := preflightDeck(t)
+	d, _, _, _ := preflightDeck(t)
 	onDefaultPort(t)
 	work := filepath.Join(homeDir, ".claude-work")
 	writeFile(t, filepath.Join(work, "settings.json"), `{}`)
@@ -858,11 +847,6 @@ func TestTheGMPreflightLooksAtTheAccountNamed(t *testing.T) {
 		t.Errorf("the route on work: %d %s", rec.Code, rec.Body.String())
 	}
 
-	if runtime.GOOS != "windows" {
-		if command := signInCommand(*at, work); !slices.Equal(command, inLoginShell([]string{"env", "CLAUDE_CONFIG_DIR=" + work, *at, "auth", "status", "--json"})) {
-			t.Errorf("sign-in command on work: %q", command)
-		}
-	}
 	if env := signInEnvironment(work); !slices.Contains(env, "CLAUDE_CONFIG_DIR="+work) {
 		t.Error("the account's folder isn't in the sign-in's environment")
 	}

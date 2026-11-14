@@ -62,6 +62,9 @@ func main() {
 		os.Exit(desktop.RunLauncher(args[1:]))
 	case "hook":
 		os.Exit(desktop.RunHook(args[1:]))
+	case "desk-start":
+		// Not in the usage: Smolcorp starts a desk's tmux pane on it, with that desk's ticket (deskstart.go).
+		os.Exit(desktop.RunDeskStart(args[1:]))
 	case "setup":
 		os.Exit(desktop.RunSetup(args[1:]))
 	case "demo":

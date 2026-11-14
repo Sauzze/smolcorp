@@ -25,8 +25,8 @@ var claudeVersion = installedClaudeVersion
 // installedClaudeVersion asks the claude a desk would start, found as the summaries find it.
 func installedClaudeVersion() (string, bool) {
 	program := programNamed("claude")
-	if program == "" {
-		return "", false
+	if program == "" || checkAgentProgram(string(Claude), program) != nil {
+		return "", false // never run: claudeVersionRefusal says why
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -68,6 +68,9 @@ func claudeVersionRefusal() *hireRefusal {
 	}
 	least := strconv.Itoa(claudeLeastVersion[0]) + "." + strconv.Itoa(claudeLeastVersion[1]) + "." + strconv.Itoa(claudeLeastVersion[2])
 	if !ok {
+		if err := checkAgentProgram(string(Claude), programNamed("claude")); err != nil {
+			return &hireRefusal{Status: 409, Message: err.Error() + " No desk was started."}
+		}
 		return &hireRefusal{Status: 409, Message: "Update Claude Code: Smolcorp couldn't tell which version is installed, and a desk needs " +
 			least + " or later to stop a call when its guard can't answer. No desk was started."}
 	}

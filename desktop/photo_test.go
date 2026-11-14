@@ -861,7 +861,7 @@ func TestAHireCantFindAPhotosPathInAnyPromptStore(t *testing.T) {
 		"profile": {Role: testHireRole(), Message: "go", ConfigDir: profile.Dir, Settings: settings},
 		"default": {Role: testHireRole(), Message: "go", DefaultAccount: true, Settings: settings},
 	} {
-		script, err := start.script()
+		script, err := start.startText()
 		if err != nil {
 			t.Fatal(err)
 		}

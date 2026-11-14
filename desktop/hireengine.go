@@ -14,7 +14,7 @@ import (
 // The hire engine (Phase 6 T602, part C1): a managed Claude hire made in order,
 // each step ready before the next, as the Mac's HireDesk: the guard for a test
 // copy, a tmux server of its own, the worktree and ports (prepareHire), the
-// hire's own settings, its start script, then the session. If a step refuses,
+// hire's own settings, its start ticket, then the session. If a step refuses,
 // what the steps before it made is taken away. Then the hire is watched until
 // it reports (waitForStart); one that never does is cleaned up (cleanUpHire).
 
@@ -78,8 +78,12 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if err := testCopyRefusal(r.TestPort, string(Claude), r.ConfigDir); err != nil {
 		return Hire{}, err
 	}
-	// A Claude Code that can't make a stopped guard refuse gets no desk (SANDBOX-PLAN §3.4).
+	// A Claude Code that can't make a stopped guard refuse gets no desk (SANDBOX-PLAN §3.4), nor does a Smolcorp
+	// whose own files changed (ownseal.go).
 	if refusal := claudeVersionRefusal(); refusal != nil {
+		return Hire{}, refusal
+	}
+	if refusal := ownSealRefusal(); refusal != nil {
 		return Hire{}, refusal
 	}
 	id := strings.ToLower(newID())[:12]
@@ -183,18 +187,29 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if r.TestPort != 0 {
 		start.TestPort, start.TestSupportDir = r.TestPort, supportDir
 	}
-	script, err := start.script()
+	plan, err := start.plan()
 	if err != nil {
 		return fail(http.StatusInternalServerError, err.Error())
 	}
-	file, err := writeHireStartScript(hireFolder(supportDir, id), script)
-	if err != nil {
-		return fail(http.StatusInternalServerError, "Couldn't write the hire's start script.")
+	// Its own folder, its owner's alone, where its brief and status go (the start script made it before SG2).
+	if err := os.MkdirAll(hireFolder(supportDir, id), 0o700); err != nil {
+		return fail(http.StatusInternalServerError, "Couldn't make the hire's own folder.")
 	}
-	_, socket, ok := tmux.start(place.Folder, loginShell(), file)
+	// Its start goes to its pane alone, by a ticket (deskstart.go): no script, no shell.
+	command, err := deskStarts.issue(o.CLI, id, tmux, plan, key)
+	if err != nil {
+		return fail(http.StatusInternalServerError, err.Error())
+	}
+	undoIssued := undo
+	undo = func() {
+		deskStarts.forget(id)
+		undoIssued()
+	}
+	_, socket, started, ok := tmux.start(place.Folder, command)
 	if !ok {
 		return fail(http.StatusInternalServerError, "tmux didn't start the hire.")
 	}
+	deskStarts.pin(id, started)
 	if socket != hire.TmuxSocket {
 		// As tmux spells it (it may say /private/var for /var): the same file, which isHireSocket allows.
 		hire.TmuxSocket = socket
@@ -235,11 +250,15 @@ func watchManagedHire(hire Hire, testPort int, o engineOptions) {
 		setHire(hire.ID, "working", hire.Notes)
 		return
 	}
+	// Its ticket goes; a start the core refused (its ticket, its program, Smolcorp's own files) says why.
+	if refused := deskStarts.forget(hire.ID); refused != "" {
+		reason = strings.TrimSuffix(refused, ".")
+	}
 	cleanUpHire(hire, reason, hireOwnTmux(hire, testPort, o.Tmux), removeHireWorktree(o.Git, testPort, o.Worktrees),
 		func(id, why string) { setHire(id, "failed", firstRunes(why, longestNotes)) })
 	// Its windows' records go too, as a fired hire's do (hirewindows.go).
 	forgetHireWindows(hire.ID, windowsOfHire(hire.ID))
-	// A start script that never ran still holds its send key or token: it goes too.
+	// A start script left from before 1.26, never run, still holds its send key or token: it goes too.
 	scripts, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hire.ID), "hire-*.sh"))
 	for _, script := range scripts {
 		_ = os.Remove(script)

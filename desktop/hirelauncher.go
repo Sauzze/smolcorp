@@ -440,7 +440,8 @@ func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, h
 		options.HeardFrom = d.hireHeardFrom
 	}
 	if options.Open == nil {
-		options.Open = func(command []string, where string) error { return openWindow(terminal, where, inLoginShell(command)) }
+		// The launcher as it is, never through a login shell of Smolcorp's (openHire).
+		options.Open = func(command []string, where string) error { return openWindow(terminal, where, command) }
 	}
 	// The desk chosen (held, on floor) comes with the launcher's token, as it does for any hire.
 	options.Expect = func(token, hireID string, env hireStartEnv) { d.expectLauncherAt(token, hireID, env, held, floor) }

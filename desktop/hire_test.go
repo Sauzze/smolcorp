@@ -82,15 +82,9 @@ func hiringDeck(t *testing.T, tmux string) (*Deck, *hiring, string) {
 func hiredWith(t *testing.T, window []string) (command []string, token string) {
 	t.Helper()
 	command = window[3:]
-	if len(command) == 3 && strings.HasSuffix(command[1], "c") && strings.HasPrefix(command[2], "exec ") {
-		// Through the login shell: its words, quoted.
-		command = nil
-		for _, word := range strings.Split(strings.TrimPrefix(window[5], "exec "), "' '") {
-			command = append(command, strings.Trim(word, "'"))
-		}
-	}
-	if len(command) < 4 || command[1] != "run" || command[2] != "--hire" || !hireToken.MatchString(command[3]) {
-		t.Fatalf("the window runs %q, want the launcher with a hire's token", command)
+	// The launcher itself, never through a login shell (RT126SG2 B3): it finds the agent and checks it.
+	if len(command) < 4 || !filepath.IsAbs(command[0]) || command[1] != "run" || command[2] != "--hire" || !hireToken.MatchString(command[3]) {
+		t.Fatalf("the window runs %q, want the launcher with a hire's token, with no shell", command)
 	}
 	return command, command[3]
 }
@@ -216,6 +210,10 @@ func TestAHireCanRunInTmux(t *testing.T) {
 	}
 	if len(h.tmux) != 1 || h.tmux[0][0] != "new-session" || !slices.Contains(h.tmux[0], folder) {
 		t.Fatalf("tmux was asked %q, want a session of its own in the folder", h.tmux)
+	}
+	// The launcher, as tmux runs several words: no shell (RT126SG2 B3).
+	if at := slices.Index(h.tmux[0], folder); len(h.tmux[0]) < at+3 || !filepath.IsAbs(h.tmux[0][at+1]) || h.tmux[0][at+2] != "run" {
+		t.Errorf("tmux runs %q, want the launcher with no shell", h.tmux[0])
 	}
 	session := h.tmux[0][slices.Index(h.tmux[0], "-s")+1]
 	if want := []string{"/usr/bin/tmux", "-S", "/tmp/tmux-1000/default", "attach", "-t", session}; len(h.windows) != 1 || !slices.Equal(h.windows[0][3:], want) {

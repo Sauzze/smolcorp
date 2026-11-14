@@ -101,21 +101,19 @@ func (e *errorHost) call(request bridgeRequest) (bridgeAnswer, error) {
 	return answer, e.err
 }
 
-// The key the Mac app gave is exported by the script, after the line that
-// removes it, quoted as one word; it's given only to a hire on the API-key
-// account, and only a key that is one word. Without it, the secret store is read.
-func TestAnAPIKeyHiresScriptExportsTheKeyTheMacAppGaveAfterRemovingItself(t *testing.T) {
+// The key the Mac app gave is set in the desk's start, once, which reaches its pane only by its ticket; it's
+// given only to a hire on the API-key account, and only a key that is one word. Without it, the secret store is
+// read when the pane asks (deskstart.go).
+func TestAnAPIKeyHiresStartSetsTheKeyTheMacAppGave(t *testing.T) {
 	start := hireStart{Role: Role{ID: "janitor", Name: "Janitor", Agent: "claude"}, Message: "go", APIKey: true, KeyText: fakeHireKey}
-	script, err := start.script()
+	script, err := start.startText()
 	if err != nil {
 		t.Fatal(err)
 	}
-	export := "export ANTHROPIC_API_KEY='" + fakeHireKey + "'\n"
-	removed := strings.Index(script, "rm -f \"$0\"\n")
-	if at := strings.Index(script, export); at < 0 || removed < 0 || removed > at || strings.Count(script, fakeHireKey) != 1 {
-		t.Errorf("the key isn't exported once, after the script removes itself:\n%s", script)
+	if !strings.Contains(script, "export ANTHROPIC_API_KEY='"+fakeHireKey+"'\n") || strings.Count(script, fakeHireKey) != 1 {
+		t.Errorf("the key isn't set once:\n%s", script)
 	}
-	if strings.Contains(script, "secret-tool") {
+	if strings.Contains(script, "secret store") {
 		t.Errorf("the Mac app's key and the secret store both:\n%s", script)
 	}
 	for _, bad := range []hireStart{
@@ -124,12 +122,12 @@ func TestAnAPIKeyHiresScriptExportsTheKeyTheMacAppGaveAfterRemovingItself(t *tes
 		{Role: start.Role, APIKey: true, KeyText: "fk-m4c'\nrm -rf ~ #"},    // nor a way out of its quotes
 		{Role: start.Role, APIKey: true, KeyText: strings.Repeat("k", 513)}, // nor more than a key
 	} {
-		if text, err := bad.script(); err == nil {
+		if text, err := bad.startText(); err == nil {
 			t.Errorf("a script was written for %q:\n%s", bad.KeyText, text)
 		}
 	}
 	start.KeyText = ""
-	if script, _ := start.script(); !strings.Contains(script, "secret-tool lookup") || strings.Contains(script, "export ANTHROPIC_API_KEY='") {
-		t.Errorf("off the Mac app the script reads the secret store:\n%s", script)
+	if plan, _ := start.plan(); !plan.APIKey || strings.Contains(planText(plan), "export ANTHROPIC_API_KEY='") {
+		t.Errorf("off the Mac app the start reads the secret store: %+v", plan)
 	}
 }

@@ -116,7 +116,8 @@ func probeSignIn() []agentSignIn {
 // probeAgentSignIn is one agent's row, from its program (a resolved path, or "" when it isn't here).
 func probeAgentSignIn(agent, program string, env []string) agentSignIn {
 	row := agentSignIn{Agent: agent, Installed: program != "", State: accountUnknown}
-	if program == "" {
+	// A Claude Code that isn't Anthropic's is never run: its state can't be told (agentcheck.go).
+	if program == "" || checkAgentProgram(agent, program) != nil {
 		return row
 	}
 	run := func(args ...string) summaryRan {

@@ -90,9 +90,8 @@ var findInLoginShell = func(program string) (found string, known bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), loginShellWait)
 	defer cancel()
 	args := inLoginShell([]string{"/bin/sh", "-c", `printf '\n%s%s\n' "$1" "$(command -v -- "$2")"`, "sh", foundMarker, program})
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = homeDir
-	cmd.Env = hireEnvironment()
+	// Nothing of Smolcorp's in it: the lookup's own environment (opencode.go).
+	cmd := lookupCommand(ctx, args[0], args[1:]...)
 	cmd.WaitDelay = time.Second // what the shell's files started in the background mustn't hold it
 	output, _ := cmd.Output()
 	for _, line := range strings.Split(string(output), "\n") {

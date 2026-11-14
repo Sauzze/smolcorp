@@ -129,7 +129,7 @@ func hireTmuxUsing(socket string, testPort int, run tmuxRunner, pick func(socket
 		if program == "" {
 			return nil
 		}
-		run = realTmux(program)
+		run = withoutStartFile(realTmux(program))
 		program = recordableTmux(program)
 	}
 	return &hireTmux{socket: filepath.Clean(socket), run: run, program: program}
@@ -170,6 +170,13 @@ func realTmux(path string) tmuxRunner {
 	}
 }
 
+// withoutStartFile runs tmux as run does, with no start file: a hire's server reads none of the owner's
+// (~/.tmux.conf, ~/.config/tmux), whose commands would run at each desk's start (RT126SG2 B1, §4 g6). -f is read only
+// by the call that starts the server; every other call ignores it.
+func withoutStartFile(run tmuxRunner) tmuxRunner {
+	return func(args []string) (string, int, bool) { return run(append([]string{"-f", os.DevNull}, args...)) }
+}
+
 // command is tmux's arguments for args on our server.
 func (h *hireTmux) command(args ...string) []string { return append([]string{"-S", h.socket}, args...) }
 
@@ -178,20 +185,34 @@ func (h *hireTmux) ok(args ...string) bool {
 	return ran && status == 0
 }
 
-// start starts the session in folder, command run by shell as a login shell.
-// It gives the pane and the socket's path (as the deck addresses a tab:
-// tmux:<pane>@<socket>), or false if tmux didn't start it.
-func (h *hireTmux) start(folder, shell, command string) (pane, socket string, ok bool) {
-	out, status, ran := h.run(h.command("new-session", "-d", "-P", "-F", "#{pane_id} #{socket_path}",
-		"-s", hireSession, "-c", folder, shell, "-lic", "exec "+shellQuoted(command)))
+// start starts the session in folder running command, two or more words, which tmux runs as they are: no shell,
+// so no shell's start files (SANDBOX-PLAN §3.4, SG2). It gives the pane, the pid of the process tmux started for
+// command, and the socket's path (as the deck addresses a tab: tmux:<pane>@<socket>), or false if tmux didn't
+// start it. The pid is said by the same call that started the process, so no other call on the server comes in
+// between: it is the process the desk's start ticket is for (deskstart.go), whatever the pane runs later.
+func (h *hireTmux) start(folder string, command []string) (pane, socket string, pid int, ok bool) {
+	if len(command) < 2 {
+		return "", "", 0, false // one word would be run by a shell
+	}
+	out, status, ran := h.run(h.command(append([]string{"new-session", "-d", "-P", "-F", "#{pane_id} #{pane_pid} #{socket_path}",
+		"-s", hireSession, "-c", folder}, command...)...))
 	if !ran || status != 0 {
-		return "", "", false
+		return "", "", 0, false
 	}
-	pane, socket, found := strings.Cut(out, " ")
-	if !found || !strings.HasPrefix(pane, "%") || socket == "" {
-		return "", "", false
+	pane, rest, _ := strings.Cut(out, " ")
+	said, socket, found := strings.Cut(rest, " ")
+	pid, err := strconv.Atoi(said)
+	if !found || !strings.HasPrefix(pane, "%") || socket == "" || err != nil || pid <= 1 {
+		return "", "", 0, false
 	}
-	return pane, socket, true
+	return pane, socket, pid, true
+}
+
+// panePID is the pid of the process the session's pane runs, as the hire's own server says it.
+func (h *hireTmux) panePID() (int, bool) {
+	out, status, ran := h.run(h.command("display-message", "-p", "-t", hirePane, "#{pane_pid}"))
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	return pid, ran && status == 0 && err == nil && pid > 1
 }
 
 // alive says whether the session is there; known is false when tmux couldn't

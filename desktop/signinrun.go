@@ -194,6 +194,10 @@ func (lr *loginRunner) start(agent, way string) (string, int, string) {
 	if program == "" {
 		return "", http.StatusConflict, agentDisplayName(agent) + " isn't installed on this computer."
 	}
+	// A Claude Code that isn't Anthropic's is never started (agentcheck.go).
+	if err := checkAgentProgram(agent, program); err != nil {
+		return "", http.StatusConflict, err.Error()
+	}
 	program, args := loginCommand(program, w.args)
 	terminal, err := pty.New()
 	if err != nil {
