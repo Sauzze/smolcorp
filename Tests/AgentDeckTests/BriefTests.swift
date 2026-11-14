@@ -163,7 +163,7 @@ final class BriefTests: XCTestCase {
         XCTAssertTrue(try brief("pixel-artist").contains("Other artists may be working at the same time in their own folders, so **stay strictly in yours.**"))
         XCTAssertTrue(try brief("minimanager").contains("you hire no one yourself"))
         XCTAssertTrue(try brief("minimanager").contains("**wait for the user's OK** before you ask for a single hire"))
-        XCTAssertTrue(try brief("gm").contains("as a new part of its brief (`smolcorp gm brief <hire> --file <file>`), never as a message"))
+        XCTAssertTrue(try brief("gm").contains("as a new part of the employee's brief (`smolcorp gm brief <hire> --file <file>`), never as a message"))
         XCTAssertTrue(try brief("minimanager").contains("reaches an employee only as a new part of its brief"))
         for id in ["reviewer", "bughunter", "security-auditor", "perf-auditor", "thinker", "planner", "lawyer", "pilot", "postman", "accountant",
                    "gm", "minimanager"] {

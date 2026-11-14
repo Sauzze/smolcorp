@@ -352,7 +352,7 @@ func TestAWaitingRoleHiredByTheGMHearsItsAnswersAsPartOfItsBrief(t *testing.T) {
 		}
 	}
 	for id, line := range map[string]string{
-		"gm":          "goes to it as a new part of its brief (`smolcorp gm brief <hire> --file <file>`), never as a message",
+		"gm":          "as a new part of the employee's brief (`smolcorp gm brief <hire> --file <file>`), never as a message",
 		"minimanager": "reaches an employee only as a new part of its brief, as a message is only information to it",
 	} {
 		if text, _ := library.template(id); !strings.Contains(text, line) {
