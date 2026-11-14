@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -22,7 +23,8 @@ const (
 	accessPhone
 	// A paired phone over Tailscale (request.secure): never the Wi-Fi's plain http, nor the window.
 	accessPhoneSecure
-	// Another Mac's office (floors): no route has it yet, so it lets no one in.
+	// Another Mac paired for floors (peers_mac.go), with its peer key, over Tailscale, with the setting on: let in by
+	// servePeer alone, before the router's other checks, never as a phone or the window. Its rows are under /peer/.
 	accessPeer
 )
 
@@ -48,6 +50,10 @@ func registerPhoneRoute(row phoneRoute) {
 	key := row.method + " " + row.path
 	if _, taken := phoneRouteTable[key]; taken || row.access == 0 || row.refusal == nil || row.serve == nil {
 		panic("phone route registered twice, or without its class, refusal or handler: " + key)
+	}
+	// Another Mac's rows are under /peer/, where servePeer answers, and nobody else's are.
+	if (row.access == accessPeer) != strings.HasPrefix(row.path, "/peer/") {
+		panic("a peer route outside /peer/, or another class's inside it: " + key)
 	}
 	phoneRouteTable[key] = &row
 }
@@ -84,6 +90,7 @@ func (a access) lets(r *request, phoneID string) bool {
 	case accessPhoneSecure:
 		return phoneID != officeWindowID && r.secure()
 	}
+	// accessPeer: a phone or the window, never; another Mac is let in by servePeer.
 	return false
 }
 

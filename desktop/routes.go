@@ -97,6 +97,7 @@ var routeTable = []routeRow{
 // and Phone over HTTPS (phonehttps.go), all of it the page's alone, the tap that runs `tailscale serve` included.
 // The sign-in status (signinstatus.go) is the page's alone too.
 // Signing in to an agent (signinrun.go) is the page's alone too.
+// Floors from other Macs (peers_mac_join.go) are the page's alone too.
 var goOnlyRoutes = []routeRow{
 	{"GET", "/setup/tailnet/status", []string{"page"}},
 	{"GET", "/setup/tailnet/serve", []string{"page"}},
@@ -122,6 +123,12 @@ var goOnlyRoutes = []routeRow{
 	{"GET", "/setup/accounts/login", []string{"page"}},
 	{"POST", "/setup/accounts/login/code", []string{"page"}},
 	{"POST", "/setup/accounts/login/cancel", []string{"page"}},
+	// Floors from other Macs (peers_mac_join.go): the page alone, as pairing a phone is.
+	{"GET", "/setup/peers", []string{"page"}},
+	{"POST", "/setup/peers", []string{"page"}},
+	{"POST", "/setup/peers/code", []string{"page"}},
+	{"POST", "/setup/peers/revoke", []string{"page"}},
+	{"POST", "/setup/peers/join", []string{"page"}},
 }
 
 // name is how the table spells a caller.

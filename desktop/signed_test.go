@@ -540,6 +540,9 @@ var phoneRoutes = map[string]bool{
 	"/conversation": false, "/session/info": false, "/summary": false,
 	// The office's own window alone (1.26): no phone reaches them, over the Wi-Fi or anywhere.
 	"/desk/git": false, "/desk/pr/open": false, "/talk": false, "/talk/asking": false, "/talk/say": false, "/talk/pick": false, "/talk/listen": false,
+	// Another Mac's alone (M1, peers_mac.go): no phone or window reaches it, and it answers a name, reading no body.
+	// POST /peer/pair isn't a row: servePeer answers it before the table, with a code and a name, never a phone's text.
+	"/peer/hello": false,
 }
 
 // phoneRouteCode is one route's code as this test reads it: its paths, its code, and whether only the window reaches it.

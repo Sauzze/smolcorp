@@ -68,6 +68,7 @@ var everyPhoneRoute = [][2]string{
 	{"POST", "/desk/pr/open"}, {"GET", "/talk"}, {"GET", "/talk/asking"}, {"POST", "/talk/say"}, {"POST", "/talk/pick"}, {"POST", "/talk/listen"},
 	{"GET", "/dictate"}, {"GET", "/peek"}, {"POST", "/choice"}, {"POST", "/approvals"}, {"POST", "/conversation"},
 	{"GET", "/desk/pr/open"}, {"POST", "/talk"}, {"PUT", "/talk"}, {"POST", "/talk/asking"}, {"GET", "/talk/say"}, {"GET", "/talk/pick"}, {"GET", "/talk/listen"},
+	{"GET", "/peer/hello"}, {"POST", "/peer/pair"}, {"GET", "/peer/nowhere"},
 	{"GET", "/nowhere"},
 }
 
@@ -171,7 +172,9 @@ func dumpPhoneRoutes(t *testing.T) string {
 // their three columns are 1.25's phone-serve-other, cell for cell (MSY126e; TestTheServeHandOnStaysTheMacsUntilSN1),
 // and no other caller's answer moved against 1.25's dump. A new route adds its line there, as the talk
 // bubble's did (1.26: the window only; a phone 403, anyone else 401), and 1.25's GET /paired (any paired phone or the
-// window, as /events; still handle's switch, as no one class is both).
+// window, as /events; still handle's switch, as no one class is both). M1's three /peer/ lines are servePeer's, asked
+// before anything else and alike for every caller here, none of which has a peer key: 403 on GET /peer/hello (no peer
+// key) and POST /peer/pair (floors off), 404 on a /peer/ path that isn't a route.
 func TestEveryRouteKeepsItsAccessThroughTheMove(t *testing.T) {
 	after := dumpPhoneRoutes(t)
 	if after != phoneRouteAccess {
@@ -199,9 +202,10 @@ var reachTheTable = []string{"phone-wifi", "phone-wireguard", "phone-serve-mac",
 func TestEachRowLetsInItsClassOnly(t *testing.T) {
 	d, phoneKey := probeDeck(t)
 	// FR1 moved 7; the talk bubble adds GET /talk, GET /talk/asking, POST /talk/say and POST /talk/pick (1.26), and
-	// the dictation service (FD1) POST /talk/listen, and the pull request badge's click POST /desk/pr/open (R2).
-	if len(phoneRouteTable) != 14 {
-		t.Errorf("%d rows; want 14", len(phoneRouteTable))
+	// the dictation service (FD1) POST /talk/listen, and the pull request badge's click POST /desk/pr/open (R2);
+	// floors from other Macs, GET /peer/hello (M1).
+	if len(phoneRouteTable) != 15 {
+		t.Errorf("%d rows; want 15", len(phoneRouteTable))
 	}
 	for key, row := range phoneRouteTable {
 		if !slices.ContainsFunc(everyPhoneRoute, func(route [2]string) bool {
@@ -226,9 +230,11 @@ func TestEachRowLetsInItsClassOnly(t *testing.T) {
 			t.Errorf("%s: %d bytes in %s, as before the move %d in %s", key, most, wait, maxRequestSize, requestTimeout)
 		}
 	}
-	// Another Mac's class lets no one in until a piece gives it its checks.
-	if accessPeer.lets(&request{Request: httptest.NewRequest("GET", "/", nil)}, "phone") {
-		t.Error("the peer class let a phone in")
+	// Another Mac's class never lets in a phone or the window: another Mac is let in by servePeer (peers_mac_test.go).
+	for _, phoneID := range []string{"phone", officeWindowID} {
+		if accessPeer.lets(&request{Request: httptest.NewRequest("GET", "/", nil)}, phoneID) {
+			t.Errorf("the peer class let %s in", phoneID)
+		}
 	}
 }
 
@@ -249,8 +255,13 @@ func TestTheServeHandOnStaysTheMacsUntilSN1(t *testing.T) {
 		}
 		for _, route := range everyPhoneRoute {
 			want := http.StatusForbidden
-			if slices.Contains(open, route[1]) {
+			switch {
+			case slices.Contains(open, route[1]):
 				want = http.StatusOK
+			case route[1] == "/peer/nowhere":
+				// Under /peer/, servePeer answers first, alike for every caller with no peer key, a stranger
+				// included: 403 on its routes, 404 on any other path (M1). Nothing opens.
+				want = http.StatusNotFound
 			}
 			if status, _ := probeRoute(t, d, route[0], route[1], phoneKey, routeCallers[i]); status != want {
 				t.Errorf("%s %s as %s: %d, want %d: off the Mac, `tailscale serve`'s hand-on opens only with SN1",
@@ -355,6 +366,9 @@ POST /talk/asking: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 4
 GET /talk/say: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window
 GET /talk/pick: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window
 GET /talk/listen: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window
+GET /peer/hello: 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403; let in: nobody
+POST /peer/pair: 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403; let in: nobody
+GET /peer/nowhere: 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-mac-text-off, phone-serve-linux, phone-serve-linux-text-off, phone-serve-linux-proto, spoof-proto-wifi, spoof-tsnet-wifi, spoof-tsnet-wireguard, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi
 GET /nowhere: 401 404 404 404 403 403 403 403 404 403 403 404 404 404 401 401; let in: phone-wifi, phone-wireguard, phone-serve-mac, spoof-proto-wifi, phone-proxied-localhost-other, phone-here, window
 `
 
