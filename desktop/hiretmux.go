@@ -224,10 +224,12 @@ func (h *hireTmux) alive() (alive, known bool) {
 	return ran && status == 0, ran
 }
 
-// capture is the last lines lines of the pane as text, without colours.
+// capture is the last lines lines of the pane as text with its escapes (-e),
+// so Claude Code's faint suggestion can be told from typed text
+// (ReadStyledPaneState); paneText makes it plain.
 func (h *hireTmux) capture(lines int) (string, bool) {
 	lines = min(max(lines, 1), 5000)
-	out, status, ran := h.run(h.command("capture-pane", "-p", "-t", hirePane, "-S", "-"+strconv.Itoa(lines)))
+	out, status, ran := h.run(h.command("capture-pane", "-p", "-e", "-t", hirePane, "-S", "-"+strconv.Itoa(lines)))
 	return out, ran && status == 0
 }
 
@@ -238,7 +240,7 @@ func (h *hireTmux) paneState() PaneState {
 	if !ok {
 		return PaneUnknown
 	}
-	return ReadPaneState(screen)
+	return ReadStyledPaneState(screen)
 }
 
 // viewers is how many terminal windows are attached to the session; -1 when tmux couldn't say.

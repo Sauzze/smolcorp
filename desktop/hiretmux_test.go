@@ -176,7 +176,7 @@ func TestCaptureReadsTheLastLinesAndTheStateFollows(t *testing.T) {
 	if got, ok := h.capture(40); !ok || got != "one\ntwo" {
 		t.Errorf("capture %q %v", got, ok)
 	}
-	if want := []string{"-S", socket, "capture-pane", "-p", "-t", "=hire:", "-S", "-40"}; !reflect.DeepEqual(r.asked[0], want) {
+	if want := []string{"-S", socket, "capture-pane", "-p", "-e", "-t", "=hire:", "-S", "-40"}; !reflect.DeepEqual(r.asked[0], want) {
 		t.Errorf("asked %q", r.asked[0])
 	}
 	r.asked = nil
@@ -185,7 +185,7 @@ func TestCaptureReadsTheLastLinesAndTheStateFollows(t *testing.T) {
 	if r.asked[0][len(r.asked[0])-1] != "-1" || r.asked[1][len(r.asked[1])-1] != "-5000" {
 		t.Errorf("lines not clamped: %q", r.asked)
 	}
-	// The pane's screen goes through ReadPaneState, a real capture of a menu included.
+	// The pane's screen goes through ReadStyledPaneState, a real capture of a menu included.
 	menu, err := os.ReadFile("../Tests/fixtures/panes/permission-menu.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -198,6 +198,15 @@ func TestCaptureReadsTheLastLinesAndTheStateFollows(t *testing.T) {
 	r.output = string(idle)
 	if got := h.paneState(); got != PaneIdle {
 		t.Errorf("an idle window reads %v", got)
+	}
+	// Read with its escapes (RT126GHOSTDRAFT1 m12): a box showing only a faint suggestion is idle, typed text isn't.
+	r.output = paneBox(paneAuto, "❯ "+faint("run the tests"))
+	if got := h.paneState(); got != PaneIdle {
+		t.Errorf("a faint suggestion reads %v", got)
+	}
+	r.output = paneBox(paneAuto, "❯ half typed"+faint(" and run the tests"))
+	if got := h.paneState(); got != PaneDraft {
+		t.Errorf("typed text and a suggestion read %v", got)
 	}
 	r.status = 1
 	if got := h.paneState(); got != PaneUnknown {

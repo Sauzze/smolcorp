@@ -81,6 +81,43 @@ func TestAFireRefusesAtAQuestionDraftBusyOrAnUnreadableWindowAndChangesNothing(t
 	}
 }
 
+// T126GHOSTDRAFT1: a box showing only Claude Code's faint suggestion (the capture is taken with -e) is idle, so
+// the fire goes ahead; typed text, with or without a suggestion after it, is still refused.
+func TestAFireGoesAheadOverAFaintSuggestionButNotOverTypedText(t *testing.T) {
+	draft := "Rex has something typed in its window that isn't sent yet. Send or clear it, or fire with force."
+	for _, c := range []struct {
+		name, capture string
+		readable      bool
+		want          string
+	}{
+		{"suggestion only", paneBox(paneAuto, "❯ \x1b[2mrun the tests\x1b[0m"), true, ""},
+		{"suggestion with a colour", paneBox(paneAuto, "❯ \x1b[2;37mrun the tests\x1b[m"), true, ""},
+		{"typed text", paneBox(paneAuto, "❯ half typed"), true, draft},
+		{"typed text with a suggestion after it", paneBox(paneAuto, "❯ half typed\x1b[2m and run the tests\x1b[0m"), true, draft},
+		{"faint ended by 22 before the rest", paneBox(paneAuto, "❯ \x1b[2mrun\x1b[22m the tests"), true, draft},
+		{"a suggestion among escapes that can't be read", "\x1b[5A" + paneBox(paneAuto, "❯ \x1b[2mrun the tests\x1b[0m"), true, draft},
+		{"unreadable", "", false, "Couldn't tell what Rex's window holds, so nothing was sent. Look at it first."},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, r, hire := hiredForFire(t, "Rex")
+			windowShows(r, c.capture, c.readable)
+			_, err := fireEngineHire(hire, 0, r.o, false)
+			if c.want == "" {
+				if err != nil || !r.tmux.ran("kill-server") || registered(t)[0].State != "fired" {
+					t.Fatalf("err = %v, state %q: the fire didn't go ahead", err, registered(t)[0].State)
+				}
+				return
+			}
+			if refused, ok := err.(*hireRefusal); !ok || refused.Status != http.StatusConflict || refused.Message != c.want {
+				t.Fatalf("err = %v, want 409 %q", err, c.want)
+			}
+			if r.tmux.ran("kill-server") || !r.tmux.up || registered(t)[0].State != "starting" {
+				t.Error("the session was ended or the hire changed")
+			}
+		})
+	}
+}
+
 func TestAFireRefusalNamesTheHireByNicknameElseNameNeverTheRole(t *testing.T) {
 	_, r, hire := hiredForFire(t, "")
 	windowShows(r, pane(t, "permission-menu"), true)
@@ -446,6 +483,20 @@ func TestAFireWritesTheRecapAndAnUnreadableOneSaysSo(t *testing.T) {
 		if !strings.Contains(string(data), part) {
 			t.Errorf("recap lacks %q:\n%s", part, data)
 		}
+	}
+}
+
+// RT126GHOSTDRAFT1 m14: the window is captured with its escapes, and the recap reads it as plain text: a cost drawn
+// in a style is still found, and no escape lands in the recap file.
+func TestARecapReadsTheWindowWithoutItsEscapes(t *testing.T) {
+	_, r, hire := hiredForFire(t, "Rex")
+	windowShows(r, "Total cost: \x1b[1m$0.42\x1b[0m\n"+paneBox(paneAuto, "❯ "+faint("run the tests")), true)
+	if _, err := fireEngineHire(hire, 0, r.o, false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(supportDir, "recaps", hire.ID+".md"))
+	if err != nil || !strings.Contains(string(data), "- Cost: $0.42") || bytes.ContainsRune(data, 0x1b) {
+		t.Errorf("recap (%v):\n%q", err, data)
 	}
 }
 

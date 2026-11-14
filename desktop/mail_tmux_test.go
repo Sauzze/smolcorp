@@ -14,15 +14,18 @@ import (
 // A fake "claude" for a real tmux pane: it draws the shapes of the pane fixtures (an input box between two
 // rules, a footer; a menu with a numbered list), reads what is typed one character at a time and notes it,
 // so a test can tell what was typed, what was sent with Return, and what was left in the box. MODE is idle,
-// busy, menu, draft (starts with a half-typed note) or askafter (idle; a menu 0.2 s after a paste ends, the box showing the paste until then).
+// busy, menu, draft (starts with a half-typed note), suggest (idle, its empty box showing a faint suggestion
+// as Claude Code draws one), mixed (the half-typed note with a faint suggestion after it) or askafter (idle;
+// a menu 0.2 s after a paste ends, the box showing the paste until then).
 // BRACKET=1 asks for bracketed paste. Files in DIR: got (every character as hex), submits (one line per Return).
 const fakeClaudeScript = `#!/bin/bash
 MODE=__MODE__; DIR=__DIR__; BRACKET=__BRACKET__
 RULE="────────────────────────────────────────────────────────────────────────────────"
 stty -echo -icanon -icrnl 2>/dev/null
 [ "$BRACKET" = 1 ] && printf '\033[?2004h'
-buf=""; inpaste=0
-[ "$MODE" = draft ] && buf="half typed note"
+buf=""; inpaste=0; tail=""
+{ [ "$MODE" = draft ] || [ "$MODE" = mixed ]; } && buf="half typed note"
+[ "$MODE" = mixed ] && tail=$'\033[2m and run the tests\033[0m'
 : > "$DIR/got"; : > "$DIR/submits"
 draw() {
   local out=" ▐▛███▛█   Claude Code v2.1.316"$'\n'"▝▜██████▀  Haiku 5.5 · Claude Ultra"$'\n'" ▝▝   ▝▝   /tmp/capdir"$'\n\n'
@@ -34,10 +37,11 @@ draw() {
     out="${out}${RULE}"$'\n'
     if [ -z "$buf" ]; then
       shown='❯ Try "refactor <filepath>"'; [ "$MODE" = busy ] && shown='❯ '
+      [ "$MODE" = suggest ] && shown=$'❯ \033[2mrun the tests\033[0m'
       out="${out}${shown}"$'\n'
     else
       while IFS= read -r line; do
-        if [ $first = 1 ]; then out="${out}❯ ${line}"$'\n'; first=0; else out="${out}  ${line}"$'\n'; fi
+        if [ $first = 1 ]; then out="${out}❯ ${line}${tail}"$'\n'; first=0; else out="${out}  ${line}"$'\n'; fi
       done <<< "$buf"
     fi
     out="${out}${RULE}"$'\n'"$foot"
@@ -401,5 +405,33 @@ func TestMailTypesOnlyOnTheHiresOwnExactSocket(t *testing.T) {
 		if got := mailHireTmux(h); got != nil {
 			t.Errorf("%s: typed on %+v", name, got)
 		}
+	}
+}
+
+// T126GHOSTDRAFT1, in a real tmux pane: Claude Code's faint suggestion in an empty box is not a draft, so the
+// mail goes in; typed text with a faint suggestion after it still is, and nothing is typed.
+func TestAFaintSuggestionInTheBoxIsNotADraftButTypedTextBeforeOneIs(t *testing.T) {
+	f := startFakeClaude(t, "mt-suggest", "suggest", true)
+	screen, _ := f.h.capture(40)
+	if !strings.Contains(screen, "\x1b[2mrun the tests") {
+		t.Fatalf("the capture doesn't carry the faint style: %q", screen)
+	}
+	var commits int
+	got := f.try("Read notes/review-1.md and do it.", false, &commits, true)
+	if got.Outcome != mailSent || !got.Typed || commits != 1 {
+		t.Fatalf("suggestion only: %+v, commits %d", got, commits)
+	}
+	if want := "Read notes/review-1.md and do it.\n"; f.submits() != want {
+		t.Errorf("sent %q, want %q", f.submits(), want)
+	}
+
+	f = startFakeClaude(t, "mt-mixed", "mixed", true)
+	commits = 0
+	got = f.try("hello", false, &commits, true)
+	if got.Outcome != mailWaiting || got.Note != "waiting: a draft is in its box" || got.Typed || commits != 0 {
+		t.Errorf("typed text and a suggestion: %+v, commits %d", got, commits)
+	}
+	if f.typed() != "" || f.submits() != "" {
+		t.Errorf("something was typed: %q %q", f.typed(), f.submits())
 	}
 }

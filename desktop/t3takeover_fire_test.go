@@ -111,3 +111,32 @@ func TestT3TheResumeNamesItsScriptAndGivesItsSocket(t *testing.T) {
 		t.Errorf("written here: %+v", after)
 	}
 }
+
+// RT126GHOSTDRAFT1 m5: Take over's stop reads the window with its escapes, as a fire does. A box showing only Claude
+// Code's faint suggestion is idle and the session is ended; typed text, with or without a suggestion after it, stops
+// it with nothing ended.
+func TestT3TakeOverStopsOverAFaintSuggestionButNotOverTypedText(t *testing.T) {
+	draft := t3WindowRefusal("Rex", PaneDraft, true)
+	for _, c := range []struct{ name, capture, want string }{
+		{"suggestion only", paneBox(paneAuto, "❯ "+faint("run the tests")), ""},
+		{"typed text", paneBox(paneAuto, "❯ half typed"), draft},
+		{"typed text with a suggestion after it", paneBox(paneAuto, "❯ half typed"+faint(" and run the tests")), draft},
+		{"one typed character under the cursor and a faint tail", paneBox(paneAuto, "❯ \x1b[7mr\x1b[0;2mun the tests\x1b[0m"), draft},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d, r, hire := hiredForFire(t, "Rex")
+			windowShows(r, c.capture, true)
+			d.engine = r.o
+			err := d.t3StopInTmux(hire)
+			if c.want == "" {
+				if err != nil || !r.tmux.ran("kill-session") || r.tmux.up {
+					t.Fatalf("err = %v, tmux asked %q: the session wasn't ended", err, r.tmux.asked)
+				}
+				return
+			}
+			if err == nil || err.Error() != c.want || r.tmux.ran("kill-session") || r.tmux.ran("kill-server") || !r.tmux.up {
+				t.Fatalf("err = %v, want %q; tmux asked %q", err, c.want, r.tmux.asked)
+			}
+		})
+	}
+}

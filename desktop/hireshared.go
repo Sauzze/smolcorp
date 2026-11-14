@@ -261,13 +261,13 @@ var firing = struct {
 	takingOver map[string]bool
 }{ids: map[string]bool{}, takingOver: map[string]bool{}}
 
-// windowRefusal is why a window showing screen (readable false: it couldn't be
-// looked at) may not be ended, or "". A question or a menu, or a window that
+// windowRefusal is why a window showing screen (captured with its escapes;
+// readable false: it couldn't be looked at) may not be ended, or "". A question or a menu, or a window that
 // can't be looked at, is never skipped; force skips the rest. The tmux fire
 // types "/exit" into an idle window, so its refusals say nothing was sent, as
 // the Mac's.
 func windowRefusal(h Hire, screen string, readable, force bool) string {
-	return refusalOfState(h, ReadPaneState(screen), readable, force, "sent")
+	return refusalOfState(h, ReadStyledPaneState(screen), readable, force, "sent")
 }
 
 // stateRefusal is windowRefusal for a window already read as state (a

@@ -88,8 +88,8 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 			return refuse(message)
 		}
 		// Only an idle, empty box is typed into, and only if it still is: "/exit" and Return, then a bounded wait.
-		if ReadPaneState(capture) == PaneIdle {
-			if !ok || ReadPaneState(fresh) != PaneIdle {
+		if ReadStyledPaneState(capture) == PaneIdle {
+			if !ok || ReadStyledPaneState(fresh) != PaneIdle {
 				return refuse("Its window changed while it was being looked at, so nothing was sent. Try again.")
 			}
 			// Not into a mode of tmux's own (an owner's viewer scrolled back): the paste would go there. It is then only ended.
@@ -109,7 +109,7 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 		return "", refused
 	}
 	removed := h.Worktree != "" && !o.KeepWorktree && removeHireWorktree(o.Git, testPort, o.Worktrees)(h)
-	writeRecap(h, capture, removed, o.Now())
+	writeRecap(h, paneText(capture), removed, o.Now())
 	if h.Worktree != "" && !removed && !o.KeepWorktree {
 		markFired(h.ID, firedKeptNote(h.Worktree))
 		return firedWorktreeKept, nil

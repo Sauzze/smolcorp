@@ -78,7 +78,7 @@ type tmuxMailWindow struct {
 	note  string
 }
 
-// Capture is the last mailCaptureLines lines of the window. A window in copy mode, or one tmux can't say
+// Capture is the last mailCaptureLines lines of the window, with its escapes. A window in copy mode, or one tmux can't say
 // how it takes a paste, is not looked at as idle: the first waits, the second is trouble.
 func (w *tmuxMailWindow) Capture() (string, error) {
 	screen, ok := w.tmux.capture(mailCaptureLines)

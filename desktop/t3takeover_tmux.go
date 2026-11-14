@@ -46,7 +46,7 @@ func (d *Deck) t3StopInTmux(h Hire) error {
 	for range 2 {
 		// Looked at twice: a question that comes up meanwhile stops it.
 		screen, readable := tmux.capture(200)
-		if why := t3WindowRefusal(name, ReadPaneState(screen), readable); why != "" {
+		if why := t3WindowRefusal(name, ReadStyledPaneState(screen), readable); why != "" {
 			return refuse(why)
 		}
 	}
