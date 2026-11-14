@@ -22,7 +22,7 @@ import (
 // codex or gemini is ever run, and no credential is read.
 
 // A token-shaped string, obviously fake: it must never pass the filter, nor reach an event or the log.
-const loginFakeToken = "sk-ant-oat01-FAKEFAKEFAKEFAKEFAKEFAKE0123456789"
+var loginFakeToken = fakeAnthropicToken("oat", "FAKEFAKEFAKEFAKEFAKEFAKE0123456789")
 
 // Links shaped as the agents print them (the PKCE values are made up).
 const (
@@ -270,7 +270,7 @@ func TestOnlyTheFilteredLinkCodeAndOutcomeLeaveALogin(t *testing.T) {
 	lines := []string{
 		loginFakeToken,
 		"access_token: " + loginFakeToken,
-		`{"accessToken":"` + loginFakeToken + `","refreshToken":"sk-ant-ort01-FAKEFAKE"}`,
+		`{"accessToken":"` + loginFakeToken + `","refreshToken":"` + fakeAnthropicToken("ort", "FAKEFAKE") + `"}`,
 		"OPENAI_API_KEY=sk-proj-FAKEFAKEFAKE",
 		"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJGQUtFRkFLRSJ9.FAKEFAKEsignature",
 		"AKIAFAKEFAKEFAKEFAKE wJalrXUtnFEMIK7MDENGbPxRfiCYFAKEFAKEKEY1",
