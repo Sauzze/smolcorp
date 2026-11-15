@@ -42,10 +42,18 @@ func TestMain(m *testing.M) {
 			os.Exit(0)
 		case "serve":
 			standInServer(os.Args[2])
+		default:
+			if run := moreStandIns[os.Args[1]]; run != nil {
+				os.Exit(run(os.Args[2:]))
+			}
 		}
 	}
 	os.Exit(m.Run())
 }
+
+// moreStandIns are other stand-ins this test program can be, by their first argument, as other files of the
+// package's tests add them (escape_darwin_test.go's hire).
+var moreStandIns = map[string]func(args []string) int{}
 
 // standIn is the desk's program: it writes which descriptors above 2 it holds, and what it was given of the nonce and
 // the tmux guard's variable, to the file at out. It touches nothing else.
