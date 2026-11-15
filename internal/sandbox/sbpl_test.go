@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,11 +28,23 @@ func goldenName(name string) string {
 	return filepath.Join("testdata", strings.NewReplacer(" ", "-", "'", "").Replace(name)+".sb")
 }
 
+// goldenServices is what a golden column's desk may reach: a stand-in of the lists (SA-X2's lists.go), one socket
+// spelled through /var as the core's environment may give it, the agents (denied: every column's Remote Login
+// answers), and its own socket.
+func goldenServices(pl Places) Services {
+	return Services{OwnSocket: pl.OwnSockets + "/s",
+		Sockets:     []string{"/var/run/mDNSResponder", "/private/var/run/syslog"},
+		Agents:      []string{"/private/tmp/com.apple.launchd.standin/Listeners", home + "/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"},
+		Mach:        []string{"com.apple.system.opendirectoryd.libinfo", "com.apple.trustd.agent"},
+		IOKit:       []IOKitOpen{{"IOSurfaceRootUserClient", false}, {"IOSurfaceSendRight", true}},
+		DeniedPorts: []int{22, 2375, 2376, 5432, 3306}}
+}
+
 // The profile is the golden text, byte for byte. To write it again after a change to the Policy or the profile, run
 // the test with SMOLCORP_SBPL_GOLDEN=write, and read the diff.
 func TestTheMacProfileIsTheGoldenText(t *testing.T) {
 	for _, s := range profileSetups() {
-		profile, err := mustNew(t, s.pl).Profile()
+		profile, err := mustNew(t, s.pl).Profile(goldenServices(s.pl))
 		if err != nil {
 			t.Fatalf("%s: %v", s.name, err)
 		}
@@ -58,19 +71,25 @@ func TestTheMacProfileIsTheGoldenText(t *testing.T) {
 	}
 }
 
-// profileSections is a profile's lines, section by section, in Profile's order: the plain allows, the Wide denies,
-// the exceptions, the final denies.
+// fileHeadings are the headings of the file rules' sections (SA-M1), in Profile's order.
+var fileHeadings = []string{"Allowed places", "Denied places an exception opens", "The exceptions", "Denied places nothing opens"}
+
+// profileSections is a profile's lines of the file rules, section by section, in Profile's order: the plain allows,
+// the Wide denies, the exceptions, the final denies. SA-M2's sections, before and after them, are left out.
 func profileSections(profile string) [][]string {
 	var sections [][]string
 	for _, section := range strings.Split(profile, "\n;; ")[1:] {
-		sections = append(sections, strings.Split(strings.TrimSpace(section), "\n")[1:])
+		lines := strings.Split(strings.TrimSpace(section), "\n")
+		if slices.Contains(fileHeadings, lines[0]) {
+			sections = append(sections, lines[1:])
+		}
 	}
 	return sections
 }
 
 // profileWithout is p's profile before the rows drop picks were in the Policy: the other rows, and the rename guards
 // made again from them alone, as New would make them.
-func profileWithout(t *testing.T, p *Policy, drop func(Rule) bool) string {
+func profileWithout(t *testing.T, p *Policy, svc Services, drop func(Rule) bool) string {
 	t.Helper()
 	b := &builder{goos: p.goos}
 	for _, r := range p.rules {
@@ -79,7 +98,7 @@ func profileWithout(t *testing.T, p *Policy, drop func(Rule) bool) string {
 		}
 	}
 	b.denyAbove()
-	profile, err := (&Policy{goos: p.goos, rules: b.rules}).Profile()
+	profile, err := (&Policy{goos: p.goos, rules: b.rules}).Profile(svc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,19 +117,19 @@ func TestARowAddedToThePolicyOnlyAddsLinesToTheProfile(t *testing.T) {
 			r.Row == "plants the owner's programs run later: what git's config names"
 	}
 	for _, s := range profileSetups() {
-		p := mustNew(t, s.pl)
-		profile, err := p.Profile()
+		p, svc := mustNew(t, s.pl), goldenServices(s.pl)
+		profile, err := p.Profile(svc)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if again := profileWithout(t, p, func(Rule) bool { return false }); again != profile {
+		if again := profileWithout(t, p, svc, func(Rule) bool { return false }); again != profile {
 			t.Fatalf("%s: the Policy made again without dropping a row isn't the same profile", s.name)
 		}
 		after := profileSections(profile)
 
 		// NS1: one line more, and only that.
 		night := `(allow file-read-data file-read-xattr (literal "` + s.pl.Support + `/nightshift.json")) ; the night shift's jobs: read only, as the guard file`
-		before := profileSections(profileWithout(t, p, func(r Rule) bool { return r.Row == "the night shift's jobs: read only, as the guard file" }))
+		before := profileSections(profileWithout(t, p, svc, func(r Rule) bool { return r.Row == "the night shift's jobs: read only, as the guard file" }))
 		if n := strings.Count(profile, "nightshift.json"); n != 1 {
 			t.Errorf("%s: %d lines name nightshift.json, want only its read-only exception", s.name, n)
 		}
@@ -129,7 +148,7 @@ func TestARowAddedToThePolicyOnlyAddsLinesToTheProfile(t *testing.T) {
 		}
 
 		// GITCFG1: final denies and their guards added; nothing else changes, nothing is lost.
-		before = profileSections(profileWithout(t, p, gitcfg1))
+		before = profileSections(profileWithout(t, p, svc, gitcfg1))
 		for i := range 3 {
 			if !slices.Equal(after[i], before[i]) {
 				t.Errorf("%s: GITCFG1's rows change section %d", s.name, i)
@@ -166,7 +185,7 @@ func TestARowAddedToThePolicyOnlyAddsLinesToTheProfile(t *testing.T) {
 // once NS1's line is in), as an exception to the support folder's Wide deny.
 func TestTheDesksOwnStatusAndReportStayWritableInEveryProfile(t *testing.T) {
 	for _, s := range profileSetups() {
-		profile, err := mustNew(t, s.pl).Profile()
+		profile, err := mustNew(t, s.pl).Profile(goldenServices(s.pl))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,7 +231,25 @@ func playOf(t *testing.T, p *Policy) seatbeltPlay {
 	if err != nil {
 		t.Fatal(err)
 	}
-	play := seatbeltPlay{rules: slices.Concat(b.plain, b.wide, b.exceptions, b.final), res: map[string]*regexp.Regexp{}}
+	return newPlay(slices.Concat(b.plain, b.wide, b.exceptions, b.final))
+}
+
+// playWith is p's whole profile with svc, SA-M2's sections too, played as Seatbelt reads it.
+func playWith(t *testing.T, p *Policy, svc Services) seatbeltPlay {
+	t.Helper()
+	sections, err := p.sections(svc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rules []sbRule
+	for _, s := range sections {
+		rules = append(rules, s.rules...)
+	}
+	return newPlay(rules)
+}
+
+func newPlay(rules []sbRule) seatbeltPlay {
+	play := seatbeltPlay{rules: rules, res: map[string]*regexp.Regexp{}}
 	for _, r := range play.rules {
 		if r.place.kind == "regex" {
 			play.res[r.place.text] = regexp.MustCompile(foldName("darwin", r.place.text))
@@ -239,8 +276,13 @@ func (s seatbeltPlay) matches(r sbRule, k string, c sbCheck, own bool) bool {
 		return k == key("darwin", r.place.text)
 	case "subpath":
 		return under(k, key("darwin", r.place.text))
+	case "regex":
+		return s.res[r.place.text].MatchString(k)
+	case sbRaw:
+		// SA-M2's defaults: a connect to any unix socket's path; the rest name no path.
+		return r.place.text == "(remote unix-socket)"
 	}
-	return s.res[r.place.text].MatchString(k)
+	return false // a TCP port, a Mach service, an IOKit class: no path
 }
 
 // says is what Seatbelt does with check c at path at.
@@ -323,10 +365,11 @@ func TestTheMacProfilePlayedAsSeatbeltSaysWhatDecideSays(t *testing.T) {
 }
 
 // The profile is in the documented order, as policy_test.go's TestAProfileInTheDocumentedOrderSaysWhatDecideSays
-// plays it: the plain allows, the Wide denies, the exceptions, the final denies. Its sections say so in its text, and
-// each heading comes once, in that order, after the header.
+// plays it: the plain allows, the Wide denies, the exceptions, the final denies; SA-M2's defaults and what it may
+// still reach before them, and what nothing opens after. Its sections say so in its text, and each heading comes
+// once, in that order, after the header.
 func TestTheMacProfilesSectionsAreInTheDocumentedOrder(t *testing.T) {
-	profile, err := mustNew(t, hirePlaces(realSupport)).Profile()
+	profile, err := mustNew(t, hirePlaces(realSupport)).Profile(goldenServices(hirePlaces(realSupport)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +377,8 @@ func TestTheMacProfilesSectionsAreInTheDocumentedOrder(t *testing.T) {
 		t.Errorf("the header: %q", profile[:min(len(profile), 200)])
 	}
 	last := -1
-	for _, heading := range []string{"Allowed places", "Denied places an exception opens", "The exceptions", "Denied places nothing opens"} {
+	for _, heading := range slices.Concat([]string{"Denied by default: unix sockets, Mach services, IOKit, signals", "What it may still reach"},
+		fileHeadings, []string{"Denied, whatever allows it"}) {
 		at := strings.Index(profile, "\n;; "+heading+"\n")
 		if at <= last || strings.Count(profile, "\n;; "+heading+"\n") != 1 {
 			t.Errorf("%q is at %d, after %d", heading, at, last)
@@ -343,7 +387,7 @@ func TestTheMacProfilesSectionsAreInTheDocumentedOrder(t *testing.T) {
 	}
 	// Each section holds only its kind of line.
 	sections := strings.Split(profile, "\n;; ")[1:]
-	for i, want := range []string{"(allow ", "(deny ", "(allow ", "(deny "} {
+	for i, want := range []string{"(deny ", "(allow ", "(allow ", "(deny ", "(allow ", "(deny ", "(deny "} {
 		for _, line := range strings.Split(strings.TrimSpace(sections[i]), "\n")[1:] {
 			if !strings.HasPrefix(line, want) {
 				t.Errorf("section %d holds %q", i, line)
@@ -395,5 +439,304 @@ func TestAProfileIsRefusedForWhatItCantSpell(t *testing.T) {
 	re := regexp.MustCompile(sbQuoteMeta(odd) + "/[^/]*" + sbQuoteMeta(".md"))
 	if !re.MatchString(odd+"/x.md") || re.MatchString(strings.ReplaceAll(odd, ".k", "Xk")+"/x.md") {
 		t.Errorf("sbQuoteMeta(%q) = %q doesn't match only itself", odd, sbQuoteMeta(odd))
+	}
+}
+
+// SA-M2: sockets, services, signals and network, on the made-up Mac.
+
+// m2Ops are the operations SA-M2's sections name.
+var m2Ops = []string{"network-outbound", "mach-lookup", "iokit-open", "signal"}
+
+// What the desk may reach comes after what is denied by default, every allow of an operation after its default deny,
+// and what nothing opens after every allow (SIERRA's order rule: last match wins). Each operation is named exactly,
+// by its allows and its denies alike, never by a wildcard a named one would beat (sbpl.go). Services add lines to
+// SA-M2's sections only: the file rules' are the same with an empty Services, in every column.
+func TestTheServicesComeAfterTheirDefaultsAndWhatNothingOpensComesLast(t *testing.T) {
+	for _, s := range profileSetups() {
+		p := mustNew(t, s.pl)
+		sections, err := p.sections(goldenServices(s.pl))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var lines []sbRule
+		for _, section := range sections {
+			lines = append(lines, section.rules...)
+		}
+		firstDeny, lastAllow := map[string]int{}, -1
+		for i, r := range lines {
+			for _, op := range r.ops {
+				if !r.allow {
+					if _, ok := firstDeny[op]; !ok {
+						firstDeny[op] = i
+					}
+				} else if slices.Contains(m2Ops, op) {
+					if at, ok := firstDeny[op]; !ok || at > i {
+						t.Errorf("%s: %s comes before %s's default deny", s.name, r, op)
+					}
+				}
+				if strings.HasSuffix(op, "*") && slices.Contains(m2Ops, strings.TrimSuffix(op, "*")) {
+					t.Errorf("%s: %s names a wildcard", s.name, r)
+				}
+			}
+			if r.allow {
+				lastAllow = i
+			}
+		}
+		if finalDenies := len(lines) - len(sections[5].rules) - len(sections[6].rules); lastAllow >= finalDenies {
+			t.Errorf("%s: %s comes after the final denies began", s.name, lines[lastAllow])
+		}
+		for i, r := range sbDefaults {
+			if sections[0].rules[i].String() != r.String() || r.allow || r.ops[0] != m2Ops[i] {
+				t.Errorf("%s: default %d is %s", s.name, i, sections[0].rules[i])
+			}
+		}
+		if got := sections[1].rules[len(sections[1].rules)-1].String(); got != "(allow signal (target same-sandbox))" {
+			t.Errorf("%s: the signal allow is %s", s.name, got)
+		}
+		if strings.Contains(fmtRules(lines), "(target others)") {
+			t.Errorf("%s: a signal rule names (target others), which doesn't hold on macOS 26", s.name)
+		}
+		bare, err := p.sections(Services{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 2; i <= 5; i++ {
+			if fmtRules(bare[i].rules) != fmtRules(sections[i].rules) {
+				t.Errorf("%s: the Services change the file rules' section %q", s.name, sections[i].heading)
+			}
+		}
+		if fmtRules(bare[1].rules) != "(allow signal (target same-sandbox))\n" || fmtRules(bare[6].rules) != fmtRules(sbNever) {
+			t.Errorf("%s: an empty Services allows %q and denies last %q", s.name, fmtRules(bare[1].rules), fmtRules(bare[6].rules))
+		}
+	}
+}
+
+func fmtRules(rules []sbRule) string {
+	var s strings.Builder
+	for _, r := range rules {
+		s.WriteString(r.String() + "\n")
+	}
+	return s.String()
+}
+
+// A desk connects to a unix socket only where its profile names it: its own socket, the desk-start socket and the
+// sockets on its list, and the agents' only while Remote Login doesn't answer. Never to one its Policy denies (the
+// support folder's, the owner's tap), another desk's socket, or one not named. Played as Seatbelt reads the whole
+// profile, in every column, with Remote Login answering and not.
+func TestADeskConnectsOnlyToItsOwnSocketTheDeskStartAndItsList(t *testing.T) {
+	type column struct {
+		name string
+		pl   Places
+	}
+	var columns []column
+	for _, s := range profileSetups() {
+		columns = append(columns, column{s.name, s.pl})
+		off := s.pl
+		off.RemoteLogin = false
+		columns = append(columns, column{s.name + ", Remote Login off", off})
+	}
+	checked := 0
+	for _, c := range columns {
+		p, svc := mustNew(t, c.pl), goldenServices(c.pl)
+		play := playWith(t, p, svc)
+		named := []string{svc.OwnSocket, c.pl.DeskStart}
+		named = append(named, svc.Sockets...)
+		if !c.pl.RemoteLogin {
+			named = append(named, svc.Agents...)
+		}
+		var paths []string
+		s := setup{c.name, c.pl}
+		for _, r := range rows {
+			paths = append(paths, s.path(r.path))
+		}
+		paths = append(paths, svc.Sockets...)
+		paths = append(paths, svc.Agents...)
+		paths = append(paths, svc.OwnSocket, c.pl.DeskStart, c.pl.Support+"/serve.sock", sockets+"/h2/s", sockets+"/gm1/s", sockets+"/h1/t",
+			sockets+"/s", "/private/var/run/mDNSResponderX", "/private/tmp/.s.PGSQL.5432", "/var/run/docker.sock", home+"/.ssh/agent.sock")
+		for _, at := range paths {
+			want := Deny
+			if decided, _ := p.Decide(at, Connect); decided == Allow && slices.ContainsFunc(named, func(n string) bool { return key("darwin", n) == key("darwin", at) }) {
+				want = Allow
+			}
+			checked++
+			if got := play.says(at, sbCheck{"network-outbound", ""}); got != want {
+				t.Errorf("%s: connect %s: the profile says %v, want %v", c.name, at, got, want)
+			}
+		}
+		for _, at := range []string{svc.OwnSocket, "/private/var/run/syslog", c.pl.DeskStart} {
+			if got := play.says(at, sbCheck{"network-outbound", ""}); got != Allow {
+				t.Errorf("%s: %s is refused", c.name, at)
+			}
+		}
+		for _, at := range svc.Agents {
+			if got, want := play.says(at, sbCheck{"network-outbound", ""}), map[bool]Verdict{true: Deny, false: Allow}[c.pl.RemoteLogin]; got != want {
+				t.Errorf("%s: the agent %s: %v, want %v", c.name, at, got, want)
+			}
+		}
+	}
+	if checked < 1000 {
+		t.Errorf("only %d cases checked", checked)
+	}
+}
+
+// While Remote Login answers, the agents are denied after every allow, as the ssh keys are (C5, AQ12): no list and no
+// place opens them. While it doesn't, they are on the list like any socket, and nothing denies them last.
+func TestTheAgentsAreDeniedLastOnlyWhileRemoteLoginAnswers(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		pl := hirePlaces(realSupport)
+		pl.RemoteLogin = on
+		svc := goldenServices(pl)
+		sections, err := mustNew(t, pl).sections(svc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reach, last := fmtRules(sections[1].rules), fmtRules(sections[6].rules)
+		for _, agent := range svc.Agents {
+			line := `network-outbound (literal "` + spell("darwin", agent) + `"))`
+			if on && (!strings.Contains(last, "(deny "+line) || strings.Contains(reach, line)) {
+				t.Errorf("Remote Login on: %s isn't denied last only:\n%s\n%s", agent, reach, last)
+			}
+			if !on && (!strings.Contains(reach, "(allow "+line) || strings.Contains(last, line)) {
+				t.Errorf("Remote Login off: %s isn't allowed only:\n%s\n%s", agent, reach, last)
+			}
+		}
+	}
+}
+
+// Each local TCP port is denied last on every address of this Mac over IPv4 and on any address over IPv6, so an
+// IPv4-mapped address (::ffff:127.0.0.1) is refused too (RT126SAM2 B1, SIERRA's ruling): two lines a port, in its
+// list's order, and never `(remote tcp "localhost:N")`, which Seatbelt reads wrong next to a tcp6 line (sbpl.go). A
+// port AQ21's opt-in lifts has neither line; a port that can't be one fails the profile.
+func TestTheLocalPortsAreDeniedLastOnLocalhostAndAnyIPv6(t *testing.T) {
+	for _, s := range profileSetups() {
+		svc := goldenServices(s.pl)
+		p := mustNew(t, s.pl)
+		sections, err := p.sections(svc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want string
+		for _, port := range svc.DeniedPorts {
+			want += fmt.Sprintf("(deny network-outbound (remote tcp4 \"localhost:%d\"))\n(deny network-outbound (remote tcp6 \"*:%d\"))\n", port, port)
+		}
+		if got := fmtRules(sections[6].rules[:2*len(svc.DeniedPorts)]); got != want {
+			t.Errorf("%s: the ports:\n%s\nwant\n%s", s.name, got, want)
+		}
+		var all []sbRule
+		for _, section := range sections {
+			all = append(all, section.rules...)
+		}
+		if text := fmtRules(all); strings.Contains(text, "(remote tcp ") || strings.Count(text, "(remote tcp") != 2*len(svc.DeniedPorts) {
+			t.Errorf("%s: a port is named outside its two lines:\n%s", s.name, text)
+		}
+		// AQ21's opt-in: the databases' ports are left off the list, and both their lines go.
+		svc.DeniedPorts = []int{22, 2375, 2376}
+		profile, err := p.Profile(svc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(profile, ":5432") || strings.Contains(profile, ":3306") || strings.Count(profile, "(remote tcp") != 6 {
+			t.Errorf("%s: with the databases opted in, the profile still names them", s.name)
+		}
+	}
+}
+
+// Only SA-M2's own rules are written as they are (sbRaw); every file rule names its filter, so one made with no kind
+// can't be written unquoted (RT126SAM2 N4).
+func TestOnlySAM2sOwnRulesAreWrittenRaw(t *testing.T) {
+	own := map[string]bool{sbSameSandbox.String(): true}
+	for _, r := range slices.Concat(sbDefaults, sbNever) {
+		own[r.String()] = true
+	}
+	for _, s := range profileSetups() {
+		p := mustNew(t, s.pl)
+		b, err := p.fileRules()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range slices.Concat(b.plain, b.wide, b.exceptions, b.final) {
+			if r.place.kind == sbRaw {
+				t.Errorf("%s: the file rule %s has no kind", s.name, r)
+			}
+		}
+		sections, err := p.sections(goldenServices(s.pl))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw := 0
+		for _, section := range sections {
+			for _, r := range section.rules {
+				if r.place.kind == sbRaw {
+					raw++
+					if !own[r.String()] {
+						t.Errorf("%s: %s is written raw", s.name, r)
+					}
+				}
+			}
+		}
+		if raw != len(own) {
+			t.Errorf("%s: %d raw rules, want SA-M2's %d", s.name, raw, len(own))
+		}
+	}
+}
+
+// What a profile can't say exactly, or would open another desk's server with, fails it: the desk doesn't start. Its
+// own socket must be in its own socket folder (not the folder, its parent or another desk's); no listed socket or
+// agent may be in the socket folder; every socket is whole and clean; a Mach service, an IOKit class and a port must
+// be ones. A Policy with no socket folder of its own takes no own socket.
+func TestServicesAProfileCantSayAreRefused(t *testing.T) {
+	pl := hirePlaces(realSupport)
+	p := mustNew(t, pl)
+	good := goldenServices(pl)
+	for name, c := range map[string]struct {
+		change func(*Services)
+		want   error
+	}{
+		"its own socket folder":            {func(s *Services) { s.OwnSocket = sockets + "/h1" }, ErrOwnSocket},
+		"the socket folder":                {func(s *Services) { s.OwnSocket = sockets + "/s" }, ErrOwnSocket},
+		"another desk's socket as its own": {func(s *Services) { s.OwnSocket = sockets + "/h2/s" }, ErrOwnSocket},
+		"its own socket elsewhere":         {func(s *Services) { s.OwnSocket = home + "/s" }, ErrOwnSocket},
+		"its own socket, relative":         {func(s *Services) { s.OwnSocket = "s" }, ErrListed},
+		"another desk's socket listed":     {func(s *Services) { s.Sockets = append(s.Sockets, sockets+"/h2/s") }, ErrListed},
+		"another desk's socket, in case":   {func(s *Services) { s.Sockets = append(s.Sockets, "/tmp/SMOLCORP-501/h2/s") }, ErrListed},
+		"its own socket listed":            {func(s *Services) { s.Sockets = append(s.Sockets, sockets+"/h1/s") }, ErrListed},
+		"an agent in the socket folder":    {func(s *Services) { s.Agents = append(s.Agents, sockets+"/gm1/s") }, ErrListed},
+		"a socket with ..":                 {func(s *Services) { s.Sockets = append(s.Sockets, "/private/var/run/../tmp/x") }, ErrListed},
+		"a relative socket":                {func(s *Services) { s.Sockets = append(s.Sockets, "var/run/syslog") }, ErrListed},
+		"no socket":                        {func(s *Services) { s.Agents = append(s.Agents, "") }, ErrListed},
+		"a socket with a newline":          {func(s *Services) { s.Sockets = append(s.Sockets, "/private/tmp/a\nb") }, ErrListed},
+		"no Mach service":                  {func(s *Services) { s.Mach = append(s.Mach, "") }, ErrListed},
+		"a Mach service with a control":    {func(s *Services) { s.Mach = append(s.Mach, "com.apple.x\x00") }, ErrListed},
+		"no IOKit class":                   {func(s *Services) { s.IOKit = append(s.IOKit, IOKitOpen{}) }, ErrListed},
+		"port 0":                           {func(s *Services) { s.DeniedPorts = append(s.DeniedPorts, 0) }, ErrListed},
+		"port 65536":                       {func(s *Services) { s.DeniedPorts = append(s.DeniedPorts, 65536) }, ErrListed},
+	} {
+		svc := goldenServices(pl)
+		svc.Sockets, svc.Agents, svc.Mach, svc.IOKit, svc.DeniedPorts = slices.Clone(good.Sockets), slices.Clone(good.Agents),
+			slices.Clone(good.Mach), slices.Clone(good.IOKit), slices.Clone(good.DeniedPorts)
+		c.change(&svc)
+		if _, err := p.Profile(svc); !errors.Is(err, c.want) {
+			t.Errorf("%s: %v, want %v", name, err, c.want)
+		}
+	}
+	noFolder := pl
+	noFolder.OwnSockets = ""
+	if _, err := mustNew(t, noFolder).Profile(Services{OwnSocket: sockets + "/h1/s"}); !errors.Is(err, ErrOwnSocket) {
+		t.Errorf("an own socket with no own socket folder: %v", err)
+	}
+	if _, err := mustNew(t, noFolder).Profile(); err != nil {
+		t.Errorf("no own socket and no folder: %v", err)
+	}
+	if _, err := p.Profile(good); err != nil {
+		t.Errorf("the golden Services: %v", err)
+	}
+	// No Services is the empty one: what the pieces written before SA-M2 call. It denies no TCP port (RT126SAM2 N1), so
+	// it isn't the strictest profile. Two are refused.
+	none, _ := p.Profile()
+	if empty, _ := p.Profile(Services{}); none != empty || !strings.Contains(none, "(deny mach-lookup)") || strings.Contains(none, "(remote tcp") {
+		t.Error("a profile with no Services isn't the one with an empty Services")
+	}
+	if _, err := p.Profile(good, good); !errors.Is(err, ErrListed) {
+		t.Errorf("two Services: %v", err)
 	}
 }

@@ -51,16 +51,28 @@ func TestNoDeskWritesTheOldRemoteFiles(t *testing.T) {
 }
 
 // The old remote files' rows only add final denies (and their rename guards) to each profile, in the section nothing
-// opens: no allow moves, no other line changes or goes (SIERRA's seatbelt order rule).
+// opens: no allow moves, no other line changes or goes (SIERRA's seatbelt order rule). Both profiles have the golden
+// column's Services, so SA-M2's sections, before the file rules and after them, are in both and must not change either.
 func TestTheOldRemoteFilesRowsOnlyAddFinalDenies(t *testing.T) {
 	mine := func(r Rule) bool { return r.Row == rowOldRemotes }
 	for _, s := range profileSetups() {
-		p := mustNew(t, s.pl)
-		profile, err := p.Profile()
+		p, svc := mustNew(t, s.pl), goldenServices(s.pl)
+		profile, err := p.Profile(svc)
 		if err != nil {
 			t.Fatal(err)
 		}
-		after, before := profileSections(profile), profileSections(profileWithout(t, p, mine))
+		without := profileWithout(t, p, svc, mine)
+		// SA-M2's layout: the opening lines, then 7 sections, the 4 of the file rules (profileSections) among them.
+		whole, wholeBefore := strings.Split(profile, "\n;; "), strings.Split(without, "\n;; ")
+		if len(whole) != 8 || len(wholeBefore) != 8 {
+			t.Fatalf("%s: %d and %d parts, want the opening lines and 7 sections", s.name, len(whole), len(wholeBefore))
+		}
+		for i, part := range whole {
+			if heading, _, _ := strings.Cut(part, "\n"); !slices.Contains(fileHeadings, heading) && part != wholeBefore[i] {
+				t.Errorf("%s: the old remote files' rows change the part headed %q", s.name, heading)
+			}
+		}
+		after, before := profileSections(profile), profileSections(without)
 		if len(after) != 4 || len(before) != 4 {
 			t.Fatalf("%s: %d and %d sections, want 4", s.name, len(after), len(before))
 		}

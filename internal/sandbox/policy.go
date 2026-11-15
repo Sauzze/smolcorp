@@ -333,6 +333,8 @@ const (
 	rowOtherDesks = "other desks' places"
 	rowCheckout   = "the owner's checkout"
 	rowSockets    = "the socket folder"
+	// rowOwnSockets is the desk's own socket folder: its own socket must be in it (sbpl.go's serviceRules).
+	rowOwnSockets = "its own socket folder"
 	rowSupport    = "the support folder, whole"
 	rowAbove      = "the folders above a denied place can't be moved or removed"
 )
@@ -574,7 +576,7 @@ func build(pl Places) (*Policy, error) {
 		b.add(Rule{Row: rowSockets, Path: pl.SocketParent, Below: true, Write: Deny, Wide: true})
 		b.add(Rule{Row: "no links anywhere in the socket folder", Path: pl.SocketParent, Below: true, Link: Deny})
 		if pl.OwnSockets != "" {
-			b.add(Rule{Row: "its own socket folder", Path: pl.OwnSockets, Below: true, Read: Allow, Write: Allow, Opens: []string{rowSockets}})
+			b.add(Rule{Row: rowOwnSockets, Path: pl.OwnSockets, Below: true, Read: Allow, Write: Allow, Opens: []string{rowSockets}})
 		}
 	}
 

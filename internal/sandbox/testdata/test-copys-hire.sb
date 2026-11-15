@@ -2,6 +2,22 @@
 (version 1)
 (allow default)
 
+;; Denied by default: unix sockets, Mach services, IOKit, signals
+(deny network-outbound (remote unix-socket)) ; unix sockets: only those allowed below
+(deny mach-lookup) ; Mach services: only those on its list
+(deny iokit-open) ; IOKit: only the classes on its list
+(deny signal) ; signals: only to its own sandbox (C1)
+
+;; What it may still reach
+(allow network-outbound (literal "/private/tmp/smolcorp-501/h1/s")) ; its own socket
+(allow network-outbound (literal "/private/var/run/mDNSResponder")) ; a socket on its list
+(allow network-outbound (literal "/private/var/run/syslog")) ; a socket on its list
+(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo")) ; a Mach service on its list
+(allow mach-lookup (global-name "com.apple.trustd.agent")) ; a Mach service on its list
+(allow iokit-open (iokit-registry-entry-class "IOSurfaceRootUserClient")) ; an IOKit class on its list
+(allow iokit-open (iokit-user-client-class "IOSurfaceSendRight")) ; an IOKit class on its list
+(allow signal (target same-sandbox)) ; its own processes (C1)
+
 ;; Allowed places
 (allow file-read-data file-read-xattr (subpath "/Users/ada/.claude")) ; the account folders
 (allow file-read-data file-read-xattr (subpath "/Users/ada/.claude-work")) ; the account folders
@@ -430,3 +446,21 @@
 (deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/serve.sock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/gm-memory")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/gm-memory") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+
+;; Denied, whatever allows it
+(deny network-outbound (remote tcp4 "localhost:22")) ; a local port on its list: any address of this Mac
+(deny network-outbound (remote tcp6 "*:22")) ; a local port on its list: any IPv6 address, ::ffff:127.0.0.1 too (C4)
+(deny network-outbound (remote tcp4 "localhost:2375")) ; a local port on its list: any address of this Mac
+(deny network-outbound (remote tcp6 "*:2375")) ; a local port on its list: any IPv6 address, ::ffff:127.0.0.1 too (C4)
+(deny network-outbound (remote tcp4 "localhost:2376")) ; a local port on its list: any address of this Mac
+(deny network-outbound (remote tcp6 "*:2376")) ; a local port on its list: any IPv6 address, ::ffff:127.0.0.1 too (C4)
+(deny network-outbound (remote tcp4 "localhost:5432")) ; a local port on its list: any address of this Mac
+(deny network-outbound (remote tcp6 "*:5432")) ; a local port on its list: any IPv6 address, ::ffff:127.0.0.1 too (C4)
+(deny network-outbound (remote tcp4 "localhost:3306")) ; a local port on its list: any address of this Mac
+(deny network-outbound (remote tcp6 "*:3306")) ; a local port on its list: any IPv6 address, ::ffff:127.0.0.1 too (C4)
+(deny network-outbound (literal "/private/tmp/com.apple.launchd.standin/Listeners")) ; an agent, while Remote Login answers (C5)
+(deny network-outbound (literal "/Users/ada/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock")) ; an agent, while Remote Login answers (C5)
+(deny file-ioctl (ioctl-command (_IO "t" 114))) ; typing into a terminal (TIOCSTI)
+(deny appleevent-send) ; Apple Events
+(deny lsopen) ; opening apps (LaunchServices)
+(deny job-creation) ; new launchd jobs
