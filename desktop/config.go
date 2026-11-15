@@ -183,6 +183,10 @@ type Config struct {
 	// Whether Settings may browse the Agent Client Protocol's public list of agents (acpagents.go). Off until you
 	// turn it on, and only then may anything look it up; nothing fetches it yet.
 	ACPRegistry bool `json:"acpRegistry,omitempty"`
+	// LocalDatabaseAsksPassword is AQ21's opt-in (sandboxchecks.go): you said your local database asks for a password,
+	// and Smolcorp's own login with none was refused, so a desk in the sandbox may reach Postgres and MySQL here. Off
+	// until then; each desk's start tries that login again. A security setting, sealed.
+	LocalDatabaseAsksPassword bool `json:"localDatabaseAsksPassword,omitempty"`
 	// What the file held that this version doesn't read, as it was: saved
 	// back with the rest, so a setting from another version, older or newer,
 	// or the Mac app's, isn't lost at the next save.

@@ -175,17 +175,22 @@ func registryTightens(old, now registryFile) bool {
 }
 
 // configSecurityPart is config.json's sealed part: who can reach the server, keys to other apps, a GM started by
-// hand, the mail socket, the manager and hiring switches, and where session news goes.
+// hand, the mail socket, the manager and hiring switches, where session news goes, and AQ21's database opt-in.
 func configSecurityPart(c *Config) []byte {
 	apps := c.KeystrokeApps
 	if len(apps) == 0 {
 		apps = nil // left out of the file when empty
 	}
-	data, _ := json.Marshal(map[string]any{
+	part := map[string]any{
 		"listen": c.Listen, "keystrokesAllowed": c.KeystrokesAllowed, "keystrokeApps": apps,
 		"gmByHand": c.GMByHand, "mailInboxSocket": c.MailInboxSocket, "managerEnabled": c.ManagerEnabled,
 		"hiringEnabled": c.HiringEnabled, "webhook": c.Webhook,
-	})
+	}
+	// AQ21's opt-in (SA-M12) only while it's on: a file sealed before it was a setting still fits.
+	if c.LocalDatabaseAsksPassword {
+		part["localDatabaseAsksPassword"] = true
+	}
+	data, _ := json.Marshal(part)
 	return data
 }
 
@@ -196,9 +201,10 @@ func vouchConfig(c *Config, data []byte) {
 	}
 	recordDropped("config.json", "config.json's security settings were changed by another program, or their seal doesn't fit: they're "+
 		"back to their safe defaults (this computer and Tailscale only, no keys to other apps, no GM started by hand, "+
-		"the front desk and hiring off, no webhook). Set them again in Setup.")
+		"the front desk and hiring off, no webhook, desks kept from your local databases). Set them again in Setup.")
 	c.Listen, c.KeystrokesAllowed, c.KeystrokeApps, c.GMByHand = "tailscale", false, nil, false
 	c.MailInboxSocket, c.ManagerEnabled, c.HiringEnabled, c.Webhook = false, false, false, standardWebhook()
+	c.LocalDatabaseAsksPassword = false
 }
 
 // configChanges is whether the security settings going from old to now are changed: any change, loosening
