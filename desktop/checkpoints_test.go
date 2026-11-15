@@ -354,6 +354,29 @@ func TestARepoWithAKeyTheStoreDoesNotKnowIsLeftAlone(t *testing.T) {
 	}
 }
 
+// A remote, a submodule or a branch's remote whose address runs a program (a helper's such as codecommit:: or
+// hg::) stops a checkpoint too, and the note says so in those words; a plain address doesn't.
+func TestARepoWhoseAddressRunsAProgramIsLeftAloneAndSaysWhy(t *testing.T) {
+	left := cpScratch(t)
+	dir := aGitRepo(t)
+	store := newCheckpoints()
+	for key, rule := range map[string]string{"remote.origin.url": "remote.*.url", "submodule.s.url": "submodule.*.url",
+		"branch.main.remote": "branch.*.remote", "remote.pushDefault": "remote.pushdefault"} {
+		gitRepoCmd(t, dir, "config", key, "standin::x")
+		cp, note := store.snapshot(cpDesk(dir), "x")
+		if cp.ID != "" || note != "No checkpoint was taken: this repo's git config gives an address that runs a program ("+rule+")." {
+			t.Errorf("%s: %+v %q", key, cp, note)
+		}
+		gitRepoCmd(t, dir, "config", "--unset", key)
+	}
+	if refs := gitRepoCmd(t, dir, "for-each-ref", "refs/smolcorp"); refs != "" || len(left()) != 0 {
+		t.Errorf("%q %v", refs, left())
+	}
+	gitRepoCmd(t, dir, "config", "remote.origin.url", "https://standin.invalid/a/b.git")
+	gitRepoCmd(t, dir, "config", "branch.main.remote", "origin")
+	newSnap(t, store, cpDesk(dir), "plain")
+}
+
 func TestAFolderOutsideARepoAnOldGitAndNoGitAreSaidNotHidden(t *testing.T) {
 	cpScratch(t)
 	dir := aGitRepo(t)

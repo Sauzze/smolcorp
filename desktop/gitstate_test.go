@@ -586,6 +586,249 @@ func TestSettingsOrdinaryToolsWriteAreRead(t *testing.T) {
 	}
 }
 
+// git-lfs reads the lfs section, and the owner's own git runs git-lfs (their global filter.lfs): each lfs key that
+// names a program is blanked by name, whatever its subsection's case, dots or "=", and the repo is still read.
+func TestLfsKeysThatNameAProgramAreBlanked(t *testing.T) {
+	for _, key := range []string{
+		"lfs.customtransfer.standin.path", "lfs.customTransfer.StandIn.PATH", "lfs.customtransfer.standin.args", // a custom transfer
+		"lfs.standalonetransferagent", "lfs.StandaloneTransferAgent", // the one used without asking the server
+		"lfs.https://lfs.example.invalid/a.b/.standalonetransferagent", "lfs.file:///x=y.standalonetransferagent", // per URL
+		"lfs.extension.standin.clean", "lfs.extension.standin.smudge", "lfs.extension.Odd=Name.v2.Clean", // an extension
+	} {
+		blanks, refused := gitRepoConfig([]byte("core.bare\nfalse\x00lfs.url\nhttps://lfs.example.invalid/\x00" + key + "\nstandin-program --x\x00"))
+		if refused != "" || len(blanks) != 1 || blanks[0] != [2]string{key, ""} {
+			t.Errorf("%s: %q %v", key, refused, blanks)
+		}
+	}
+	// git-lfs's other program, core.askpass, is outside lfs and still refused.
+	if blanks, refused := gitRepoConfig([]byte("core.askPass\nstandin-askpass\x00")); refused != "core.askpass" || blanks != nil {
+		t.Errorf("core.askpass: %q %v", refused, blanks)
+	}
+}
+
+// The rest of git-lfs-config(5) (and what git-lfs writes itself) is data: read, and nothing blanked.
+func TestLfsDataKeysAreStillRead(t *testing.T) {
+	data := "lfs.url\nhttps://lfs.example.invalid/\x00lfs.pushurl\nhttps://lfs.example.invalid/\x00lfs.repositoryformatversion\n0\x00" +
+		"lfs.https://lfs.example.invalid/.access\nbasic\x00lfs.https://lfs.example.invalid/.locksverify\ntrue\x00" +
+		"lfs.https://lfs.example.invalid/.contenttype\nfalse\x00lfs.https://lfs.example.invalid/.activitytimeout\n5\x00" +
+		"lfs.customtransfer.standin.concurrent\nfalse\x00lfs.customtransfer.standin.direction\ndownload\x00" +
+		"lfs.extension.standin.priority\n0\x00lfs.fetchinclude\na/*\x00lfs.fetchexclude\nb/*\x00lfs.transfer.maxretries\n3\x00" +
+		"lfs.transfer.https://lfs.example.invalid/.httpdownloadencoding\nzstd\x00lfs.storage\nlfs2\x00lfs.sshtransfer\nnever\x00" +
+		"lfs.ssh.automultiplex\nfalse\x00lfs.locksverify\nfalse\x00lfs.setlockablereadonly\nfalse\x00lfs.concurrenttransfers\n4\x00" +
+		"lfs.basictransfersonly\ntrue\x00lfs.remote.searchall\ntrue\x00lfs.pathfiltercachesize\nnone\x00lfs.defaulttokenttl\n1h\x00"
+	if blanks, refused := gitRepoConfig([]byte(data)); refused != "" || len(blanks) != 0 {
+		t.Errorf("%q %v", refused, blanks)
+	}
+}
+
+// Through a real git: the keys as git lists them (subsections kept as written) are blanked on every read after the
+// config, and the repo is read.
+func TestARepoWithLfsProgramsIsReadWithThemBlanked(t *testing.T) {
+	dir := aGitRepo(t)
+	keys := []string{"lfs.customTransfer.StandIn.path", "lfs.customTransfer.StandIn.args", "lfs.standalonetransferagent",
+		"lfs.https://lfs.example.invalid/a.b/.standalonetransferagent", "lfs.extension.standin.clean", "lfs.extension.standin.smudge"}
+	for _, key := range keys {
+		gitRepoCmd(t, dir, "config", key, "standin-program")
+	}
+	gitRepoCmd(t, dir, "config", "lfs.url", "https://lfs.example.invalid/")
+	writeRepoFile(t, dir, "a.txt", "one\n")
+	given := map[string][][2]string{}
+	read := func(ctx context.Context, dir string, call gitCall, args ...string) ([]byte, int, error) {
+		given[args[0]] = call.config
+		return readGitOut(ctx, dir, call, args...)
+	}
+	state, _ := readGitState(dir, read, time.Now())
+	if !state.Repo || state.Skipped || state.Changed != 1 {
+		t.Fatalf("%+v", state)
+	}
+	for _, command := range []string{"status", "diff"} {
+		for _, key := range keys {
+			if !slices.Contains(given[command], [2]string{key, ""}) {
+				t.Errorf("%s: %s isn't blanked: %v", command, key, given[command])
+			}
+		}
+		if slices.ContainsFunc(given[command], func(kv [2]string) bool { return kv[0] == "lfs.url" }) {
+			t.Errorf("%s: lfs.url is data, not blanked", command)
+		}
+	}
+}
+
+// A remote's address, or an insteadOf's, that makes the owner's git run a program (ext::, fd::, any helper's
+// "<name>::", a scheme git doesn't serve itself) refuses the read, in each key form and either case; plain
+// addresses are still read. Stand-in values only.
+func TestAnAddressThatRunsAProgramIsRefused(t *testing.T) {
+	refusedRows := map[string]string{
+		"remote.origin.url\next::standin-program %S": "remote.*.url", "remote.origin.url\nEXT::standin-program": "remote.*.url",
+		"remote.Odd=Name.v2.url\nfd::3": "remote.*.url", "remote.origin.url\nstandin::x": "remote.*.url",
+		"remote.origin.url\nstandin://x": "remote.*.url", "remote.origin.url\nSSH://standin.invalid/x": "remote.*.url",
+		"remote.origin.url\n9z::x": "remote.*.url", "remote.origin.URL\nExT::standin-program": "remote.*.url",
+		"remote.origin.pushurl\next::standin-program": "remote.*.pushurl", "remote.origin.pushURL\nEXT::standin-program": "remote.*.pushurl",
+		"remote.origin.pushurl\na+b.c-d://x":           "remote.*.pushurl",
+		"url.ext::standin-program.insteadof\nhttps://": "url.*.insteadof", "url.EXT::standin-program.insteadOf\nhttps://": "url.*.insteadof",
+		"url.ext::standin-program.pushinsteadof\nhttps://": "url.*.pushinsteadof", "url.EXT::standin-program.pushInsteadOf\ngh:": "url.*.pushinsteadof",
+		// a base that becomes one with the rest of the address after it ("ex" + "t::…")
+		"url..insteadof\n/": "url.*.insteadof", "url.ex.insteadof\n/": "url.*.insteadof", "url.ext:.insteadof\n/": "url.*.insteadof",
+		"url.stand:/.pushinsteadof\n/": "url.*.pushinsteadof", "url.HTTPS://h/.insteadof\n/": "url.*.insteadof",
+		// ":" for "/" in "/:x" is "::x", and for "https" in "https://h/x" ":://h/x": the helper named "" (git-remote-)
+		"url.:.insteadof\n/": "url.*.insteadof", "url.:.pushinsteadof\nhttps": "url.*.pushinsteadof",
+		// a submodule's address, the remote a branch fetches from or pushes to and the one pushes go to (SIERRA's ruling)
+		"submodule.s.url\next::standin-program": "submodule.*.url", "submodule.Odd=Name.v2.URL\nstandin://x": "submodule.*.url",
+		"branch.main.remote\nstandin::x": "branch.*.remote", "branch.Main.Remote\nEXT::standin-program": "branch.*.remote",
+		"branch.main.pushremote\nfd::3": "branch.*.pushremote", "branch.main.pushRemote\nSSH://standin.invalid/x": "branch.*.pushremote",
+		"remote.pushdefault\nstandin::x": "remote.pushdefault", "remote.pushDefault\nExT::standin-program": "remote.pushdefault",
+		// an insteadOf's value that is one itself
+		"url.https://standin.invalid/.insteadof\next::standin-program":     "url.*.insteadof",
+		"url.https://standin.invalid/.pushinsteadof\nEXT::standin-program": "url.*.pushinsteadof",
+	}
+	for row, rule := range refusedRows {
+		if blanks, refused := gitRepoConfig([]byte("core.bare\nfalse\x00" + row + "\x00")); refused != rule+gitRefusedAddress || blanks != nil {
+			t.Errorf("%q: %q %v", row, refused, blanks)
+		}
+	}
+	// Plain addresses, in each key form, are data: read, nothing blanked.
+	data := "remote.origin.url\nhttps://standin.invalid/a/b.git\x00remote.origin.url\nssh://git@standin.invalid/a/b.git\x00" +
+		"remote.origin.url\ngit@standin.invalid:a/b.git\x00remote.origin.url\n/a/b\x00remote.origin.url\n../b\x00remote.origin.url\nfile:///a/b\x00" +
+		"remote.origin.url\nssh://[::1]/a\x00remote.origin.url\ngit://standin.invalid/a\x00remote.origin.url\ngit+ssh://h/a\x00" +
+		"remote.origin.url\nhttp://h/a\x00remote.origin.url\nftps://h/a\x00remote.origin.url\nC:\\a\\b\x00remote.origin.url\nhost:x::y\x00" +
+		"remote.origin.pushurl\nhttps://standin.invalid/a/b.git\x00remote.origin.pushurl\ngit@standin.invalid:a/b.git\x00" +
+		"url.https://github.com/.insteadof\ngh:\x00url.git@github.com:.insteadof\nhttps://github.com/\x00url.ssh://git@h/.insteadOf\nhttps://h/\x00" +
+		"url.https://github.com/.pushinsteadof\ngit@github.com:\x00url./srv/git/.pushInsteadOf\nsrv:\x00url.git@h:x.insteadof\next\x00" +
+		"submodule.s.url\nhttps://standin.invalid/s.git\x00submodule.s.url\n../s.git\x00submodule.s.url\ngit@standin.invalid:s\x00" +
+		"branch.main.remote\norigin\x00branch.main.remote\n.\x00branch.main.pushremote\norigin\x00branch.main.remote\nhttps://standin.invalid/x\x00" +
+		"remote.pushdefault\norigin\x00remote.pushdefault\nstandin-name\x00remote.pushDefault\ngit@standin.invalid:x\x00"
+	if blanks, refused := gitRepoConfig([]byte(data)); refused != "" || len(blanks) != 0 {
+		t.Errorf("plain addresses: %q %v", refused, blanks)
+	}
+	// Only these forms are addresses: the same values elsewhere are what they were.
+	for _, row := range []string{"remote.origin.fetch\next::x", "url.ext::x.other\ny", "lfs.url\next::x", "submodule.s.path\next::x",
+		"remote.url\nx", "branch.main.merge\next::x", "branch.main.description\next::x", "submodule.s.branch\next::x"} {
+		_, wasRefused := gitRepoConfig([]byte(row + "\x00"))
+		if strings.HasSuffix(wasRefused, gitRefusedAddress) {
+			t.Errorf("%q: %q", row, wasRefused)
+		}
+	}
+}
+
+// gitAddressRuns reads an address as git does: for each stand-in address, git (refused every transport, so it runs
+// nothing and reaches no host) names the transport it picked, and the address counts exactly when that transport
+// is a program's (anything but git's own). Then insteadOf bases put before the rest of an address, both forms.
+func TestAnAddressIsReadAsGitPicksItsTransport(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git here")
+	}
+	own := map[string]bool{"file": true, "git": true, "ssh": true, "http": true, "https": true, "ftp": true, "ftps": true}
+	picked := func(dir string, args ...string) string {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		// Only a transport no address names is allowed. (Empty, as gitReadEnv gives it, lets a transport named "" by
+		// "::x" through: git then looks for a git-remote- program.)
+		cmd.Env = append(gitReadEnv(os.Environ(), nil), "GIT_ALLOW_PROTOCOL=standin-none")
+		out, _ := cmd.CombinedOutput()
+		_, after, found := strings.Cut(string(out), "transport '")
+		name, _, closed := strings.Cut(after, "' not allowed")
+		if !found || !closed {
+			t.Fatalf("git %v named no transport: %s", args, out)
+		}
+		return name
+	}
+	dir := aGitRepo(t)
+	for _, address := range []string{"standin::x", "STANDIN::x", "9z::x", "a.b::x", "a+b-c::x", "fd::3", "::x", "standin://x",
+		"SSH://standin.invalid/x", "HTTPS://standin.invalid/x", "a+b://x", "https://standin.invalid/x", "http://standin.invalid/x",
+		"ssh://[::1]/x", "ssh://standin.invalid/x", "git+ssh://standin.invalid/x", "ssh+git://standin.invalid/x",
+		"git://standin.invalid/x", "ftp://standin.invalid/x", "ftps://standin.invalid/x", "git@standin.invalid:x", "standin.invalid:x::y",
+		"file:///standin/none", "/standin/none", "gh:x",
+		// git trims nothing: a space or tab first is a host's name for ssh, and one after "::" is the helper's to read
+		" standin::x", "\tstandin::x", "standin:: x", "standin::", "C::x", "::", "standin:x", "file:/x", "file:"} {
+		name := picked(dir, "ls-remote", address)
+		if got := gitAddressRuns(address, false); got != !own[name] {
+			t.Errorf("%q: git picks %q, counted %v", address, name, got)
+		}
+	}
+	// The base an insteadOf puts in place of "/": "stand" + "in::x" is a helper's address, though "stand" alone isn't.
+	for base, address := range map[string]string{"stand": "/in::x", "standin": "/::x", "standin:": "/:x", "standin:/": "//x", "": "/standin::x",
+		":": "/:x", "https://standin.invalid/": "/x", "git@standin.invalid:": "/x", "/standin/": "/in::x"} {
+		name := picked(dir, "-c", "url."+base+".insteadOf=/", "ls-remote", address)
+		if got := gitSettingAddressRuns("url."+base+".insteadOf", "/"); got != !own[name] {
+			t.Errorf("url.%s.insteadOf before %q: git picks %q, counted %v", base, address, name, got)
+		}
+		name = picked(dir, "-c", "url."+base+".pushInsteadOf=/", "push", address, "main")
+		if got := gitSettingAddressRuns("url."+base+".pushInsteadOf", "/"); got != !own[name] {
+			t.Errorf("url.%s.pushInsteadOf before %q: git push picks %q, counted %v", base, address, name, got)
+		}
+	}
+	// The owner's own remote, a plain https one, reached through a repo's insteadOf of ":" (fetch and push), and a
+	// remote's address set with a space first in config: what git picks for each, against what the read counts.
+	for _, row := range []struct {
+		setting, key, value string
+		args                []string
+		program             bool
+	}{
+		{"", "remote.standin.url", "https://standin.invalid/x", []string{"fetch", "standin"}, false},
+		{"url.:.insteadOf=https", "url.:.insteadOf", "https", []string{"fetch", "standin"}, true},
+		{"url.:.pushInsteadOf=https", "url.:.pushInsteadOf", "https", []string{"push", "standin", "main"}, true},
+		{"remote.spaced.url= standin::x", "remote.spaced.url", " standin::x", []string{"ls-remote", "spaced"}, false},
+		// a branch's remote, its push remote and remote.pushDefault: an address git uses as it is, or a remote's name
+		{"branch.main.remote=standin::x", "branch.main.remote", "standin::x", []string{"fetch"}, true},
+		{"branch.main.remote=standin::x", "branch.main.remote", "standin::x", []string{"pull"}, true},
+		{"branch.main.remote=standin::x", "branch.main.remote", "standin::x", []string{"ls-remote"}, true},
+		{"branch.main.remote=standin", "branch.main.remote", "standin", []string{"fetch"}, false},
+		{"branch.main.pushRemote=standin::x", "branch.main.pushRemote", "standin::x", []string{"push"}, true},
+		{"branch.main.pushRemote=standin", "branch.main.pushRemote", "standin", []string{"push"}, false},
+		{"remote.pushDefault=standin::x", "remote.pushDefault", "standin::x", []string{"push"}, true},
+		{"remote.pushDefault=standin", "remote.pushDefault", "standin", []string{"push"}, false},
+	} {
+		args := []string{"-c", "remote.standin.url=https://standin.invalid/x", "-c", "push.default=current"}
+		if row.setting != "" {
+			args = append(args, "-c", row.setting)
+		}
+		name := picked(dir, append(args, row.args...)...)
+		if counted := gitSettingAddressRuns(row.key, row.value); !own[name] != row.program || counted != row.program {
+			t.Errorf("%q, git %v: git picks %q, counted %v", row.setting, row.args, name, counted)
+		}
+	}
+	// A submodule's address, as `git submodule update` clones it (git refuses the transport, so nothing is cloned).
+	sub := aGitRepo(t)
+	gitRepoCmd(t, sub, "update-index", "--add", "--cacheinfo", "160000,"+gitRepoCmd(t, sub, "rev-parse", "HEAD")+",s")
+	writeRepoFile(t, sub, ".gitmodules", "[submodule \"s\"]\n\tpath = s\n\turl = https://standin.invalid/s\n")
+	for value, program := range map[string]bool{"standin::x": true, "EXT::standin-program": true, "https://standin.invalid/s": false} {
+		name := picked(sub, "-c", "submodule.s.url="+value, "submodule", "update")
+		if counted := gitSettingAddressRuns("submodule.s.url", value); !own[name] != program || counted != program {
+			t.Errorf("submodule.s.url=%s: git picks %q, counted %v", value, name, counted)
+		}
+	}
+}
+
+// Through a real git: a repo whose remote runs a program isn't read past its config, and the owner is told why; the
+// same repo with a plain address is read.
+func TestARepoWithAnAddressThatRunsAProgramIsNotRead(t *testing.T) {
+	dir := aGitRepo(t)
+	writeRepoFile(t, dir, "a.txt", "one\n")
+	for key, value := range map[string]string{"remote.origin.url": "EXT::standin-program", "remote.origin.pushurl": "ext::standin-program",
+		"url.ext::standin-program.insteadOf": "https://standin.invalid/", "url.ex.pushInsteadOf": "/", "url.:.insteadOf": "https",
+		"submodule.s.url": "standin::x", "branch.main.remote": "EXT::standin-program", "branch.main.pushRemote": "standin::x",
+		"remote.pushDefault": "fd::3"} {
+		gitRepoCmd(t, dir, "config", key, value)
+		rule := key[:strings.Index(key, ".")] + ".*." + strings.ToLower(key[strings.LastIndex(key, ".")+1:])
+		if strings.Count(key, ".") == 1 {
+			rule = strings.ToLower(key)
+		}
+		if state := realGitState(dir); !state.Repo || !state.Skipped || state.Changed != 0 ||
+			state.Note != "The changes aren't read: this repo's git config gives an address that runs a program ("+rule+")." {
+			t.Errorf("%s: %+v", key, state)
+		}
+		gitRepoCmd(t, dir, "config", "--unset", key)
+	}
+	gitRepoCmd(t, dir, "config", "remote.origin.url", "https://standin.invalid/a/b.git")
+	gitRepoCmd(t, dir, "config", "url.https://standin.invalid/.insteadOf", "gh:")
+	if state := realGitState(dir); state.Skipped || state.Changed != 1 {
+		t.Errorf("a plain address: %+v", state)
+	}
+	g, f := fakeRead(t, "git version 2.55.0")
+	f.config = "core.bare\nfalse\x00remote.origin.url\next::standin-program\x00"
+	if state := g.get(t.TempDir(), 0); !state.Skipped || f.count("status") != 0 || f.count("diff") != 0 {
+		t.Errorf("past the config: %+v %v", state, f.calls)
+	}
+}
+
 // A clone with its submodules (which sets submodule.active) and a worktree with relative paths are repos like any other.
 func TestARecursiveCloneAndARelativeWorktreeAreRead(t *testing.T) {
 	sub := aGitRepo(t)

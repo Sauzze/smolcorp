@@ -762,7 +762,9 @@ func (s *checkpointStore) open(ctx context.Context, desk checkpointDesk, wantTre
 		return nil, cpWhy(err, "Git couldn't be read here, so no checkpoint was taken.")
 	}
 	blanks, refused := gitRepoConfig(list)
-	if refused != "" {
+	if rule, isAddress := strings.CutSuffix(refused, gitRefusedAddress); isAddress {
+		return nil, cpSkip("No checkpoint was taken: this repo's git config gives an address that runs a program (" + rule + ").")
+	} else if refused != "" {
 		return nil, cpSkip("No checkpoint was taken: this repo's git config has a setting the store doesn't know (" + refused + ").")
 	}
 	repo.call.config = append(repo.call.config, blanks...)

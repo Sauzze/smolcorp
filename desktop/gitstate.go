@@ -21,11 +21,12 @@ import (
 // changed files and the lines added and removed against HEAD. It only reads: no command here writes a repo (no
 // optional locks, so even `status` leaves the index alone). It also runs nothing the repo names: hires write the
 // repos read here, and a repo's own config can point at programs (filters, text converters, an external diff, an
-// fsmonitor, hooks, a pager, an ssh or credential helper, a fetch's upload-pack), so each of those is blanked or
-// refused: a repo whose config has a key a read doesn't know isn't read at all (gitRepoConfig), no transport is
-// allowed, and the owner's own git config is left out too (see gitReadArgs and gitReadEnv). Git older than 2.32 can't
-// be given those settings safely, so there only where the repo is gets read. The PR badge and the diffs read it, and
-// it never goes in the /events snapshot, so phones see nothing.
+// fsmonitor, hooks, a pager, an ssh or credential helper, a fetch's upload-pack, git-lfs's transfers and
+// extensions, a remote's address such as ext::), so each of those is blanked or refused: a repo whose config has a
+// key a read doesn't know isn't read at all (gitRepoConfig), no transport is allowed, and the owner's own git config
+// is left out too (see gitReadArgs and gitReadEnv). Git older than 2.32 can't be given those settings safely, so
+// there only where the repo is gets read. The PR badge and the diffs read it, and it never goes in the /events
+// snapshot, so phones see nothing.
 //
 // Each read runs off the main loop with no shell, a timeout, no pager and no prompts. Answers are kept per folder:
 // a folder is read again at most every gitStateEvery, then only when its index or HEAD moved or its session's
@@ -251,9 +252,9 @@ var gitEmptyTrees = map[string]string{
 }
 
 // The config keys a read understands, as "section.name", or "section.*.name" for a key with a subsection of any
-// name. A repo whose config has any other key isn't read (gitRepoConfig): fail closed, so a key a later git (or
-// git-lfs, or an editor) gives a program to run is refused, not run. Every key whose value is a program is either
-// blanked or not here.
+// name. A repo whose config has any other key isn't read (gitRepoConfig): fail closed, so a key a later git (or an
+// editor) gives a program to run is refused, not run (git-lfs's lfs section is data: see gitDataSections). Every key
+// whose value is a program is either blanked or not here.
 var (
 	// gitDataKeys hold data that rev-parse, config, status and diff run nothing on.
 	gitDataKeys = gitKeySet(`core.repositoryformatversion core.filemode core.bare core.logallrefupdates core.ignorecase
@@ -290,15 +291,26 @@ var (
 		mergetool.prompt mergetool.writetotemp commitgraph.changedpaths commitgraph.generationversion gui.gcwarning
 		receive.autogc trailer.separators trailer.where trailer.ifexists trailer.ifmissing trailer.*.key trailer.*.where
 		trailer.*.ifexists trailer.*.ifmissing`)
-	// gitDataSections hold nothing but data in any of their keys. lfs's keys are read by git-lfs alone, which runs
-	// only as a filter, and filters are blanked.
+	// gitDataSections hold nothing but data in any of their keys, but for the programs gitBlankedKeys names in
+	// them. lfs's keys are read by git-lfs alone: no read here runs it (filters are blanked), but the owner's own git
+	// does, as the filter.lfs of their global config, so lfs's program keys are blanked like any other. Being a data
+	// section, lfs doesn't fail closed: a program key a later git-lfs adds passes. The list is git-lfs 3.8.0's.
+	// url's insteadOf, and remote.*.url and .pushurl above, are data but for an address that runs a program
+	// (gitSettingAddressRuns), which is refused.
 	gitDataSections = gitKeySet(`user author committer init color advice i18n gc pack index rerere pull push fetch
 		transfer status lfs branch maintenance commit tag log column feature checkout clone blame grep rebase url http`)
 	// gitBlankedKeys are programs (or what allows one) under a name a repo picks, and what they are blanked to.
 	// A filter's "required" is turned off, so a blanked filter is no error. A submodule's update can be "!program".
+	// git-lfs's (git-lfs-config(5)): a custom transfer's program and its arguments (lfs.customtransfer.<name>.path,
+	// .args, which a shell expands), the custom transfer used without asking the server (lfs.standalonetransferagent,
+	// and per URL, lfs.<url>.standalonetransferagent), and an extension's commands (lfs.extension.<name>.clean,
+	// .smudge). Its subsection takes the dots, so these are "lfs.*.path" and the like, and any lfs key so named is
+	// blanked, a program or not. git-lfs's other program, core.askpass, isn't a key a read knows.
 	gitBlankedKeys = map[string]string{"filter.*.clean": "", "filter.*.smudge": "", "filter.*.process": "", "filter.*.required": "false",
 		"diff.*.textconv": "", "diff.*.command": "", "merge.*.driver": "", "credential.*.helper": "", "gpg.*.program": "",
-		"protocol.*.allow": "never", "submodule.*.update": "checkout"}
+		"protocol.*.allow": "never", "submodule.*.update": "checkout",
+		"lfs.*.path": "", "lfs.*.args": "", "lfs.standalonetransferagent": "", "lfs.*.standalonetransferagent": "",
+		"lfs.*.clean": "", "lfs.*.smudge": ""}
 	// gitBlankedSections have programs in any key (an alias "!program", a pager per command): every key is blanked.
 	// Neither is used by the commands run here (an alias can't stand for one of git's own commands; nothing is paged).
 	gitBlankedSections = map[string]bool{"alias": true, "pager": true}
@@ -323,14 +335,80 @@ func gitKeySet(words string) map[string]bool {
 	return set
 }
 
+// gitOwnSchemes are the "<scheme>://" addresses git serves with a transport of its own (file, git, ssh) or its own
+// curl helpers (http, https, ftp, ftps), spelled as git compares them: in lower case. Any other scheme, "SSH" too,
+// makes git run a git-remote-<scheme> program.
+var gitOwnSchemes = gitKeySet(`file git ssh git+ssh ssh+git http https ftp ftps`)
+
+// gitRefusedAddress ends what gitRepoConfig says of an address that runs a program, after the key's rule.
+const gitRefusedAddress = ", an address that runs a program"
+
+// gitAddressRuns says whether git, handed address as a remote's, runs a program the address picks, read as git
+// picks a transport (transport_get): a letter or digit, then letters, digits, "+", "-" or "."; then
+//   - "::" runs git-remote-<that name> for whatever follows, in any case: ext:: runs the shell command that follows
+//     (git-remote-ext(1)), fd:: is git's own helper on descriptors it was handed (git-remote-fd(1)), and any other
+//     name is a helper of that name found where git looks for programs (gitremote-helpers(7)). Each counts.
+//   - "://" runs git-remote-<scheme> but for gitOwnSchemes.
+//
+// Anything else (a path, "host:path", "[::1]" after a scheme of git's own) uses git's own transports. An address
+// starting with "::" or "://" counts too. When start is true, address is only the start of one (the base an
+// insteadOf puts before the rest of an address), and it also counts when the rest could make it one: "", "ex",
+// "ext:", ":" (":" + ":x" is "::x", the helper named "", git-remote-), "foo:/".
+func gitAddressRuns(address string, start bool) bool {
+	scheme := 0
+	for scheme < len(address) && gitSchemeChar(address[scheme], scheme == 0) {
+		scheme++
+	}
+	rest := address[scheme:]
+	switch {
+	case strings.HasPrefix(rest, "::"):
+		return true
+	case strings.HasPrefix(rest, "://"):
+		return !gitOwnSchemes[address[:scheme]]
+	}
+	return start && scheme == len(address) || start && (rest == ":" || scheme > 0 && rest == ":/")
+}
+
+func gitSchemeChar(c byte, first bool) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || !first && (c == '+' || c == '-' || c == '.')
+}
+
+// gitSettingAddressRuns says whether the setting key = value points git at an address that runs a program
+// (gitAddressRuns), whatever the protocol.allow of the git that reads it: a remote's address (remote.<name>.url,
+// .pushurl), a submodule's (submodule.<name>.url), the remote a branch fetches from or pushes to and the one pushes go
+// to (branch.<name>.remote, .pushRemote, remote.pushDefault: a remote's name, or an address git uses as it is when
+// no remote has that name; a name such as "origin" reads as a plain address), or an insteadOf's base
+// (url.<base>.insteadOf, .pushInsteadOf: the address git puts in place of the start an address has). An insteadOf's
+// value is only matched against addresses, but it counts as well if it is one.
+func gitSettingAddressRuns(key, value string) bool {
+	if strings.EqualFold(key, "remote.pushdefault") {
+		return gitAddressRuns(value, false)
+	}
+	first, last := strings.Index(key, "."), strings.LastIndex(key, ".")
+	if first < 0 || first == last {
+		return false
+	}
+	section, name := strings.ToLower(key[:first]), strings.ToLower(key[last+1:])
+	switch {
+	case section == "remote" && (name == "url" || name == "pushurl"), section == "submodule" && name == "url",
+		section == "branch" && (name == "remote" || name == "pushremote"):
+		return gitAddressRuns(value, false)
+	case section == "url" && (name == "insteadof" || name == "pushinsteadof"):
+		return gitAddressRuns(key[first+1:last], true) || gitAddressRuns(value, false)
+	}
+	return false
+}
+
 // gitRepoConfig reads `config --list -z` (config with its includes followed: the repo's, its worktree's, and what
 // the read hands git) and says the settings that blank every program it names under a name of its own, or, for a
-// key a read doesn't understand, that key's rule ("remote.*.uploadpack"), and the repo isn't read. Reading config
-// runs nothing. A subsection is kept as it is, "=" and all; sections and names are lowercase in git's list.
+// key a read doesn't understand, that key's rule ("remote.*.uploadpack"), and the repo isn't read. An address that
+// runs a program (gitSettingAddressRuns) is refused the same way, as its rule and gitRefusedAddress: no read here
+// uses a transport, but the owner's git does (and checkpoints read config here too). Reading config runs nothing. A
+// subsection is kept as it is, "=" and all; sections and names are lowercase in git's list.
 func gitRepoConfig(list []byte) (blanks [][2]string, refused string) {
 	seen := map[string]bool{}
 	for _, record := range strings.Split(string(list), "\x00") {
-		key, _, _ := strings.Cut(record, "\n")
+		key, setting, _ := strings.Cut(record, "\n")
 		if key == "" {
 			continue
 		}
@@ -345,6 +423,8 @@ func gitRepoConfig(list []byte) (blanks [][2]string, refused string) {
 		}
 		value, blanked := gitBlankedKeys[rule]
 		switch {
+		case gitSettingAddressRuns(key, setting):
+			return nil, rule + gitRefusedAddress
 		case blanked || gitBlankedSections[section]:
 			if !seen[key] {
 				seen[key] = true
@@ -436,6 +516,9 @@ func readGitState(dir string, read gitReader, now time.Time) (state GitState, gi
 	if refused != "" {
 		state.Skipped = true
 		state.Note = "The changes aren't read: this repo's git config has a setting this read doesn't know (" + refused + ")."
+		if rule, isAddress := strings.CutSuffix(refused, gitRefusedAddress); isAddress {
+			state.Note = "The changes aren't read: this repo's git config gives an address that runs a program (" + rule + ")."
+		}
 		return state, gitDir
 	}
 	call = gitCall{global: slices.Clip(gitReadArgs), config: append(slices.Clip(here.owner), blanks...)}
