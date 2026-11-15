@@ -110,17 +110,25 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 	}
 	removed := h.Worktree != "" && !o.KeepWorktree && removeHireWorktree(o.Git, testPort, o.Worktrees)(h)
 	writeRecap(h, paneText(capture), removed, o.Now())
+	// Its session is known to have ended: what's in its place is listed once more, and it's on record (CLAUDEPLANT1).
+	// That listing comes first, while its place is as the desk left it: the folders below go only after it.
+	worktreeKept := h.Worktree != "" && !removed && !o.KeepWorktree
+	if worktreeKept {
+		markFired(h.ID, firedKeptNote(h.Worktree))
+	} else {
+		markFired(h.ID, "")
+	}
+	claudeHireEnded(h.ID)
 	// Its own Claude folder goes with its session (SA-X8): its transcripts too, as NB6 plans.
 	_ = removeDeskClaude(supportDir, h.ID)
 	// A hire without a worktree, and the GM, keep their plans in a folder others share: its own go now (MSYSAX8).
+	// Smolcorp's own folder, never a plant: it goes after the listing, so a .claude a desk made in it is held first.
 	if h.Worktree == "" {
 		_ = removeDeskPlans(startedIn(h), h.ID)
 	}
-	if h.Worktree != "" && !removed && !o.KeepWorktree {
-		markFired(h.ID, firedKeptNote(h.Worktree))
+	if worktreeKept {
 		return firedWorktreeKept, nil
 	}
-	markFired(h.ID, "")
 	return "", nil
 }
 

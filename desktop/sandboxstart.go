@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -676,4 +677,374 @@ func removeOldGitPlant(ctx context.Context, listed []oldGitPlant, id string) err
 		err = fmt.Errorf("git config exited %d", status)
 	}
 	return err
+}
+
+// Claude plants (CLAUDEPLANT1, SIERRA's ruling on FXSAL1R1's call 1, 14 Nov, widened 15 Nov): what your own Claude
+// Code reads and runs when it starts in a folder. That is everything in a `.claude` there (settings*.json, hooks,
+// commands, agents, skills, output styles, whatever else), and a `.mcp.json`, whose MCP servers are programs it
+// starts. A desk can make or change them where its sandbox can't refuse one name in a folder that takes others: in
+// its place (a Mac's `**/.claude` rows hold the folder itself, not what's in it), or in a home folder it may write.
+// So the core lists them, for the desk that made them, at its start and when it's gone (a fire, a failure, the GM's
+// edit: every registry write that marks a hire gone, registryFile.save), at Take over, and at the gate itself (again
+// for a gone hire until its session is known to have ended, claudeHireEnded), and
+// HOLDS each one listed: Smolcorp doesn't start your Claude Code in its folder, or above or below it, until it's gone
+// ("Remove") or you've said it's yours ("Keep"). A CLAUDE.md is only words: it isn't listed. What's held, each
+// desk's baseline and what you kept are a sealed record (claudeheld.go), so a restart forgets none of it.
+//
+// What's listed is what isn't as it was at the desk's last listing (its baseline), nor as you kept it: the first
+// time, everything that differs from your checkout at the same place, so a project's own `.claude` doesn't count. A
+// folder counts as itself only (what's in it has rows of its own), so your checkout's untracked settings.local.json
+// doesn't make a worktree's differ; a file by its bytes, a link by where it leads and what it leads to in the place.
+// A desk's place is looked at whole; a home folder the desk may write, claudeHomeDepth folders down, and not on a
+// Mac, where the pattern holds and macOS asks you before an app looks in several of them.
+
+const (
+	whyClaudeFolder   = "A .claude folder: Claude Code started here reads what it holds."
+	whyClaudeSettings = "Claude Code's settings: they can run programs (hooks) and change what it may do."
+	whyClaudeHooks    = "Hooks in .claude: programs Claude Code's settings can run."
+	whyClaudeTools    = "Claude Code's commands, agents, skills or output styles: it follows what they say, and they can run programs."
+	whyClaudeOther    = "In a .claude folder: Claude Code started here may read it."
+	whyClaudeLink     = "A link or a file named .claude: Claude Code reads where it leads."
+	whyClaudeMCP      = "An .mcp.json: Claude Code started here can run the MCP servers it names."
+	// claudeHomeDepth is how far down a home folder the desk may write is looked in: ~/a/.claude to ~/a/b/c/.claude.
+	claudeHomeDepth = 3
+)
+
+// claudeTools are the folders in .claude whose files Claude Code follows (whyClaudeTools).
+var claudeTools = []string{"commands", "agents", "skills", "output-styles"}
+
+// claudeHomeWalked is whether the home folders are looked in: not on a Mac (above). Tests set it.
+var claudeHomeWalked = runtime.GOOS != "darwin"
+
+// claudePlant is one thing listed and held: In is the folder Claude Code started in would read it (or, for a
+// folder that couldn't be read, that folder). Sum is what it is ("" when it can't be read: never the same as
+// anything), Dir whether it's a folder, Within the place it was looked for in.
+type claudePlant struct {
+	ID   string `json:"id"`
+	Desk string `json:"desk"`
+	File string `json:"file"`
+	Why  string `json:"why"`
+	In   string `json:"in"`
+	Sum  string `json:"sum"`
+	Dir  bool   `json:"dir,omitempty"`
+
+	Within string `json:"within,omitempty"`
+
+	info    fs.FileInfo
+	outside bool // a link that leads out of where it was looked for, or nowhere: your checkout never clears it
+}
+
+// same is whether p is as was: a folder by being one (what's in it has rows of its own), anything else by its sum.
+func (p claudePlant) same(was claudePlant) bool {
+	return p.Sum != "" && was.Sum != "" && p.Why == was.Why && p.Dir == was.Dir && (p.Dir || p.Sum == was.Sum)
+}
+
+// claudeLook is a place the listing walks, depth folders down (-1, all), passing over the folders skip names.
+type claudeLook struct {
+	path  string
+	depth int
+	skip  func(string) bool
+}
+
+// claudeLooks are the places a desk at pl may make a .claude in: its place, and the home folders pol lets it write
+// (but its place, walked as such). M6 lists them at the desk's start: holdClaudePlants(pl.OwnID, these, pl.Checkout).
+func claudeLooks(pol *sandbox.Policy, pl sandbox.Places) []claudeLook {
+	looks := []claudeLook{{path: pl.Root, depth: -1}}
+	if !claudeHomeWalked {
+		return looks
+	}
+	skip := func(at string) bool { // a folder the desk can't make a name in (a folder's own row only holds it in place)
+		v, _ := pol.Decide(filepath.Join(at, "plant"), sandbox.Write)
+		return v == sandbox.Deny || inside(pl.Root, at)
+	}
+	entries, err := os.ReadDir(pl.Home)
+	if err != nil {
+		return append(looks, claudeLook{path: pl.Home, depth: 1, skip: func(string) bool { return true }})
+	}
+	for _, e := range entries {
+		if at := filepath.Join(pl.Home, e.Name()); e.IsDir() && !skip(at) {
+			looks = append(looks, claudeLook{path: at, depth: claudeHomeDepth, skip: skip})
+		}
+	}
+	return looks
+}
+
+// listClaudePlantsOf lists and holds what hire h left in its place, its worktree or else its folder, against its
+// checkout: the one listing every fire, failure, Take over and gate calls. It never puts a gone hire on record as
+// listed: only claudeHireEnded does, once its session is known to have ended.
+func listClaudePlantsOf(h Hire) []claudePlant {
+	place := h.place()
+	if place == "" {
+		return nil
+	}
+	return holdClaudePlants(h.ID, []claudeLook{{path: place, depth: -1}}, h.Repo)
+}
+
+// claudeHireEnded is said once hire id's session is known to have ended: a fire that saw its session or window gone
+// (hirefire.go, hirefire_window.go, hirelauncher.go), a start that failed after its session was ended
+// (hireengine.go). Gone by then, its place is listed once more and it's put on record as listed, even with nothing
+// found: the gate doesn't list it again, so what you change there from now on is yours. A hire made gone any other
+// way (the GM's edit, T3 Code's let go, a fire whose window nobody closed) stays off the record: its desk may still be
+// at work, so every gate near it lists it again (RT126CLAUDEPLANT1R2 B4b).
+func claudeHireEnded(id string) {
+	if h, ok := registryHire(id); ok && !isOpen(h) {
+		listClaudePlantsOf(h)
+		markClaudeListed(h.ID)
+	}
+}
+
+// claudeSessionUp is whether gone hire h's own tmux session is still there, or can't be told (hireSessionUp): a desk
+// the GM's edit made gone keeps running. Tests set it.
+var claudeSessionUp = func(h Hire) bool { return hireSessionUp(h, testCopyPort(), engineOptions{}) }
+
+// holdClaudePlants lists, for desk, every plant in looks that isn't as it was in its baseline nor as you kept it,
+// holds each one and makes what it found the desk's baseline, on record (none while it found none: the record, a
+// file in the support folder, is written only when what it holds changes). With no baseline, a plant the same as
+// the one at its place in reference (the owner's checkout, a worktree's twin; not the place itself) isn't listed.
+// It says what it listed.
+func holdClaudePlants(desk string, looks []claudeLook, reference string) []claudePlant {
+	found := map[string]claudePlant{}
+	for _, l := range looks {
+		walkClaude(l.path, l, l.depth, found)
+	}
+	checkouts := map[string]bool{} // the plants the same as your checkout's
+	if len(looks) > 0 && reference != "" && physical(reference) != physical(looks[0].path) {
+		for at, p := range found {
+			if rel, err := filepath.Rel(looks[0].path, at); err == nil && filepath.IsLocal(rel) && !p.outside {
+				was := claudeEntry(filepath.Join(reference, rel), p.Why, "", reference)
+				checkouts[at] = p.same(was) && !was.outside
+			}
+		}
+	}
+	claudeHeld.Lock()
+	defer claudeHeld.Unlock()
+	loadClaudeHeldLocked()
+	baseline, known := claudeHeld.baselines[desk]
+	changed := len(found) != len(baseline)
+	for at, p := range found {
+		was, ok := baseline[at]
+		changed = changed || !ok || was.Sum != p.Sum || was.Why != p.Why || was.Dir != p.Dir
+	}
+	if known || len(found) > 0 {
+		claudeHeld.baselines[desk] = found
+	}
+	var listed []claudePlant
+	for at, p := range found {
+		if was, ok := baseline[at]; ok && p.same(was) || p.same(claudeHeld.kept[at]) || !known && checkouts[at] {
+			continue
+		}
+		p.Desk = desk
+		sum := sha256.Sum256([]byte(desk + "\x00" + p.File + "\x00" + p.Why + "\x00" + p.Sum))
+		p.ID = hex.EncodeToString(sum[:8])
+		listed = append(listed, p)
+	}
+	slices.SortFunc(listed, func(a, b claudePlant) int { return strings.Compare(a.File, b.File) })
+	for _, p := range listed {
+		claudeHeld.plants[p.ID] = p
+	}
+	// More held is less your Claude Code may do: written under a new record key, so a copy from before doesn't fit.
+	if changed || len(listed) > 0 {
+		saveClaudeHeldLocked(len(listed) > 0)
+	}
+	return listed
+}
+
+// walkClaude notes every plant in folder, depth folders down, never following a link nor going into a .git: each
+// .claude, with everything in it, and each .mcp.json, any case, trailing dots and spaces dropped (Windows).
+func walkClaude(folder string, l claudeLook, depth int, found map[string]claudePlant) {
+	entries, err := os.ReadDir(folder)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			found[folder] = claudePlant{File: folder, Why: whyUnread, In: folder}
+		}
+		return
+	}
+	for _, e := range entries {
+		at := filepath.Join(folder, e.Name())
+		switch name := strings.TrimRight(e.Name(), ". "); {
+		case strings.EqualFold(name, ".claude"):
+			addClaudeTree(at, l.path, found)
+		case strings.EqualFold(name, ".mcp.json"):
+			found[at] = claudeEntry(at, whyClaudeMCP, folder, l.path)
+		case !e.IsDir() || strings.EqualFold(e.Name(), ".git") || depth == 1 || l.skip != nil && l.skip(at):
+		default:
+			walkClaude(at, l, depth-1, found)
+		}
+	}
+}
+
+// addClaudeTree notes the .claude at at and, in a folder, everything in it but a CLAUDE.md, each a row of its own,
+// never following a link.
+func addClaudeTree(at, within string, found map[string]claudePlant) {
+	in := filepath.Dir(at)
+	p := claudeEntry(at, whyClaudeFolder, in, within)
+	if !p.Dir {
+		found[at] = claudeEntry(at, whyClaudeLink, in, within)
+		return
+	}
+	_ = filepath.WalkDir(at, func(name string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			found[name] = claudePlant{File: name, Why: whyUnread, In: in}
+		case name == at:
+			found[at] = p
+		case !strings.EqualFold(d.Name(), "CLAUDE.md") || !d.Type().IsRegular():
+			rel, _ := filepath.Rel(at, name)
+			found[name] = claudeEntry(name, claudeWhy(rel), in, within)
+		}
+		return nil
+	})
+}
+
+// claudeWhy is why the entry rel, in a .claude, is listed.
+func claudeWhy(rel string) string {
+	first, deeper, _ := strings.Cut(strings.ToLower(filepath.ToSlash(rel)), "/")
+	if settings, _ := path.Match("settings*.json", first); settings && deeper == "" {
+		return whyClaudeSettings
+	}
+	switch {
+	case first == "hooks":
+		return whyClaudeHooks
+	case slices.Contains(claudeTools, first):
+		return whyClaudeTools
+	}
+	return whyClaudeOther
+}
+
+// claudeEntry is the plant at at, why given, read by Claude Code started in in, with what it is now: a file by its
+// bytes, a folder by everything in it, a link by where it leads and, when that's within the place it was looked for
+// in, by what it leads to (a link the checkout has too can't hide a change made through it). One that can't be read
+// never matches.
+func claudeEntry(at, why, in, within string) claudePlant {
+	p := claudePlant{File: at, Why: why, In: in, Within: within}
+	info, err := os.Lstat(at)
+	if err != nil {
+		return p
+	}
+	p.info, p.Dir = info, info.IsDir()
+	h := sha256.New()
+	err = sumClaudeTree(h, at)
+	if err == nil && info.Mode()&fs.ModeSymlink != 0 {
+		if to, linkErr := filepath.EvalSymlinks(at); linkErr == nil && within != "" && inside(physical(within), to) {
+			err = sumClaudeTree(h, to)
+		} else {
+			p.outside = true
+		}
+	}
+	if err == nil {
+		p.Sum = hex.EncodeToString(h.Sum(nil))
+	}
+	return p
+}
+
+// sumClaudeTree writes into h everything at at and below it, never following a link: names, kinds, bytes and where
+// links lead.
+func sumClaudeTree(h io.Writer, at string) error {
+	return filepath.WalkDir(at, func(name string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(at, name)
+		fmt.Fprintf(h, "%s\x00%v\x00", rel, d.Type())
+		switch {
+		case d.Type()&fs.ModeSymlink != 0:
+			target, err := os.Readlink(name)
+			fmt.Fprintf(h, "%s\x00", target)
+			return err
+		case d.Type().IsRegular():
+			return copyFrom(h, name)
+		}
+		return nil
+	})
+}
+
+// claudeNear is whether a and b are the same folder, or one is in the other: as written and with links resolved,
+// case-blind off Linux.
+func claudeNear(a, b string) bool {
+	for _, x := range []string{a, physical(a)} {
+		for _, y := range []string{b, physical(b)} {
+			if runtime.GOOS != "linux" {
+				x, y = strings.ToLower(x), strings.ToLower(y)
+			}
+			if inside(x, y) || inside(y, x) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// claudeGate is why Smolcorp won't start your Claude Code in folder, or "", once it has listed each place of hires
+// in or around it: every open hire's, since it may have made one since its last listing (a desk not fired yet, the
+// GM); a gone one's not on record as listed (its session not known to have ended: the GM's edit, from before this
+// record, or after it was lost); and a gone one's whose tmux session is still up, which counts as open. The first
+// of hires counts for its ID.
+func claudeGate(folder string, hires []Hire) string {
+	seen := map[string]bool{}
+	for _, h := range hires {
+		if seen[h.ID] || h.place() == "" || !claudeNear(folder, h.place()) {
+			continue
+		}
+		seen[h.ID] = true
+		if isOpen(h) || !claudeListed(h.ID) || claudeSessionUp(h) {
+			listClaudePlantsOf(h)
+		}
+	}
+	return claudeHeldRefusal(folder)
+}
+
+// claudeHeldRefusal is why Smolcorp won't start your Claude Code in folder, or "": a plant held for you is still
+// there, in it, above it or below it.
+func claudeHeldRefusal(folder string) string {
+	claudeHeld.Lock()
+	defer claudeHeld.Unlock()
+	loadClaudeHeldLocked()
+	var held []claudePlant
+	for _, p := range claudeHeld.plants {
+		if _, err := os.Lstat(p.File); errors.Is(err, fs.ErrNotExist) {
+			delete(claudeHeld.plants, p.ID) // cleared
+			continue
+		}
+		if claudeNear(folder, p.In) {
+			held = append(held, p)
+		}
+	}
+	if len(held) == 0 {
+		return ""
+	}
+	slices.SortFunc(held, func(a, b claudePlant) int { return strings.Compare(a.File, b.File) })
+	return "Smolcorp won't start your Claude Code in " + folder + ": a hire left " + held[0].File + " (" + held[0].Why +
+		") and it's held for you. Remove it in Setup, or keep it if it's yours, then try again."
+}
+
+// removeClaudePlant is your "Remove" for the plant held as id: taken away (a link, not what it leads to) if it's
+// still what was listed (the same file, while the core runs). keep is your "Keep": it's yours, so neither it nor
+// anything held in it is held any more, nor listed again unless it changes. Anything else is errGitPlantGone.
+func removeClaudePlant(id string, keep bool) error {
+	claudeHeld.Lock()
+	defer claudeHeld.Unlock()
+	loadClaudeHeldLocked()
+	p, ok := claudeHeld.plants[id]
+	if !ok {
+		return errGitPlantGone
+	}
+	if !keep {
+		now := claudeEntry(p.File, p.Why, p.In, p.Within)
+		if p.Sum == "" || now.Sum != p.Sum || now.Dir != p.Dir || p.info != nil && (now.info == nil || !os.SameFile(now.info, p.info)) {
+			return errGitPlantGone
+		}
+		if err := os.RemoveAll(p.File); err != nil {
+			return err
+		}
+		delete(claudeHeld.plants, id)
+	} else {
+		for _, q := range claudeHeld.plants {
+			if q.Desk == p.Desk && inside(p.File, q.File) {
+				claudeHeld.kept[q.File] = q
+				delete(claudeHeld.plants, q.ID)
+			}
+		}
+	}
+	saveClaudeHeldLocked(false)
+	return nil
 }

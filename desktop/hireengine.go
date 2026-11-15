@@ -267,8 +267,11 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		if err := o.Attach(socket); err != nil {
 			// It was started, so its row stays, marked failed; its key's hash stays but is inert
 			// (hireForSendKey only finds open hires).
-			tmux.end()
+			ended := tmux.end()
 			failHire(id, "Its window didn't open.")
+			if ended { // its session is known to have ended (CLAUDEPLANT1)
+				claudeHireEnded(id)
+			}
 			undoMade()
 			return Hire{}, &hireRefusal{Status: http.StatusInternalServerError, Message: "The terminal didn't open."}
 		}

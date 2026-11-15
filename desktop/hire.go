@@ -836,6 +836,14 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 		// The agent looked for, whatever setup changed meanwhile.
 		command = append(command, program)
 	}
+	// Your own Claude Code isn't started where a hire left a .claude or an .mcp.json, listed now and held for you
+	// (CLAUDEPLANT1): a desk not fired yet, or the GM, may have made one since its last listing.
+	if agentOrClaude(program) == Claude {
+		if why := claudeGate(folder, officeHires()); why != "" {
+			d.lastHire = time.Time{}
+			return http.StatusConflict, why
+		}
+	}
 	// A plain hire (not the engine's: a pinned desk, another agent, no role)
 	// isn't on a tmux server of its own, so in the background nothing but
 	// `tmux attach` would show it, and it has no "Open a window": it opens in

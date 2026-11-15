@@ -156,6 +156,10 @@ func (d *Deck) fireOwnWindowHire(h Hire, tab string, agent Agent, force, keep bo
 	default:
 		markFired(h.ID, "")
 	}
+	// Only a window seen closed is a session known to have ended (CLAUDEPLANT1): one nobody closed stays off the record.
+	if closed {
+		claudeHireEnded(h.ID)
+	}
 	if tab != "" {
 		d.mu.Lock()
 		if d.sessions.Prune(func(t string) bool { return t != tab }, nowMillis()) {

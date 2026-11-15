@@ -451,3 +451,59 @@ func TestOnLinuxADesksFolderHoldsCopiesNeverASignIn(t *testing.T) {
 		t.Error("a refused copy left the desk's folder")
 	}
 }
+
+// CLAUDEPLANT1 on SA-X8 (MSYCLAUDEPLANT1): at a fire, the desk's place is listed while it is still as the desk left
+// it, and only then do its plans go from the folder others share. A .claude it made in its plans folder is seen and
+// held before that folder goes, what it left beside is held after, and Smolcorp's own .smolcorp/plans is never a
+// plant. Stand-ins only: `{"hooks":"standin"}`.
+func TestAFireListsADesksPlaceBeforeItsPlansGo(t *testing.T) {
+	_, r, _ := engineDeck(t)
+	freshClaudeHeld(t)
+	request := r.request("janitor")
+	request.NoWorktree = true
+	hire, err := runManagedHire(request, r.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	place := startedIn(hire)
+	plans := filepath.Join(place, filepath.FromSlash(deskPlansFor(hire.ID)))
+	for _, at := range []string{filepath.Join(plans, ".claude", "settings.json"), filepath.Join(place, "x", ".mcp.json")} {
+		if err := os.MkdirAll(filepath.Dir(at), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(at, []byte(`{"hooks":"standin"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	windowShows(r, pane(t, "idle-empty"), true)
+	exitingPane(r, "0", true)
+	if _, err := fireEngineHire(hire, 0, r.o, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(plans); err == nil {
+		t.Error("the fired hire's plans are still in the shared folder")
+	}
+	claudeHeld.Lock()
+	held := slices.Collect(maps.Values(claudeHeld.plants))
+	claudeHeld.Unlock()
+	seen := func(want func(string) bool) bool {
+		return slices.ContainsFunc(held, func(p claudePlant) bool { return p.Desk == hire.ID && want(p.File) })
+	}
+	if !seen(func(file string) bool { return inside(plans, file) }) {
+		t.Errorf("what it made in its plans folder wasn't listed before the folder went: %+v", held)
+	}
+	if !seen(func(file string) bool { return file == filepath.Join(place, "x", ".mcp.json") }) {
+		t.Errorf("what it left in its place isn't held: %+v", held)
+	}
+	for _, p := range held {
+		if p.File == filepath.Join(place, ".smolcorp") || p.File == filepath.Join(place, ".smolcorp", "plans") || p.File == plans {
+			t.Errorf("Smolcorp's own plans folder listed as a plant: %+v", p)
+		}
+	}
+	if !claudeListed(hire.ID) {
+		t.Error("fired, its session seen gone: not on record")
+	}
+	if why := claudeHeldRefusal(place); !strings.Contains(why, ".mcp.json") {
+		t.Errorf("your Claude Code in its place: %q, want a refusal naming .mcp.json", why)
+	}
+}

@@ -216,6 +216,22 @@ func setAside(path string) registryFile {
 }
 
 func (f registryFile) save(path string) error {
+	before, _ := heldRegistryFor(path)
+	if err := f.write(path); err != nil {
+		return err
+	}
+	// A hire gone by any way (a fire, a failed start, the GM's edit, T3 Code's) has what it left named .claude or
+	// .mcp.json in its place listed and held for you (CLAUDEPLANT1): one listing for every path to a gone state.
+	for _, h := range f.hires {
+		if !isOpen(h) && slices.ContainsFunc(before.hires, func(was Hire) bool { return was.ID == h.ID && isOpen(was) }) {
+			listClaudePlantsOf(h)
+		}
+	}
+	return nil
+}
+
+// write writes f as the registry at path, and holds it.
+func (f registryFile) write(path string) error {
 	if filepath.Base(path) != registryName {
 		fields, err := f.fields()
 		if err != nil {

@@ -775,7 +775,7 @@ func DefaultBranch(gitDir string) string {
 var supportFiles = func() map[string]string {
 	rows := map[string]string{}
 	for why, names := range map[string][]string{
-		"denied: a sealed record":                                                   {"phones.json", "mac-peers.json", "registry.json", "config.json"},
+		"denied: a sealed record":                                                   {"phones.json", "mac-peers.json", "registry.json", "config.json", "claude-held.json"},
 		"read only: the guard reads it, nothing in a desk writes":                   {"hire-guard.json"},
 		"read only: the night shift's jobs, which only the core writes (NS1)":       {"nightshift.json"},
 		"denied: the records' and the core's own state":                             {"hire-guard.seal", "keys-changed-1.26", "nightshift.json.bad", "instance.lock", "smolcorp.pid", "claude-install", "voice-set-by-smolcorp", "WebView2"},

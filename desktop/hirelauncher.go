@@ -573,11 +573,14 @@ func (d *Deck) fireLauncherHire(h Hire, o launcherEngineOptions, force bool) (ke
 	}
 	removed := h.Worktree != "" && !o.KeepWorktree && removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(h)
 	writeRecap(h, "", removed, o.Now())
+	// Its launcher is seen gone: what's in its place is listed once more, and it's on record (CLAUDEPLANT1).
 	if h.Worktree != "" && !removed && !o.KeepWorktree {
 		markFired(h.ID, firedKeptNote(h.Worktree))
+		claudeHireEnded(h.ID)
 		return firedWorktreeKept, nil
 	}
 	markFired(h.ID, "")
+	claudeHireEnded(h.ID)
 	return "", nil
 }
 

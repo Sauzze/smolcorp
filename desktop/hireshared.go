@@ -418,6 +418,14 @@ func markFired(id, keptLine string) error {
 	})
 }
 
+// place is where h worked: its worktree, or else its folder.
+func (h Hire) place() string {
+	if h.Worktree != "" {
+		return h.Worktree
+	}
+	return h.Folder
+}
+
 // clearFiredGMToken takes the token away after a GM was fired, unless another
 // GM is open by now: one hired the moment this one was marked fired has its row
 // written before its token is made (runManagedHire), and both that token and

@@ -511,6 +511,8 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		acpTranscriptFolder: notSecret,
 		// MEM1: the GM's memory (memory.go), its manifest sealed, each note's file counted by its hash in it.
 		memoryFolder: sealed,
+		// CLAUDEPLANT1: what's held for you from hires' .claude folders (claudeheld.go), written from the core's start.
+		claudeHeldName: sealed,
 		// NS1: the night shift's jobs, whose approvals start hires overnight.
 		nightFileName: sealed,
 		// SA-X3: a start's canary, sandbox-canary-<32 hex> (canaryName), fresh for each start: it holds nothing.

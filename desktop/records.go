@@ -280,9 +280,10 @@ func interruptedRotation(items []bridgeRecordKey) bool {
 }
 
 // sealedRecordNames are the files that carry a seal of their own, in the support folder: the GM's memory's manifest
-// in its own folder (memory.go), and the night shift's jobs (nightshift.go).
+// in its own folder (memory.go), the night shift's jobs (nightshift.go), and what's held for you from hires' .claude
+// folders (claudeheld.go).
 func sealedRecordNames() []string {
-	return []string{"phones.json", "mac-peers.json", "registry.json", "config.json", memoryManifestName, nightFileName}
+	return []string{"phones.json", "mac-peers.json", "registry.json", "config.json", memoryManifestName, nightFileName, claudeHeldName}
 }
 
 // sealedOnDisk is whether any record in the support folder carries a seal, or the guard's seal is there.
@@ -824,6 +825,8 @@ func (d *Deck) settleRecords() {
 	case held.data != nil:
 		keepWriter(guardRecord(guardPath), guardSealWriter(guardPath, held.data))
 	}
+	// What's held for you from hires' .claude folders (claudeheld.go), read as found.
+	settleClaudeHeld()
 	// The GM's verifier, in the Keychain item, sealed too (gmtokenstore.go).
 	keepWriter(gmVerifierRecord, func([]byte, string) error { return d.gmKept.reseal() })
 	records.mu.Lock()
@@ -859,6 +862,8 @@ func (d *Deck) resetRecords() error {
 	d.config.save()
 	// The GM's memory as the core holds it (memory.go): every note after a check that passed, none after one that failed.
 	_ = d.memory.save()
+	// What's held for you from hires' .claude folders (claudeheld.go): after a failed check, nothing (it was dropped).
+	resealClaudeHeld()
 	frontDeskMu.Lock()
 	// As an edit: a file that couldn't be read is set aside as registry.broken.json first, never saved over
 	// (RT126SK1R3 N4).

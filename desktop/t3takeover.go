@@ -265,6 +265,11 @@ func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
 		}
 		return "", t3Refused(http.StatusConflict, why+" Hand it back once that's closed.")
 	}
+	// 2b. What it made named .claude or .mcp.json in its worktree is listed and held for you, now that it's stopped,
+	// with what other hires left around it: T3 Code's agent is your own Claude Code, which reads them (CLAUDEPLANT1).
+	if why := claudeGate(h.Worktree, append([]Hire{h}, officeHires()...)); why != "" {
+		return giveBack(http.StatusConflict, why)
+	}
 	// 3. The fence on its worktree, kept out of git, before T3 Code hears of the folder.
 	if !t3WriteFence(settings, fence) || !t3Exclude(h.Worktree, git) {
 		return giveBack(http.StatusInternalServerError, name+"'s fence couldn't be put on its worktree, so it wasn't handed to T3 Code.")
