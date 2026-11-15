@@ -337,6 +337,9 @@ const (
 	rowAbove      = "the folders above a denied place can't be moved or removed"
 )
 
+// rowOldRemotes is the row of git's old remote files, which X12's start-time listing names as well.
+const rowOldRemotes = "the shared git places: the old remote files"
+
 // New makes the Policy for a desk at pl. A desk whose root (or checkout, hires folder or GM folder) is inside a
 // support folder, or contains one, is refused: no exception could then keep the folder whole. So is one whose root is
 // or contains the hires folder, or contains the owner's checkout (RT126SAX1R2 B2′): it would work in other desks'
@@ -544,6 +547,15 @@ func build(pl Places) (*Policy, error) {
 		// can be told from another there, so no desk moves any, its own branch included (GITCFG1). A repo of files has
 		// no such folder, and git reads one only when the repo's config, which no desk writes, says so.
 		b.add(Rule{Row: "the base branches: a reftable repo's refs", Path: join(git, "reftable"), Below: true, Write: Deny})
+		// The old remote files (RT126GITCFG2's note 3; SIERRA, 14 Nov): `branches/<name>` and `remotes/<name>` give a
+		// remote config doesn't name an address, which the owner's fetch, pull and push use, and an address can name a
+		// program (`ext::`, a `<helper>::`). They aren't config, so gitstate never sees them. Git reads them from the
+		// shared .git only; each worktree's registration is denied as well (SIERRA), and the submodules' are in modules/,
+		// denied whole. Git hasn't written them for years: a desk loses nothing.
+		for _, folder := range []string{"branches", "remotes"} {
+			b.add(Rule{Row: rowOldRemotes, Path: join(git, folder), Below: true, Write: Deny})
+			b.add(Rule{Row: rowOldRemotes, Path: worktrees, Tail: "*/" + folder, Below: true, Write: Deny})
+		}
 	}
 
 	// Anywhere: the fences, and the folders a desk's place hangs from.

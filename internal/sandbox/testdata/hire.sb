@@ -120,6 +120,10 @@
 (deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/heads/develop")) ; the base branches
 (deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/refs/heads/release")) ; the base branches
 (deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/reftable")) ; the base branches: a reftable repo's refs
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/branches")) ; the shared git places: the old remote files
+(deny file-write* file-link (regex "^/Users/ada/Projects/app/\\.git/worktrees/[^/]*/branches(/.*)?$")) ; the shared git places: the old remote files
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/remotes")) ; the shared git places: the old remote files
+(deny file-write* file-link (regex "^/Users/ada/Projects/app/\\.git/worktrees/[^/]*/remotes(/.*)?$")) ; the shared git places: the old remote files
 (deny file-write* file-link (regex "^(/[^/]+)*/\\.claude$")) ; a .claude folder can't be made, moved or removed
 (deny file-write* file-link (regex "^(/[^/]+)*/\\.claude/settings\\.json$")) ; fences and hooks
 (deny file-write* file-link (regex "^(/[^/]+)*/\\.claude/settings\\.local\\.json$")) ; fences and hooks
@@ -371,6 +375,10 @@
 (deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/heads/release") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/reftable")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/reftable") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/branches")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/branches") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/remotes")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/remotes") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support")) ; the folders above a denied place can't be moved or removed

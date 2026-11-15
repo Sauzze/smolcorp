@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -83,30 +84,56 @@ func (tr linkTree) link(t *testing.T, target string) string {
 	return other
 }
 
+// linkMet makes the desk's status file, which it may write and the check looks at, a second name of the file at target,
+// as a process outside any sandbox could have before the desk's start.
+func (tr linkTree) linkMet(t *testing.T, target string) string {
+	t.Helper()
+	other := filepath.Join(tr.own, "STATUS.md")
+	if err := os.Remove(other); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(target, other); err != nil {
+		t.Fatal(err)
+	}
+	return other
+}
+
 func TestAFileKeptFromDesksWithASecondNameIsReplacedOrRefusesTheStart(t *testing.T) {
 	const replaced, refused, nothing = "replaced", "refused", "nothing"
 	for _, c := range []struct {
 		rel, want string
+		met       bool // the second name is the desk's status file, which the check looks at; else one in its worktree
 	}{
-		// Smolcorp's own files a desk reads but doesn't write: a fresh copy, the other name keeps a dead one.
-		{"home/L/AD/hire-guard.json", replaced}, {"home/L/AD/nightshift.json", replaced}, {"home/L/AD/hires/h1/BRIEF.md", replaced},
+		// Smolcorp's own files a desk reads but doesn't write, whose every name the check met: a fresh copy, the other
+		// name keeps a dead one.
+		{"home/L/AD/hire-guard.json", replaced, true}, {"home/L/AD/nightshift.json", replaced, true}, {"home/L/AD/hires/h1/BRIEF.md", replaced, true},
+		// The same with the other name in the desk's worktree, where the check doesn't look: it might be a transcript
+		// as well, so the start is refused (X12LINK1).
+		{"home/L/AD/hire-guard.json", refused, false}, {"home/L/AD/nightshift.json", refused, false}, {"home/L/AD/hires/h1/BRIEF.md", refused, false},
 		// A key, Smolcorp's other files and another desk's: a copy would still read the same; the start is refused.
-		{"home/L/AD/setup-key", refused}, {"home/L/AD/events.jsonl", refused}, {"home/L/AD/hires/h2/BRIEF.md", refused},
+		{"home/L/AD/setup-key", refused, false}, {"home/L/AD/events.jsonl", refused, false}, {"home/L/AD/hires/h2/BRIEF.md", refused, false},
+		{"home/L/AD/setup-key", refused, true},
 		// The owner's own files: plants, fences, the account folder, the shared git places, a submodule's.
-		{"home/.zshrc", refused}, {"home/.config/git/ignore", refused}, {"home/.claude.json", refused}, {"home/.claude/settings.json", refused},
-		{"home/P/app/.claude/settings.json", refused}, {"home/P/app-hires/h1/.claude/settings.json", refused},
-		{"home/P/app/.git/config", refused}, {"home/P/app/.git/HEAD", refused}, {"home/P/app/.git/refs/heads/main", refused},
-		{"home/P/app/.git/hooks/pre-commit", refused}, {"home/P/app/.git/modules/sub/config", refused},
+		{"home/.zshrc", refused, false}, {"home/.config/git/ignore", refused, false}, {"home/.claude.json", refused, false}, {"home/.claude/settings.json", refused, false},
+		{"home/P/app/.claude/settings.json", refused, false}, {"home/P/app-hires/h1/.claude/settings.json", refused, false},
+		{"home/P/app/.git/config", refused, false}, {"home/P/app/.git/HEAD", refused, false}, {"home/P/app/.git/refs/heads/main", refused, false},
+		{"home/P/app/.git/hooks/pre-commit", refused, false}, {"home/P/app/.git/modules/sub/config", refused, false},
 		// What a desk may write anyway, and the places the check passes over (linkCheckSkipped, accountFoldersSkipped).
-		{"home/L/AD/hires/h1/STATUS.md", nothing}, {"home/P/app/.git/objects/ab/cdef", nothing}, {"home/P/app/main.go", nothing},
-		{"home/.claude/projects/p/x.jsonl", nothing}, {"home/P/app/.git/modules/sub/objects/ab/cdef", nothing},
+		{"home/L/AD/hires/h1/STATUS.md", nothing, false}, {"home/P/app/.git/objects/ab/cdef", nothing, false}, {"home/P/app/main.go", nothing, false},
+		{"home/.claude/projects/p/x.jsonl", nothing, false}, {"home/P/app/.git/modules/sub/objects/ab/cdef", nothing, false},
 	} {
-		t.Run(c.rel, func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s/met=%v", c.rel, c.met), func(t *testing.T) {
 			tr := newLinkTree(t)
 			target := filepath.Join(tr.base, filepath.FromSlash(c.rel))
 			before, _ := os.Lstat(target)
 			text, _ := os.ReadFile(target)
 			other := tr.link(t, target)
+			if c.met {
+				if err := os.Remove(other); err != nil {
+					t.Fatal(err)
+				}
+				other = tr.linkMet(t, target)
+			}
 			got, err := checkLinks(tr.policy(t), tr.places())
 			after, statErr := os.Lstat(target)
 			if statErr != nil {
@@ -188,7 +215,7 @@ func TestAReadableNameOfAKeyRefusesTheStartWithNothingReplaced(t *testing.T) {
 			if err := os.Link(key, readable); err != nil {
 				t.Fatal(err)
 			}
-			aloneOther := tr.link(t, alone)
+			aloneOther := tr.linkMet(t, alone)
 			sums := treeSums(t, tr.base)
 			got, err := checkLinks(pol, tr.places())
 			var words *linkCheckError
@@ -221,7 +248,7 @@ func TestARefusedStartReplacesNothing(t *testing.T) {
 		t.Run(refuses, func(t *testing.T) {
 			tr := newLinkTree(t)
 			guard := filepath.Join(tr.support, "hire-guard.json")
-			guardOther := tr.link(t, guard)
+			guardOther := tr.linkMet(t, guard)
 			target := filepath.Join(tr.base, filepath.FromSlash(refuses))
 			if err := os.Link(target, filepath.Join(tr.root, "another-name")); err != nil {
 				t.Fatal(err)

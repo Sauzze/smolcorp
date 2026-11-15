@@ -12,9 +12,11 @@ import (
 )
 
 // On this Mac, with stand-ins only (owner Q5 (a)): the real profile (M1's PrepareProfile) for a stand-in hire, run
-// by /usr/bin/sandbox-exec. A hard link made before the start, in the hire's worktree, to the stand-in guard file
-// lets a write through: the sandbox checks the path, and the path is the hire's own. Once checkLinks has put a fresh
-// copy in the guard file's place, the same write lands in the dead copy. Only the stand-in's contents are compared.
+// by /usr/bin/sandbox-exec. A hard link made before the start, as the hire's status file (which it may write, and the
+// check looks at), to the stand-in guard file lets a write through: the sandbox checks the path, and the path is the
+// hire's own. Once checkLinks has put a fresh copy in the guard file's place, the same write lands in the dead copy.
+// Only the stand-in's contents are compared. (A name in its worktree, where the check doesn't look, refuses the start
+// instead: X12LINK1.)
 func TestOnAMacALinkMadeBeforeTheStartWritesNothingOnceReplaced(t *testing.T) {
 	const sandboxExec = "/usr/bin/sandbox-exec"
 	if _, err := os.Stat(sandboxExec); err != nil {
@@ -30,7 +32,7 @@ func TestOnAMacALinkMadeBeforeTheStartWritesNothingOnceReplaced(t *testing.T) {
 		t.Fatal(err)
 	}
 	guard := filepath.Join(tr.support, "hire-guard.json")
-	other := tr.link(t, guard)
+	other := tr.linkMet(t, guard)
 	write := func() {
 		t.Helper()
 		cmd := disclaim.Cmd(exec.Command(sandboxExec, "-f", profile, "/bin/sh", "-c", `printf standin > "$1"`, "sh", other))

@@ -40,6 +40,8 @@ var linkCheckMost = 100_000
 // linkCheckSkipped are the Policy's rows over whole folders the link check doesn't walk, and why: each is a code tree
 // or an install, too big to look through at every start. A link into one needed a process outside any sandbox, which
 // could have written the file itself. TestEveryDenyRowIsLookedAtOrSkippedWithAReason holds every other row to a look.
+// A file the check would replace that has a name in one (or anywhere else it doesn't look) refuses the start: the
+// name it can't see may be a file desks can't read (X12LINK1).
 var linkCheckSkipped = map[string]string{
 	"other desks' places":                  "other desks' worktrees: code trees, too big to walk at each start",
 	"the owner's checkout":                 "the owner's working tree: a code tree, too big to walk at each start",
@@ -49,7 +51,8 @@ var linkCheckSkipped = map[string]string{
 
 // accountFoldersSkipped are the folders in an account folder the link check passes over: its transcripts, its
 // plugins and its file history, each of which can hold tens of thousands of files. A submodule's objects are passed
-// over too: the repo's own are the desk's to write anyway.
+// over too: the repo's own are the desk's to write anyway. A transcript is read-denied, so a file the check would
+// replace with a second name here refuses the start, as one with a name in a linkCheckSkipped place does.
 var accountFoldersSkipped = []string{"projects", "plugins", "file-history"}
 
 // linkCheckError is a start refused by the link check: the words for the owner.
@@ -69,19 +72,23 @@ func (e *linkCheckError) Error() string { return e.words }
 // It looks at everything before it changes anything: a start it refuses replaces nothing. A file the desk can't read
 // that has a second name refuses the start wherever the walk meets it, and so does a file it would replace that is
 // one of those under another name (a readable name for a key is a leak a fresh copy can't mend: the copy would hold
-// the key's bytes). It fails closed: a file or folder it can't look at (but one only another user can list), or more
-// than linkCheckMost entries, refuses the start. It says which files it replaced.
+// the key's bytes). A file it would replace is replaced only when the walk met every one of its names (X12LINK1): a
+// name it didn't meet (a transcript, another desk's worktree, the desk's own place) may be a file desks can't read,
+// so a link count that isn't the names met refuses the start. It fails closed: a file or folder it can't look at (but
+// one only another user can list), or more than linkCheckMost entries, refuses the start. It says which files it
+// replaced.
 func checkLinks(pol *sandbox.Policy, pl sandbox.Places) (replaced []string, err error) {
 	looks, skip := linkLooks(pol, pl)
 	budget := linkCheckMost
-	type linked struct {
-		at   string
-		info fs.FileInfo
-	}
-	var toReplace, unreadable []linked
+	var toReplace, unreadable, met []linked
 	var refusal error
 	for _, look := range looks {
 		err := walkLook(look.path, look.depth, skip, &budget, func(at string, info fs.FileInfo) error {
+			// Every name the walk meets, denied or not, to count a file's names by. Elsewhere one name only, but
+			// Windows tells a file's links only of an open file.
+			if runtime.GOOS == "windows" || fileLinks(nil, info) > 1 {
+				met = append(met, linked{at: at, info: info})
+			}
 			readV, _ := pol.Decide(at, sandbox.Read)
 			writeV, _ := pol.Decide(at, sandbox.Write)
 			if readV != sandbox.Deny && writeV != sandbox.Deny {
@@ -94,9 +101,9 @@ func checkLinks(pol *sandbox.Policy, pl sandbox.Places) (replaced []string, err 
 			switch {
 			case links <= 1:
 			case readV == sandbox.Deny:
-				unreadable = append(unreadable, linked{at, info})
+				unreadable = append(unreadable, linked{at, info, links})
 			case writeV == sandbox.Deny && inside(pl.Support, at):
-				toReplace = append(toReplace, linked{at, info})
+				toReplace = append(toReplace, linked{at, info, links})
 			case refusal == nil:
 				refusal = linkedRefusal(at)
 			}
@@ -120,12 +127,61 @@ func checkLinks(pol *sandbox.Policy, pl sandbox.Places) (replaced []string, err 
 		return nil, refusal
 	}
 	for _, r := range toReplace {
-		if err := freshCopy(r.at, r.info); err != nil {
+		names, err := namesMet(r, met)
+		if err != nil {
+			return nil, couldntCheck(r.at, err)
+		}
+		if names != r.links {
+			return nil, &linkCheckError{fmt.Sprintf("%s has a second name in a place Smolcorp doesn't look in at a start (%d names, %d of them where it looks), which may be a file desks can't read, so the desk didn't start. Remove the other name (%s), then start it again.", r.at, r.links, names, otherNames(r.at))}
+		}
+	}
+	for i, r := range toReplace {
+		// One already replaced was one of this file's names: it has one fewer now.
+		links := r.links
+		for _, done := range toReplace[:i] {
+			if os.SameFile(done.info, r.info) {
+				links--
+			}
+		}
+		if err := freshCopy(r.at, r.info, links); err != nil {
 			return replaced, couldntCheck(r.at, err)
 		}
 		replaced = append(replaced, r.at)
 	}
 	return replaced, nil
+}
+
+// linked is a regular file the link check met, and how many names it has (0 when it wasn't asked).
+type linked struct {
+	at    string
+	info  fs.FileInfo
+	links uint64
+}
+
+// namesMet is how many of r's names are among met, each counted once: the same folder looked at under two spellings
+// (through a link above it, or in another case) is one folder, so a name met twice can't stand in for one not met.
+// It errs toward fewer: a name it can't place refuses the start. Size and time are compared first, so Windows opens
+// only the files that may be r.
+func namesMet(r linked, met []linked) (uint64, error) {
+	type name struct {
+		folder fs.FileInfo
+		base   string
+	}
+	var names []name
+	for _, m := range met {
+		if m.info.Size() != r.info.Size() || !m.info.ModTime().Equal(r.info.ModTime()) || !os.SameFile(m.info, r.info) {
+			continue
+		}
+		folder, err := os.Stat(filepath.Dir(m.at))
+		if err != nil {
+			return 0, err
+		}
+		base := filepath.Base(m.at)
+		if !slices.ContainsFunc(names, func(n name) bool { return strings.EqualFold(n.base, base) && os.SameFile(n.folder, folder) }) {
+			names = append(names, name{folder, base})
+		}
+	}
+	return uint64(len(names)), nil
 }
 
 // linkLook is one place the link check looks in: a file, or a folder to depth levels below it (-1, all of them).
@@ -240,11 +296,15 @@ func couldntCheck(at string, err error) error {
 }
 
 func linkedRefusal(at string) error {
-	how := "find ~ -samefile '" + at + "' lists it"
+	return &linkCheckError{fmt.Sprintf("%s has a second name on this %s (a hard link), so a desk could read or change it through that name, and the desk didn't start. Remove the other name (%s), then start it again.", at, machineHere(), otherNames(at))}
+}
+
+// otherNames is how the owner finds the other names of the file at at.
+func otherNames(at string) string {
 	if runtime.GOOS == "windows" {
-		how = `fsutil hardlink list "` + at + `" lists it`
+		return `fsutil hardlink list "` + at + `" lists it`
 	}
-	return &linkCheckError{fmt.Sprintf("%s has a second name on this %s (a hard link), so a desk could read or change it through that name, and the desk didn't start. Remove the other name (%s), then start it again.", at, machineHere(), how)}
+	return "find ~ -samefile '" + at + "' lists it"
 }
 
 // linksOf is how many names the regular file at at has. Windows tells it only of an open file.
@@ -264,10 +324,11 @@ func linksOf(at string, info fs.FileInfo) (uint64, error) {
 }
 
 // freshCopy puts a copy of the file at at in its place by a rename, with its mode: a write-new-then-rename, so the
-// file's other names keep the old, dead copy. The guard's saves wait for it. A file that changes while it is copied
-// isn't replaced: the start is refused, and the next one looks again. The file is closed before the rename: Windows
-// can't put a file in place of one still open (Go opens without FILE_SHARE_DELETE).
-func freshCopy(at string, info fs.FileInfo) error {
+// file's other names keep the old, dead copy. The guard's saves wait for it. A file that changes while it is copied,
+// or whose names are no longer the links the check met, isn't replaced: the start is refused, and the next one looks
+// again. The file is closed before the rename: Windows can't put a file in place of one still open (Go opens without
+// FILE_SHARE_DELETE).
+func freshCopy(at string, info fs.FileInfo, links uint64) error {
 	guardSaving.Lock()
 	defer guardSaving.Unlock()
 	temp, err := os.CreateTemp(filepath.Dir(at), "."+filepath.Base(at)+".fresh-*")
@@ -293,6 +354,11 @@ func freshCopy(at string, info fs.FileInfo) error {
 	now, err := os.Lstat(at)
 	if err != nil || !os.SameFile(now, info) || now.Size() != info.Size() || !now.ModTime().Equal(info.ModTime()) {
 		return fmt.Errorf("it changed while it was copied: %w", err)
+	}
+	if n, err := linksOf(at, now); err != nil {
+		return err
+	} else if n != links {
+		return fmt.Errorf("its names changed while it was copied (%d, not %d)", n, links)
 	}
 	if err := os.Rename(temp.Name(), at); err != nil {
 		return err
@@ -334,6 +400,7 @@ const (
 	whyTransport = "Lets git use a transport that runs a program (ext:: runs the one a remote's address names)."
 	whyUnknown   = "A setting Smolcorp doesn't know, which may run a program."
 	whyHook      = "A hook: git runs it for the owner."
+	whyRemote    = "An old remote file: it gives a remote an address, which can name a program git runs (ext::, a helper)."
 	whyUnread    = "Smolcorp couldn't read it, so what it runs isn't known."
 	whyTooMany   = "Too many folders to look through; the rest weren't checked."
 	gitPlantMax  = 10_000
@@ -342,7 +409,8 @@ const (
 // findOldGitPlants lists what in gitDir, the repo's shared .git, runs a program for the owner's git: each setting of
 // its config, config.worktree, every worktree's config.worktree and every submodule's config that runs one (gitstate's
 // classifier: a program it names, a hooks folder, an include, a key it doesn't know), and each file or link in its
-// hooks folder and the submodules' that isn't git's sample. It only reads; a file it can't read is listed as such.
+// hooks folder and the submodules' that isn't git's sample, and every file or link in their old remote folders
+// (remoteFilePlants). It only reads; a file it can't read is listed as such.
 func findOldGitPlants(ctx context.Context, gitDir string) []oldGitPlant {
 	var plants []oldGitPlant
 	configs := []string{filepath.Join(gitDir, "config"), filepath.Join(gitDir, "config.worktree")}
@@ -351,7 +419,7 @@ func findOldGitPlants(ctx context.Context, gitDir string) []oldGitPlant {
 			configs = append(configs, filepath.Join(gitDir, "worktrees", e.Name(), "config.worktree"))
 		}
 	}
-	hooks := []string{filepath.Join(gitDir, "hooks")}
+	hooks, gitDirs := []string{filepath.Join(gitDir, "hooks")}, []string{gitDir}
 	modules, unread, tooMany := gitModuleDirs(filepath.Join(gitDir, "modules"))
 	for _, folder := range unread {
 		plants = append(plants, gitPlant(oldGitPlant{File: folder, Why: whyUnread}))
@@ -359,6 +427,7 @@ func findOldGitPlants(ctx context.Context, gitDir string) []oldGitPlant {
 	for _, m := range modules {
 		configs = append(configs, filepath.Join(m, "config"), filepath.Join(m, "config.worktree"))
 		hooks = append(hooks, filepath.Join(m, "hooks"))
+		gitDirs = append(gitDirs, m)
 	}
 	if tooMany {
 		plants = append(plants, gitPlant(oldGitPlant{File: filepath.Join(gitDir, "modules"), Why: whyTooMany}))
@@ -383,6 +452,45 @@ func findOldGitPlants(ctx context.Context, gitDir string) []oldGitPlant {
 			plants = append(plants, gitPlant(oldGitPlant{File: at, Why: whyHook, info: info}))
 		}
 	}
+	for _, dir := range gitDirs {
+		for _, folder := range []string{"branches", "remotes"} {
+			plants = append(plants, remoteFilePlants(filepath.Join(dir, folder))...)
+		}
+	}
+	return plants
+}
+
+// remoteFilePlants lists every file or link in folder, a git folder's branches/ or remotes/, at any depth (a remote's
+// name may hold a slash). Each gives a remote config doesn't name an address, which the owner's fetch, pull and push
+// use, and an address can name a program (ext::, a <helper>::). They aren't config, so gitstate never reads them, and
+// what one says isn't judged here: each is listed (RT126GITCFG2's note 3; SIERRA, 14 Nov). A folder that can't be
+// listed is listed as such, and past gitPlantMax entries the rest aren't looked at.
+func remoteFilePlants(folder string) []oldGitPlant {
+	var plants []oldGitPlant
+	seen := 0
+	filepath.WalkDir(folder, func(at string, d fs.DirEntry, err error) error {
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil
+		case err != nil:
+			plants = append(plants, gitPlant(oldGitPlant{File: at, Why: whyUnread}))
+			return nil
+		case seen >= gitPlantMax:
+			plants = append(plants, gitPlant(oldGitPlant{File: folder, Why: whyTooMany}))
+			return fs.SkipAll
+		}
+		seen++
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info() // the entry itself: a link is listed, and removed, as a link
+		if err != nil {
+			plants = append(plants, gitPlant(oldGitPlant{File: at, Why: whyUnread}))
+			return nil
+		}
+		plants = append(plants, gitPlant(oldGitPlant{File: at, Why: whyRemote, info: info}))
+		return nil
+	})
 	return plants
 }
 
@@ -535,10 +643,10 @@ func gitPlant(p oldGitPlant) oldGitPlant {
 // errGitPlantGone is a Remove for something that isn't listed, or isn't as it was when listed.
 var errGitPlantGone = errors.New("it isn't there as it was listed: look again")
 
-// removeOldGitPlant is the owner's "Remove" for the plant whose ID is id in listed, the list Setup showed: a hook
-// is removed (a link, not what it leads to) if it is still the file that was listed; a setting is taken out of its
-// file, that value only, if it is still there (matched as a whole by a quoted pattern, not --fixed-value, which
-// needs git 2.30 or later). Nothing that wasn't listed can be removed, and a plant that can't be
+// removeOldGitPlant is the owner's "Remove" for the plant whose ID is id in listed, the list Setup showed: a hook or
+// an old remote file is removed (a link, not what it leads to) if it is still the file that was listed; a setting is
+// taken out of its file, that value only, if it is still there (matched as a whole by a quoted pattern, not
+// --fixed-value, which needs git 2.30 or later). Nothing that wasn't listed can be removed, and a plant that can't be
 // read isn't removed: the owner looks at it.
 func removeOldGitPlant(ctx context.Context, listed []oldGitPlant, id string) error {
 	i := slices.IndexFunc(listed, func(p oldGitPlant) bool { return p.ID == id })
@@ -547,7 +655,7 @@ func removeOldGitPlant(ctx context.Context, listed []oldGitPlant, id string) err
 	}
 	p := listed[i]
 	switch {
-	case p.Why == whyHook:
+	case p.Why == whyHook || p.Why == whyRemote:
 		now, err := os.Lstat(p.File)
 		if err != nil || p.info == nil || !os.SameFile(now, p.info) || now.Size() != p.info.Size() || !now.ModTime().Equal(p.info.ModTime()) {
 			return errGitPlantGone
