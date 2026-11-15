@@ -377,18 +377,25 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 	// Every desk's own Claude folder (deskclaude.go), by pattern too, this hire's own included: its transcripts, prompt
 	// history, todos and .claude.json, which Claude Code reads and writes itself, never through a tool (RT126SAX8 F1).
 	// Its plans are kept out of it (deskPlansDirectory). The support folder is written short, as an account folder kept
-	// elsewhere is (claudeStoreFolder): the settings must fit in a command line on Windows.
+	// elsewhere is (claudeStoreFolder).
+	// Read is denied there name by name, all but the skills and plugins the core puts there (deskClaudeReadable), whose
+	// files a desk's skills read through it (X8SKILLS1); each name as a file and as a folder. Edit stays denied whole.
 	desks := root
 	if short, ok := claudeStoreFolder(support); ok {
 		desks = short
 	}
-	both(desks + "/hires/*/" + deskClaudeName + "/**")
-	rules = append(rules, "Read("+desks+"/hires/*/"+deskClaudeName+"/**)")
+	forms := []string{desks}
 	// From ~, the rules hold only for a desk whose HOME is the owner's (Claude Code roots ~ there): the support folder in
 	// full beside them, which every other rule of the folder names (RT126SAX8R2 R2-b).
 	if strings.HasPrefix(desks, "~") {
-		both(root + "/hires/*/" + deskClaudeName + "/**")
-		rules = append(rules, "Read("+root+"/hires/*/"+deskClaudeName+"/**)")
+		forms = append(forms, root)
+	}
+	for _, form := range forms {
+		folder := form + "/hires/*/" + deskClaudeName
+		both(folder + "/**")
+		for _, name := range deskClaudeOthers {
+			rules = append(rules, "Read("+folder+"/"+name+")", "Read("+folder+"/"+name+"/**)")
+		}
 	}
 	for _, other := range others {
 		if other != hireID && !strings.Contains(other, "/") && !strings.HasPrefix(other, ".") {

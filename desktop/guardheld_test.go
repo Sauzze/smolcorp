@@ -434,9 +434,10 @@ func TestEveryDesksClaudeFolderIsDeniedWithTheSupportFolderInTheHomeFolder(t *te
 			t.Fatal(err)
 		}
 		deny := settings.Permissions.Deny
-		short := "~/" + filepath.Base(r.support) + "/hires/*/claude/**"
-		full := absoluteRulePath(r.support) + "/hires/*/claude/**"
-		for _, rule := range []string{"Read(" + short + ")", "Edit(" + short + ")", "Read(" + full + ")", "Edit(" + full + ")"} {
+		// Edit whole; Read name by name, all but its skills and plugins (X8SKILLS1): the first of those names here.
+		short := "~/" + filepath.Base(r.support) + "/hires/*/claude/"
+		full := absoluteRulePath(r.support) + "/hires/*/claude/"
+		for _, rule := range []string{"Read(" + short + deskClaudeOthers[0] + ")", "Edit(" + short + "**)", "Read(" + full + deskClaudeOthers[0] + ")", "Edit(" + full + "**)"} {
 			if !slices.Contains(deny, rule) {
 				t.Errorf("%s: no %s", reader.id, rule)
 			}

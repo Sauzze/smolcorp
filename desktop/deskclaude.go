@@ -41,6 +41,65 @@ const secureStorageEnvironment = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
 // and internal/sandbox's Policy write-denies them ("the links the core put in its Claude folder").
 var deskClaudeLinks = []string{"CLAUDE.md", "commands", "agents", "skills", "plugins", "output-styles"}
 
+// deskClaudeReadable are the two places in a desk's Claude folder its own tools may read (X8SKILLS1, SIERRA's ruling of
+// 15 Nov): the skills and plugins the core links (or copies) there. Claude Code tells a skill where its own files are
+// (its "Base directory"), the folder it loaded it from, so a skill's references/x.md is read through the desk's folder,
+// and an allow rule can't lift a deny. Everything else there stays denied to Read: its transcripts (projects), prompt
+// history, todos, paste cache, shell snapshots, .claude.json and whatever a later Claude Code keeps there.
+var deskClaudeReadable = []string{"skills", "plugins"}
+
+// deskClaudeOthers are patterns, in Claude Code's rule syntax, that together match each name in a desk's Claude
+// folder but deskClaudeReadable's: Claude Code's rules have no "but", so the rest is written out (namesOtherThan).
+var deskClaudeOthers = namesOtherThan(deskClaudeReadable...)
+
+// namesOtherThan gives patterns that together match one name in a folder, whatever it is, unless it is one of names,
+// which they never match. names are lower-case letters from b to y, no two starting with the same one. A name is
+// another one if it starts with none of their first letters; or, for one of names, it is a start of it on its own, or
+// a start of it followed by anything but its next letter, or the whole of it followed by more.
+//
+// Claude Code matches its rules as gitignore does, through the ignore package, which knows no [!…] (nor [^…]): "any
+// letter but x" is a list of ranges, from U+0001 to U+FFFF with the gap x leaves, and the gap "/" leaves, so the
+// pattern stays within one name. That package matches without regard to case, so the gap is both x and X: a range
+// holding X would match x too. A name is never empty and never holds U+0000, and Claude Code compares UTF-16 code
+// units, of which U+FFFF is the last.
+func namesOtherThan(names ...string) []string {
+	firsts := ""
+	for _, name := range names {
+		firsts += name[:1]
+	}
+	patterns := []string{"[" + anyBut(firsts) + "]*"}
+	for _, name := range names {
+		for i := 1; i < len(name); i++ {
+			patterns = append(patterns, name[:i], name[:i]+"["+anyBut(name[i:i+1])+"]*")
+		}
+		// ? is any one character but "/", in Claude Code's rules as in gitignore.
+		patterns = append(patterns, name+"?*")
+	}
+	return patterns
+}
+
+// anyBut is the inside of a [range] that matches one character but "/" and the letters (lower case), in either case.
+func anyBut(letters string) string {
+	gaps := []rune{'/'}
+	for _, letter := range letters {
+		gaps = append(gaps, letter, letter-'a'+'A')
+	}
+	slices.Sort(gaps)
+	var ranges strings.Builder
+	from := rune(1)
+	for _, gap := range append(gaps, 0x10000) {
+		if gap > from {
+			ranges.WriteRune(from)
+			if gap-1 > from {
+				ranges.WriteString("-")
+				ranges.WriteRune(gap - 1)
+			}
+		}
+		from = gap + 1
+	}
+	return ranges.String()
+}
+
 // deskPlansDirectory is where desks with their own Claude folder keep their plans, each in a folder of its own named
 // by its id (deskPlansFor), which it writes with Write and reads with Read: every desk's fence denies both tools that
 // Claude folder whole (hireDenyRules), so plans can't stay in its plans/. Claude Code takes a plansDirectory only

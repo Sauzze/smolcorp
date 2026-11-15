@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -780,10 +781,15 @@ func TestAPhotoGoesOnceItsDeskHasReadIt(t *testing.T) {
 	}
 }
 
+// readDeniedCompiled keeps readDenied's expressions, compiled once each.
+var readDeniedCompiled sync.Map
+
 // readDenied says whether rules, a hire's deny rules, keep its Read tool (and so Grep and Glob, which leave out what
 // Read can't open) away from file, for a hire whose home is home: Claude Code's rule paths, ~/ from the home, // from
-// the root and **/ anywhere, matched as gitignore matches (* within a folder's name, ** across folders). Paths are
-// compared as rules write them: on Windows the drive is a folder (absoluteRulePath).
+// the root and **/ anywhere, matched as gitignore matches (* within a folder's name, ** across folders, ? one character
+// in a name, [ranges] as written). Paths are compared as rules write them: on Windows the drive is a folder
+// (absoluteRulePath). Case counts here, where Claude Code's matcher ignores it: the rules' ranges leave out both cases
+// of a letter (anyBut), so for a name in lower case both say the same.
 func readDenied(rules []string, home, file string) bool {
 	for _, rule := range rules {
 		pattern, ok := strings.CutPrefix(rule, "Read(")
@@ -813,12 +819,23 @@ func readDenied(rules []string, home, file string) bool {
 				i++
 			case pattern[i] == '*':
 				expression.WriteString("[^/]*")
+			case pattern[i] == '?':
+				expression.WriteString("[^/]")
+			// A [range] as the rules write one (namesOtherThan): its characters and ranges, which mean the same here.
+			case pattern[i] == '[' && strings.Contains(pattern[i:], "]"):
+				end := i + strings.Index(pattern[i:], "]")
+				expression.WriteString(pattern[i : end+1])
+				i = end
 			default:
 				expression.WriteString(regexp.QuoteMeta(pattern[i : i+1]))
 			}
 		}
 		expression.WriteString("$")
-		if regexp.MustCompile(expression.String()).MatchString(absoluteRulePath(file)[1:]) {
+		compiled, ok := readDeniedCompiled.Load(expression.String())
+		if !ok {
+			compiled, _ = readDeniedCompiled.LoadOrStore(expression.String(), regexp.MustCompile(expression.String()))
+		}
+		if compiled.(*regexp.Regexp).MatchString(absoluteRulePath(file)[1:]) {
 			return true
 		}
 	}
