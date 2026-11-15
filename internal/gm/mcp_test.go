@@ -75,7 +75,7 @@ func TestMCPSession(t *testing.T) {
 	if info := got[0]["result"].(map[string]any)["serverInfo"].(map[string]any); info["name"] != "smolcorp" {
 		t.Errorf("serverInfo %v", info)
 	}
-	want := []string{"team", "inbox", "version", "hire", "brief", "fire", "send", "outbox", "watch", "unwatch", "watches", "contacts", "pin", "unpin", "nickname", "approvals", "accounts"}
+	want := []string{"team", "inbox", "version", "hire", "brief", "fire", "send", "outbox", "watch", "unwatch", "watches", "contacts", "pin", "unpin", "nickname", "approvals", "accounts", "memory", "memory_propose"}
 	tools := got[1]["result"].(map[string]any)["tools"].([]any)
 	if len(tools) != len(want) {
 		t.Fatalf("%d tools", len(tools))

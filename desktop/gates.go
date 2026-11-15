@@ -201,6 +201,11 @@ func (d *Deck) decideRoute(a actor, r routeAsk) verdict {
 	if isNightRoute(r.path) && (a.kind() == "mcp" || a.kind() == "night") {
 		return refuse(http.StatusForbidden, nightRefusal)
 	}
+	// The GM's memory is the GM's own to read and to add to (memoryroutes.go): an MCP key or a night job, held as the
+	// GM elsewhere, can't read it or propose to it (PL126M, MEM4).
+	if isMemoryRoute(r.path) && (a.kind() == "mcp" || a.kind() == "night") {
+		return refuse(http.StatusForbidden, memoryRouteRefusal)
+	}
 	d.mu.Lock()
 	managerOn := d.config.ManagerEnabled
 	d.mu.Unlock()

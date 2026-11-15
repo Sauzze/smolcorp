@@ -1183,6 +1183,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	if d.nightRoute(w, r) {
 		return
 	}
+	// The GM's memory: its read, a proposal and a withdrawal (memoryroutes.go; routes.go lists who may use each).
+	if d.memoryRoute(w, r) {
+		return
+	}
 
 	// Phone over HTTPS on every system, and its tap (phonehttps.go): the page alone.
 	if d.tailnetRoute(w, r) {

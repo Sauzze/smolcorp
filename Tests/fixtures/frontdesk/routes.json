@@ -240,6 +240,45 @@
         "gm",
         "page"
       ],
+      "kind" : "read",
+      "method" : "GET",
+      "path" : "\/setup\/gm\/memory",
+      "why" : "what the office taught its GM: the kept notes, behind a fixed header"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/memory\/propose",
+      "why" : "a note proposed, waiting for the owner's tap"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/memory\/withdraw",
+      "why" : "a note still waiting, taken back; never a kept one"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "*",
+      "path" : "\/setup\/gm\/memory\/*",
+      "why" : "any other memory route is the page's alone: no GM route keeps or deletes a kept note"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
       "kind" : "action",
       "method" : "*",
       "path" : "\/setup\/gm\/*",

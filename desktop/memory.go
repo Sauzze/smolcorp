@@ -100,10 +100,15 @@ const (
 	memoryFromOwner    = "owner"
 )
 
-// memorySource is where a note's words came from, and the words quoted, or what the GM saw them in.
+// memorySource is where a note's words came from, and the words quoted, or what the GM saw them in. A quote from the
+// owner-words ledger is the owner's whole sentence, or paragraphs after a negation, verbatim, and QuoteStart and
+// QuoteEnd are where the GM's quote sits in it, in bytes (MEM4, memoryquote.go): the quote only points, the sentence
+// is what the owner said.
 type memorySource struct {
-	Tag   string `json:"tag"`
-	Quote string `json:"quote,omitempty"`
+	Tag        string `json:"tag"`
+	Quote      string `json:"quote,omitempty"`
+	QuoteStart int    `json:"quoteStart,omitempty"`
+	QuoteEnd   int    `json:"quoteEnd,omitempty"`
 }
 
 // gmNote is one note as the store holds it: its manifest line, and its body from its own file.
@@ -281,7 +286,17 @@ func memorySourceRefusal(kind string, source memorySource) string {
 	if source.Tag != memoryFromOwner && strings.TrimSpace(source.Quote) == "" {
 		return "it doesn't quote where its words came from"
 	}
-	return memoryFieldRefusal("source", source.Quote, memoryBodyMost)
+	if refusal := quotePointerRefusal(source); refusal != "" {
+		return refusal
+	}
+	// A line break in the owner's words is kept as they typed it, since what's kept after a negation is paragraphs
+	// (SIERRA's backstop, FXMEM4R4; RT126MEM4R2 F3): the card shows it as one, so the checks read it as a space. A
+	// carriage return, a tab, or line breaks enough to push the rest out of sight still refuse the note.
+	quote := source.Quote
+	if source.QuoteEnd != 0 {
+		quote = strings.ReplaceAll(quote, "\n", " ")
+	}
+	return memoryFieldRefusal("source", quote, memoryBodyMost)
 }
 
 // memoryNoteRefusal says why a note the store holds can't stand today, or "": its source on its own, then MEM2's

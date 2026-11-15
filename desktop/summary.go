@@ -194,6 +194,8 @@ func extractTranscript(jsonl [][]byte, budget int, earlier, earlierPeer *transcr
 func buildExtract(jsonl [][]byte, budget int, earlier, earlierPeer *transcriptMessage) (transcriptExtract, bool) {
 	var items []string
 	var messages []latestMessage
+	// The calls that read or propose the GM's memory, by their id, so what they gave back is left out too.
+	memoryCalls := map[string]bool{}
 	for _, line := range jsonl {
 		var entry map[string]any
 		if json.Unmarshal(line, &entry) != nil {
@@ -209,7 +211,7 @@ func buildExtract(jsonl [][]byte, budget int, earlier, earlierPeer *transcriptMe
 			continue
 		}
 		if message, ok := entry["message"].(map[string]any); ok {
-			items = append(items, renderMessage(message, kind)...)
+			items = append(items, renderMessage(message, kind, memoryCalls)...)
 		}
 	}
 	for i := range items {
@@ -449,8 +451,11 @@ func entryID(entry map[string]any, text string) string {
 	return text
 }
 
-// renderMessage is a message's lines, each redacted before it's cut.
-func renderMessage(message map[string]any, kind string) []string {
+// renderMessage is a message's lines, each redacted before it's cut. A call to the GM's memory is said as one, and
+// what it gave back as the GM's memory, never what either holds (MEM4): a summary goes to the Summary key's
+// provider, and memory never leaves this computer but to the GM's own. memoryCalls keeps the calls' ids from one
+// message to the next.
+func renderMessage(message map[string]any, kind string, memoryCalls map[string]bool) []string {
 	if text, ok := message["content"].(string); ok {
 		return said(text, kind)
 	}
@@ -463,8 +468,19 @@ func renderMessage(message map[string]any, kind string) []string {
 			text, _ := block["text"].(string)
 			out = append(out, said(text, kind)...)
 		case "tool_use":
+			if isMemoryCall(block) {
+				id, _ := block["id"].(string)
+				memoryCalls[id] = true
+				name, _ := block["name"].(string)
+				out = append(out, "TOOL "+clip(firstLine(name), summaryToolMost)+": the GM's memory")
+				continue
+			}
 			out = append(out, "TOOL "+toolLine(block))
 		case "tool_result":
+			if id, _ := block["tool_use_id"].(string); memoryCalls[id] || isMemoryResult(resultText(block["content"])) {
+				out = append(out, "RESULT: (the GM's memory)")
+				continue
+			}
 			first := redactText(firstLine(resultText(block["content"])))
 			if first == "" {
 				first = "(nothing)"

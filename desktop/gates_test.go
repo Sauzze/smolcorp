@@ -64,6 +64,11 @@ func TestEveryRouteIsDecidedAsTheGatesItWrapsDecideIt(t *testing.T) {
 				if isNightRoute(path) && gm.allowed() {
 					gm = refuse(http.StatusForbidden, nightRefusal)
 				}
+				// Nor the GM's memory, which is the GM's own to read and to add to (memoryroutes.go).
+				// They are refused before the manager's switch, as the night shift's are.
+				if isMemoryRoute(path) && (gm.allowed() || gm.why == managerOffAnswer) {
+					gm = refuse(http.StatusForbidden, memoryRouteRefusal)
+				}
 				for _, a := range []actor{mcpActor("claude-desktop"), nightActor("nightly-tests")} {
 					if got := d.decide(a, action{route: &routeAsk{method: method, path: path}}); got != gm {
 						t.Errorf("%s %s by %s: got %+v, the GM gets %+v", method, path, a, got, gm)

@@ -38,6 +38,10 @@ func activityLine(tool string, input map[string]any) string {
 	}
 	switch strings.ToLower(tool) {
 	case "bash", "shell", "run_shell_command":
+		// The GM's memory, read or proposed to, is said as that alone: its description could quote a note (MEM4).
+		if command, _ := input["command"].(string); namesMemory(command) {
+			return "Using its memory"
+		}
 		if text("description") != "" {
 			return text("description")
 		}

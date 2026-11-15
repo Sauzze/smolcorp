@@ -265,10 +265,11 @@ func gmPluginFolder(cli string) string {
 }
 
 // gmIntroduction is what the GM is told besides its brief: its role, its folder, and its tool (Deck.gmIntroduction),
-// and that its tools aren't there when its plugin is loaded without the program they run.
+// that its tools aren't there when its plugin is loaded without the program they run, and where its memory is read
+// (gmMemorySentence): one fixed sentence, never what memory holds (MEM4).
 func gmIntroduction(folder string, toolsMissing bool) string {
 	text := "You are the General Manager of this team. Your folder is " + folder + ". Your tool for the team is the command `smolcorp gm`; " +
-		"it is already set up to reach Smolcorp, so don't look for a token or a key."
+		"it is already set up to reach Smolcorp, so don't look for a token or a key. " + gmMemorySentence
 	if toolsMissing {
 		text += " The `smolcorp` tools are not available in this copy of Smolcorp: say so to the owner, and use the command `smolcorp gm` only if it is on your PATH."
 	}

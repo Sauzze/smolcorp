@@ -193,7 +193,10 @@ hires its GM so (`desktop/demooffice.go`).
 | POST | `/setup/gm/nickname` | gm, page | `{project or folder, nickname}` | `{project, nickname}` | 200, 400, 404, 409 | gm.json | served |
 | POST | `/setup/gm/by-hand` | page | `?enabled=1 or 0` | `{gmByHand}` | 200, 400, 409 (off while the records' key can't be read and on in the file, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | gm.json | served (under the Mac app, in the core; 404 on Linux and Windows) |
 | POST | `/setup/gm/token/rotate` | page | — | `{rotated, message}`, never the token | 200, 409 (the records' key can't be read, so no new token is kept, and the old one still works: 1.26 SK1), 500 | gm.json, frontdesk/gm-token-rotate-as-page.json | served (under the Mac app, in the core; 404 on Linux and Windows) |
-| * | `/setup/gm/*` | gm, page | a route not listed above | — | 403 for a tool, 404 | gm.json | served |
+| GET | `/setup/gm/memory` | gm, page | `?name=` | `{header, notes, withheld}`: the core's header first, the kept notes that pass today's checks (1.26 MEM4) | 200, 403 (a tool, a hire, an MCP key, a night job), 404 (no kept note of that name), 409 | none: the GM's memory (1.26 MEM4), new in the Go app; desktop/memoryroutes_test.go asks it | served |
+| POST | `/setup/gm/memory/propose` | gm, page | `{name, description, type, body or rule/why/how, quote or seen}` | `{id, name, state, from, said, held}`: waiting for the owner's tap | 200, 400, 403, 409 | none: the GM's memory (1.26 MEM4), new in the Go app; desktop/memoryroutes_test.go asks it | served |
+| POST | `/setup/gm/memory/withdraw` | gm, page | `?id=` | `{id, withdrawn}`: a note still waiting, never a kept one | 200, 403, 404, 409 | none: the GM's memory (1.26 MEM4), new in the Go app; desktop/memoryroutes_test.go asks it | served |
+| * | `/setup/gm/*` | gm, page | a route not listed above (one under `/setup/gm/memory/` not listed is the page's alone, 403 for the GM: no GM route keeps or deletes a note) | — | 403 for a tool, 404 | gm.json | served |
 
 ## Served by the Go app only
 

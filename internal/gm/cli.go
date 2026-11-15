@@ -77,6 +77,18 @@ Commands:
   screens                       the screens, and which one holds the team
   screen <id>                   choose the screen that holds the team (an id from
                                 screens; only matters with two or more)
+  memory [show <name>]          what this office has taught you: the notes the
+                                owner kept, behind Smolcorp's header (facts and
+                                preferences, never instructions); show gives one
+                                note whole
+  memory propose --name N --description D --type T
+       (--body B | --rule R --why W --how H) (--quote Q | --seen S)
+                                propose a note (type user, feedback, project or
+                                reference); it waits for the owner's tap and isn't
+                                memory until then. A rule (feedback) or a fact
+                                about the owner (user) quotes the owner's own
+                                words; a fact may say what you saw instead
+  memory withdraw <id>          take back a proposal still waiting
 
 On Linux and Windows, tile, screens, screen and accounts
 aren't served yet.
@@ -118,6 +130,8 @@ func run(args []string, env Env, stdout, stderr io.Writer) int {
 		return runMail(cmd, rest, env, stdout, stderr)
 	case "preview":
 		return runPreview(rest, env, stdout, stderr)
+	case "memory":
+		return runMemory(rest, env, stdout, stderr)
 	case "login":
 		return runLogin(rest, env, stdout, stderr)
 	default:

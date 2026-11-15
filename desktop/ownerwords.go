@@ -206,11 +206,16 @@ func (o *ownerWords) quoted(quote string) (ownerLine, bool) {
 }
 
 // holdsWords says whether quote is in text and starts and ends where words do: "deploy" isn't in "redeployed".
-func holdsWords(text, quote string) bool {
-	for from := 0; from < len(text); {
+func holdsWords(text, quote string) bool { return len(wordsAt(text, quote)) > 0 }
+
+// wordsAt is every place quote is in text, starting and ending where words do, in bytes (MEM4 points into the
+// owner's sentence with it).
+func wordsAt(text, quote string) []int {
+	var places []int
+	for from := 0; from < len(text) && quote != ""; {
 		i := strings.Index(text[from:], quote)
 		if i < 0 {
-			return false
+			break
 		}
 		start, end := from+i, from+i+len(quote)
 		before, _ := utf8.DecodeLastRuneInString(text[:start])
@@ -218,11 +223,11 @@ func holdsWords(text, quote string) bool {
 		first, size := utf8.DecodeRuneInString(quote)
 		last, _ := utf8.DecodeLastRuneInString(quote)
 		if !(start > 0 && isWordRune(before) && isWordRune(first)) && !(end < len(text) && isWordRune(after) && isWordRune(last)) {
-			return true
+			places = append(places, start)
 		}
 		from = start + size
 	}
-	return false
+	return places
 }
 
 func isWordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' }
