@@ -119,8 +119,10 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if r.Role.ID == "gm" {
 		profile = guardGM
 	}
+	// A Claude Code desk gets its own Claude folder (SA-X8), made below, and its plans kept outside it.
+	claude := agentOrClaude(r.Role.Agent) == Claude
 	settings, err := hireSettingsLine(hireSettingsOptions{HireID: id, Auto: engineAutoMode, Profile: profile, CLI: o.CLI, Support: supportDir,
-		ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec})
+		ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec, OwnClaude: claude})
 	if err != nil {
 		undo()
 		return Hire{}, err
@@ -195,6 +197,10 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if r.TestPort != 0 {
 		start.TestPort, start.TestSupportDir = r.TestPort, supportDir
 	}
+	// Claude Code's own folder for this desk (SA-X8), made below; the undo above takes it away with the hire's folder.
+	if claude {
+		start.DeskClaude = deskClaudeFolder(supportDir, id)
+	}
 	plan, err := start.plan()
 	if err != nil {
 		return fail(http.StatusInternalServerError, err.Error())
@@ -202,6 +208,33 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	// Its own folder, its owner's alone, where its brief and status go (the start script made it before SG2).
 	if err := os.MkdirAll(hireFolder(supportDir, id), 0o700); err != nil {
 		return fail(http.StatusInternalServerError, "Couldn't make the hire's own folder.")
+	}
+	if claude {
+		// Its folder trusted as prepareHire trusted it in the account's file: the worktree, links resolved.
+		desk := deskClaude{Account: r.ConfigDir, Trusted: physical(place.Folder), MCP: r.MCPServers}
+		if place.Worktree != "" {
+			desk.Trusted = physical(place.Worktree)
+		}
+		if r.APIKey {
+			desk.KeyTail = keyApproval(key())
+		}
+		if err := makeDeskClaude(start.DeskClaude, desk); err != nil {
+			if refused, ok := err.(*hireRefusal); ok {
+				return fail(refused.Status, refused.Message)
+			}
+			return fail(http.StatusInternalServerError, err.Error()+".")
+		}
+		// Its plans, in its place (deskPlansDirectory): the fence denies its tools its Claude folder.
+		if makeDeskPlans(place.Folder, id) != nil {
+			return fail(http.StatusInternalServerError, "Smolcorp couldn't make the hire's plans folder.")
+		}
+		if place.Worktree == "" { // in a folder others share: a start refused from here takes its plans folder too
+			undoMade := undo
+			undo = func() {
+				_ = removeDeskPlans(place.Folder, id)
+				undoMade()
+			}
+		}
 	}
 	// Its start goes to its pane alone, by a ticket (deskstart.go): no script, no shell.
 	command, err := deskStarts.issue(o.CLI, id, tmux, plan, key)
@@ -266,6 +299,11 @@ func watchManagedHire(hire Hire, testPort int, o engineOptions) {
 		func(id, why string) { setHire(id, "failed", firstRunes(why, longestNotes)) })
 	// Its windows' records go too, as a fired hire's do (hirewindows.go).
 	forgetHireWindows(hire.ID, windowsOfHire(hire.ID))
+	// Its own Claude folder goes, as at a fire (SA-X8), and its plans from a folder others share.
+	_ = removeDeskClaude(supportDir, hire.ID)
+	if hire.Worktree == "" {
+		_ = removeDeskPlans(startedIn(hire), hire.ID)
+	}
 	// A start script left from before 1.26, never run, still holds its send key or token: it goes too.
 	scripts, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hire.ID), "hire-*.sh"))
 	for _, script := range scripts {

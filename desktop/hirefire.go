@@ -110,6 +110,12 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 	}
 	removed := h.Worktree != "" && !o.KeepWorktree && removeHireWorktree(o.Git, testPort, o.Worktrees)(h)
 	writeRecap(h, paneText(capture), removed, o.Now())
+	// Its own Claude folder goes with its session (SA-X8): its transcripts too, as NB6 plans.
+	_ = removeDeskClaude(supportDir, h.ID)
+	// A hire without a worktree, and the GM, keep their plans in a folder others share: its own go now (MSYSAX8).
+	if h.Worktree == "" {
+		_ = removeDeskPlans(startedIn(h), h.ID)
+	}
 	if h.Worktree != "" && !removed && !o.KeepWorktree {
 		markFired(h.ID, firedKeptNote(h.Worktree))
 		return firedWorktreeKept, nil

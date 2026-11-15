@@ -966,6 +966,16 @@ func TestAHireCantFindAPhotosPathInAnyPromptStore(t *testing.T) {
 			t.Errorf("%s isn't denied to Read and Edit", store)
 		}
 	}
+	// Each store in a desk's own Claude folder (SA-X8), for one started after this hire's settings were written (the
+	// reviewer's probe, RT126SAX8 F1) and for this hire's own: denied to Read and Edit, by pattern.
+	for _, desk := range []string{"hire9", "hire1"} {
+		for store := range stores {
+			at := filepath.Join(deskClaudeFolder(supportDir, desk), filepath.FromSlash(store))
+			if !readDenied(deny, home, at) || !readDenied(edits, home, at) {
+				t.Errorf("%s isn't denied to Read and Edit", at)
+			}
+		}
+	}
 	if readDenied(deny, home, path) {
 		t.Error("the desk's own photo is denied")
 	}

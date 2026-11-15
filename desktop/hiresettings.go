@@ -362,6 +362,22 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 	for _, pattern := range []string{"*.json", "*.sh", "*.jsonl", "*.log", "settings*"} {
 		both(root + "/hires/*/" + pattern)
 	}
+	// Every desk's own Claude folder (deskclaude.go), by pattern too, this hire's own included: its transcripts, prompt
+	// history, todos and .claude.json, which Claude Code reads and writes itself, never through a tool (RT126SAX8 F1).
+	// Its plans are kept out of it (deskPlansDirectory). The support folder is written short, as an account folder kept
+	// elsewhere is (claudeStoreFolder): the settings must fit in a command line on Windows.
+	desks := root
+	if short, ok := claudeStoreFolder(support); ok {
+		desks = short
+	}
+	both(desks + "/hires/*/" + deskClaudeName + "/**")
+	rules = append(rules, "Read("+desks+"/hires/*/"+deskClaudeName+"/**)")
+	// From ~, the rules hold only for a desk whose HOME is the owner's (Claude Code roots ~ there): the support folder in
+	// full beside them, which every other rule of the folder names (RT126SAX8R2 R2-b).
+	if strings.HasPrefix(desks, "~") {
+		both(root + "/hires/*/" + deskClaudeName + "/**")
+		rules = append(rules, "Read("+root+"/hires/*/"+deskClaudeName+"/**)")
+	}
 	for _, other := range others {
 		if other != hireID && !strings.Contains(other, "/") && !strings.HasPrefix(other, ".") {
 			both(root + "/hires/" + other + "/**")
@@ -483,6 +499,8 @@ type hireSettingsOptions struct {
 	Shell string
 	// System is Go's name for the system the desk starts on; "" is this one.
 	System string
+	// OwnClaude is set for a desk whose Claude folder is its own (SA-X8): its plans are pinned outside that folder.
+	OwnClaude bool
 }
 
 // hireSettingsLine is hire HireID's settings as its Claude Code takes them in its
@@ -583,5 +601,9 @@ func hireSettingsObject(o hireSettingsOptions) (map[string]any, error) {
 	if shell == "" {
 		shell = pinnedShell(runtime.GOOS, os.Getenv("SHELL"), isExecutableFile)
 	}
-	return hireSettingsValue(deny, guardHook(o.CLI, rules, held, profile), configHook(o.CLI), shell, o.Auto, reporting, profile), nil
+	value := hireSettingsValue(deny, guardHook(o.CLI, rules, held, profile), configHook(o.CLI), shell, o.Auto, reporting, profile)
+	if o.OwnClaude {
+		value["plansDirectory"] = deskPlansFor(o.HireID)
+	}
+	return value, nil
 }

@@ -274,7 +274,7 @@ func TestAKeyHelperIsSeenOnlyByBeingThere(t *testing.T) {
 	with, without := filepath.Join(folder, "with.json"), filepath.Join(folder, "without.json")
 	_ = os.WriteFile(with, []byte(`{"apiKeyHelper": "~/bin/key.sh"}`), 0o600)
 	_ = os.WriteFile(without, []byte(`{"model": "opus"}`), 0o600)
-	if !hasKeyHelper([]string{without, with}) || hasKeyHelper([]string{without, filepath.Join(folder, "none.json")}) {
+	if !hasKeyHelper("", []string{without, with}) || hasKeyHelper("", []string{without, filepath.Join(folder, "none.json")}) {
 		t.Fatal("the key helper")
 	}
 }

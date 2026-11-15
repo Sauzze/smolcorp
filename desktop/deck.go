@@ -549,7 +549,8 @@ func (d *Deck) ingestAs(desks hookDesks, desk string, event map[string]any, repo
 		}
 	}
 	// A transcript is taken by its place only (N2, hirefile.go): one named anywhere else is never read.
-	if path, _ := canonical["transcript_path"].(string); path != "" && !d.transcriptKnown(path) {
+	// A desk with its own Claude folder (SA-X8) is taken there alone, by the key it speaks with.
+	if path, _ := canonical["transcript_path"].(string); path != "" && !d.transcriptKnown(desk, path) {
 		delete(canonical, "transcript_path")
 	}
 	changed := d.sessions.Apply(canonical, agent, tab, startedIn, at)

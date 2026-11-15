@@ -257,9 +257,14 @@ func (d *Deck) restore(running []savedSession, places savedDeck, fresh bool) {
 	if len(running) == 0 {
 		return
 	}
+	// Each session's desk, by its tab (its tmux socket, or its launcher) as the registry holds it: a desk with its own
+	// Claude folder keeps a transcript there alone (SA-X8), as its hook events do (Deck.ingestAs).
+	desks := currentHookDesks()
+	desks.launchers = d.launcherHires()
 	for i, entry := range running {
-		// Saved before transcripts were taken by place, or since moved out of the owner's Claude folders: not read.
-		if !d.transcriptKnown(entry.Transcript) {
+		// Saved before transcripts were taken by place, or since moved out of the owner's Claude folders, or not this
+		// desk's: not read.
+		if !d.transcriptKnown(desks.deskOfTab(entry.Tab), entry.Transcript) {
 			running[i].Transcript = ""
 		}
 		if key, ok := places.Keys[entry.ID]; ok && key >= 0 && key < mostKeys {

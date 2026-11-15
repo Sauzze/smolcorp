@@ -245,6 +245,9 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 	for _, p := range []string{"*.json", "*.sh", "*.jsonl", "*.log", "settings*"} {
 		both("//s/hires/*/" + p)
 	}
+	// Every desk's own Claude folder (SA-X8, RT126SAX8 F1), this hire's too.
+	both("//s/hires/*/claude/**")
+	want = append(want, "Read(//s/hires/*/claude/**)")
 	both("//s/hires/other11/**")
 	for _, n := range []string{"gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "hire-guard.json", "phones.json", "sessions.json", "config.json", "registry.json", "grants-key", "grants.jsonl", "grants.jsonl.tmp", "phones-seal", "claude-install", "claude-install.tmp"} {
 		want = append(want, "Read(//s/"+n+")")
@@ -416,10 +419,15 @@ func TestHireGMKeepsTheDenyRulesAndMayReadTheTeamsStatusFiles(t *testing.T) {
 			t.Errorf("missing %s", rule)
 		}
 	}
+	// The one Read rule in the hires' folder is every desk's own Claude folder (SA-X8): one level below a STATUS.md.
+	claudeRule := func(rule string) bool { return strings.HasSuffix(rule, "/hires/*/"+deskClaudeName+"/**)") }
 	for _, rule := range deny {
-		if strings.HasPrefix(rule, "Read(") && strings.Contains(rule, "/hires/") || strings.Contains(rule, "STATUS") {
+		if strings.HasPrefix(rule, "Read(") && strings.Contains(rule, "/hires/") && !claudeRule(rule) || strings.Contains(rule, "STATUS") {
 			t.Errorf("reading the team's STATUS.md files must not be denied: %s", rule)
 		}
+	}
+	if !slices.ContainsFunc(deny, func(rule string) bool { return strings.HasPrefix(rule, "Read(") && claudeRule(rule) }) {
+		t.Error("the desks' Claude folders aren't denied to the GM's Read")
 	}
 }
 

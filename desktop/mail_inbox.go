@@ -45,11 +45,7 @@ func (d *Deck) mailIntoInbox(h Hire, text string, commit func() bool) (result ma
 	if !on || len(ids) != 1 {
 		return mailResult{}, false
 	}
-	var dirs []string
-	for _, p := range claudeAccountList(saved) {
-		dirs = append(dirs, p.Dir)
-	}
-	socket, version := claudeInbox(ids[0], dirs)
+	socket, version := claudeInbox(ids[0], inboxFolders(h, saved))
 	if socket == "" || !mailVersionAtLeast(version, mailInboxSince) {
 		return mailResult{}, false
 	}
@@ -97,6 +93,19 @@ func mailDeskPID(server *hireTmux, heard int) int {
 		return pid
 	}
 	return 0
+}
+
+// inboxFolders are the Claude folders hire h's session file is looked for in: a desk with its own Claude folder
+// (SA-X8) keeps it there alone, and one in an account's folder isn't this desk's; any other, the accounts' folders.
+func inboxFolders(h Hire, saved []claudeProfile) []string {
+	if own, ok := deskOwnClaude(h.ID); ok {
+		return []string{own}
+	}
+	var dirs []string
+	for _, p := range claudeAccountList(saved) {
+		dirs = append(dirs, p.Dir)
+	}
+	return dirs
 }
 
 // claudeInbox is the inbox socket and Claude Code version the session file of session id names, in the sessions

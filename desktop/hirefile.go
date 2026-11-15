@@ -141,20 +141,37 @@ func transcriptInfo(path string) (os.FileInfo, bool) {
 	return info, true
 }
 
-// transcriptKnown is whether a transcript at path, as a hook event names it, lies in a Claude account's folder of
-// the owner's (N2: by place): ~/.claude or a confirmed account. A path anywhere else (a key in the support folder, an
-// ACP desk's transcript, another desk's place) is never taken. The folder is compared as written, and as the account's
-// own folder resolves; the path itself is never resolved, as its links are a desk's. With the deck's lock held.
-func (d *Deck) transcriptKnown(path string) bool {
+// transcriptKnown is whether a transcript at path, as a hook event with desk's key names it ("" for the owner's
+// sessions' key), lies in a place that desk's transcripts are kept (N2: by place):
+//   - a desk with its own Claude folder (SA-X8, deskOwnClaude): that folder alone, never an account's or another
+//     desk's;
+//   - any other (the owner's sessions, a launcher's, a plain or a T3 desk): a Claude account's folder of the owner's,
+//     ~/.claude or a confirmed account, and never a desk's Claude folder (isDeskClaudePlace).
+//
+// A path anywhere else (a key in the support folder, an ACP desk's transcript, another desk's place) is never taken.
+// The folder is compared as written, and as the core's own folder resolves; the path itself is never resolved, as its
+// links are a desk's. With the deck's lock held.
+func (d *Deck) transcriptKnown(desk, path string) bool {
 	place := transcriptPlace(path)
 	if place == "" || place == supportDir {
 		return false
 	}
-	return slices.ContainsFunc(claudeAccountList(d.config.ClaudeProfiles), func(p claudeProfile) bool {
-		folder := filepath.Clean(p.Dir)
-		if resolved, err := filepath.EvalSymlinks(folder); err == nil && resolved == place {
+	if own, ok := deskOwnClaude(desk); ok {
+		if place == own {
 			return true
 		}
-		return folder == place
+		resolved, err := filepath.EvalSymlinks(own)
+		return err == nil && resolved == place
+	}
+	if isDeskClaudePlace(place) {
+		return false
+	}
+	return slices.ContainsFunc(claudeAccountList(d.config.ClaudeProfiles), func(p claudeProfile) bool {
+		folder := filepath.Clean(p.Dir)
+		resolved, err := filepath.EvalSymlinks(folder)
+		if isDeskClaudePlace(folder) || err == nil && isDeskClaudePlace(resolved) {
+			return false // an account named at a desk's folder is still that desk's
+		}
+		return err == nil && resolved == place || folder == place
 	})
 }

@@ -260,8 +260,10 @@ func TestTheGMHireHonoursATaskAndAnAccount(t *testing.T) {
 		}
 		hire := registered(t)[i+1]
 		script := r.script(hire)
-		if hire.Account != account || account == "work" && !strings.Contains(script, "CLAUDE_CONFIG_DIR="+shellPath(work)) && !strings.Contains(script, "CLAUDE_CONFIG_DIR='"+work+"'") ||
-			account == "default" && !strings.Contains(script, "unset CLAUDE_CONFIG_DIR") {
+		// The account's sign-in, through the desk's own Claude folder (SA-X8).
+		if hire.Account != account || account == "work" && !strings.Contains(script, secureStorageEnvironment+"="+shellQuoted(work)+"\n") ||
+			account == "default" && !strings.Contains(script, secureStorageEnvironment+"=''\n") ||
+			!strings.Contains(script, "CLAUDE_CONFIG_DIR="+shellQuoted(deskClaudeFolder(supportDir, hire.ID))+"\n") {
 			t.Errorf("on %s: the row's account %q, the start script:\n%s", account, hire.Account, script)
 		}
 	}
@@ -405,7 +407,10 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 			}
 		}
 		deniesTheAccounts(t, map[bool]string{false: "desk", true: "route"}[route]+" hire of "+role, data, work)
-		plain := strings.NewReplacer(hires[0].ID, "<hire>", work, "<work>", hires[0].Worktree, "<worktree>", d.config.HireFolder, "<repo>", supportDir, "<support>", homeDir, "<home>")
+		// The desks' Claude folders' rules name the support folder short (SA-X8), as claudeStoreFolder writes it.
+		short, _ := claudeStoreFolder(supportDir)
+		plain := strings.NewReplacer(hires[0].ID, "<hire>", work, "<work>", hires[0].Worktree, "<worktree>", d.config.HireFolder, "<repo>", supportDir, "<support>",
+			short+"/hires/", "<support-short>/hires/", homeDir, "<home>")
 		return plain.Replace(data), guard
 	}
 	for _, role := range []string{"janitor", "gm"} {

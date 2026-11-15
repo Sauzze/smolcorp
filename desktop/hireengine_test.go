@@ -131,7 +131,9 @@ func TestAManagedHireIsMadeInOrderAndRegistered(t *testing.T) {
 	} else if h := readRegistry(registryPath(), false).hireForSendKey(key); h == nil || h.ID != hire.ID {
 		t.Errorf("the script's key isn't the hire's in the registry: %+v", h)
 	}
-	for _, want := range []string{"'--settings={", "unset SMOLCORP_GM_TOKEN", "unset CLAUDE_CONFIG_DIR", "SMOLCORP_HIRE_PORTS='4100-4103'"} {
+	// The default account, through the desk's own Claude folder (SA-X8): its sign-in is ~/.claude's.
+	for _, want := range []string{"'--settings={", "unset SMOLCORP_GM_TOKEN", "export CLAUDE_CONFIG_DIR=" + shellQuoted(deskClaudeFolder(supportDir, hire.ID)) + "\n",
+		"export " + secureStorageEnvironment + "=''\n", "SMOLCORP_HIRE_PORTS='4100-4103'"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("start script lacks %q:\n%s", want, script)
 		}
@@ -547,7 +549,7 @@ func TestAnEngineHireOnTheGroundFloorStaysThereThoughItsFolderGoesUpstairs(t *te
 }
 
 // The deck hires on the default account (the engine's own test sets it too):
-// no CLAUDE_CONFIG_DIR is carried into the hire.
+// no CLAUDE_CONFIG_DIR is carried into the hire but its own Claude folder's, on ~/.claude's sign-in (SA-X8).
 func TestTheDeckHiresARoleOnTheDefaultAccount(t *testing.T) {
 	d, r, _ := engineDeck(t)
 	d.engine.HeardFrom = func(Hire) bool { return true }
@@ -555,7 +557,9 @@ func TestTheDeckHiresARoleOnTheDefaultAccount(t *testing.T) {
 		t.Fatalf("hire: %d %s", status, message)
 	}
 	d.watching.Wait()
-	if script := r.script(registered(t)[0]); !strings.Contains(script, "unset CLAUDE_CONFIG_DIR") {
+	hire := registered(t)[0]
+	if script := r.script(hire); !strings.Contains(script, "export "+secureStorageEnvironment+"=''\n") ||
+		!strings.Contains(script, "export CLAUDE_CONFIG_DIR="+shellQuoted(deskClaudeFolder(supportDir, hire.ID))+"\n") {
 		t.Errorf("the hire's script doesn't use the default account:\n%s", script)
 	}
 }

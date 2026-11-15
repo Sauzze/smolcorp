@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -493,6 +494,9 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		// What SK1 leaves readable, by design or until SK2: the hook's key (§5: the owner's own sessions need it),
 		// and the setup page's key, new at each start (SK2 moves it to memory, with a check-only key for tools).
 		readableKey = "readable key (§5, SK2)"
+		// SA-X8: a desk's own Claude folder, which its sandbox reads and writes (§A4.1): the account's sign-in profile
+		// (not a secret) and the MCP servers the owner ticked for desks, never a key of Smolcorp's nor a sign-in.
+		deskOwn = "the desk's own (its sandbox's)"
 	)
 	classes := map[string]string{
 		"phones.json": sealed, "mac-peers.json": sealed, registryName: sealed, "config.json": sealed, hireGuardFile: sealed,
@@ -511,6 +515,8 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		nightFileName: sealed,
 		// SA-X3: a start's canary, sandbox-canary-<32 hex> (canaryName), fresh for each start: it holds nothing.
 		"sandbox-canary-*": notSecret,
+		// SA-X8: in each desk's own folder, hires/<id>/, by the name the sandbox's Policy gives it ("its own Claude folder").
+		"hires/<id>/claude": deskOwn,
 	}
 	d, mac, phoneKey, _ := macDeck(t)
 	sendKey := withAHire(t)
@@ -531,6 +537,16 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		transcript.close(time.Now())
 	}
 	keptNote(t, d, memoryNote("Tests run with pnpm"))
+	// SA-X8: a desk's own Claude folder, made from a stand-in default account whose .claude.json holds a ticked MCP
+	// server with a stand-in key of its own, and a sign-in's profile.
+	if err := os.WriteFile(filepath.Join(homeDir, ".claude.json"), []byte(`{"oauthAccount":{"accountUuid":"acct-x8"},`+
+		`"mcpServers":{"ticked":{"command":"m","env":{"K":"fake-mcp-key"}}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := makeDeskClaude(deskClaudeFolder(supportDir, "hire01"), deskClaude{Trusted: homeDir, MCP: []string{"ticked"}}); err != nil {
+		t.Fatal(err)
+	}
+	sawDeskClaude := false
 	// A canary only where `enter` has one to check (a Mac, Linux): off unix, NewCanary makes nothing.
 	if _, err := sandbox.NewCanary(supportDir); sandbox.HasCanary && err != nil {
 		t.Fatal(err)
@@ -548,6 +564,10 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name := range classes {
+		// What is in a desk's folder has its rows under "hires" (its brief, its fence, its Claude folder).
+		if strings.HasPrefix(name, "hires/<id>/") {
+			name = "hires"
+		}
 		if _, ok := sandbox.SupportRow(name); !ok {
 			t.Errorf("%s has no row in the sandbox's Policy (internal/sandbox/policy.go, supportFiles)", name)
 		}
@@ -583,6 +603,36 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 				t.Errorf("%s is a sealed record without a seal that fits", memoryManifestName)
 			}
 		}
+		if name == "hires" {
+			// Each desk's folder's files have a class of their own, and none in a desk's Claude folder holds a key.
+			desks, _ := os.ReadDir(filepath.Join(supportDir, name))
+			for _, desk := range desks {
+				files, _ := os.ReadDir(filepath.Join(supportDir, name, desk.Name()))
+				for _, file := range files {
+					class, ok := classes["hires/<id>/"+file.Name()]
+					if !ok {
+						t.Errorf("hires/%s/%s has no class in the inventory", desk.Name(), file.Name())
+						continue
+					}
+					sawDeskClaude = sawDeskClaude || class == deskOwn
+					_ = filepath.WalkDir(filepath.Join(supportDir, name, desk.Name(), file.Name()), func(at string, entry fs.DirEntry, err error) error {
+						if err != nil || entry.IsDir() || !entry.Type().IsRegular() {
+							return err
+						}
+						if class == deskOwn && entry.Name() == ".credentials.json" {
+							t.Errorf("%s: a sign-in in a desk's folder", strings.TrimPrefix(at, supportDir))
+						}
+						data, _ := os.ReadFile(at)
+						for what, key := range keys {
+							if bytes.Contains(data, []byte(key)) {
+								t.Errorf("%s (%s) holds %s", strings.TrimPrefix(at, supportDir), class, what)
+							}
+						}
+						return nil
+					})
+				}
+			}
+		}
 		if entry.IsDir() {
 			continue
 		}
@@ -597,6 +647,9 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 				t.Errorf("%s is a sealed record without a seal that fits", name)
 			}
 		}
+	}
+	if !sawDeskClaude {
+		t.Error("no desk's Claude folder was seen in the support folder")
 	}
 	if sawCanary != sandbox.HasCanary {
 		t.Errorf("a canary in the support folder: %v, where `enter` has one: %v", sawCanary, sandbox.HasCanary)

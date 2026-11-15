@@ -434,10 +434,23 @@ func claudeProfilePath(folder, home string) string {
 	return filepath.Join(folder, ".claude.json")
 }
 
-// hasKeyHelper is whether any of these settings files names an apiKeyHelper: only whether it's there, never what it runs.
-func hasKeyHelper(files []string) bool {
+// deskClaudeFileMostBytes is the most of a desk's .claude.json or settings.json the core reads (readClaudeFile).
+const deskClaudeFileMostBytes = 4 << 20
+
+// readClaudeFile is the file at path: through the core's reader (hirefile.go) when it lies below place, a desk's own
+// Claude folder, which the desk writes and could make a link, a fifo or a huge file; else as a plain file.
+func readClaudeFile(place, path string) ([]byte, error) {
+	if place != "" && inside(place, path) {
+		return readHireFile(place, path, deskClaudeFileMostBytes)
+	}
+	return readRegular(path)
+}
+
+// hasKeyHelper is whether any of these settings files names an apiKeyHelper: only whether it's there, never what it
+// runs. Those below place, a desk's own Claude folder, are read through the core's reader; "" for none.
+func hasKeyHelper(place string, files []string) bool {
 	for _, path := range files {
-		data, err := readRegular(path)
+		data, err := readClaudeFile(place, path)
 		if err != nil {
 			continue
 		}
@@ -550,10 +563,16 @@ func (s *sessionInfos) report(desk infoDesk, now float64, home string) map[strin
 		}
 		read = &t
 		folder := claudeConfigFolder(desk.transcript, home)
-		if found, ok := s.account(claudeProfilePath(folder, home), now); ok {
+		// A desk's own Claude folder (SA-X8) is the desk's to write, links too: its two files are read through the core's
+		// reader there. An account's folder is the owner's, read as before.
+		deskPlace := ""
+		if isDeskClaudePlace(place) {
+			deskPlace = place
+		}
+		if found, ok := s.account(deskPlace, claudeProfilePath(folder, home), now); ok {
 			account = &found
 		}
-		apiKey = hasKeyHelper([]string{filepath.Join(folder, "settings.json"), filepath.Join(desk.projectPath, ".claude", "settings.json"),
+		apiKey = hasKeyHelper(deskPlace, []string{filepath.Join(folder, "settings.json"), filepath.Join(desk.projectPath, ".claude", "settings.json"),
 			filepath.Join(desk.projectPath, ".claude", "settings.local.json")})
 	}
 	s.trim(own)
@@ -576,8 +595,13 @@ func (s *sessionInfos) follow(place, path string) tally {
 	return follower.tally
 }
 
-func (s *sessionInfos) account(path string, now float64) (claudeAccount, bool) {
+// account is the account the profile at path names; place is the desk's Claude folder it lies in, read through the
+// core's reader (readClaudeFile), or "" for an account's.
+func (s *sessionInfos) account(place, path string, now float64) (claudeAccount, bool) {
 	info, err := os.Stat(path)
+	if place != "" {
+		info, err = os.Lstat(path) // a desk's link is never followed, even to look
+	}
 	if err != nil || !info.Mode().IsRegular() {
 		return claudeAccount{}, false
 	}
@@ -585,7 +609,7 @@ func (s *sessionInfos) account(path string, now float64) (claudeAccount, bool) {
 		// The same file, a little later: a window may have reset meanwhile.
 		return agedAccount(kept.account, now), kept.ok
 	}
-	data, err := readRegular(path)
+	data, err := readClaudeFile(place, path)
 	var profile map[string]any
 	if err != nil || json.Unmarshal(data, &profile) != nil {
 		return claudeAccount{}, false

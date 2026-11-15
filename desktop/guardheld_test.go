@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -292,8 +293,15 @@ func TestADesksGuardNamesItsFolderInItsCommandLine(t *testing.T) {
 // A desk's settings ride in its command line, on Windows too, where a command line holds at most 32767
 // characters: a default hire's, with every deny rule and the core's groups, stays well under that. (25000 since
 // RT126SG2F B1's four rules for claude-install's temp file and folder forms, about 580 characters here: this test's
-// support folder is a long temp path, which every rule of the folder repeats.) The GM's too, with MEM4b's memory
-// switch.
+// support folder is a long temp path, which every rule of the folder repeats. SA-X8's two rules for every desk's
+// Claude folder write it short, as claudeStoreFolder does.) The GM's too, with MEM4b's memory switch.
+//
+// settingsMargin is this test's margin, not Windows's limit (32,767, exeLongest): 26,000 since SA-X8 took the last of
+// 25,000's room (its two rules and an engine desk's plansDirectory, 24,928 at most over 40 runs; MSYSAX8, SIERRA). The
+// GM's, with MEM4b's memory switch as well, was 25,026 at most over 40 runs (MSYSAX8R2). The limit itself is held by
+// TestTheWorstCaseDesksWindowsCommandLineStaysUnder30000.
+const settingsMargin = 26000
+
 func TestADesksSettingsFitInACommandLine(t *testing.T) {
 	r := newHireSettingsRig(t)
 	for _, profile := range []guardProfile{guardHire, guardGM} {
@@ -302,15 +310,116 @@ func TestADesksSettingsFitInACommandLine(t *testing.T) {
 			o.Run = func(string, []string) (int, string, bool) {
 				return 0, `{"groups":` + strings.TrimPrefix(guard.GroupsArgument(guard.DefaultGroups()), `{"groups":`), true
 			}
+			o.OwnClaude = true // an engine desk's, with its plans pinned (SA-X8)
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 		// Quoted for Windows, each quote takes a backslash.
-		if quoted := len(line) + strings.Count(line, `"`); quoted > 25000 {
+		if quoted := len(line) + strings.Count(line, `"`); quoted > settingsMargin {
 			t.Errorf("%s: the settings are %d characters quoted", profile, quoted)
 		}
 		t.Logf("a default %s's settings: %d characters, %d quoted", profile, len(line), len(line)+strings.Count(line, `"`))
+	}
+}
+
+// SIERRA's hard row (MSYSAX8): the command line Windows is given for the worst-case desk, as the launcher builds it
+// (launcher.go: the agent, --settings=, the role's model and effort, then its first message, each quoted as Go quotes
+// it there, exeLine), stays under 30,000 of Windows's 32,767. The worst case: the GM's profile or a hire's, an engine
+// desk's (its Claude-folder rules and its plans), every default guard group, the rig's long support folder outside the
+// home folder and also inside it (where the Claude-folder rules are written twice: from ~ and in full), each of
+// setup's 8 Claude accounts in a ~/.claude-<name> folder (accounts kept elsewhere are refused on Windows before this),
+// a long program path, the longest model and effort, and a briefed first message that asks its questions.
+func TestTheWorstCaseDesksWindowsCommandLineStaysUnder30000(t *testing.T) {
+	const most = 30000
+	r := newHireSettingsRig(t)
+	saved := homeDir
+	t.Cleanup(func() { homeDir = saved })
+	groups := func(string, []string) (int, string, bool) {
+		return 0, `{"groups":` + strings.TrimPrefix(guard.GroupsArgument(guard.DefaultGroups()), `{"groups":`), true
+	}
+	program := `C:\Users\` + strings.Repeat("n", 32) + `\.local\bin\claude.exe`
+	role := Role{ID: gmRole, Name: "General Manager of the whole office", Agent: "claude", Model: "claude-opus-5-5[1m]", Effort: "max"}
+	worst, worstAt := 0, ""
+	for _, inHome := range []bool{false, true} {
+		homeDir = filepath.Join(r.root, "home")
+		if inHome {
+			homeDir = filepath.Dir(r.support) // the support folder in the home folder: both forms of the rules
+		}
+		accounts := []claudeProfile{{Name: "default", Dir: filepath.Join(homeDir, ".claude")}}
+		for i := 1; i < claudeAccountsMost; i++ {
+			accounts = append(accounts, claudeProfile{Name: "client" + strconv.Itoa(i), Dir: filepath.Join(homeDir, ".claude-client-"+strconv.Itoa(i)+"-northwind")})
+		}
+		for _, profile := range []guardProfile{guardHire, guardGM} {
+			line, err := r.write("abc123def456", func(o *hireSettingsOptions) {
+				o.System, o.Profiles, o.Run, o.Profile, o.OwnClaude = "windows", accounts, groups, profile, true
+			})
+			if err != nil {
+				t.Fatalf("in home %v, %v: %v", inHome, profile, err)
+			}
+			brief := filepath.Join(r.support, "hires", "abc123def456", "BRIEF-"+strings.Repeat("b", 24)+".md")
+			args := append([]string{"--settings=" + line}, role.arguments(role.briefMessage(brief, true))...)
+			at := fmt.Sprintf("support in home %v, %v", inHome, profile)
+			n := len(exeLine(program, args))
+			t.Logf("%s: the Windows command line is %d characters", at, n)
+			if n > worst {
+				worst, worstAt = n, at
+			}
+		}
+	}
+	t.Logf("worst case: %d characters (%s)", worst, worstAt)
+	if worst >= most {
+		t.Errorf("the worst-case desk's Windows command line is %d characters (%s), not under %d", worst, worstAt, most)
+	}
+}
+
+// RT126SAX8R2 R2-a and R2-b: with the support folder in the home folder, as on every real Mac and Linux install, every
+// desk's Claude folder is denied from ~ and, beside it, in full (a desk whose HOME isn't the owner's still meets it):
+// a later desk's, the GM's and the reader's own, for a hire, the GM and a desk without its own folder.
+func TestEveryDesksClaudeFolderIsDeniedWithTheSupportFolderInTheHomeFolder(t *testing.T) {
+	r := newHireSettingsRig(t)
+	saved := homeDir
+	homeDir = filepath.Dir(r.support)
+	t.Cleanup(func() { homeDir = saved })
+	for _, reader := range []struct {
+		id      string
+		profile guardProfile
+		own     bool
+	}{{"hirea", guardHire, true}, {"gm0000000001", guardGM, true}, {"l1", guardHire, false}} {
+		line, err := r.write(reader.id, func(o *hireSettingsOptions) { o.Profile, o.OwnClaude = reader.profile, reader.own })
+		if err != nil {
+			t.Fatal(err)
+		}
+		var settings struct {
+			Permissions struct {
+				Deny []string `json:"deny"`
+			} `json:"permissions"`
+		}
+		if err := json.Unmarshal([]byte(line), &settings); err != nil {
+			t.Fatal(err)
+		}
+		deny := settings.Permissions.Deny
+		short := "~/" + filepath.Base(r.support) + "/hires/*/claude/**"
+		full := absoluteRulePath(r.support) + "/hires/*/claude/**"
+		for _, rule := range []string{"Read(" + short + ")", "Edit(" + short + ")", "Read(" + full + ")", "Edit(" + full + ")"} {
+			if !slices.Contains(deny, rule) {
+				t.Errorf("%s: no %s", reader.id, rule)
+			}
+		}
+		var edits []string
+		for _, rule := range deny {
+			if pattern, ok := strings.CutPrefix(rule, "Edit("); ok {
+				edits = append(edits, "Read("+pattern)
+			}
+		}
+		for _, desk := range []string{"hireb", "gm0000000002", reader.id} {
+			for _, store := range []string{"history.jsonl", "projects/-w/s1.jsonl", ".claude.json", "todos/t.json"} {
+				at := filepath.Join(deskClaudeFolder(r.support, desk), filepath.FromSlash(store))
+				if !readDenied(deny, homeDir, at) || !readDenied(edits, homeDir, at) {
+					t.Errorf("%s: %s isn't denied to its Read and Edit", reader.id, at)
+				}
+			}
+		}
 	}
 }
 

@@ -45,6 +45,9 @@ type engineRequest struct {
 	ConfigDir      string
 	DefaultAccount bool
 	APIKey         bool
+	// MCPServers are the account's MCP servers the owner ticked for desks, by name: only these go in the desk's own
+	// Claude folder (deskclaude.go, SANDBOX-PLAN N5). nil for none.
+	MCPServers []string
 	// Under the Mac app, the API key read through the bridge for this hire alone (hireapikey.go); "" elsewhere.
 	// Its tail is approved and it goes in the start script; the core doesn't keep it after the hire (see hireapikey.go).
 	APIKeyText string

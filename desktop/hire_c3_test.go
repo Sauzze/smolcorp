@@ -55,7 +55,8 @@ func TestStartHeresGMHireTakesTheAccountAndTheWorktreeAsTheMacs(t *testing.T) {
 		if len(got) != 1 || got[0].Role != gmRole || got[0].Account != "work" || (got[0].Worktree != "") != worktree {
 			t.Fatalf("%s: registry %+v", target, got)
 		}
-		if script := r.script(got[0]); !strings.Contains(script, "export CLAUDE_CONFIG_DIR="+shellQuoted(work)) {
+		// On the work account's sign-in, through its own Claude folder (SA-X8).
+		if script := r.script(got[0]); !strings.Contains(script, "export "+secureStorageEnvironment+"="+shellQuoted(work)+"\n") {
 			t.Errorf("%s: the GM doesn't start on the work account:\n%s", target, script)
 		}
 	}

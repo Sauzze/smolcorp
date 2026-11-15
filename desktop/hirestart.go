@@ -56,6 +56,10 @@ type hireStart struct {
 	// The General Manager's plugin folder (gmPluginFolder), for the gm role on Claude Code only, and the program its
 	// tools run, "" when there's none: the tools are then left without it, and the GM is told (gmIntroduction).
 	GMPlugin, GMCLI string
+	// DeskClaude is the desk's own Claude folder (deskclaude.go), made for this start: its CLAUDE_CONFIG_DIR, with
+	// the account's sign-in found through CLAUDE_SECURESTORAGE_CONFIG_DIR (ConfigDir, "" for ~/.claude's). "" for
+	// none: the account's own folder, as before SA-X8.
+	DeskClaude string
 	// A test copy: both set, and the port not one a real Smolcorp owns.
 	TestPort       int
 	TestSupportDir string
@@ -180,7 +184,14 @@ func (h hireStart) plan() (deskPlan, error) {
 	}
 	changes := []envChange{{Name: "SMOLCORP_GM_TOKEN", Unset: true}}
 	if claude {
-		if h.ConfigDir != "" {
+		if h.DeskClaude != "" {
+			// Its own folder, on the account named: never one the terminal's environment would pick.
+			if h.ConfigDir == "" && !h.DefaultAccount {
+				return deskPlan{}, errors.New("a desk's own Claude folder needs its account named")
+			}
+			changes = append(changes, envChange{Name: "CLAUDE_CONFIG_DIR", Value: h.DeskClaude},
+				envChange{Name: secureStorageEnvironment, Value: h.ConfigDir})
+		} else if h.ConfigDir != "" {
 			changes = append(changes, envChange{Name: "CLAUDE_CONFIG_DIR", Value: h.ConfigDir})
 		} else if h.DefaultAccount {
 			changes = append(changes, envChange{Name: "CLAUDE_CONFIG_DIR", Unset: true})
