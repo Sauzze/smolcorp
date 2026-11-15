@@ -50,6 +50,24 @@
 #      skip-worktree, a sparse checkout, untracked files status is set not
 #      to list) or with Go code git ignores beside the code stops the script
 #      too.
+#   4. The guarded tmux (the Linux downloads' and, since X4, the Mac's) exits
+#      unless the core gives it SMOLCORP_TMUX_SERVER. HEAD's tree must hold
+#      the test that says the core never runs it without that variable,
+#      TestNoExecOfTheBundledTmuxWithoutSmolcorpTmuxServer by that exact
+#      name, in desktop/, as a test of the package's Mac and Linux builds
+#      alike. It must pass here, with none of this machine's Smolcorp or
+#      tmux settings (SMOLCORP_*, TMUX*): not failed, not skipped. And run
+#      again with SMOLCORP_TMUXGATE_CONTROL=1, it must fail with one fixed
+#      line, the one its recorder gives a start without the variable, so it
+#      is known to look. Until it does all that, nothing is built.
+#   5. This script's own tests run here too, before anything is built:
+#      go test -run '^TestReleaseDesktop' ./desktop, with
+#      SMOLCORP_RELEASE_GATE_ROWS=1. Only that variable runs the heavy rows,
+#      dry runs of this script in throwaway repos (each pins go and cc, and
+#      the bundled tmux's rows build and run its test twice); an ordinary go
+#      test of ./desktop skips them, as they would take it past go's 10
+#      minutes. So they run on every release, and they must all pass: none
+#      failed or skipped, each heavy test passed by name.
 #
 # To make that commit from the branch you finished on, and build from it:
 #
@@ -60,6 +78,85 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# The go this release runs, every time (SA-X11): the one first on PATH now, at
+# the start, by its real path, so a go put earlier on PATH while this runs (by
+# a test, say) isn't the one that checks or builds. It goes in the log first,
+# with its version and SHA-256.
+go_found="$(type -P go || true)"
+if [ -z "$go_found" ] || ! GO="$(realpath "$go_found")"; then
+  echo "Stopped: no go on PATH."
+  exit 1
+fi
+# The settings each check's go runs with, never the caller's, a go env file's
+# or the toolchain's own go.env's: GOFLAGS set (a set value replaces theirs; an
+# empty one leaves their -exec, -toolexec or -overlay in force, which would run
+# a stand-in in place of a test or a check), no go.work, this go's own toolchain
+# whatever go.mod's toolchain line or a go env file's GOTOOLCHAIN asks (another
+# would be a program found on PATH by its name), its own GOROOT, and this
+# machine's system (a program built for another would run through a
+# go_<system>_<arch>_exec found on PATH).
+go_settings=(GOFLAGS=-mod=readonly GOENV=off GOWORK=off GOTOOLCHAIN=local)
+# What the C compiler takes from the environment, which go passes it, never
+# the caller's: its flags (the linker CGO_LDFLAGS=-fuse-ld= names), C++ and
+# pkg-config, the Mac clang's DEVELOPER_DIR, SDKROOT and TOOLCHAINS, and the
+# folders and options clang and gcc read to find their own linker
+# (COMPILER_PATH, GCC_EXEC_PREFIX, CCC_OVERRIDE_OPTIONS). CC is the one found
+# below, and on a Mac SDKROOT is its SDK.
+go_unset=(-u GOROOT -u CXX -u CGO_CFLAGS -u CGO_CPPFLAGS -u CGO_CXXFLAGS -u CGO_FFLAGS -u CGO_LDFLAGS -u PKG_CONFIG
+  -u DEVELOPER_DIR -u SDKROOT -u TOOLCHAINS -u COMPILER_PATH -u GCC_EXEC_PREFIX -u CCC_OVERRIDE_OPTIONS)
+# Nor this machine's Smolcorp or tmux settings (TMUXGATE1): SMOLCORP_TMUX_SERVER,
+# TMUX, TMUX_PANE and every other SMOLCORP_* or TMUX* variable. Every pane of a
+# Smolcorp tmux has them, and the bundled tmux's test would pass because the
+# core passed them on, not because it gives the tmux its own. Read from the
+# environment itself, so a name bash doesn't take as a variable goes too.
+while IFS= read -r -d '' setting; do
+  case "$setting" in
+  SMOLCORP_* | TMUX*) go_unset+=(-u "${setting%%=*}") ;;
+  esac
+done < <(/usr/bin/env -0)
+host_os="$(/usr/bin/env "${go_unset[@]}" -u GOOS -u GOARCH "${go_settings[@]}" "$GO" env GOHOSTOS)"
+host_arch="$(/usr/bin/env "${go_unset[@]}" -u GOOS -u GOARCH "${go_settings[@]}" "$GO" env GOHOSTARCH)"
+# The C compiler, found once here too, by its real path (SA-X11): it builds the
+# cgo parts of what go tests and links the test binary whose results a check
+# reads, so a caller's CC, or a cc put earlier on PATH while this runs, would
+# write that binary. On a Mac, the active developer folder's clang and the SDK
+# it builds with, asked of xcrun by its own path, with no lookup cache and none
+# of the caller's DEVELOPER_DIR, SDKROOT or TOOLCHAINS; elsewhere, the cc first
+# on PATH now.
+if [ "$host_os" = darwin ]; then
+  xcrun_here() { /usr/bin/env -u DEVELOPER_DIR -u SDKROOT -u TOOLCHAINS /usr/bin/xcrun --no-cache "$@" 2>/dev/null; }
+  cc_found="$(xcrun_here --find clang || true)"
+  sdk_found="$(xcrun_here --show-sdk-path || true)"
+  if [ -z "$sdk_found" ] || ! SDK="$(realpath "$sdk_found")"; then
+    echo "Stopped: no Mac SDK found (xcrun --show-sdk-path). Install Xcode's command line tools, then run this again."
+    exit 1
+  fi
+else
+  cc_found="$(type -P cc || true)"
+fi
+if [ -z "$cc_found" ] || ! CC_PROGRAM="$(realpath "$cc_found")"; then
+  echo "Stopped: no C compiler found (on a Mac, xcrun --find clang; elsewhere, cc on PATH)."
+  exit 1
+fi
+go_settings+=(CC="$CC_PROGRAM")
+if [ "$host_os" = darwin ]; then
+  go_settings+=(SDKROOT="$SDK")
+fi
+# pinned_env runs a program with those settings; pinned_go runs this go with
+# them, for this machine.
+pinned_env() { /usr/bin/env "${go_unset[@]}" "${go_settings[@]}" "$@"; }
+pinned_go() { pinned_env GOOS="$host_os" GOARCH="$host_arch" "$GO" "$@"; }
+go_version="$(pinned_go version)"
+go_sum="$(shasum -a 256 "$GO" | cut -d ' ' -f 1)"
+cc_sum="$(shasum -a 256 "$CC_PROGRAM" | cut -d ' ' -f 1)"
+echo "go: $GO"
+echo "  $go_version"
+echo "  sha256 $go_sum"
+echo "cc: $CC_PROGRAM"
+echo "  sha256 $cc_sum"
+if [ "$host_os" = darwin ]; then
+  echo "  sdk $SDK"
+fi
 # git looks at this folder, the one check-public.sh and the build read, and
 # at its own index: not at another one a caller's environment or the repo's
 # config (core.worktree) names.
@@ -171,6 +268,131 @@ scripts/check-public.sh
 # What it checked is still HEAD's tree: nothing changed while it ran.
 if ! heads_tree; then
   echo "Stopped: the files changed while scripts/check-public.sh ran, so it didn't check HEAD's tree ($TREE). Run this again."
+  exit 1
+fi
+# The bundled tmux's test (point 4 above), in the desktop package only, run
+# by the go and with the settings pinned at the top (go_settings, go_unset):
+# found in HEAD's tree by its exact name, then a test in go's own list of the
+# package's tests in its darwin build and each Linux one (a comment, a method,
+# a copy in another package or under testdata, or a stub only one system
+# builds doesn't count). It runs twice here: as it is, where it must pass, and
+# with SMOLCORP_TMUXGATE_CONTROL=1, where it must start the stand-in tmux once
+# without SMOLCORP_TMUX_SERVER, through its recorder, and fail with exactly one
+# TMUX_CONTROL_LINE, so a test that checks nothing can't pass. The pins hold
+# against the caller's go settings, not against a caller who controls PATH
+# before this starts: whoever does chooses the go that is pinned.
+TMUX_TEST=TestNoExecOfTheBundledTmuxWithoutSmolcorpTmuxServer
+TMUX_TEST_PACKAGE=desktop
+TMUX_CONTROL=SMOLCORP_TMUXGATE_CONTROL=1
+TMUX_CONTROL_LINE="tmuxgate control: a start without SMOLCORP_TMUX_SERVER was let through"
+# git grep says 1 both for "no match" and for a file it couldn't read (an
+# object it can't open), so anything it writes to stderr counts as a failure
+# to read, whatever its exit.
+status=0
+grep_errors=$(git grep -q -E "^func $TMUX_TEST\\(" "$TREE" -- ":(glob)$TMUX_TEST_PACKAGE/*_test.go" 2>&1 >/dev/null) || status=$?
+if [ -n "$grep_errors" ] || { [ "$status" != 0 ] && [ "$status" != 1 ]; }; then
+  echo "Stopped: git grep couldn't read HEAD's tree ($TREE) for $TMUX_TEST."
+  [ -z "$grep_errors" ] || printf '%s\n' "$grep_errors" | sed 's/^/  /'
+  exit 1
+elif [ "$status" = 1 ]; then
+  echo "Stopped: HEAD's tree has no $TMUX_TEST in $TMUX_TEST_PACKAGE/."
+  echo "The bundled tmux exits unless the core gives it SMOLCORP_TMUX_SERVER, and that test says it always does."
+  echo "A release waits until the test is in, under that exact name, and passes."
+  exit 1
+fi
+# go for a system and processor, the pinned way; cgo only on this machine's
+# own system, as the other's CI builds it.
+tmux_go() { # GOOS GOARCH ARGS...
+  local system="$1" arch="$2"
+  shift 2
+  if [ "$system" = "$host_os" ] && [ "$arch" = "$host_arch" ]; then
+    pinned_go "$@"
+  else
+    pinned_env CGO_ENABLED=0 GOOS="$system" GOARCH="$arch" "$GO" "$@"
+  fi
+}
+# Whether the test is in that build's list of tests: the _testmain.go go list
+# writes for the package, which holds what go test would run.
+tmux_listed() { # GOOS GOARCH
+  local testmain
+  testmain="$(tmux_go "$1" "$2" list -test -f '{{.ImportPath}}{{"\t"}}{{join .GoFiles "\t"}}' "./$TMUX_TEST_PACKAGE" |
+    awk -F '\t' '$1 ~ /\.test$/ { print $2 }')" || return 1
+  [ -n "$testmain" ] && grep -q -x -F -e "$(printf '\t{"%s", _test.%s},' "$TMUX_TEST" "$TMUX_TEST")" \
+    -e "$(printf '\t{"%s", _xtest.%s},' "$TMUX_TEST" "$TMUX_TEST")" "$testmain"
+}
+for build in "darwin $host_arch" "linux amd64" "linux arm64"; do
+  if ! tmux_listed $build; then
+    echo "Stopped: $TMUX_TEST isn't a test in ./$TMUX_TEST_PACKAGE's ${build/ //} build."
+    echo "It must be one in every system's build of the package, the Mac's and Linux's, not a stub one of them has."
+    exit 1
+  fi
+done
+tmux_test() { # [SETTING]
+  pinned_env "$@" GOOS="$host_os" GOARCH="$host_arch" "$GO" test -count=1 -v -run "^$TMUX_TEST\$" "./$TMUX_TEST_PACKAGE" 2>&1
+}
+echo "$TMUX_TEST in ./$TMUX_TEST_PACKAGE:"
+status=0
+out="$(tmux_test)" || status=$?
+echo "$out" | sed 's/^/  /'
+# Passed, as itself, with nothing in it failed or skipped.
+if [ "$status" != 0 ] || ! grep -q -x -E -e "--- PASS: $TMUX_TEST \\([0-9.]+s\\)" <<<"$out" ||
+  grep -q -E -e '^ *--- (FAIL|SKIP):' <<<"$out"; then
+  echo "Stopped: $TMUX_TEST didn't pass in ./$TMUX_TEST_PACKAGE (it failed, was skipped, or doesn't run on this machine)."
+  exit 1
+fi
+echo "$TMUX_TEST in ./$TMUX_TEST_PACKAGE, its control run ($TMUX_CONTROL):"
+status=0
+out="$(tmux_test "$TMUX_CONTROL")" || status=$?
+echo "$out" | sed 's/^/  /'
+# Failed, as itself, with the line its recorder gives the one broken start,
+# once.
+if [ "$status" = 0 ] || ! grep -q -x -E -e "--- FAIL: $TMUX_TEST \\([0-9.]+s\\)" <<<"$out" ||
+  [ "$(grep -c -x -E -e " +[^ ]+\\.go:[0-9]+: $TMUX_CONTROL_LINE" <<<"$out" || true)" != 1 ]; then
+  echo "Stopped: $TMUX_TEST didn't fail its control run in ./$TMUX_TEST_PACKAGE."
+  echo "With $TMUX_CONTROL it must start the stand-in tmux once without SMOLCORP_TMUX_SERVER, through its recorder,"
+  echo "and fail with exactly one line: $TMUX_CONTROL_LINE"
+  exit 1
+fi
+if ! heads_tree; then
+  echo "Stopped: the files changed while $TMUX_TEST ran, so they aren't HEAD's tree ($TREE) any more. Run this again."
+  exit 1
+fi
+# This script's own tests (point 5 above), run by the go and with the settings
+# pinned at the top, eight rows at a time (each row's dry run has 30 seconds,
+# and the bundled tmux's rows build as they go). RELEASE_ROWS is set here and
+# only for this run (the caller's own is dropped with every SMOLCORP_*
+# variable), so the heavy tests (RELEASE_ROWS_HEAVY) run on every release and
+# nowhere else by default. The pinned go comes first on their PATH: they hand
+# it their own go list and go test. Passed means go test passed, nothing in it
+# failed or was skipped, and each heavy test says it passed.
+RELEASE_ROWS=SMOLCORP_RELEASE_GATE_ROWS=1
+RELEASE_ROWS_RUN=^TestReleaseDesktop
+RELEASE_ROWS_HEAVY=(TestReleaseDesktopBuildsOnlyFromOneCommitOntoMain TestReleaseDesktopChecksEveryShapeOfHEAD
+  TestReleaseDesktopStopsWhenTheCheckedFilesArentHEADs TestReleaseDesktopStopsOnFilesThatDontGoOut
+  TestReleaseDesktopReadsHEADAsAPushSendsIt TestReleaseDesktopStopsOnFilesGitDoesntLookAt
+  TestReleaseDesktopNeedsTheBundledTmuxTestPassing)
+echo "This script's own tests in ./$TMUX_TEST_PACKAGE ($RELEASE_ROWS):"
+status=0
+out="$(pinned_env "$RELEASE_ROWS" GOOS="$host_os" GOARCH="$host_arch" PATH="$(dirname "$GO"):$PATH" \
+  "$GO" test -count=1 -parallel 8 -v -run "$RELEASE_ROWS_RUN" "./$TMUX_TEST_PACKAGE" 2>&1)" || status=$?
+# What each test and row came to, without go's lines for starting each one.
+{ grep -v -E '^ *=== (RUN|PAUSE|CONT|NAME) ' <<<"$out" || true; } | sed 's/^/  /'
+rows_passed() {
+  local row
+  if [ "$status" != 0 ] || grep -q -E -e '^ *--- (FAIL|SKIP):' <<<"$out"; then
+    return 1
+  fi
+  for row in "${RELEASE_ROWS_HEAVY[@]}"; do
+    grep -q -x -E -e "--- PASS: $row \\([0-9.]+s\\)" <<<"$out" || return 1
+  done
+}
+if ! rows_passed; then
+  echo "Stopped: this script's own tests didn't all pass in ./$TMUX_TEST_PACKAGE (one failed, was skipped, or didn't run)."
+  echo "Each of these must pass with $RELEASE_ROWS: ${RELEASE_ROWS_HEAVY[*]}"
+  exit 1
+fi
+if ! heads_tree; then
+  echo "Stopped: the files changed while this script's own tests ran, so they aren't HEAD's tree ($TREE) any more. Run this again."
   exit 1
 fi
 # The office the programs build in is exactly the build of its sources.

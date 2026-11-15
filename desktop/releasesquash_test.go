@@ -14,8 +14,14 @@ import (
 
 // A release goes out as one squashed commit straight onto main, never as the branches it was made on with their
 // history, and scripts/release-desktop.sh builds only from that commit: HEAD has one parent, origin/main. Each case
-// runs the script in a throwaway repo of its own. Its check-public.sh is a stand-in that says it ran, and a stand-in
-// go comes first on PATH and fails, so nothing is ever built: a commit that passes every check stops at the first go.
+// runs the script in a throwaway repo of its own, as a subtest beside the others. Each run takes a second or more
+// (the go and cc the script pins at its start), so these rows are heavy (heavyReleaseRows): the script runs them
+// before every release, and go test skips them elsewhere. Its check-public.sh is a stand-in that says it ran, and a stand-in
+// go comes first on PATH and fails, so nothing is ever built: a commit that passes every check stops at the first go
+// that would build. Only go version and go env go to the real go, for the go the script names at its start. The
+// stand-in answers go list and go test of the bundled tmux's test as a test keeping M7/L4's contract would (its rows
+// in releasetmuxtest_test.go hand them to the real go), and the script's run of its own tests as their passing, so a
+// release commit gets past those checks too.
 
 const (
 	checkPublicRan = "stand-in check-public ran"
@@ -32,12 +38,12 @@ const (
 )
 
 // releaseRepo is a throwaway repo holding release-desktop.sh, the stand-in check-public.sh and a little Go code
-// (web.go at the top, cmd/smolcorp/main.go): main and origin/main at one commit, and a branch "work" two commits
-// past it.
+// (go.mod and web.go at the top, cmd/smolcorp/main.go, the stand-in tmux test in desktop/): main and origin/main at
+// one commit, and a branch "work" two commits past it.
 type releaseRepo struct {
-	t         *testing.T
-	dir, home string
-	env       []string
+	t              *testing.T
+	dir, home, bin string
+	env            []string
 }
 
 func newReleaseRepo(t *testing.T) *releaseRepo {
@@ -53,14 +59,17 @@ func newReleaseRepo(t *testing.T) *releaseRepo {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bin := t.TempDir()
-	r := &releaseRepo{t: t, dir: t.TempDir(), home: t.TempDir()}
-	// Its own home, so no one's own git settings apply; a stand-in go before the real one.
+	_, goCache := realGo(t)
+	r := &releaseRepo{t: t, dir: t.TempDir(), home: t.TempDir(), bin: t.TempDir()}
+	// Its own home, so no one's own git or go settings apply, and its own temp folder; a stand-in go before the real
+	// one. The real go builds with the cache it already has, never a newer toolchain or a module from the network.
 	r.env = []string{
-		"PATH=" + bin + ":" + filepath.Dir(gitPath) + ":/usr/bin:/bin",
-		"HOME=" + r.home, "XDG_CONFIG_HOME=" + r.home, "GIT_CONFIG_NOSYSTEM=1", "LANG=C",
+		"PATH=" + r.bin + ":" + filepath.Dir(gitPath) + ":/usr/bin:/bin",
+		"HOME=" + r.home, "XDG_CONFIG_HOME=" + r.home, "GIT_CONFIG_NOSYSTEM=1", "LANG=C", "TMPDIR=" + t.TempDir(),
+		"GOCACHE=" + goCache, "GOTOOLCHAIN=local", "GOPROXY=off",
 	}
-	writeReleaseFile(t, filepath.Join(bin, "go"), "#!/bin/sh\necho '"+goReached+"'\nexit 97\n", 0o755)
+	r.writeGo(false)
+	r.writeOtherGo(filepath.Join(r.bin, "other-go"))
 
 	r.git("init", "-q")
 	r.git("symbolic-ref", "HEAD", "refs/heads/main")
@@ -76,8 +85,10 @@ func newReleaseRepo(t *testing.T) *releaseRepo {
 		t.Fatal(err)
 	}
 	r.write("README", "main\n")
+	r.write("go.mod", "module example.invalid/release\n\ngo 1.21\n")
 	r.write("web.go", "package smolcorp\n")
 	r.write("cmd/smolcorp/main.go", "package main\n")
+	r.write(tmuxTestFile, standInTmuxTest{}.source())
 	r.git("add", ".")
 	r.git("commit", "-q", "-m", "main")
 	r.git("update-ref", "refs/remotes/origin/main", "HEAD")
@@ -88,6 +99,42 @@ func newReleaseRepo(t *testing.T) *releaseRepo {
 		r.git("commit", "-q", "-am", line)
 	}
 	return r
+}
+
+// writeGo writes the stand-in go first on PATH. go version and go env go to the real go. go test with the release
+// gate's variable is the script's run of its own tests: it prints what bin/rows-out holds and exits with
+// bin/rows-status, or else says every heavy test passed (with bin/rows-stray there, it first leaves a file beside the
+// code). go list and go test of the bundled tmux's test go to the real go when real is set, and are otherwise
+// answered as a test keeping M7/L4's contract would answer them. Each go test it is given is logged in
+// bin/go-test.log, with the variable and the first folder on PATH. Anything else would build: it says so and exits 97.
+// With DROP_GO set, its first run also writes another go there, as something might while the script runs.
+func (r *releaseRepo) writeGo(real bool) {
+	r.t.Helper()
+	goPath, _ := realGo(r.t)
+	bin := func(name string) string { return "'" + filepath.Join(r.bin, name) + "'" }
+	rows := ""
+	for _, name := range heavyReleaseTests(r.t) {
+		rows += "  echo '=== RUN   " + name + "'\n  echo '--- PASS: " + name + " (0.00s)'\n"
+	}
+	tmux := "list|test) exec '" + goPath + "' \"$@\";;\n"
+	if !real {
+		writeReleaseFile(r.t, filepath.Join(r.bin, "_testmain.go"), "\t{\""+tmuxTestName+"\", _test."+tmuxTestName+"},\n", 0o644)
+		tmux = "list) printf 'example.invalid/release/desktop.test\\t%s\\n' " + bin("_testmain.go") + "; exit 0;;\n" +
+			"test)\n" + tmuxContractAnswer + ";;\n"
+	}
+	writeReleaseFile(r.t, filepath.Join(r.bin, "go"), "#!/bin/sh\n"+
+		"if [ -n \"${DROP_GO:-}\" ] && [ ! -e \"$DROP_GO\" ]; then cp "+bin("other-go")+" \"$DROP_GO\"; fi\n"+
+		"case \"$1\" in version|env) exec '"+goPath+"' \"$@\";; esac\n"+
+		"if [ \"$1\" = test ]; then\n"+
+		"  echo \"rows=${"+releaseGateRows+"-unset} path=${PATH%%:*} $*\" >> "+bin("go-test.log")+"\n"+
+		"fi\n"+
+		"if [ \"$1\" = test ] && [ \"${"+releaseGateRows+":-}\" = 1 ]; then\n"+
+		"  [ ! -e "+bin("rows-stray")+" ] || : > stray.txt\n"+
+		"  if [ -e "+bin("rows-out")+" ]; then cat "+bin("rows-out")+"; exit \"$(cat "+bin("rows-status")+")\"; fi\n"+
+		rows+"  echo PASS\n  printf 'ok  \\texample.invalid/release/desktop\\t0.01s\\n'\n  exit 0\n"+
+		"fi\n"+
+		"case \"$1\" in\n"+tmux+"esac\n"+
+		"echo '"+goReached+"'\nexit 97\n", 0o755)
 }
 
 func writeReleaseFile(t *testing.T, path, body string, mode os.FileMode) {
@@ -190,58 +237,67 @@ type releaseCase struct {
 	setup      func(r *releaseRepo) []string
 }
 
+// runReleaseCases runs each case as a subtest, side by side.
 func runReleaseCases(t *testing.T, cases []releaseCase) {
 	t.Helper()
 	for _, c := range cases {
-		r := newReleaseRepo(t)
-		extra := c.setup(r)
-		if c.want == "" {
-			r.passes(c.name, extra...)
-		} else {
-			r.refused(c.name, c.want, extra...)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newReleaseRepo(t)
+			extra := c.setup(r)
+			if c.want == "" {
+				r.passes(c.name, extra...)
+			} else {
+				r.refused(c.name, c.want, extra...)
+			}
+		})
 	}
 }
 
 func TestReleaseDesktopBuildsOnlyFromOneCommitOntoMain(t *testing.T) {
-	r := newReleaseRepo(t)
-	work := r.git("rev-parse", "work")
-	squashed := r.squashed()
+	heavyReleaseRows(t)
+	// One repo, its commits one after another.
+	t.Run("one repo", func(t *testing.T) {
+		r := newReleaseRepo(t)
+		work := r.git("rev-parse", "work")
+		squashed := r.squashed()
 
-	// The branch's files as one commit onto origin/main pass, check-public.sh runs, and the next step is go's.
-	r.passes("one squashed commit on origin/main")
+		// The branch's files as one commit onto origin/main pass, check-public.sh runs, and the next step is go's.
+		r.passes("one squashed commit on origin/main")
 
-	// The branch itself, two commits past main.
-	r.at(work)
-	r.refused("the working branch, two commits past main", stopParents)
-	if _, out := r.release(); !strings.Contains(out, "commit-tree -S -p origin/main") {
-		t.Errorf("a refusal doesn't say how to make the release commit:\n%s", out)
-	}
+		// The branch itself, two commits past main.
+		r.at(work)
+		r.refused("the working branch, two commits past main", stopParents)
+		if _, out := r.release(); !strings.Contains(out, "commit-tree -S -p origin/main") {
+			t.Errorf("a refusal doesn't say how to make the release commit:\n%s", out)
+		}
 
-	// A merge of the branch into main: its first parent is origin/main, but it brings the history along.
-	r.at(r.git("commit-tree", "-p", "origin/main", "-p", "work", "-m", "Merge work", "work^{tree}"))
-	r.refused("a merge commit", stopParents)
+		// A merge of the branch into main: its first parent is origin/main, but it brings the history along.
+		r.at(r.git("commit-tree", "-p", "origin/main", "-p", "work", "-m", "Merge work", "work^{tree}"))
+		r.refused("a merge commit", stopParents)
 
-	// A commit with no parent at all, the same files.
-	r.at(r.git("commit-tree", "-m", "Smolcorp 0.0.0", "work^{tree}"))
-	r.refused("a commit with no parent", stopParents)
-	if _, out := r.release(); !strings.Contains(out, "HEAD's parents:\n  none\n") {
-		t.Errorf("a commit with no parent: the refusal doesn't say it has none:\n%s", out)
-	}
+		// A commit with no parent at all, the same files.
+		r.at(r.git("commit-tree", "-m", "Smolcorp 0.0.0", "work^{tree}"))
+		r.refused("a commit with no parent", stopParents)
+		if _, out := r.release(); !strings.Contains(out, "HEAD's parents:\n  none\n") {
+			t.Errorf("a commit with no parent: the refusal doesn't say it has none:\n%s", out)
+		}
 
-	// The squashed commit, after main moved on: it's onto an older main.
-	main := r.git("rev-parse", "origin/main")
-	r.git("update-ref", "refs/remotes/origin/main", r.git("commit-tree", "-p", main, "-m", "newer main", "main^{tree}"))
-	r.at(squashed)
-	r.refused("a squashed commit onto an older main", stopParents)
+		// The squashed commit, after main moved on: it's onto an older main.
+		main := r.git("rev-parse", "origin/main")
+		r.git("update-ref", "refs/remotes/origin/main", r.git("commit-tree", "-p", main, "-m", "newer main", "main^{tree}"))
+		r.at(squashed)
+		r.refused("a squashed commit onto an older main", stopParents)
 
-	// No origin/main to check against.
-	r.git("update-ref", "-d", "refs/remotes/origin/main")
-	r.refused("no origin/main", stopNoMain)
+		// No origin/main to check against.
+		r.git("update-ref", "-d", "refs/remotes/origin/main")
+		r.refused("no origin/main", stopNoMain)
+	})
 }
 
 // The other shapes HEAD and the checkout can have, each in a repo of its own.
 func TestReleaseDesktopChecksEveryShapeOfHEAD(t *testing.T) {
+	heavyReleaseRows(t)
 	runReleaseCases(t, []releaseCase{
 		{"a branch with one ordinary commit onto origin/main", "", func(r *releaseRepo) []string {
 			r.git("checkout", "-q", "-B", "release", "origin/main")
@@ -265,7 +321,7 @@ func TestReleaseDesktopChecksEveryShapeOfHEAD(t *testing.T) {
 			return nil
 		}},
 		{"a depth-1 clone, the release commit made in it", "", func(r *releaseRepo) []string {
-			clone := t.TempDir()
+			clone := r.t.TempDir()
 			r.git("clone", "-q", "--depth", "1", "--branch", "main", "file://"+r.dir, clone)
 			r.dir = clone
 			r.git("config", "user.name", "Release Test")
@@ -291,6 +347,7 @@ func TestReleaseDesktopChecksEveryShapeOfHEAD(t *testing.T) {
 
 // check-public.sh checks HEAD's tree: files changed or added while it ran stop the script before any build.
 func TestReleaseDesktopStopsWhenTheCheckedFilesArentHEADs(t *testing.T) {
+	heavyReleaseRows(t)
 	for _, c := range []struct {
 		name  string
 		extra []string
@@ -299,12 +356,15 @@ func TestReleaseDesktopStopsWhenTheCheckedFilesArentHEADs(t *testing.T) {
 		{"a Go file added under check-public.sh, status set not to list untracked files",
 			[]string{"ADD=cmd/smolcorp/late.go", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=status.showUntrackedFiles", "GIT_CONFIG_VALUE_0=no"}},
 	} {
-		r := newReleaseRepo(t)
-		r.squashed()
-		status, out := r.release(c.extra...)
-		if status != 1 || !strings.Contains(out, checkPublicRan) || !strings.Contains(out, "didn't check HEAD's tree") || strings.Contains(out, goReached) {
-			t.Errorf("%s: want a stop before any build, got status %d:\n%s", c.name, status, out)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newReleaseRepo(t)
+			r.squashed()
+			status, out := r.release(c.extra...)
+			if status != 1 || !strings.Contains(out, checkPublicRan) || !strings.Contains(out, "didn't check HEAD's tree") || strings.Contains(out, goReached) {
+				t.Errorf("want a stop before any build, got status %d:\n%s", status, out)
+			}
+		})
 	}
 }
 
@@ -312,6 +372,7 @@ func TestReleaseDesktopStopsWhenTheCheckedFilesArentHEADs(t *testing.T) {
 // beside the code, and a folder git is pointed at instead of this one. Each case is one squashed commit onto
 // origin/main, in a repo of its own.
 func TestReleaseDesktopStopsOnFilesThatDontGoOut(t *testing.T) {
+	heavyReleaseRows(t)
 	untracked := func(config ...string) func(r *releaseRepo) []string {
 		return func(r *releaseRepo) []string {
 			r.squashed()
@@ -362,7 +423,7 @@ func TestReleaseDesktopStopsOnFilesThatDontGoOut(t *testing.T) {
 		{"an ignored assembly file in a package folder", stopIgnoredGo, ignored("cmd/smolcorp/extra_amd64.s")},
 		{"a Go file ignored for the account in a package folder", stopIgnoredGo, func(r *releaseRepo) []string {
 			r.squashed()
-			writeReleaseFile(t, filepath.Join(r.home, "excludes"), "*.go\n", 0o644)
+			writeReleaseFile(r.t, filepath.Join(r.home, "excludes"), "*.go\n", 0o644)
 			r.git("config", "--global", "core.excludesFile", filepath.Join(r.home, "excludes"))
 			r.write("cmd/smolcorp/extra.go", "package main\n")
 			r.blind("the ignored file")
@@ -370,13 +431,13 @@ func TestReleaseDesktopStopsOnFilesThatDontGoOut(t *testing.T) {
 		}},
 		{"an ignored Go file in a folder of notes, not a package", "", ignored("notes/scratch.go")},
 		{"GIT_WORK_TREE naming a clean worktree, a file changed here", stopClean, func(r *releaseRepo) []string {
-			other := filepath.Join(t.TempDir(), "other")
+			other := filepath.Join(r.t.TempDir(), "other")
 			r.git("worktree", "add", "-q", "--detach", other, r.squashed())
 			r.write("README", "not what goes out\n")
 			return []string{"GIT_WORK_TREE=" + other}
 		}},
 		{"core.worktree naming a clean copy, a file changed here", stopWorktree, func(r *releaseRepo) []string {
-			other := t.TempDir()
+			other := r.t.TempDir()
 			r.git("--work-tree="+other, "checkout", "-q", r.squashed(), "--", ".")
 			r.write("README", "not what goes out\n")
 			r.git("config", "core.worktree", other)
@@ -390,6 +451,7 @@ func TestReleaseDesktopStopsOnFilesThatDontGoOut(t *testing.T) {
 // origin/main doesn't get it past the check, however git is told to use them, and a commit object is read as git
 // reads it. Each case is in a repo of its own, on the branch "work" (two commits past main) unless it says otherwise.
 func TestReleaseDesktopReadsHEADAsAPushSendsIt(t *testing.T) {
+	heavyReleaseRows(t)
 	useReplaceRefs := []string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.useReplaceRefs", "GIT_CONFIG_VALUE_0=true"}
 	graft := func(config ...string) func(r *releaseRepo) []string {
 		return func(r *releaseRepo) []string {
@@ -422,7 +484,7 @@ func TestReleaseDesktopReadsHEADAsAPushSendsIt(t *testing.T) {
 	}
 	// elsewhere is a bare clone holding a graft of HEAD onto origin/main, to borrow objects from.
 	elsewhere := func(r *releaseRepo) string {
-		bare := filepath.Join(t.TempDir(), "bare.git")
+		bare := filepath.Join(r.t.TempDir(), "bare.git")
 		r.git("clone", "-q", "--bare", r.dir, bare)
 		r.git("--git-dir="+bare, "replace", "--graft", r.git("rev-parse", "work"), r.git("rev-parse", "origin/main"))
 		return filepath.Join(bare, "objects")
@@ -459,7 +521,7 @@ func TestReleaseDesktopReadsHEADAsAPushSendsIt(t *testing.T) {
 		{"a graft under GIT_REPLACE_REF_BASE", stopParents, altBase()},
 		{"a graft under GIT_REPLACE_REF_BASE, core.useReplaceRefs true", stopParents, altBase("core.useReplaceRefs", "true")},
 		{"GIT_GRAFT_FILE giving HEAD origin/main as its parent", stopParents, func(r *releaseRepo) []string {
-			writeReleaseFile(t, filepath.Join(r.home, "grafts"), graftsLine(r), 0o644)
+			writeReleaseFile(r.t, filepath.Join(r.home, "grafts"), graftsLine(r), 0o644)
 			return []string{"GIT_GRAFT_FILE=" + filepath.Join(r.home, "grafts")}
 		}},
 		{"objects borrowed from a repo with a graft (info/alternates)", stopParents, func(r *releaseRepo) []string {
@@ -497,30 +559,34 @@ func TestReleaseDesktopReadsHEADAsAPushSendsIt(t *testing.T) {
 	})
 
 	// A really signed release commit passes: the signature doesn't hide its parent.
-	keygen, err := exec.LookPath("ssh-keygen")
-	if err != nil {
-		t.Log("no ssh-keygen: the signed commit isn't tried")
-		return
-	}
-	r := newReleaseRepo(t)
-	key := filepath.Join(r.home, "release-test-key")
-	if out, err := exec.Command(keygen, "-q", "-t", "ed25519", "-N", "", "-C", "release-test", "-f", key).CombinedOutput(); err != nil {
-		t.Fatalf("ssh-keygen: %v\n%s", err, out)
-	}
-	r.git("config", "gpg.format", "ssh")
-	r.git("config", "user.signingkey", key)
-	signed := r.git("commit-tree", "-S", "-p", "origin/main", "-m", "Smolcorp 0.0.0", "work^{tree}")
-	if !strings.Contains(r.git("cat-file", "commit", signed), "gpgsig ") {
-		t.Fatal("commit-tree -S made no signature")
-	}
-	r.at(signed)
-	r.passes("a release commit signed with an SSH key")
+	t.Run("a release commit signed with an SSH key", func(t *testing.T) {
+		t.Parallel()
+		keygen, err := exec.LookPath("ssh-keygen")
+		if err != nil {
+			t.Log("no ssh-keygen: the signed commit isn't tried")
+			return
+		}
+		r := newReleaseRepo(t)
+		key := filepath.Join(r.home, "release-test-key")
+		if out, err := exec.Command(keygen, "-q", "-t", "ed25519", "-N", "", "-C", "release-test", "-f", key).CombinedOutput(); err != nil {
+			t.Fatalf("ssh-keygen: %v\n%s", err, out)
+		}
+		r.git("config", "gpg.format", "ssh")
+		r.git("config", "user.signingkey", key)
+		signed := r.git("commit-tree", "-S", "-p", "origin/main", "-m", "Smolcorp 0.0.0", "work^{tree}")
+		if !strings.Contains(r.git("cat-file", "commit", signed), "gpgsig ") {
+			t.Fatal("commit-tree -S made no signature")
+		}
+		r.at(signed)
+		r.passes("a release commit signed with an SSH key")
+	})
 }
 
 // Files git is told not to look at: their changes on disk pass git status unseen, so the script stops before
 // check-public.sh and any build, and says what to do. Each case is one squashed commit onto origin/main, in a repo of
 // its own.
 func TestReleaseDesktopStopsOnFilesGitDoesntLookAt(t *testing.T) {
+	heavyReleaseRows(t)
 	edited := func(flags ...string) func(r *releaseRepo) []string {
 		return func(r *releaseRepo) []string {
 			r.squashed()
@@ -545,7 +611,7 @@ func TestReleaseDesktopStopsOnFilesGitDoesntLookAt(t *testing.T) {
 			r.squashed()
 			r.git("update-index", "--skip-worktree", "README")
 			if err := os.Remove(filepath.Join(r.dir, "README")); err != nil {
-				t.Fatal(err)
+				r.t.Fatal(err)
 			}
 			r.blind("the deletion")
 			return nil
@@ -564,7 +630,7 @@ func TestReleaseDesktopStopsOnFilesGitDoesntLookAt(t *testing.T) {
 			r.squashed()
 			r.git("config", "core.ignoreStat", "true")
 			if err := os.Remove(filepath.Join(r.dir, "README")); err != nil {
-				t.Fatal(err)
+				r.t.Fatal(err)
 			}
 			r.git("checkout", "--", "README")
 			r.write("README", "not what goes out\n")
@@ -573,11 +639,14 @@ func TestReleaseDesktopStopsOnFilesGitDoesntLookAt(t *testing.T) {
 		}},
 	} {
 		// want is the fix the stop names; the stop itself is the one for HEAD's tree.
-		r := newReleaseRepo(t)
-		c.setup(r)
-		r.refused(c.name, c.want)
-		if _, out := r.release(); !strings.Contains(out, stopTree) {
-			t.Errorf("%s: want the stop for HEAD's tree:\n%s", c.name, out)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			r := newReleaseRepo(t)
+			c.setup(r)
+			r.refused(c.name, c.want)
+			if _, out := r.release(); !strings.Contains(out, stopTree) {
+				t.Errorf("want the stop for HEAD's tree:\n%s", out)
+			}
+		})
 	}
 }
