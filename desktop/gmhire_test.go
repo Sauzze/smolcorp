@@ -398,6 +398,10 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 			t.Fatalf("%s hire of %s: %d %q, registry %+v", map[bool]string{false: "desk", true: "route"}[route], role, status, text, hires)
 		}
 		data := startedSettings(t, hires[0].ID)
+		// Each file's seal is its own hash, of its own hire's id too (settingsfile.go): masked as the id is.
+		if plan, ok := issuedPlan(hires[0].ID); ok {
+			data = strings.ReplaceAll(data, plan.Settings.Sum, "<sum>")
+		}
 		// FXMEM4bR1 B1: the GM's start sets Claude Code's memory variable and takes the launch modes out; a hire's
 		// names none of them.
 		plan, _ := issuedPlan(hires[0].ID)

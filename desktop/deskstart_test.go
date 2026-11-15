@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/guard"
 )
 
 // deskHelperVariable makes this test binary act as `smolcorp desk-start`, for the row that starts a real pane on it.
@@ -310,7 +312,8 @@ func TestADeskStartsByItsTicketWithNoScriptNoShellAndNoKeyInTmux(t *testing.T) {
 	if h == nil {
 		t.Fatal("no hire tmux")
 	}
-	plan, err := hireStart{Role: testHireRole(), Message: "go", SendKey: key, Settings: `{"x":1}`, DefaultAccount: true, CLIDir: "/opt/smolcorp/bin"}.plan()
+	settings := writtenTestSettings(t, `{"x":"`+guard.SettingsSumBlank+`"}`)
+	plan, err := hireStart{Role: testHireRole(), Message: "go", SendKey: key, Settings: settings, DefaultAccount: true, CLIDir: "/opt/smolcorp/bin"}.plan()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +360,7 @@ func TestADeskStartsByItsTicketWithNoScriptNoShellAndNoKeyInTmux(t *testing.T) {
 		t.Error("the app's own folder isn't first on the agent's PATH")
 	}
 	args, _ := os.ReadFile(filepath.Join(out, "args"))
-	if !strings.Contains(string(args), "--settings={\"x\":1}\n") || !strings.HasSuffix(string(args), "--\ngo\n") {
+	if !strings.HasPrefix(string(args), "--settings="+settings.Path+"\n") || !strings.HasSuffix(string(args), "--\ngo\n") {
 		t.Errorf("the agent's words: %q", args)
 	}
 	// Nowhere else: tmux's environments, the pane's command, the support folder.

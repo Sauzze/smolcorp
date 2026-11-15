@@ -37,9 +37,10 @@ type hireStartEnv struct {
 	// Message is the agent's first message when the app wrote the hire a brief:
 	// to read it, and where it is. Empty, the launcher makes the role's own.
 	Message string `json:"message,omitempty"`
-	// Settings are an engine hire's Claude Code settings, as hireSettingsLine makes them: the launcher puts
-	// them in the agent's command line (--settings), and nowhere else.
-	Settings string `json:"settings,omitempty"`
+	// Settings are an engine hire's Claude Code settings file, as writeHireSettings writes it, and SettingsSum its
+	// seal: the launcher checks the file against it and names it in the agent's command line (--settings <file>).
+	Settings    string `json:"settings,omitempty"`
+	SettingsSum string `json:"settingsSum,omitempty"`
 }
 
 // startEnvironment is base with env applied: unset names removed, set names
@@ -103,6 +104,10 @@ func (d *Deck) takeStartEnv(token, hireID string) (env *hireStartEnv, status int
 // caller has checked it is local and carries the hook key.
 func (d *Deck) startEnvRoute(w http.ResponseWriter, query url.Values) {
 	env, status := d.takeStartEnv(query.Get("hire"), query.Get("id"))
+	// Its settings file, as Smolcorp sealed it (settingsfile.go): a changed one starts nothing, and the start is spent.
+	if env != nil && (sealedSettings{Path: env.Settings, Sum: env.SettingsSum}).refusal() != nil {
+		env, status = nil, http.StatusConflict
+	}
 	if env == nil {
 		w.WriteHeader(status)
 		return
@@ -142,6 +147,8 @@ func fetchHireStartEnv(client *http.Client, base, hookKey, token, hireID string)
 	case http.StatusOK:
 	case http.StatusGone:
 		return env, errors.New("this hire's start settings were taken already, or too long ago. Hire again")
+	case http.StatusConflict:
+		return env, errors.New("this hire's settings file isn't the one Smolcorp wrote: something on this computer changed or replaced it. Hire again")
 	case http.StatusForbidden, http.StatusUnauthorized, http.StatusNotFound:
 		return env, errors.New("Smolcorp doesn't know this hire. Hire again")
 	default:

@@ -36,7 +36,7 @@ func TestTheStartScriptIsTheMacsForAHire(t *testing.T) {
 		t.Fatalf("script:\n%s\nwant:\n%s", script, want)
 	}
 	// The account line, settings, and PATH come as the Mac puts them, before the exports.
-	own, _ := hireStart{Role: testHireRole(), Message: "it's", ConfigDir: "/a/b's", Settings: "/s.json", CLIDir: "/app/bin"}.startText()
+	own, _ := hireStart{Role: testHireRole(), Message: "it's", ConfigDir: "/a/b's", Settings: testSettings("/s.json"), CLIDir: "/app/bin"}.startText()
 	for _, line := range []string{"export CLAUDE_CONFIG_DIR='/a/b'\\''s'\nexport DISABLE_AUTOUPDATER='1'\nexport PATH='/app/bin':\"$PATH\"\n", "exec 'claude' '--settings=/s.json' ", "'it'\\''s'\n"} {
 		if !strings.Contains(own, line) {
 			t.Errorf("missing %q in\n%s", line, own)
@@ -50,13 +50,13 @@ func TestTheStartScriptIsTheMacsForAHire(t *testing.T) {
 		t.Errorf("no account named, but the script has an account line:\n%s", none)
 	}
 	// An agent that isn't known is Claude, as on the Mac: it gets Claude's settings and account line.
-	odd, _ := hireStart{Role: Role{Name: "Odd", Agent: "bogus"}, Message: "x", Settings: "/s", DefaultAccount: true}.startText()
+	odd, _ := hireStart{Role: Role{Name: "Odd", Agent: "bogus"}, Message: "x", Settings: testSettings("/s"), DefaultAccount: true}.startText()
 	if !strings.Contains(odd, "exec 'claude' '--settings=/s'") || !strings.Contains(odd, "unset CLAUDE_CONFIG_DIR") {
 		t.Errorf("an unknown agent should start as Claude:\n%s", odd)
 	}
 	// Other agents get no account line and no settings, and an unmanaged hire no exports but the tools' switches,
 	// which every desk has (SA-T1).
-	codex, _ := hireStart{Role: Role{Name: "Co", Agent: "codex"}, Message: "x", ConfigDir: "/a", Settings: "/s"}.startText()
+	codex, _ := hireStart{Role: Role{Name: "Co", Agent: "codex"}, Message: "x", ConfigDir: "/a", Settings: testSettings("/s")}.startText()
 	exports := strings.ReplaceAll(codex, "export DISABLE_AUTOUPDATER='1'\n", "")
 	if strings.Contains(codex, "CLAUDE_CONFIG_DIR") || strings.Contains(codex, "--settings") || strings.Contains(exports, "export") {
 		t.Errorf("codex script: %s", codex)

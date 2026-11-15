@@ -3,7 +3,6 @@ package desktop
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -290,46 +289,14 @@ func TestADesksGuardNamesItsFolderInItsCommandLine(t *testing.T) {
 	}
 }
 
-// A desk's settings ride in its command line, on Windows too, where a command line holds at most 32767
-// characters: a default hire's, with every deny rule and the core's groups, stays well under that. (25000 since
-// RT126SG2F B1's four rules for claude-install's temp file and folder forms, about 580 characters here: this test's
-// support folder is a long temp path, which every rule of the folder repeats. SA-X8's two rules for every desk's
-// Claude folder write it short, as claudeStoreFolder does.) The GM's too, with MEM4b's memory switch.
-//
-// settingsMargin is this test's margin, not Windows's limit (32,767, exeLongest): 26,000 since SA-X8 took the last of
-// 25,000's room (its two rules and an engine desk's plansDirectory, 24,928 at most over 40 runs; MSYSAX8, SIERRA). The
-// GM's, with MEM4b's memory switch as well, was 25,026 at most over 40 runs (MSYSAX8R2). The limit itself is held by
-// TestTheWorstCaseDesksWindowsCommandLineStaysUnder30000.
-const settingsMargin = 26000
-
-func TestADesksSettingsFitInACommandLine(t *testing.T) {
-	r := newHireSettingsRig(t)
-	for _, profile := range []guardProfile{guardHire, guardGM} {
-		line, err := r.write("abc123", func(o *hireSettingsOptions) {
-			o.Profile = profile
-			o.Run = func(string, []string) (int, string, bool) {
-				return 0, `{"groups":` + strings.TrimPrefix(guard.GroupsArgument(guard.DefaultGroups()), `{"groups":`), true
-			}
-			o.OwnClaude = true // an engine desk's, with its plans pinned (SA-X8)
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Quoted for Windows, each quote takes a backslash.
-		if quoted := len(line) + strings.Count(line, `"`); quoted > settingsMargin {
-			t.Errorf("%s: the settings are %d characters quoted", profile, quoted)
-		}
-		t.Logf("a default %s's settings: %d characters, %d quoted", profile, len(line), len(line)+strings.Count(line, `"`))
-	}
-}
-
-// SIERRA's hard row (MSYSAX8): the command line Windows is given for the worst-case desk, as the launcher builds it
-// (launcher.go: the agent, --settings=, the role's model and effort, then its first message, each quoted as Go quotes
-// it there, exeLine), stays under 30,000 of Windows's 32,767. The worst case: the GM's profile or a hire's, an engine
-// desk's (its Claude-folder rules and its plans), every default guard group, the rig's long support folder outside the
-// home folder and also inside it (where the Claude-folder rules are written twice: from ~ and in full), each of
-// setup's 8 Claude accounts in a ~/.claude-<name> folder (accounts kept elsewhere are refused on Windows before this),
-// a long program path, the longest model and effort, and a briefed first message that asks its questions.
+// SIERRA's hard row (MSYSAX8), kept under SETTINGSFILE1: the command line Windows is given for the worst-case desk, as
+// the launcher builds it (launcher.go: the agent, --settings=<its file>, the role's model and effort, then its first
+// message, each quoted as Go quotes it there, exeLine), stays under 30,000 of Windows's 32,767. The settings ride in
+// their file now, so no rule counts here. The worst case is RMSYSAX8 F1's, in full and in Windows's own lengths, so
+// the figure doesn't hang on this test's temp folder: a 32-letter user, the support folder in %APPDATA%; the GM's
+// plugin folder, its agent and its introduction; a briefed first message that asks its questions; and, in the file,
+// every default guard group, setup's 8 accounts, a real support folder's 20 entries and 200 past hires' folders, the
+// support folder in the home folder and not. The line is the same with them as without: it doesn't grow with hires.
 func TestTheWorstCaseDesksWindowsCommandLineStaysUnder30000(t *testing.T) {
 	const most = 30000
 	r := newHireSettingsRig(t)
@@ -338,38 +305,67 @@ func TestTheWorstCaseDesksWindowsCommandLineStaysUnder30000(t *testing.T) {
 	groups := func(string, []string) (int, string, bool) {
 		return 0, `{"groups":` + strings.TrimPrefix(guard.GroupsArgument(guard.DefaultGroups()), `{"groups":`), true
 	}
-	program := `C:\Users\` + strings.Repeat("n", 32) + `\.local\bin\claude.exe`
+	user := `C:\Users\` + strings.Repeat("n", 32)
+	program, support := user+`\.local\bin\claude.exe`, user+`\AppData\Roaming\Smolcorp`
 	role := Role{ID: gmRole, Name: "General Manager of the whole office", Agent: "claude", Model: "claude-opus-5-5[1m]", Effort: "max"}
+	const id = "abc123def456"
+	line := func(settingsPath string, gm bool) string {
+		message := role.briefMessage(support+`\hires\`+id+`\BRIEF-`+strings.Repeat("b", 24)+".md", true)
+		args := []string{"--settings=" + settingsPath}
+		if gm {
+			args = append(args, "--plugin-dir="+user+`\AppData\Local\Programs\Smolcorp\gm\plugin`, "--agent="+gmPluginName+":"+gmPluginAgent)
+			message += "\n\n" + gmIntroduction(user+`\Projects\`+strings.Repeat("p", 40), false)
+		}
+		return exeLine(program, append(args, role.arguments(message)...))
+	}
 	worst, worstAt := 0, ""
-	for _, inHome := range []bool{false, true} {
-		homeDir = filepath.Join(r.root, "home")
-		if inHome {
-			homeDir = filepath.Dir(r.support) // the support folder in the home folder: both forms of the rules
-		}
-		accounts := []claudeProfile{{Name: "default", Dir: filepath.Join(homeDir, ".claude")}}
-		for i := 1; i < claudeAccountsMost; i++ {
-			accounts = append(accounts, claudeProfile{Name: "client" + strconv.Itoa(i), Dir: filepath.Join(homeDir, ".claude-client-"+strconv.Itoa(i)+"-northwind")})
-		}
-		for _, profile := range []guardProfile{guardHire, guardGM} {
-			line, err := r.write("abc123def456", func(o *hireSettingsOptions) {
-				o.System, o.Profiles, o.Run, o.Profile, o.OwnClaude = "windows", accounts, groups, profile, true
-			})
-			if err != nil {
-				t.Fatalf("in home %v, %v: %v", inHome, profile, err)
+	for _, past := range []int{0, 200} {
+		for i := len(r.pastHires); i < past; i++ {
+			r.pastHires = append(r.pastHires, fmt.Sprintf("%012x", 0xa00000000000+i))
+			if err := os.MkdirAll(filepath.Join(r.support, "hires", r.pastHires[i]), 0o700); err != nil {
+				t.Fatal(err)
 			}
-			brief := filepath.Join(r.support, "hires", "abc123def456", "BRIEF-"+strings.Repeat("b", 24)+".md")
-			args := append([]string{"--settings=" + line}, role.arguments(role.briefMessage(brief, true))...)
-			at := fmt.Sprintf("support in home %v, %v", inHome, profile)
-			n := len(exeLine(program, args))
-			t.Logf("%s: the Windows command line is %d characters", at, n)
-			if n > worst {
-				worst, worstAt = n, at
+		}
+		for _, entry := range []string{"sessions.json", "events.jsonl", "events.1.jsonl", "grants.jsonl", "saved.json", "hire-queue.json",
+			"outbox.json", "registry.json", "config.json", "phones.json", "checkpoints", "photos", "recaps", "briefs", "acp-transcripts",
+			"hook-key", "setup-key", "window-key", "instance.lock", "smolcorp.pid"} {
+			if past > 0 {
+				_ = os.WriteFile(filepath.Join(r.support, entry), nil, 0o600)
+			}
+		}
+		for _, inHome := range []bool{false, true} {
+			homeDir = filepath.Join(r.root, "home")
+			if inHome {
+				homeDir = filepath.Dir(r.support) // the support folder in the home folder: both forms of the rules
+			}
+			accounts := []claudeProfile{{Name: "default", Dir: filepath.Join(homeDir, ".claude")}}
+			for i := 1; i < claudeAccountsMost; i++ {
+				accounts = append(accounts, claudeProfile{Name: "client" + strconv.Itoa(i), Dir: filepath.Join(homeDir, ".claude-client-"+strconv.Itoa(i)+"-northwind")})
+			}
+			for _, profile := range []guardProfile{guardHire, guardGM} {
+				written, err := r.writeFile(id, func(o *hireSettingsOptions) {
+					o.System, o.Profiles, o.Run, o.Profile, o.OwnClaude = "windows", accounts, groups, profile, true
+				})
+				if err != nil {
+					t.Fatalf("%d past hires, in home %v, %v: %v", past, inHome, profile, err)
+				}
+				// Every rule is in the file, the last past hire's and the GM's memory switch among them; none is in the line.
+				text := fileSettings(written.Path)
+				if past > 0 && !strings.Contains(text, "/hires/"+r.pastHires[past-1]+"/**)") || profile == guardGM && !strings.Contains(text, `"autoMemoryEnabled":false`) {
+					t.Errorf("%d past hires, %v: the file lacks rules (%d characters)", past, profile, len(text))
+				}
+				at := fmt.Sprintf("%d past hires, support in home %v, %v, the file %d characters", past, inHome, profile, len(text))
+				n := len(line(support+`\hires\`+id+`\`+hireSettingsFile, profile == guardGM))
+				t.Logf("%s: the Windows command line is %d characters", at, n)
+				if n > worst {
+					worst, worstAt = n, at
+				}
 			}
 		}
 	}
 	t.Logf("worst case: %d characters (%s)", worst, worstAt)
-	if worst >= most {
-		t.Errorf("the worst-case desk's Windows command line is %d characters (%s), not under %d", worst, worstAt, most)
+	if worst >= most || worst != len(line(support+`\hires\`+id+`\`+hireSettingsFile, true)) {
+		t.Errorf("the worst-case desk's Windows command line is %d characters (%s), not under %d, or it grows with the rules", worst, worstAt, most)
 	}
 }
 
@@ -423,78 +419,42 @@ func TestEveryDesksClaudeFolderIsDeniedWithTheSupportFolderInTheHomeFolder(t *te
 	}
 }
 
-// RT126CMDLEN B1: each Claude account kept outside ~/.claude* adds its own deny rules, about 2,000 characters, so
-// setup's 8 accounts in folders elsewhere make settings Windows can't start a desk with. On Windows that hire is
-// refused before it starts, in a sentence that names those accounts and says what to do; the same accounts as
-// ~/.claude-<name> fit, and no other system refuses anything.
-func TestAWindowsDeskWhoseSettingsDontFitIsRefusedNamingItsAccounts(t *testing.T) {
+// RT126CMDLEN B1, under SETTINGSFILE1: each Claude account kept outside ~/.claude* adds its own deny rules, about
+// 2,000 characters, and setup's 8 accounts in folders elsewhere once made settings Windows couldn't start a desk with,
+// so that desk was refused. The rules now ride in the desk's file: the same desk starts on Windows, its file holds
+// every account's rules, and its command line names the file alone.
+func TestAWindowsDeskWithAccountsKeptElsewhereStartsWithItsRulesInItsFile(t *testing.T) {
 	r := newHireSettingsRig(t)
 	saved := homeDir
 	homeDir = filepath.Join(r.root, "home") // a stand-in home: nothing is made in it, the rules only name it
 	t.Cleanup(func() { homeDir = saved })
 	elsewhere := []claudeProfile{{Name: "default", Dir: filepath.Join(homeDir, ".claude")}}
-	tidy := slices.Clone(elsewhere)
 	for i := 1; i <= 7; i++ {
-		name := "client" + strconv.Itoa(i)
-		elsewhere = append(elsewhere, claudeProfile{Name: name, Dir: filepath.Join(homeDir, "Documents", "Claude accounts", "client-"+strconv.Itoa(i)+"-northwind")})
-		tidy = append(tidy, claudeProfile{Name: name, Dir: filepath.Join(homeDir, ".claude-client-"+strconv.Itoa(i)+"-northwind")})
+		elsewhere = append(elsewhere, claudeProfile{Name: "client" + strconv.Itoa(i), Dir: filepath.Join(homeDir, "Documents", "Claude accounts", "client-"+strconv.Itoa(i)+"-northwind")})
 	}
-	write := func(system string, profiles []claudeProfile) (string, error) {
-		return r.write("abc123", func(o *hireSettingsOptions) {
-			o.System, o.Profiles = system, profiles
+	for _, profile := range []guardProfile{guardHire, guardGM} {
+		written, err := r.writeFile("abc123", func(o *hireSettingsOptions) {
+			o.System, o.Profiles, o.Profile = "windows", elsewhere, profile
 			o.Run = func(string, []string) (int, string, bool) {
 				return 0, `{"groups":` + strings.TrimPrefix(guard.GroupsArgument(guard.DefaultGroups()), `{"groups":`), true
 			}
 		})
-	}
-	quoted := func(line string) int { return len(exeLine("--settings="+line, nil)) }
-
-	_, err := write("windows", elsewhere)
-	var refusal *hireRefusal
-	if !errors.As(err, &refusal) || refusal.Status != 409 {
-		t.Fatalf("8 accounts elsewhere on Windows: %v", err)
-	}
-	want := "Windows can't start this desk: the Claude accounts client1, client2, client3, client4, client5, client6 and client7 are kept " +
-		"outside a ~/.claude-<name> folder, which makes its settings too long, so move them to ~/.claude-<name> folders or remove " +
-		"some under Claude accounts in Settings, then hire again."
-	if refusal.Message != want {
-		t.Errorf("the refusal says %q", refusal.Message)
-	}
-	for _, system := range []string{"darwin", "linux"} {
-		line, err := write(system, elsewhere)
 		if err != nil {
-			t.Fatalf("%s refused: %v", system, err)
+			t.Fatalf("%v, 8 accounts elsewhere on Windows: %v", profile, err)
 		}
-		if system == "linux" && quoted(line) <= exeLongest {
-			t.Fatalf("the accounts don't push it over: %d", quoted(line))
+		text := fileSettings(written.Path)
+		for _, account := range elsewhere {
+			if !strings.Contains(text, absoluteRulePath(account.Dir)+"/projects/**") {
+				t.Errorf("%v: the file lacks %s's rules", profile, account.Name)
+			}
 		}
-		t.Logf("%s, 8 accounts elsewhere: %d quoted", system, quoted(line))
-	}
-	line, err := write("windows", tidy)
-	if err != nil {
-		t.Fatalf("8 ~/.claude-<name> accounts on Windows: %v", err)
-	}
-	t.Logf("windows, 8 ~/.claude-<name> accounts: %d quoted", quoted(line))
-	// The GM's, with MEM4b's memory switch, fits too.
-	gm, err := r.write("abc123", func(o *hireSettingsOptions) {
-		o.System, o.Profiles, o.Profile = "windows", tidy, guardGM
-		o.Run = func(string, []string) (int, string, bool) {
-			return 0, `{"groups":` + strings.TrimPrefix(guard.GroupsArgument(guard.DefaultGroups()), `{"groups":`), true
+		if quoted := len(exeLine("--settings="+text, nil)); quoted <= exeLongest {
+			t.Errorf("%v: the accounts don't push the settings past Windows's line (%d), so this row proves nothing", profile, quoted)
 		}
-	})
-	if err != nil || !strings.Contains(gm, `"autoMemoryEnabled":false`) {
-		t.Fatalf("the GM with 8 ~/.claude-<name> accounts on Windows: %v", err)
-	}
-	t.Logf("windows, the GM with 8 ~/.claude-<name> accounts: %d quoted, %d left", quoted(gm), exeLongest-quoted(gm))
-
-	// One account elsewhere is named alone; settings too long with none elsewhere still say what to do.
-	if err := settingsTooLong(strings.Repeat("x", exeLongest), elsewhere[:2], "windows"); err == nil ||
-		!strings.HasSuffix(err.Error(), ": the Claude account client1 is kept outside a ~/.claude-<name> folder, which makes its settings too long, "+
-			"so move it to one or remove it under Claude accounts in Settings, then hire again.") {
-		t.Errorf("one account: %v", err)
-	}
-	if err := settingsTooLong(strings.Repeat("x", exeLongest), tidy, "windows"); err == nil || !strings.Contains(err.Error(), "turn off some guard rules") {
-		t.Errorf("no account elsewhere: %v", err)
+		if n := len(exeLine("--settings="+written.Path, nil)); n > 300 {
+			t.Errorf("%v: the line naming the file is %d characters", profile, n)
+		}
+		t.Logf("%v, 8 accounts elsewhere: the file %d characters, %d quoted as a line once was", profile, len(text), len(exeLine("--settings="+text, nil)))
 	}
 }
 

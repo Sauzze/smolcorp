@@ -839,8 +839,8 @@ func TestAHireCantFindAPhotosPathInAnyPromptStore(t *testing.T) {
 	d, f := windowDeck(t)
 	home := t.TempDir()
 	profile := claudeProfile{Name: "work", Dir: filepath.Join(home, "accounts", "work")}
-	// The hire's settings as its command line carries them (hireSettingsLine, SG1): never a file a hire can write.
-	settings, err := hireSettingsLine(hireSettingsOptions{HireID: "hire1", Auto: true, CLI: "/app/smolcorp", Support: supportDir,
+	// The hire's settings as its sealed file holds them (writeHireSettings, SETTINGSFILE1): one a hire can't write.
+	settings, err := writeHireSettings(hireSettingsOptions{HireID: "hire1", Auto: true, CLI: "/app/smolcorp", Support: supportDir,
 		Profiles: []claudeProfile{profile}, Run: func(string, []string) (int, string, bool) { return 0, hireGuardPrinted, true },
 		IsExec: func(string) bool { return true }})
 	if err != nil {
@@ -851,8 +851,8 @@ func TestAHireCantFindAPhotosPathInAnyPromptStore(t *testing.T) {
 			Deny []string `json:"deny"`
 		} `json:"permissions"`
 	}
-	if err := json.Unmarshal([]byte(settings), &file); err != nil {
-		t.Fatalf("%s: %v", settings, err)
+	if err := json.Unmarshal([]byte(fileSettings(settings.Path)), &file); err != nil {
+		t.Fatalf("%s: %v", settings.Path, err)
 	}
 	deny := file.Permissions.Deny
 	// The stand-in claude: what the hire's start script runs, on the profile and on the default account.
@@ -880,7 +880,7 @@ func TestAHireCantFindAPhotosPathInAnyPromptStore(t *testing.T) {
 			t.Fatalf("%s: %v", name, err)
 		}
 		printed := string(out)
-		if !strings.Contains(printed, "arg=--settings="+settings+"\n") {
+		if !strings.Contains(printed, "arg=--settings="+settings.Path+"\n") {
 			t.Fatalf("%s: started without its fence:\n%s", name, printed)
 		}
 		config, _, _ := strings.Cut(strings.TrimPrefix(printed, "config="), "\n")

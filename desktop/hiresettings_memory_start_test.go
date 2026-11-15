@@ -52,14 +52,14 @@ func TestTheGMsStartKeepsItsMemoryOffWhateverSmolcorpInherited(t *testing.T) {
 		}
 		return line, r.json(line)
 	}
-	gmLine, gmSettings := settings(guardGM)
-	hireLine, hireSettings := settings(guardHire)
+	_, gmSettings := settings(guardGM)
+	_, hireSettings := settings(guardHire)
 	gm, err := hireStart{Role: Role{ID: gmRole, Name: "General Manager", Agent: "claude"}, Message: "go", GMToken: testGMToken,
-		GMPlugin: "/p", GMCLI: "/c", Settings: gmLine}.plan()
+		GMPlugin: "/p", GMCLI: "/c", Settings: testSettings("/s/gm.json")}.plan()
 	if err != nil {
 		t.Fatal(err)
 	}
-	hire, err := hireStart{Role: testHireRole(), Message: "go", Ports: "4100-4103", SendKey: "k-1_a", DefaultAccount: true, Settings: hireLine}.plan()
+	hire, err := hireStart{Role: testHireRole(), Message: "go", Ports: "4100-4103", SendKey: "k-1_a", DefaultAccount: true, Settings: testSettings("/s/hire.json")}.plan()
 	if err != nil {
 		t.Fatal(err)
 	}

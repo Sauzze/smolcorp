@@ -2,6 +2,7 @@ package guard
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -48,6 +49,22 @@ func deny(stdout io.Writer, reason string) int {
 		"permissionDecision":       "deny",
 		"permissionDecisionReason": reason,
 	}})
+	if _, err := fmt.Fprintln(stdout, string(out)); err != nil {
+		return exitUsage
+	}
+	return exitOK
+}
+
+// stop prints Claude Code's answer that ends the session, for the PreToolUse hook (the call denied too) or after a
+// call (PostToolUse, PostToolUseFailure: the call blocked). If it can't be written, the exit code says block (2).
+func stop(stdout io.Writer, after bool, reason string) int {
+	answer := map[string]any{"continue": false, "stopReason": reason}
+	if after {
+		answer["decision"], answer["reason"] = "block", reason
+	} else {
+		answer["hookSpecificOutput"] = map[string]any{"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}
+	}
+	out, _ := json.Marshal(answer)
 	if _, err := fmt.Fprintln(stdout, string(out)); err != nil {
 		return exitUsage
 	}
@@ -150,14 +167,32 @@ func KeptCwd(cwd string) bool {
 //	                               --groups, those groups, which FILE only adds to (held.go)
 //	guard --print [--profile P] [--groups JSON] [--rules FILE]
 //	                               the groups it uses now, as JSON, and what's wrong with FILE
+//	guard ... --settings FILE --sum HEX
+//	                               the hook as above, but first the desk's settings file
+//	                               checked against its seal (settings.go): one changed stops the desk
+//	guard --after --settings FILE --sum HEX
+//	                               the PostToolUse hook: that check alone, after each call
 //	guard --config                 the ConfigChange hook: a settings change on stdin, refused
 //	                               unless it is managed settings' or a skill's (held.go)
 //	guard --default                the default file, to start one from
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	rules, profile, printing := "", ProfileHire, false
 	held, holding := "", false
+	settings, sum, after := "", "", false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--settings", "--sum":
+			if i+1 >= len(args) {
+				return deny(stdout, "Refused by Smolcorp's hire guard: "+args[i]+" needs its value.")
+			}
+			if args[i] == "--settings" {
+				settings = args[i+1]
+			} else {
+				sum = args[i+1]
+			}
+			i++
+		case "--after":
+			after = true
 		case "--groups":
 			if i+1 >= len(args) || holding {
 				return deny(stdout, "Refused by Smolcorp's hire guard: --groups needs the groups, once.")
@@ -190,6 +225,22 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		default:
 			// The hook refuses on anything it doesn't understand, its own words included.
 			return deny(stdout, fmt.Sprintf("Refused by Smolcorp's hire guard: unknown word %q in its own command line.", args[i]))
+		}
+	}
+	// The desk's settings file, on both sides of each call: named with its seal, or not at all.
+	if settings != "" || sum != "" || after {
+		if after { // the call's answer, read to its end so Claude Code's write of it never meets a closed pipe
+			_, _ = io.Copy(io.Discard, stdin)
+		}
+		var err error = errors.New("its name or its seal is missing from the guard's own command line")
+		if settings != "" && sum != "" {
+			err = CheckSettings(settings, sum)
+		}
+		if err != nil {
+			return stop(stdout, after, settingsStop(err))
+		}
+		if after {
+			return exitOK
 		}
 	}
 	if rules == "" {

@@ -99,7 +99,7 @@ func TestOnAMacTheProfileHoldsForAStandInHire(t *testing.T) {
 	sockets := filepath.Join(base, "k")
 	files := map[string]string{
 		filepath.Join(support, "setup-key"): "FAKEKEY", filepath.Join(support, "sandbox-canary-1"): "standin",
-		filepath.Join(support, "hire-guard.json"): `{"fence":1}`, filepath.Join(own, "BRIEF.md"): "brief",
+		filepath.Join(support, "hire-guard.json"): `{"fence":1}`, filepath.Join(own, "BRIEF.md"): "brief", filepath.Join(own, "settings.json"): `{"sealed":1}`,
 		filepath.Join(support, "hires", "h2", "BRIEF.md"): "another brief", filepath.Join(own, "claude", "todos.json"): "[]",
 		filepath.Join(root, ".claude", "commands", "x.md"): "x", filepath.Join(other, "main.go"): "package main",
 		filepath.Join(repo, "main.go"): "package main", filepath.Join(git, "config"): "[core]\n", filepath.Join(git, "HEAD"): "ref: refs/heads/main\n",
@@ -116,6 +116,10 @@ func TestOnAMacTheProfileHoldsForAStandInHire(t *testing.T) {
 		if err := os.WriteFile(at, []byte(text), 0o600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// A link in its place to its settings file (SETTINGSFILE1): written through, it's the file's own row that answers.
+	if err := os.Symlink(filepath.Join(own, "settings.json"), filepath.Join(root, "fence-link")); err != nil {
+		t.Fatal(err)
 	}
 	for _, dir := range []string{filepath.Join(root, "sub"), filepath.Join(root, "pkg")} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -149,7 +153,7 @@ func TestOnAMacTheProfileHoldsForAStandInHire(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(base, "elsewhere", "followed.sb")); err == nil {
 		t.Error("PrepareProfile followed a link at the profile's place")
 	}
-	if names, _ := os.ReadDir(own); len(names) != 3 {
+	if names, _ := os.ReadDir(own); len(names) != 4 {
 		t.Errorf("a temporary file was left beside the profile: %v", names)
 	}
 	gemini := filepath.Join(home, ".gemini")
@@ -174,6 +178,11 @@ func TestOnAMacTheProfileHoldsForAStandInHire(t *testing.T) {
 		{"read", own + "/BRIEF.md", "", ok}, {"write", own + "/BRIEF.md", "", no}, {"read", own + "/sandbox.sb", "", ok},
 		{"write", own + "/sandbox.sb", "", no}, {"write", own + "/STATUS.md", "", ok}, {"write", own + "/claude/todos.json", "", ok},
 		{"write", own + "/claude/settings.json", "", no}, {"connect", support + "/desk-start", "", ok},
+		// …its settings file (SETTINGSFILE1): read, never written, replaced, moved, removed, linked or written through a link.
+		{"read", own + "/settings.json", "", ok}, {"write", own + "/settings.json", "", no}, {"chmod", own + "/settings.json", "", no},
+		{"rename", own + "/STATUS.md", own + "/settings.json", no}, {"rename", own + "/settings.json", own + "/NOTES.md", no},
+		{"unlink", own + "/settings.json", "", no}, {"link", own + "/settings.json", own + "/NOTES.md", no},
+		{"symlink", own + "/NOTES.md", own + "/settings.json", ok}, {"write", own + "/NOTES.md", "", no}, {"write", root + "/fence-link", "", no},
 		// The rename guards: the support folder, its worktree, the project, the folders above them, a Hold folder.
 		{"rename", support, base + "/elsewhere/AD", no}, {"rename", root, hires + "/h1-moved", no}, {"rename", hires, base + "/elsewhere/h", no},
 		{"rename", repo, base + "/elsewhere/app", no}, {"rename", home + "/L", base + "/elsewhere/L", no}, {"rmdir", gemini, "", no},
@@ -226,6 +235,9 @@ func TestOnAMacTheProfileHoldsForAStandInHire(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(filepath.Join(support, "hire-guard.json")); string(data) != `{"fence":1}` {
 		t.Errorf("the guard file is %q", data)
+	}
+	if data, _ := os.ReadFile(filepath.Join(own, "settings.json")); string(data) != `{"sealed":1}` {
+		t.Errorf("the settings file is %q", data)
 	}
 }
 

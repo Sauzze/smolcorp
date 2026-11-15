@@ -319,9 +319,11 @@ func TestTheSwitchOnMakesTheHireWithTheEngineAndNoSecretIsInTheOpenersArgumentsO
 		!slices.Contains(got.Unset, "SMOLCORP_GM_TOKEN") || !slices.Contains(got.Unset, "CLAUDE_CONFIG_DIR") {
 		t.Errorf("environment: %+v", got)
 	}
-	// Its settings come with it, for the launcher to put in the agent's command line (SANDBOX-PLAN §3.4).
-	if !strings.Contains(got.Settings, `"PreToolUse"`) || !strings.Contains(got.Settings, `"onFailure":"block"`) {
-		t.Errorf("settings: %s", got.Settings)
+	// Its settings file and seal come with it, for the launcher to check and name in the agent's command line
+	// (SANDBOX-PLAN §3.4, SETTINGSFILE1).
+	if text := fileSettings(got.Settings); !strings.Contains(text, `"PreToolUse"`) || !strings.Contains(text, `"onFailure":"block"`) ||
+		(sealedSettings{Path: got.Settings, Sum: got.SettingsSum}).refusal() != nil {
+		t.Errorf("settings: %s %s: %s", got.Settings, got.SettingsSum, text)
 	}
 	if found := readRegistry(registryPath(), false).hireForSendKey(key); found == nil || found.ID != hires[0].ID {
 		t.Errorf("the key isn't the hire's: %+v", found)
@@ -477,7 +479,7 @@ func TestTheGMGetsTheTokenAndNoKeyOthersAKeyAndNoToken(t *testing.T) {
 		t.Errorf("a hire's start changes Claude Code's memory: %+v", otherWindow.env)
 	}
 	var gmSettings map[string]any
-	if err := json.Unmarshal([]byte(gmWindow.env.Settings), &gmSettings); err != nil {
+	if err := json.Unmarshal([]byte(fileSettings(gmWindow.env.Settings)), &gmSettings); err != nil {
 		t.Fatal(err)
 	}
 	account := map[string]any{"env": map[string]any{claudeMemoryEnv: "0"}, "autoMemoryEnabled": true}

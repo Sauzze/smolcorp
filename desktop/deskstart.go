@@ -264,6 +264,12 @@ func (s *deskStarter) redeem(ticket string, peer int) deskLaunch {
 	if refusal := ownSealRefusal(); refusal != nil {
 		return refuse(refusal.Message)
 	}
+	// Its settings file, as Smolcorp sealed it, at the last moment before its start (settingsfile.go).
+	if t.plan.Settings != (sealedSettings{}) {
+		if refusal := t.plan.Settings.refusal(); refusal != nil {
+			return refuse(refusal.Message)
+		}
+	}
 	program, err := deskProgram(t.plan.Agent)
 	if err != nil {
 		return refuse(err.Error())

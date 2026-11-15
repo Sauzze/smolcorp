@@ -88,9 +88,14 @@ func noRecordKey() {
 	recordsSaid.Unlock()
 }
 
-// scriptSettings are the settings a start script gives its Claude Code in its command line (--settings=…, one
-// shell-quoted word), "" if it gives none.
+// scriptSettings are the settings a start script gives its Claude Code: the file its command line names
+// (--settings=…, one shell-quoted word), read; "" if it names none (settingsfile.go).
 func scriptSettings(script string) string {
+	return fileSettings(scriptSettingsWord(script))
+}
+
+// scriptSettingsWord is what follows --settings= in a start script's command line, "" if nothing does.
+func scriptSettingsWord(script string) string {
 	i := strings.Index(script, "'--settings=")
 	if i < 0 {
 		return ""
@@ -137,14 +142,14 @@ func planText(p deskPlan) string {
 	return text.String()
 }
 
-// launcherSettings are the settings a launcher hire hireID's start environment holds for its Claude Code, as its
-// launcher would take them once, "" if none: they never are in a file or on its command line.
+// launcherSettings are the settings in the file a launcher hire hireID's start environment names for its Claude
+// Code, as its launcher would take it once, "" if none.
 func launcherSettings(d *Deck, hireID string) string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for _, pending := range d.hires {
 		if pending.hireID == hireID && pending.env != nil {
-			return pending.env.Settings
+			return fileSettings(pending.env.Settings)
 		}
 	}
 	return ""

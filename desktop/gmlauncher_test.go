@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -262,6 +263,10 @@ func TestTheGMHireOnTheLauncherStartsItsWindowWithTheGuardOfAHireFromTheOffice(t
 		os.RemoveAll(hireFolder(supportDir, id)) // a hire's settings deny the folders of the hires beside it: the next one finds none
 		for i := range guard {
 			guard[i] = strings.ReplaceAll(guard[i], id, "<hire>")
+		}
+		// Each file's seal is its own hash, of its own hire's id too (settingsfile.go): masked as the id is.
+		if sum := regexp.MustCompile(`"--sum","([0-9a-f]{64})"`).FindStringSubmatch(data); sum != nil {
+			data = strings.ReplaceAll(data, sum[1], "<sum>")
 		}
 		return strings.ReplaceAll(data, id, "<hire>"), guard
 	}

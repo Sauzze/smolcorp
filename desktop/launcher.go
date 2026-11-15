@@ -192,14 +192,15 @@ func launch(run *launcherRun) int {
 		}
 		args = found
 		if startEnv != nil {
-			// The engine hire's own settings, for Claude Code only, right after the agent: given with its
-			// environment, never in a file (SANDBOX-PLAN §3.4). Without them, nothing starts unguarded.
+			// The engine hire's own settings file, for Claude Code only, right after the agent, named with its
+			// environment (SANDBOX-PLAN §3.4). Without it, nothing starts unguarded.
 			if agentNamed(found[0]) != Claude {
 				fmt.Fprintln(os.Stderr, "smolcorp: a hire's settings are for Claude Code, and this role's agent is another")
 				return 2
 			}
-			if startEnv.Settings == "" {
-				fmt.Fprintln(os.Stderr, "smolcorp: this hire's settings didn't come with its start settings, so nothing was started")
+			// Its settings file, checked against its seal as late as can be (settingsfile.go): only the file's name rides here.
+			if refusal := (sealedSettings{Path: startEnv.Settings, Sum: startEnv.SettingsSum}).refusal(); refusal != nil {
+				fmt.Fprintln(os.Stderr, "smolcorp: "+refusal.Message)
 				return 1
 			}
 			args = append([]string{found[0], "--settings=" + startEnv.Settings}, found[1:]...)

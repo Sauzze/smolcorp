@@ -25,6 +25,11 @@ var (
 // broken file: the guard then refuses every command. A file that isn't there
 // keeps its not-exist error, as os.ReadFile's.
 func ReadFile(path string) ([]byte, error) {
+	return readSmall(path, fileMost, errFileTooLarge)
+}
+
+// readSmall is ReadFile's reading of the file at path, up to most bytes: tooLarge past them.
+func readSmall(path string, most int64, tooLarge error) ([]byte, error) {
 	f, err := openGuardFile(path)
 	if err != nil {
 		return nil, err
@@ -40,15 +45,15 @@ func ReadFile(path string) ([]byte, error) {
 	if names, ok := guardFileLinks(f, info); !ok || names != 1 {
 		return nil, errFileNames
 	}
-	if info.Size() > fileMost {
-		return nil, errFileTooLarge
+	if info.Size() > most {
+		return nil, tooLarge
 	}
-	data, err := io.ReadAll(io.LimitReader(f, fileMost+1))
+	data, err := io.ReadAll(io.LimitReader(f, most+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > fileMost {
-		return nil, errFileTooLarge
+	if int64(len(data)) > most {
+		return nil, tooLarge
 	}
 	return data, nil
 }

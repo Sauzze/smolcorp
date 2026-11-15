@@ -132,7 +132,7 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	if r.Role.ID == gmRole {
 		profile = guardGM
 	}
-	settings, err := hireSettingsLine(hireSettingsOptions{HireID: id, Profile: profile, CLI: o.CLI, Support: supportDir, ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec})
+	settings, err := writeHireSettings(hireSettingsOptions{HireID: id, Profile: profile, CLI: o.CLI, Support: supportDir, ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec})
 	if err != nil {
 		undo()
 		return Hire{}, "", err
@@ -188,7 +188,7 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 		return fail(http.StatusInternalServerError, "A hire never holds a send key with the General Manager's token.")
 	}
 	// What the launcher sets on the agent's process, and only there.
-	env := hireStartEnv{Set: map[string]string{}, PathFirst: filepath.Dir(o.CLI), Settings: settings}
+	env := hireStartEnv{Set: map[string]string{}, PathFirst: filepath.Dir(o.CLI), Settings: settings.Path, SettingsSum: settings.Sum}
 	for _, change := range deskToolEnvironment { // as a tmux desk has them
 		env.Set[change.Name] = change.Value
 	}

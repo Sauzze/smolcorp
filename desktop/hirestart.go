@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/Sauzze/smolcorp/internal/guard"
 )
 
 // A hire's start (Phase 6 T602, with T704 and T705; SG2): what a hire's tmux
@@ -41,7 +43,6 @@ type hireStart struct {
 	// the terminal; with neither, no account was named and the start says nothing.
 	ConfigDir      string
 	DefaultAccount bool
-	Settings       string // the hire's own Claude Code settings, their JSON (hireSettingsLine), for Claude Code only
 	CLIDir         string // the folder holding the app's own `smolcorp`, put on this agent's PATH
 	Ports          string // "4100-4103"; "" for an unmanaged hire
 	SendKey        string // the hire's own send key
@@ -51,6 +52,8 @@ type hireStart struct {
 	// Under the Mac app, the API key itself, read through the bridge for this hire alone (hireapikey.go), handed
 	// to the pane by its ticket. "" reads the secret store when the pane asks.
 	KeyText string
+	// Settings are the hire's own Claude Code settings file and its seal (writeHireSettings), for Claude Code only.
+	Settings sealedSettings
 	// Resume is a Claude Code session to go on with (Hand back, t3takeover.go): `--resume <id>`, and no first message.
 	Resume string
 	// The General Manager's plugin folder (gmPluginFolder), for the gm role on Claude Code only, and the program its
@@ -81,6 +84,8 @@ type deskPlan struct {
 	PathFirst string
 	// APIKey reads the API key from the secret store when the pane asks: the start stops without it.
 	APIKey bool
+	// Settings are the agent's settings file, checked against its seal just before it starts (Claude Code's alone).
+	Settings sealedSettings
 }
 
 // deskToolEnvironment is set on every desk Smolcorp starts, whatever its agent, after its own variables: tools
@@ -165,8 +170,12 @@ func (h hireStart) plan() (deskPlan, error) {
 		return deskPlan{}, err
 	}
 	var words []string
-	if claude && h.Settings != "" {
-		words = append(words, "--settings="+h.Settings)
+	// Its settings by their sealed file alone (settingsfile.go): never the settings themselves.
+	if claude && h.Settings != (sealedSettings{}) {
+		if h.Settings.Path == "" || strings.HasPrefix(h.Settings.Path, "{") || len(h.Settings.Sum) != len(guard.SettingsSumBlank) {
+			return deskPlan{}, errors.New("a desk's settings go to its Claude Code only as their sealed file")
+		}
+		words = append(words, "--settings="+h.Settings.Path)
 	}
 	// A test copy's hire doesn't load the account's own settings (the real app's hooks are in them):
 	// its settings file reports to the copy.
@@ -205,8 +214,12 @@ func (h hireStart) plan() (deskPlan, error) {
 	if claude && h.Role.ID == gmRole {
 		changes = append(changes, claudeMemoryStart...)
 	}
-	return deskPlan{Agent: string(agent), Words: words, Changes: slices.Concat(changes, secrets, deskToolEnvironment), PathFirst: h.CLIDir,
-		APIKey: h.APIKey && h.KeyText == ""}, nil
+	plan := deskPlan{Agent: string(agent), Words: words, Changes: slices.Concat(changes, secrets, deskToolEnvironment), PathFirst: h.CLIDir,
+		APIKey: h.APIKey && h.KeyText == ""}
+	if claude {
+		plan.Settings = h.Settings
+	}
+	return plan, nil
 }
 
 // environmentChanges are the hire's own variables: its ports, its send key, a test copy's port and folder (T704),

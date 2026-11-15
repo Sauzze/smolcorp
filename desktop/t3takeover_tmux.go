@@ -92,10 +92,10 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 	// No OwnClaude: Take over takes only a session on the default account (t3OnDefaultAccount), so it goes on there, in
 	// ~/.claude, with Claude Code's own plans folder. One that resumes a desk in its own Claude folder (SA-X8) must set
 	// OwnClaude and DeskClaude and make its plans folder, as the engine does (RT126SAX8R2).
-	settings, err := hireSettingsLine(hireSettingsOptions{HireID: h.ID, Auto: engineAutoMode, Profile: guardHire, CLI: o.CLI,
+	settings, err := writeHireSettings(hireSettingsOptions{HireID: h.ID, Auto: engineAutoMode, Profile: guardHire, CLI: o.CLI,
 		Support: supportDir, ReportPort: testPort, Profiles: profiles, Run: o.Guard, IsExec: o.IsExec})
 	if err != nil {
-		return "", errors.New("its settings, its fence, couldn't be made.")
+		return "", errors.New("its settings, its fence, couldn't be made: " + err.Error())
 	}
 	sendKey, err := sendKeyFor(role, h.ID)
 	if err != nil {

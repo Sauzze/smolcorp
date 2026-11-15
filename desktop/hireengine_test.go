@@ -118,12 +118,12 @@ func TestAManagedHireIsMadeInOrderAndRegistered(t *testing.T) {
 		t.Errorf("no worktree checkout: %v", err)
 	}
 	script := r.script(hire)
-	// Its settings are in its command line, never in a file of its own (SANDBOX-PLAN §3.4).
+	// Its settings are in their sealed file in its own folder, which its command line names alone (SETTINGSFILE1).
 	if settings := scriptSettings(script); !strings.Contains(settings, "PreToolUse") || !strings.Contains(settings, `"onFailure":"block"`) {
 		t.Errorf("no guard hook in the hire's settings: %s", settings)
 	}
-	if _, err := os.Stat(filepath.Join(hireFolder(supportDir, hire.ID), hireSettingsFile)); err == nil {
-		t.Error("a settings file was written for the hire")
+	if file := filepath.Join(hireFolder(supportDir, hire.ID), hireSettingsFile); scriptSettingsWord(script) != file {
+		t.Errorf("the start names %q, not the hire's settings file", scriptSettingsWord(script))
 	}
 	// Its own send key, in its script, and only the key's hash in the registry, against its row.
 	if key := scriptSendKey(script); key == "" {
@@ -132,7 +132,7 @@ func TestAManagedHireIsMadeInOrderAndRegistered(t *testing.T) {
 		t.Errorf("the script's key isn't the hire's in the registry: %+v", h)
 	}
 	// The default account, through the desk's own Claude folder (SA-X8): its sign-in is ~/.claude's.
-	for _, want := range []string{"'--settings={", "unset SMOLCORP_GM_TOKEN", "export CLAUDE_CONFIG_DIR=" + shellQuoted(deskClaudeFolder(supportDir, hire.ID)) + "\n",
+	for _, want := range []string{"'--settings=" + supportDir, "unset SMOLCORP_GM_TOKEN", "export CLAUDE_CONFIG_DIR=" + shellQuoted(deskClaudeFolder(supportDir, hire.ID)) + "\n",
 		"export " + secureStorageEnvironment + "=''\n", "SMOLCORP_HIRE_PORTS='4100-4103'"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("start script lacks %q:\n%s", want, script)

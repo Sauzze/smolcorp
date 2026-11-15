@@ -297,7 +297,7 @@ func TestADesksPlanUsesItsOwnFolderAndItsAccountsSignIn(t *testing.T) {
 		{"a named account", hireStart{ConfigDir: "/a/work"}, "/a/work", "/a/work"},
 	} {
 		start := c.start
-		start.Role, start.Message, start.DeskClaude, start.Settings = testHireRole(), "go", "/s/hires/x/claude", `{"autoMemoryEnabled":false}`
+		start.Role, start.Message, start.DeskClaude, start.Settings = testHireRole(), "go", "/s/hires/x/claude", testSettings("/s/hires/x/settings.json")
 		start.SendKey, start.HookKey = "fake-send-x8", "fake-hook-x8"
 		plan, err := start.plan()
 		if err != nil {
@@ -322,9 +322,9 @@ func TestADesksPlanUsesItsOwnFolderAndItsAccountsSignIn(t *testing.T) {
 			slices.Contains(env, "CLAUDE_CONFIG_DIR=/terminal") || slices.Contains(env, secureStorageEnvironment+"=/terminal") {
 			t.Errorf("%s: the pane's environment %q (%v)", c.name, env, err)
 		}
-		// The inline settings stay (MEM4b keeps the GM's memory off there): they outrank the folder's user settings.
-		if settingsOf(plan) != start.Settings {
-			t.Errorf("%s: the inline settings went: %q", c.name, plan.Words)
+		// The settings file stays (MEM4b keeps the GM's memory off there): it outranks the folder's user settings.
+		if settingsOf(plan) != start.Settings.Path || plan.Settings != start.Settings {
+			t.Errorf("%s: the settings file went: %q", c.name, plan.Words)
 		}
 	}
 	// No account named: refused, never the terminal's folder's sign-in.

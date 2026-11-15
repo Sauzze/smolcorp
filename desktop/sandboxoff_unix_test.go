@@ -77,7 +77,7 @@ func TestEveryDeskStartsWithTheAutoUpdaterOffAndHuskyAsTheTerminalHadIt(t *testi
 // each agent other than Claude.
 func everyKindOfDeskStart() map[string]hireStart {
 	starts := map[string]hireStart{
-		"a hire":      {Role: testHireRole(), Message: "go", Ports: "4100-4103", SendKey: "k-1_a", DefaultAccount: true, Settings: "{}"},
+		"a hire":      {Role: testHireRole(), Message: "go", Ports: "4100-4103", SendKey: "k-1_a", DefaultAccount: true, Settings: testSettings("/s/hires/x/settings.json")},
 		"the GM":      {Role: Role{ID: gmRole, Name: "General Manager", Agent: "claude"}, Message: "go", GMToken: testGMToken, GMPlugin: "/p", GMCLI: "/c"},
 		"a test copy": {Role: testHireRole(), Message: "go", ConfigDir: "/a", TestPort: 7745, TestSupportDir: "/t"},
 		"a resumed":   {Role: testHireRole(), Resume: "s-1"},

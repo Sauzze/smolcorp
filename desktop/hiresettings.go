@@ -19,8 +19,9 @@ import (
 )
 
 // A manager hire's own Claude Code settings, ported from the Mac's HireSettings.swift:
-// made for that hire alone and given to its Claude Code in its command line
-// (--settings '<json>'), never as a file a hire could change (SANDBOX-PLAN §3.4, SG1).
+// made for that hire alone and written to a file in its own folder that it can read and never write, sealed by its
+// hash (settingsfile.go, SETTINGSFILE1), which its Claude Code is started with (--settings <file>): never the
+// settings themselves in its command line, and never a file a hire could change (SANDBOX-PLAN §3.4, SG1).
 // Settings given there rank above the account's, the project's and the local ones,
 // which are merged under them. They hold
 //
@@ -28,7 +29,9 @@ import (
 //     for reading .env files and Claude's session transcripts, and for editing Claude's
 //     settings and this app's files;
 //   - the guard (`smolcorp guard`) as a PreToolUse hook before every tool call, with the
-//     core's copy of the owner's guard in its own command line (--groups);
+//     core's copy of the owner's guard in its own command line (--groups), and with the
+//     settings file and its seal (--settings, --sum), which it checks before every call and,
+//     as a PostToolUse and PostToolUseFailure hook (--after), after it;
 //   - the guard as a ConfigChange hook (`smolcorp guard --config`), which refuses every
 //     reload of the account's, the project's or the local settings during the session;
 //   - every one of this app's hooks run without a shell (command and args), and with
@@ -50,14 +53,14 @@ import (
 // the GM's token, and the rules below keep it out of the token, the setup key, the hook
 // key, other hires' folders and the app's state.
 //
-// The tmux engine puts them in the hire's start script (hirestart.go); the Windows
-// launcher gets them with the hire's start environment (hirestartenv.go). A desk is
+// The tmux engine names the file in the desk's start (hirestart.go); the Windows
+// launcher gets its name with the hire's start environment (hirestartenv.go). A desk is
 // started only on a Claude Code that takes onFailure (claudeVersionRefusal).
 
 // hireGuardFile is the app's guard rules file, in the support folder.
 const hireGuardFile = "hire-guard.json"
 
-// hireSettingsFile is the name of the settings file a hire had in its own folder before 1.26.
+// hireSettingsFile is the name of a desk's settings file in its own folder (settingsfile.go).
 const hireSettingsFile = "settings.json"
 
 // hireKnownFolders are the folders the app makes in its support folder, besides
@@ -181,10 +184,19 @@ func smolcorpHook(tool string, arguments []string, timeout int) map[string]any {
 }
 
 // guardHook is the PreToolUse hook: `guard`, its profile, the core's copy of the
-// groups (held) and the rules file, which only adds to them.
-func guardHook(tool, rules, held string, profile guardProfile) map[string]any {
+// groups (held) and the rules file, which only adds to them; with the settings file
+// (file, "" for none), its name and the blank its seal is put in (settingsfile.go).
+func guardHook(tool, rules, held string, profile guardProfile, file string) map[string]any {
 	arguments := append(append([]string{"guard"}, profile.arguments()...), "--groups", held, "--rules", rules)
-	return smolcorpHook(tool, arguments, 10)
+	return smolcorpHook(tool, append(arguments, settingsWords(file)...), 10)
+}
+
+// settingsWords are the guard's words naming the settings file and its seal, none without a file.
+func settingsWords(file string) []string {
+	if file == "" {
+		return nil
+	}
+	return []string{"--settings", file, "--sum", guard.SettingsSumBlank}
 }
 
 // configHook is the ConfigChange hook: `guard --config`, which refuses a reload of the
@@ -501,56 +513,29 @@ type hireSettingsOptions struct {
 	System string
 	// OwnClaude is set for a desk whose Claude folder is its own (SA-X8): its plans are pinned outside that folder.
 	OwnClaude bool
+	// File is where the settings are written (writeHireSettings), named in the guard's words with its seal; ""
+	// for settings never written there (T3 Code's fence, the fixtures).
+	File string
 }
 
-// hireSettingsLine is hire HireID's settings as its Claude Code takes them in its
-// command line, after --settings: refused if the guard can't be run. Each start that
-// uses it has checked Claude Code's version first (claudeVersionRefusal).
-func hireSettingsLine(o hireSettingsOptions) (string, error) {
+// hireSettingsText is hire HireID's settings as their file holds them (writeHireSettings): refused if the guard
+// can't be run. Each start that uses them has checked Claude Code's version first (claudeVersionRefusal).
+func hireSettingsText(o hireSettingsOptions) ([]byte, error) {
 	object, err := hireSettingsObject(o)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	var line bytes.Buffer
-	encoder := json.NewEncoder(&line)
+	var text bytes.Buffer
+	encoder := json.NewEncoder(&text)
 	encoder.SetEscapeHTML(false)
 	if encoder.Encode(object) != nil {
-		return "", &hireRefusal{Status: 500, Message: "Couldn't make the hire's settings, so Smolcorp won't start it unguarded."}
+		return nil, &hireRefusal{Status: 500, Message: "Couldn't make the hire's settings, so Smolcorp won't start it unguarded."}
 	}
-	settings := strings.TrimSuffix(line.String(), "\n")
-	if err := settingsTooLong(settings, o.Profiles, cmpOr(o.System, runtime.GOOS)); err != nil {
-		return "", err
-	}
-	return settings, nil
-}
-
-// settingsTooLong refuses, on Windows only, settings Windows couldn't start a desk with: they ride in its command
-// line (--settings=<json>, quoted as Windows takes it), which holds at most 32767 characters. Each Claude account
-// kept outside ~/.claude* adds about 2,000 of them (promptStoreRules), so the sentence names those accounts.
-func settingsTooLong(settings string, profiles []claudeProfile, system string) error {
-	if system != "windows" || len(exeLine("--settings="+settings, nil)) <= exeLongest {
-		return nil
-	}
-	var names []string
-	for _, profile := range profiles {
-		if _, ok := claudeStoreFolder(profile.Dir); ok {
-			names = append(names, cmpOr(profile.Name, profile.Dir))
-		}
-	}
-	if len(names) == 0 {
-		return &hireRefusal{Status: 409, Message: "Windows can't start this desk: its settings are too long, so turn off some guard rules in Settings, then hire again."}
-	}
-	accounts, fix := "the Claude account "+names[0]+" is", "move it to one or remove it"
-	if len(names) > 1 {
-		accounts = "the Claude accounts " + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1] + " are"
-		fix = "move them to ~/.claude-<name> folders or remove some"
-	}
-	return &hireRefusal{Status: 409, Message: "Windows can't start this desk: " + accounts + " kept outside a ~/.claude-<name> folder, " +
-		"which makes its settings too long, so " + fix + " under Claude accounts in Settings, then hire again."}
+	return text.Bytes(), nil
 }
 
 // hireSettingsObject is what hire HireID's settings hold (deny rules, the guard as a
-// PreToolUse and a ConfigChange hook, the pinned keys, auto mode), as hireSettingsLine
+// PreToolUse and a ConfigChange hook, the pinned keys, auto mode), as hireSettingsText
 // gives them: refused if the guard can't be run. A hire in T3 Code gets the same, as its worktree's fence (t3desk.go), as
 // the Mac's HireSettings.object gives both.
 func hireSettingsObject(o hireSettingsOptions) (map[string]any, error) {
@@ -601,7 +586,16 @@ func hireSettingsObject(o hireSettingsOptions) (map[string]any, error) {
 	if shell == "" {
 		shell = pinnedShell(runtime.GOOS, os.Getenv("SHELL"), isExecutableFile)
 	}
-	value := hireSettingsValue(deny, guardHook(o.CLI, rules, held, profile), configHook(o.CLI), shell, o.Auto, reporting, profile)
+	value := hireSettingsValue(deny, guardHook(o.CLI, rules, held, profile, o.File), configHook(o.CLI), shell, o.Auto, reporting, profile)
+	// The guard checks the settings file after each call too, failed ones included.
+	if o.File != "" {
+		hooks := value["hooks"].(map[string]any)
+		after := map[string]any{"matcher": "*", "hooks": []any{smolcorpHook(o.CLI, append([]string{"guard", "--after"}, settingsWords(o.File)...), 10)}}
+		for _, event := range []string{"PostToolUse", "PostToolUseFailure"} {
+			existing, _ := hooks[event].([]any)
+			hooks[event] = append([]any{after}, existing...)
+		}
+	}
 	if o.OwnClaude {
 		value["plansDirectory"] = deskPlansFor(o.HireID)
 	}

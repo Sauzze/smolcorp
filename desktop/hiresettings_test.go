@@ -29,6 +29,8 @@ type hireSettingsRig struct {
 	cli     string
 	work    claudeProfile
 	asked   [][]string
+	// pastHires are the folders of hires made before, beside other11, that a row has added.
+	pastHires []string
 }
 
 func newHireSettingsRig(t *testing.T) *hireSettingsRig {
@@ -47,7 +49,8 @@ func newHireSettingsRig(t *testing.T) *hireSettingsRig {
 		work: claudeProfile{Name: "work", Dir: filepath.Join(root, "claude-work")}}
 }
 
-func (r *hireSettingsRig) write(id string, mutate func(*hireSettingsOptions)) (string, error) {
+// options are the options hire id's settings are made with, the rig's stand-ins changed by mutate.
+func (r *hireSettingsRig) options(id string, mutate func(*hireSettingsOptions)) hireSettingsOptions {
 	o := hireSettingsOptions{HireID: id, Auto: true, CLI: r.cli, Support: r.support, Profiles: []claudeProfile{r.work},
 		Run: func(tool string, arguments []string) (int, string, bool) {
 			r.asked = append(r.asked, append([]string{tool}, arguments...))
@@ -57,10 +60,21 @@ func (r *hireSettingsRig) write(id string, mutate func(*hireSettingsOptions)) (s
 	if mutate != nil {
 		mutate(&o)
 	}
-	return hireSettingsLine(o)
+	return o
 }
 
-// json is the settings a hire's command line carries, read.
+// write is hire id's settings, as their file holds them.
+func (r *hireSettingsRig) write(id string, mutate func(*hireSettingsOptions)) (string, error) {
+	text, err := hireSettingsText(r.options(id, mutate))
+	return strings.TrimSuffix(string(text), "\n"), err
+}
+
+// writeFile writes hire id's settings file as a start does (writeHireSettings).
+func (r *hireSettingsRig) writeFile(id string, mutate func(*hireSettingsOptions)) (sealedSettings, error) {
+	return writeHireSettings(r.options(id, mutate))
+}
+
+// json is the settings a hire's file holds, read.
 func (r *hireSettingsRig) json(line string) map[string]any {
 	r.t.Helper()
 	var object map[string]any
@@ -570,7 +584,8 @@ func TestHireGuardRunnerRunsAFakeProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", dir)
-	path, err := hireSettingsLine(hireSettingsOptions{HireID: "abc123", CLI: fake, Support: filepath.Join(dir, "support")})
+	text, err := hireSettingsText(hireSettingsOptions{HireID: "abc123", CLI: fake, Support: filepath.Join(dir, "support")})
+	path := string(text)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -580,7 +595,7 @@ func TestHireGuardRunnerRunsAFakeProgram(t *testing.T) {
 	if _, _, ok := runGuardTool(filepath.Join(dir, "missing"), nil); ok {
 		t.Fatal("a missing program reported as run")
 	}
-	if _, err := hireSettingsLine(hireSettingsOptions{HireID: "abc123", CLI: filepath.Join(dir, "missing"), Support: dir}); err != errGuardMissing {
+	if _, err := writeHireSettings(hireSettingsOptions{HireID: "abc123", CLI: filepath.Join(dir, "missing"), Support: dir}); err != errGuardMissing {
 		t.Fatalf("err = %v", err)
 	}
 }
