@@ -2525,7 +2525,12 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		floorPins = append(floorPins, map[string]any{"floor": pin.Floor, "desk": pin.Desk, "folder": pin.Folder, "name": lastPathComponent(pin.Folder)})
 	}
 	sessions := []map[string]any{}
+	// Setup's account list says when one of your sessions is on a Claude folder it hasn't confirmed (PLAINENV1).
+	claudeAccounts["unconfirmedInUse"] = false
 	for _, s := range d.sessions.All() {
+		if s.unconfirmedFolder {
+			claudeAccounts["unconfirmedInUse"] = true
+		}
 		var key any
 		if index, ok := keyOf[s.ID]; ok {
 			key = index

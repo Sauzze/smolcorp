@@ -96,6 +96,9 @@ type launcherRun struct {
 	// For an engine hire (hirelauncher.go): its id. The launcher then asks the app for
 	// the hire's environment and its settings before it starts anything.
 	hireID string
+	// For a plain hire of Claude Code (hire.go) on an account other than ~/.claude: that account's folder, from
+	// setup's confirmed list. See plainHireEnv.
+	claudeConfig string
 	// For a hire of a role, its agent as the office checked it could start: the
 	// role must still have it.
 	agent string
@@ -103,8 +106,9 @@ type launcherRun struct {
 	started bool
 }
 
-// parseRun reads `smolcorp run`'s arguments: [--hire <token> [--pinned]
-// [--agent <agent>]] then <agent> [arguments], or --role <id>.
+// parseRun reads `smolcorp run`'s arguments: [--hire <token> [--hire-id <id> |
+// --claude-config <folder>] [--pinned] [--agent <agent>]] then <agent>
+// [arguments], or --role <id>.
 func parseRun(args []string) (*launcherRun, error) {
 	run := &launcherRun{}
 	if len(args) >= 2 && args[0] == "--hire" {
@@ -117,6 +121,13 @@ func parseRun(args []string) (*launcherRun, error) {
 				return nil, errors.New("not a hire's id")
 			}
 			run.hireID, args = args[1], args[2:]
+		}
+		if len(args) >= 2 && args[0] == "--claude-config" {
+			// The app's own word for a plain hire's account, a full path: an engine hire's comes with its start settings.
+			if run.hireID != "" || !filepath.IsAbs(args[1]) || filepath.Clean(args[1]) != args[1] {
+				return nil, errors.New("not an account's folder")
+			}
+			run.claudeConfig, args = args[1], args[2:]
 		}
 		if len(args) > 0 && args[0] == "--pinned" {
 			run.pinned, args = true, args[1:]
@@ -194,6 +205,10 @@ func launch(run *launcherRun) int {
 			args = append([]string{found[0], "--settings=" + startEnv.Settings}, found[1:]...)
 		}
 	}
+	if run.claudeConfig != "" && agentNamed(args[0]) != Claude {
+		fmt.Fprintln(os.Stderr, "smolcorp: a Claude account is for Claude Code, and this hire's agent is another")
+		return 2
+	}
 	program, programArgs, err := resolveProgram(args[0], args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
@@ -248,6 +263,8 @@ func launch(run *launcherRun) int {
 	if startEnv != nil {
 		// On the agent's process alone.
 		cmd.Env = startEnvironment(cmd.Env, *startEnv, runtime.GOOS == "windows")
+	} else if run.hire != "" && agentNamed(args[0]) == Claude {
+		cmd.Env = plainHireEnv(cmd.Env, run.claudeConfig, runtime.GOOS == "windows")
 	}
 	cmd.Dir = folder
 	rows, cols, sized := consoleSize()
@@ -282,6 +299,18 @@ func launch(run *launcherRun) int {
 		return 1
 	}
 	return 0
+}
+
+// plainHireEnv is a plain hire's environment (hire.go: a pinned desk, another agent, no role), for Claude Code: on
+// the account the office hired it on, never the one the terminal's shell names (PLAINENV1). folder is that account's,
+// from setup's confirmed list, or "" for ~/.claude: CLAUDE_CONFIG_DIR is set to it, or taken out. So its transcripts
+// are in a folder the deck takes them from (transcriptKnown), as an engine hire's are (hirestart.go).
+func plainHireEnv(env []string, folder string, caseless bool) []string {
+	change := hireStartEnv{Unset: []string{"CLAUDE_CONFIG_DIR"}}
+	if folder != "" {
+		change = hireStartEnv{Set: map[string]string{"CLAUDE_CONFIG_DIR": folder}}
+	}
+	return startEnvironment(env, change, caseless)
 }
 
 // cmdLongest is the longest line cmd.exe runs.

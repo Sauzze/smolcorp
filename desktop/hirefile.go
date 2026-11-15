@@ -141,6 +141,16 @@ func transcriptInfo(path string) (os.FileInfo, bool) {
 	return info, true
 }
 
+// unconfirmedClaudeFolder is whether a transcript at path, which transcriptKnown didn't take, is in a Claude folder
+// by its layout (<folder>/projects/<project>/<session>.jsonl) outside Smolcorp's own: what the owner could confirm in
+// setup. Nothing is read or resolved.
+func unconfirmedClaudeFolder(path string) bool {
+	place := transcriptPlace(path)
+	rel, err := filepath.Rel(supportDir, place)
+	ours := err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+	return place != "" && !ours
+}
+
 // transcriptKnown is whether a transcript at path, as a hook event with desk's key names it ("" for the owner's
 // sessions' key), lies in a place that desk's transcripts are kept (N2: by place):
 //   - a desk with its own Claude folder (SA-X8, deskOwnClaude): that folder alone, never an account's or another

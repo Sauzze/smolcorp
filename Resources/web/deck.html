@@ -281,6 +281,7 @@
 </div>
 <div class="summary" id="info" role="status" aria-live="polite" hidden>
   <div class="summary-head"><span>ⓘ</span><b id="info-name"></b><span aria-label="Close">✕</span></div>
+  <div class="info-note" id="info-notice" hidden></div>
   <dl class="info-rows" id="info-rows"></dl>
   <div class="info-note" id="info-note" hidden></div>
 </div>
@@ -1715,6 +1716,7 @@
     if (res && res.status === 401) return unpaired();
     if (!res || !res.ok) {
       $('info').className = 'summary failed';
+      $('info-notice').hidden = true;
       $('info-rows').replaceChildren(infoRow('', res ? await problemText(res) : "Can't reach your computer."));
       return;
     }
@@ -1757,6 +1759,9 @@
     if (limits && limits.fiveHour) add('5-hour limit', meter(limits.fiveHour));
     if (limits && limits.weekly) add('Weekly limit', meter(limits.weekly));
     $('info-rows').replaceChildren(...rows);
+    // Why the session has no conversation here: its Claude folder isn't confirmed in setup (PLAINENV1).
+    $('info-notice').hidden = !facts.notice;
+    $('info-notice').textContent = facts.notice || '';
     $('info-note').hidden = !limits;
     if (limits) $('info-note').textContent = `Use as Claude Code last fetched it, ${limits.ageMs < 60_000 ? 'just now' : `${duration(limits.ageMs)} ago`}.`;
   }

@@ -38,6 +38,7 @@ type knownGap struct{ subject, where, got, why, owner string }
 // knownGaps is every difference between the Mac's answers and this app's, today. Keep it in INVENTORY.md's
 // order: TestTheKnownGapsAreInventorysGoStatus checks the two are the same table.
 var knownGaps = []knownGap{
+	{"setup-state", ".claudeAccounts.unconfirmedInUse", "extra", "one of your own sessions is on a Claude folder that isn't confirmed here, so its conversation isn't shown (PLAINENV1), which the Swift engine never had", "stays: Go-only, the page's line in Claude accounts; the Mac runs the Go core"},
 	{"setup-state", ".hiring.agentsChecked", "extra", "whether this computer checks agents' programs (a Mac checks Claude Code's signature, RT126SG2 B2), which the Swift engine never did", "stays: Go-only, the page's line under Let the office hire and fire; the Mac runs the Go core"},
 	{"setup-state", ".hiring.claudeUnsigned", "extra", "an unsigned Claude Code refused after a signed one ran, for the owner to confirm (RT126SG2 B2), which the Swift engine never had", "stays: Go-only, the page's alone to confirm; the Mac runs the Go core"},
 	{"setup-state", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},
@@ -47,6 +48,7 @@ var knownGaps = []knownGap{
 	{"setup-state", ".phones[].beforeSigning", "extra", "a phone paired before 1.25, whose key crossed the Wi-Fi in clear (FXSEC B1), which the Swift engine never had", "stays: Go-only, the page's Paired phones; the Mac runs the Go core"},
 	{"setup-state", ".phones[].pairedAgain", "extra", "a phone of its name paired since, so setup offers to remove the old entry (FXSEC B1)", "stays: Go-only, the page's Paired phones; the Mac runs the Go core"},
 	{"setup-state", ".summary.noStore", "extra", "says there's no secret store for the key, which a Mac always has", "stays: Go-only; the page hides the key's setup only when it's true, and a Mac's Keychain (M1) makes it false"},
+	{"setup-state-tool", ".claudeAccounts.unconfirmedInUse", "extra", "one of your own sessions is on a Claude folder that isn't confirmed here, so its conversation isn't shown (PLAINENV1), which the Swift engine never had", "stays: Go-only, the page's line in Claude accounts; the Mac runs the Go core"},
 	{"setup-state-tool", ".hiring.agentsChecked", "extra", "whether this computer checks agents' programs (a Mac checks Claude Code's signature, RT126SG2 B2), which the Swift engine never did", "stays: Go-only, the page's line under Let the office hire and fire; the Mac runs the Go core"},
 	{"setup-state-tool", ".hiring.claudeUnsigned", "extra", "an unsigned Claude Code refused after a signed one ran, for the owner to confirm (RT126SG2 B2), which the Swift engine never had", "stays: Go-only, the page's alone to confirm; the Mac runs the Go core"},
 	{"setup-state-tool", ".hiring.managedBeta", "extra", "the launcher's hire beta (Windows)", "stays: Go-only, the launcher's hire beta; the page doesn't read it"},

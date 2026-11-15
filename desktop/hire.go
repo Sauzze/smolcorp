@@ -482,8 +482,9 @@ const (
 	// A role whose agent isn't one Smolcorp knows: the Swift engine started it as Claude Code, fenced.
 	macHireUnknownAgent = "A role whose agent Smolcorp doesn't know can't start fenced yet: set its agent to Claude Code in setup."
 	// Anyone's hire (no role) with the manager on: the Swift engine fenced it, the engine only hires a role.
-	macHireNoRoleUnfenced   = "A hire with no role can't start fenced yet: pick a role."
-	plainHireDefaultAccount = "This hire would start on your default Claude account, so it wasn't started: hire in tmux, at a desk that isn't pinned."
+	macHireNoRoleUnfenced = "A hire with no role can't start fenced yet: pick a role."
+	// A test copy's Claude hire that only the plain way could start (PLAINENV1: it would report to your own Smolcorp).
+	plainHireInTestCopy = "A test copy starts a hire only in tmux, at a desk that isn't pinned, so this one wasn't started."
 	// Setup's hire that went the plain way, said with its answer (setuphire.go).
 	setupHireNotPassedOn = "It starts the old way: your task and answers weren't passed on, and it asks its role's questions itself."
 )
@@ -812,13 +813,19 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 		d.lastHire = time.Time{}
 		return http.StatusConflict, "The General Manager hires only into a hire Smolcorp can fence, and this one couldn't be."
 	}
-	// The launcher can't start on a named Claude account, and a test copy never hires on the default one.
-	if agentOrClaude(program) == Claude && (configDir != "" || testCopyPort() != 0) {
+	// A test copy's plain hire: no settings of the copy's own, so it would report to your own Smolcorp.
+	if agentOrClaude(program) == Claude && testCopyPort() != 0 {
 		d.lastHire = time.Time{}
-		return http.StatusConflict, plainHireDefaultAccount
+		return http.StatusConflict, plainHireInTestCopy
 	}
 	token := newID()
 	command := []string{commandLineProgram(), "run", "--hire", token}
+	// Claude Code starts on the account it's hired on, whatever the terminal's shell sets (PLAINENV1): a named one's
+	// folder, from setup's confirmed list (configDir), goes with it; without one, the launcher takes CLAUDE_CONFIG_DIR
+	// out, so it runs on ~/.claude (plainHireEnv).
+	if agentOrClaude(program) == Claude && configDir != "" {
+		command = append(command, "--claude-config", configDir)
+	}
 	if pinned != "" && floor == 0 {
 		command = append(command, "--pinned")
 	}

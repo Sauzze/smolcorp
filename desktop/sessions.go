@@ -85,6 +85,9 @@ type Session struct {
 	// Claude Code's transcript of the conversation, which names the model of
 	// each reply.
 	Transcript string
+	// The owner's own session whose hooks name a transcript in a Claude folder that isn't ~/.claude or confirmed in
+	// setup (unconfirmedClaudeFolder): not taken, so the session's card says why. Never saved.
+	unconfirmedFolder bool
 }
 
 type Subagent struct {

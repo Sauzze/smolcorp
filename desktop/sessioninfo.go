@@ -504,6 +504,7 @@ type infoDesk struct {
 	startedAt            float64
 	model, effort        string
 	turnStartedAt        float64 // 0 when not at work
+	unconfirmedFolder    bool    // Session.unconfirmedFolder
 }
 
 // sessionInfos are every desk's facts, kept up to date as the card asks for them, under a lock of their own.
@@ -636,9 +637,15 @@ func (s *sessionInfos) trim(keep string) {
 	}
 }
 
+// unconfirmedFolderNotice is the card's line for a session whose transcript isn't taken (PLAINENV1).
+const unconfirmedFolderNotice = "This session uses a Claude folder that isn't confirmed in Setup: confirm it there to see its conversation."
+
 // infoCard is the card's facts, from what's been gathered: a fact with no source is left out.
 func infoCard(desk infoDesk, read *tally, account *claudeAccount, billing string, now float64) map[string]any {
 	card := map[string]any{"agent": desk.agent.Name(), "desk": desk.project}
+	if desk.unconfirmedFolder {
+		card["notice"] = unconfirmedFolderNotice
+	}
 
 	// Who pays: an API key or a cloud provider in its environment wins over the profile's login.
 	switch billing {
@@ -754,7 +761,7 @@ func (d *Deck) sessionInfo(id string) (int, any) {
 	var desk infoDesk
 	if s != nil {
 		desk = infoDesk{id: s.ID, agent: s.Agent, project: s.ProjectName(), projectPath: s.Project, transcript: s.Transcript,
-			startedAt: s.StartedAt, model: s.Model, effort: s.Effort}
+			startedAt: s.StartedAt, model: s.Model, effort: s.Effort, unconfirmedFolder: s.unconfirmedFolder}
 		if s.IsBusy() {
 			desk.turnStartedAt = s.TurnStartedAt
 		}

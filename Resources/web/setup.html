@@ -3411,6 +3411,9 @@
       row.append(add);
       rows.push(row);
     }
+    // PLAINENV1: one of your own sessions is on a Claude folder this list doesn't have, so Smolcorp doesn't read its conversation.
+    if (accounts.unconfirmedInUse) rows.push(Object.assign(document.createElement('div'), { className: 'row', id: 'accounts-unconfirmed',
+      textContent: "One of your sessions uses a Claude folder that isn't confirmed here, so its conversation isn't shown: add that folder below to see it." }));
     $('accounts-list').replaceChildren(...rows);
     // A test copy's second account is named for what it's for.
     $('account-signin-line').textContent = `CLAUDE_CONFIG_DIR=~/.claude-${testCopy() ? 'test' : 'work'} claude`;

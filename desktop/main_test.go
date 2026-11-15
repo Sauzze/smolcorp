@@ -25,6 +25,10 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(runWithTempSupport(func() int { return memoryStandIn(part) }))
 	}
+	// `smolcorp run` itself, the real launcher, in a process of its own (plainenv_test.go).
+	if args := os.Getenv(launcherStandInVariable); args != "" {
+		os.Exit(runWithTempSupport(func() int { return launcherStandIn(args) }))
+	}
 	os.Exit(runWithTempSupport(m.Run))
 }
 

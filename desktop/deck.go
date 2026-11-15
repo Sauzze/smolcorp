@@ -549,11 +549,20 @@ func (d *Deck) ingestAs(desks hookDesks, desk string, event map[string]any, repo
 		}
 	}
 	// A transcript is taken by its place only (N2, hirefile.go): one named anywhere else is never read.
-	// A desk with its own Claude folder (SA-X8) is taken there alone, by the key it speaks with.
-	if path, _ := canonical["transcript_path"].(string); path != "" && !d.transcriptKnown(desk, path) {
-		delete(canonical, "transcript_path")
+	// A desk with its own Claude folder (SA-X8) is taken there alone, by the key it speaks with. The owner's own
+	// session on a Claude folder setup hasn't confirmed is still refused, and its card says so (PLAINENV1).
+	named, unconfirmed := "", false
+	if path, _ := canonical["transcript_path"].(string); path != "" {
+		named = path
+		if !d.transcriptKnown(desk, path) {
+			unconfirmed = desk == "" && unconfirmedClaudeFolder(path)
+			delete(canonical, "transcript_path")
+		}
 	}
 	changed := d.sessions.Apply(canonical, agent, tab, startedIn, at)
+	if s := d.sessions.Get(id); s != nil && named != "" && s.unconfirmedFolder != unconfirmed {
+		s.unconfirmedFolder, changed = unconfirmed, true
+	}
 	d.logEvent(canonical, agent, at)
 	// A prompt of the GM's session: the owner's words where the core didn't type them (ownerwords.go). Never logged.
 	d.heardInTerminal(canonical)

@@ -459,10 +459,10 @@ func TestUnderTheMacAppTheGMRoutesFieldRefusalSpeaksOfThisEngine(t *testing.T) {
 	nothingMade(t, r, h)
 }
 
-// B2 (RM4): the launcher starts on the default account, so a hire on a named
-// account, or any Claude hire in a test copy, is refused on each plain way
-// (tmux off, a pinned folder, no tmux) with nothing opened.
-func TestAPlainHireNeverStartsOnTheDefaultAccountInsteadOfANamedOne(t *testing.T) {
+// B2 (RM4), PLAINENV1: a plain hire on a named account starts on that account, on each plain way (tmux off, a pinned
+// folder, no tmux): the launcher is given the account's folder (plainHireEnv sets it). A test copy's Claude hire is
+// still refused on each, with nothing opened: it would report to your own Smolcorp.
+func TestAPlainHireStartsOnItsNamedAccountAndNeverInATestCopy(t *testing.T) {
 	d, r, h := engineDeck(t)
 	repo := homeRepo(t)
 	account := filepath.Join(homeDir, ".claude-test")
@@ -488,29 +488,46 @@ func TestAPlainHireNeverStartsOnTheDefaultAccountInsteadOfANamedOne(t *testing.T
 		} {
 			saved := tmuxPath
 			d.config.HireInTmux, d.config.Pins[1] = true, nil
+			h.windows, h.tmux = nil, nil
 			c.setup()
 			d.lastHire = time.Time{}
 			status, message := d.hireAsWith(c.desk, "janitor", 0, true,
 				&setupHire{Role: "janitor", Folder: repo, Account: "test", configDir: account})
 			tmuxPath = saved
+			if len(registered(t)) != 0 || len(r.tmux.asked) != 0 {
+				t.Errorf("test copy %v, %s: the engine was used: %q", copy, c.name, r.tmux.asked)
+			}
+			if !copy {
+				// The plain way, on the named account: its folder goes to the launcher, in its window or its tmux.
+				given := ""
+				for _, command := range append(slices.Clone(h.windows), h.tmux...) {
+					if folder := flagAfter(command, "--claude-config"); folder != "" {
+						given = folder
+					}
+				}
+				if status != http.StatusNoContent || message != setupHireNotPassedOn || given != account {
+					t.Errorf("%s: %d %s, the launcher given %q; want it started on %q (%q %q)", c.name, status, message, given, account, h.windows, h.tmux)
+				}
+				continue
+			}
 			// A test copy's hires run in tmux with no window (RTCH N1), so with tmux off in setup it takes the engine's
 			// way, not the plain one: the named account has no .claude.json here, and the engine says so.
-			want := plainHireDefaultAccount
-			if copy && c.name == "tmux off" {
+			want := plainHireInTestCopy
+			if c.name == "tmux off" {
 				want = "Start Claude Code once on this account, so it has a .claude.json, then hire again: Smolcorp only edits that file, it never creates it."
 			}
 			if status != http.StatusConflict || message != want {
-				t.Errorf("test copy %v, %s: %d %s", copy, c.name, status, message)
+				t.Errorf("test copy, %s: %d %s", c.name, status, message)
 			}
-			if len(h.windows)+len(h.tmux)+len(r.tmux.asked) != 0 || len(registered(t)) != 0 {
-				t.Errorf("test copy %v, %s: opened %q %q %q", copy, c.name, h.windows, h.tmux, r.tmux.asked)
+			if len(h.windows)+len(h.tmux) != 0 {
+				t.Errorf("test copy, %s: opened %q %q", c.name, h.windows, h.tmux)
 			}
 		}
 	}
 	// A test copy's Claude hire through the office (no account named) is refused before, by T721's own words.
 	Port, d.config.HireInTmux = 7799, false
 	d.lastHire = time.Time{}
-	if status, message := d.hireAsWith("", "janitor", 0, false, nil); status != http.StatusConflict || message == plainHireDefaultAccount {
+	if status, message := d.hireAsWith("", "janitor", 0, false, nil); status != http.StatusConflict || message == plainHireInTestCopy {
 		t.Errorf("a test copy's office hire: %d %s", status, message)
 	}
 }
