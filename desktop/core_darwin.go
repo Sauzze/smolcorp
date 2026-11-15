@@ -79,6 +79,8 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 	// follows an OpenCode update. A test copy refreshes none: they're the real Smolcorp's (leavesAgentsAlone).
 	refreshHooks()
 	watchOpenCode()
+	// An earlier version's copy of report.sh, which an account connected then may still run, runs the app's (SA-X11).
+	pointReportScriptAtTheApp()
 	failed := make(chan error, 1)
 	go func() { failed <- Serve(deck) }()
 	if err := waitUntilServing(Port, failed, coreStartWait); err != nil {

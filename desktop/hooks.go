@@ -538,7 +538,8 @@ func isOurs(handler any) bool {
 // report.sh in this support folder, quoted, with the agent's name after it for any agent but Claude Code and
 // Grok (Hooks.command(for:)). It counts as the deck's, so the start-up refresh puts `smolcorp hook` in its
 // place, connecting replaces it rather than adding a second entry, and disconnecting takes it out. The
-// script itself stays: a hire the Swift engine made still runs it from its own settings file.
+// script itself stays, as a pointer to the app's own (reportscript.go): a hire the Swift engine made still runs it
+// from its own settings file, and another Claude account's settings may still name it.
 func isMacReportScript(command string) bool {
 	if hookHeaderFile == "" {
 		return false

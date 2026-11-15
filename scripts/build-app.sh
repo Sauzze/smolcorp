@@ -96,6 +96,13 @@ cp "$BIN" "$APP/Contents/MacOS/$EXECUTABLE"
 strip -S -no_code_signature_warning "$APP/Contents/MacOS/$EXECUTABLE"
 cp Resources/Info.plist "$APP/Contents/"
 cp Resources/AppIcon.icns Resources/report.sh Resources/opencode-plugin.js Resources/opencode-plugin-v1.js "$APP/Contents/Resources/"
+# report.sh runs from here, as shipped, and nothing copies it out (desktop/reportscript.go): it must run as it is,
+# whatever mode a checkout gave it, and be the very file in Resources/, which the app's signature then seals.
+chmod 755 "$APP/Contents/Resources/report.sh"
+if ! cmp -s Resources/report.sh "$APP/Contents/Resources/report.sh" || ! bash -n "$APP/Contents/Resources/report.sh"; then
+  echo "Stopped: $APP/Contents/Resources/report.sh isn't Resources/report.sh as it is, or doesn't parse."
+  exit 1
+fi
 # office.js is built from Resources/web/office (scripts/buildoffice), and
 # committed: checked here, never rebuilt, so a change made in office.js itself
 # isn't lost. The pages, office.js and the briefs are inside the `smolcorp`

@@ -87,44 +87,69 @@ if [ -z "$go_found" ] || ! GO="$(realpath "$go_found")"; then
   echo "Stopped: no go on PATH."
   exit 1
 fi
-# The settings each check's go runs with, never the caller's, a go env file's
-# or the toolchain's own go.env's: GOFLAGS set (a set value replaces theirs; an
-# empty one leaves their -exec, -toolexec or -overlay in force, which would run
-# a stand-in in place of a test or a check), no go.work, this go's own toolchain
-# whatever go.mod's toolchain line or a go env file's GOTOOLCHAIN asks (another
-# would be a program found on PATH by its name), its own GOROOT, and this
-# machine's system (a program built for another would run through a
-# go_<system>_<arch>_exec found on PATH).
-go_settings=(GOFLAGS=-mod=readonly GOENV=off GOWORK=off GOTOOLCHAIN=local)
-# What the C compiler takes from the environment, which go passes it, never
-# the caller's: its flags (the linker CGO_LDFLAGS=-fuse-ld= names), C++ and
-# pkg-config, the Mac clang's DEVELOPER_DIR, SDKROOT and TOOLCHAINS, and the
-# folders and options clang and gcc read to find their own linker
-# (COMPILER_PATH, GCC_EXEC_PREFIX, CCC_OVERRIDE_OPTIONS). CC is the one found
-# below, and on a Mac SDKROOT is its SDK.
-go_unset=(-u GOROOT -u CXX -u CGO_CFLAGS -u CGO_CPPFLAGS -u CGO_CXXFLAGS -u CGO_FFLAGS -u CGO_LDFLAGS -u PKG_CONFIG
-  -u DEVELOPER_DIR -u SDKROOT -u TOOLCHAINS -u COMPILER_PATH -u GCC_EXEC_PREFIX -u CCC_OVERRIDE_OPTIONS)
-# Nor this machine's Smolcorp or tmux settings (TMUXGATE1): SMOLCORP_TMUX_SERVER,
-# TMUX, TMUX_PANE and every other SMOLCORP_* or TMUX* variable. Every pane of a
-# Smolcorp tmux has them, and the bundled tmux's test would pass because the
-# core passed them on, not because it gives the tmux its own. Read from the
-# environment itself, so a name bash doesn't take as a variable goes too.
-while IFS= read -r -d '' setting; do
-  case "$setting" in
-  SMOLCORP_* | TMUX*) go_unset+=(-u "${setting%%=*}") ;;
-  esac
-done < <(/usr/bin/env -0)
-host_os="$(/usr/bin/env "${go_unset[@]}" -u GOOS -u GOARCH "${go_settings[@]}" "$GO" env GOHOSTOS)"
-host_arch="$(/usr/bin/env "${go_unset[@]}" -u GOOS -u GOARCH "${go_settings[@]}" "$GO" env GOHOSTARCH)"
+if [ -z "${HOME:-}" ]; then
+  echo "Stopped: HOME isn't set."
+  exit 1
+fi
+# go's own folders for this run (SA-X11): its build cache, module cache and
+# GOPATH, in a folder made fresh here, never the caller's or go's usual ones,
+# so no cache prepared beforehand can hand a check a test binary built from
+# other code. Removed when this ends, done or failed, after its size is
+# logged: a cache grows large. go's temp files go in the temp folder named
+# now (TMPDIR, or /tmp), where go makes a fresh folder for each build: not in
+# this one, whose longer path would leave the tests' sockets too long a name.
+system_path=/usr/bin:/bin:/usr/sbin:/sbin
+temp_dir="${TMPDIR:-/tmp}"
+go_run="$(mktemp -d "$temp_dir/smolcorp-go.XXXXXX")"
+remove_syso=
+on_exit() {
+  if [ -n "$remove_syso" ]; then
+    rm -f cmd/smolcorp/rsrc_windows_*.syso
+  fi
+  echo "go's folders for this run ($go_run): $(du -sk "$go_run" 2>/dev/null | cut -f 1) KB, removed."
+  # go makes the modules it unpacks read-only.
+  chmod -R u+w "$go_run" 2>/dev/null || true
+  rm -rf "$go_run"
+}
+trap on_exit EXIT
+# The module downloads go reads, offline: go's own download folder for this
+# account (as go itself names it, with none of the caller's settings), read
+# as a proxy (GOPROXY=file://), so go unpacks each module into the run's
+# module cache only after its zip matches go.sum (GOFLAGS=-mod=readonly: no
+# module that go.sum doesn't name; GOSUMDB=off: nothing asked of the network).
+go_downloads="$(/usr/bin/env -i HOME="$HOME" PATH="$system_path" GOENV=off GOTOOLCHAIN=local LANG=C "$GO" env GOMODCACHE)/cache/download"
+# Every go this script runs, and every go the checks it runs start, gets only
+# these settings (SA-X11, RT126SAX11R3 B4): /usr/bin/env -i, then this list,
+# each set here. Nothing else of the caller's crosses, a setting nobody has
+# thought of included: no GOFLAGS -exec, -toolexec or -overlay from the caller,
+# a go env file or the toolchain's own go.env (a set GOFLAGS replaces theirs),
+# no go.work, no other toolchain than this go's own whatever go.mod's
+# toolchain line asks, no GOROOT but its own, no folders of libraries or
+# headers the C compiler searches first (LIBRARY_PATH, CPATH and the like), no
+# linker it finds through COMPILER_PATH or CCC_OVERRIDE_OPTIONS, and on PATH
+# the system's own folders only: go and the C compiler are named by their
+# real paths, found before it. GOOS and GOARCH are set at each call: this
+# machine's for a check (a program built for another system would run through
+# a go_<system>_<arch>_exec), the one asked for a build.
+# Nor this machine's Smolcorp or tmux settings (TMUXGATE1): every pane of a
+# Smolcorp tmux has SMOLCORP_TMUX_SERVER, TMUX and TMUX_PANE, and the bundled
+# tmux's test would pass because the core passed them on, not because it gives
+# the tmux its own. A step adds only the one it means to give (the tmux test's
+# control run, this script's own tests).
+go_env=(HOME="$HOME" PATH="$system_path" TMPDIR="$temp_dir" GOCACHE="$go_run/cache" GOMODCACHE="$go_run/modules"
+  GOPATH="$go_run/gopath" GOPROXY="file://$go_downloads" GOSUMDB=off GOFLAGS=-mod=readonly GOENV=off GOWORK=off
+  GOTOOLCHAIN=local LANG=C)
+host_os="$(/usr/bin/env -i "${go_env[@]}" "$GO" env GOHOSTOS)"
+host_arch="$(/usr/bin/env -i "${go_env[@]}" "$GO" env GOHOSTARCH)"
 # The C compiler, found once here too, by its real path (SA-X11): it builds the
 # cgo parts of what go tests and links the test binary whose results a check
 # reads, so a caller's CC, or a cc put earlier on PATH while this runs, would
 # write that binary. On a Mac, the active developer folder's clang and the SDK
 # it builds with, asked of xcrun by its own path, with no lookup cache and none
-# of the caller's DEVELOPER_DIR, SDKROOT or TOOLCHAINS; elsewhere, the cc first
-# on PATH now.
+# of the caller's settings (DEVELOPER_DIR, SDKROOT, TOOLCHAINS); elsewhere, the
+# cc first on PATH now.
 if [ "$host_os" = darwin ]; then
-  xcrun_here() { /usr/bin/env -u DEVELOPER_DIR -u SDKROOT -u TOOLCHAINS /usr/bin/xcrun --no-cache "$@" 2>/dev/null; }
+  xcrun_here() { /usr/bin/env -i HOME="$HOME" PATH="$system_path" LANG=C /usr/bin/xcrun --no-cache "$@" 2>/dev/null; }
   cc_found="$(xcrun_here --find clang || true)"
   sdk_found="$(xcrun_here --show-sdk-path || true)"
   if [ -z "$sdk_found" ] || ! SDK="$(realpath "$sdk_found")"; then
@@ -138,13 +163,14 @@ if [ -z "$cc_found" ] || ! CC_PROGRAM="$(realpath "$cc_found")"; then
   echo "Stopped: no C compiler found (on a Mac, xcrun --find clang; elsewhere, cc on PATH)."
   exit 1
 fi
-go_settings+=(CC="$CC_PROGRAM")
+# CC is this one, and on a Mac SDKROOT is this SDK.
+go_env+=(CC="$CC_PROGRAM")
 if [ "$host_os" = darwin ]; then
-  go_settings+=(SDKROOT="$SDK")
+  go_env+=(SDKROOT="$SDK")
 fi
-# pinned_env runs a program with those settings; pinned_go runs this go with
-# them, for this machine.
-pinned_env() { /usr/bin/env "${go_unset[@]}" "${go_settings[@]}" "$@"; }
+# pinned_env runs a program with those settings and no others; pinned_go runs
+# this go with them, for this machine.
+pinned_env() { /usr/bin/env -i "${go_env[@]}" "$@"; }
 pinned_go() { pinned_env GOOS="$host_os" GOARCH="$host_arch" "$GO" "$@"; }
 go_version="$(pinned_go version)"
 go_sum="$(shasum -a 256 "$GO" | cut -d ' ' -f 1)"
@@ -157,6 +183,8 @@ echo "  sha256 $cc_sum"
 if [ "$host_os" = darwin ]; then
   echo "  sdk $SDK"
 fi
+echo "go's settings, the only ones it gets (plus GOOS, GOARCH and CGO_ENABLED where a step sets them):"
+printf '  %s\n' "${go_env[@]}"
 # git looks at this folder, the one check-public.sh and the build read, and
 # at its own index: not at another one a caller's environment or the repo's
 # config (core.worktree) names.
@@ -271,7 +299,7 @@ if ! heads_tree; then
   exit 1
 fi
 # The bundled tmux's test (point 4 above), in the desktop package only, run
-# by the go and with the settings pinned at the top (go_settings, go_unset):
+# by the go and with the settings pinned at the top (go_env):
 # found in HEAD's tree by its exact name, then a test in go's own list of the
 # package's tests in its darwin build and each Linux one (a comment, a method,
 # a copy in another package or under testdata, or a stub only one system
@@ -358,22 +386,24 @@ if ! heads_tree; then
   exit 1
 fi
 # This script's own tests (point 5 above), run by the go and with the settings
-# pinned at the top, eight rows at a time (each row's dry run has 30 seconds,
-# and the bundled tmux's rows build as they go). RELEASE_ROWS is set here and
-# only for this run (the caller's own is dropped with every SMOLCORP_*
-# variable), so the heavy tests (RELEASE_ROWS_HEAVY) run on every release and
-# nowhere else by default. The pinned go comes first on their PATH: they hand
-# it their own go list and go test. Passed means go test passed, nothing in it
-# failed or was skipped, and each heavy test says it passed.
+# pinned at the top, eight rows at a time (each row's dry run has a time limit,
+# and the bundled tmux's and the forged-event table's rows build as they go,
+# each in its run's own fresh cache). RELEASE_ROWS is set here and only for
+# this run (the caller's own never crosses env -i), so the heavy tests
+# (RELEASE_ROWS_HEAVY) run on every release and nowhere else by default. The
+# pinned go's folder comes first on their PATH, before the system's own
+# folders: they hand it their own go list and go test. Passed means go test
+# passed, nothing in it failed or was skipped, and each heavy test says it
+# passed.
 RELEASE_ROWS=SMOLCORP_RELEASE_GATE_ROWS=1
 RELEASE_ROWS_RUN=^TestReleaseDesktop
 RELEASE_ROWS_HEAVY=(TestReleaseDesktopBuildsOnlyFromOneCommitOntoMain TestReleaseDesktopChecksEveryShapeOfHEAD
   TestReleaseDesktopStopsWhenTheCheckedFilesArentHEADs TestReleaseDesktopStopsOnFilesThatDontGoOut
   TestReleaseDesktopReadsHEADAsAPushSendsIt TestReleaseDesktopStopsOnFilesGitDoesntLookAt
-  TestReleaseDesktopNeedsTheBundledTmuxTestPassing)
+  TestReleaseDesktopNeedsTheBundledTmuxTestPassing TestReleaseDesktopStopsUnlessTheForgedEventTableIsWhole)
 echo "This script's own tests in ./$TMUX_TEST_PACKAGE ($RELEASE_ROWS):"
 status=0
-out="$(pinned_env "$RELEASE_ROWS" GOOS="$host_os" GOARCH="$host_arch" PATH="$(dirname "$GO"):$PATH" \
+out="$(pinned_env "$RELEASE_ROWS" GOOS="$host_os" GOARCH="$host_arch" PATH="$(dirname "$GO"):$system_path" \
   "$GO" test -count=1 -parallel 8 -v -run "$RELEASE_ROWS_RUN" "./$TMUX_TEST_PACKAGE" 2>&1)" || status=$?
 # What each test and row came to, without go's lines for starting each one.
 { grep -v -E '^ *=== (RUN|PAUSE|CONT|NAME) ' <<<"$out" || true; } | sed 's/^/  /'
@@ -395,11 +425,20 @@ if ! heads_tree; then
   echo "Stopped: the files changed while this script's own tests ran, so they aren't HEAD's tree ($TREE) any more. Run this again."
   exit 1
 fi
-# The office the programs build in is exactly the build of its sources.
-go run ./scripts/buildoffice -check
-# The tmux each Linux download carries, built by CI (see the top).
+# A desk can't send an event as another desk (SA-X10, SA-X11): the forged-event table is in each system's build of
+# the desktop package and passes here, run by this go with its settings pinned, or nothing is built.
+pinned_go run ./scripts/forgedevents -go "$GO" -cc "$CC_PROGRAM" -sdk "${SDK:-}" -work "$go_run" -modules "$go_downloads"
+# Its tests ran the tree's code: what goes out is still HEAD's tree.
+if ! heads_tree; then
+  echo "Stopped: the files changed while the forged-event table ran, so they aren't HEAD's tree ($TREE) any more. Run this again."
+  exit 1
+fi
+# The office the programs build in is exactly the build of its sources. Pinned
+# as every check here is (see go_env at the top).
+pinned_go run ./scripts/buildoffice -check
+# The tmux each Linux download carries, built by CI (see the top). Pinned too.
 for arch in amd64 arm64; do
-  if ! go run ./scripts/linuxtmux -arch "$arch" "build/tmux-linux/$arch"; then
+  if ! pinned_go run ./scripts/linuxtmux -arch "$arch" "build/tmux-linux/$arch"; then
     echo "Stopped: build/tmux-linux/$arch doesn't hold the tmux CI built from HEAD's recipe for linux/$arch."
     echo "Download it from a tmux-linux run of these files (see the top of this script), then run this again."
     exit 1
@@ -410,24 +449,28 @@ done
 VERSION="$(sed -n '/CFBundleShortVersionString/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist)"
 BUILD="$(sed -n '/<key>CFBundleVersion<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' Resources/Info.plist)"
 STAGE="build/desktop"
-# Only after the checks above: from here on a .syso may sit in cmd/smolcorp.
-trap 'rm -f cmd/smolcorp/rsrc_windows_*.syso' EXIT
+# Only after the checks above: from here on a .syso may sit in cmd/smolcorp, and
+# on_exit (at the top) deletes it.
+remove_syso=1
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 
 # -trimpath keeps the paths of this machine out of the programs, and
 # -buildvcs=false the commit they were built from, which may be one of this
-# machine's own that the published repository doesn't have.
+# machine's own that the published repository doesn't have. Built by the go
+# named at the start, with its settings pinned as the checks' are (no caller's
+# GOFLAGS -tags, -ldflags or -toolexec), for the system asked.
 build() { # GOOS GOARCH OUTPUT [extra linker flags]
-  CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -trimpath -buildvcs=false \
+  pinned_env CGO_ENABLED=0 GOOS="$1" GOARCH="$2" "$GO" build -trimpath -buildvcs=false \
     -ldflags "-s -w -X main.version=$VERSION ${4:-}" -o "$3" ./cmd/smolcorp
 }
 
 # The version info, icon and manifest of a Windows program, as a .syso the
 # next go build links in: ARCH FILE-DESCRIPTION ORIGINAL-FILE-NAME INTERNAL-NAME.
 # The icon is made at 16, 32, 48 and 256 pixels from the 256-pixel Linux one.
+# Pinned, as every go run here is.
 windows_resources() {
-  go run ./scripts/mkwinres -arch "$1" -version "$VERSION" -build "$BUILD" \
+  pinned_go run ./scripts/mkwinres -arch "$1" -version "$VERSION" -build "$BUILD" \
     -description "$2" -original "$3" -internal "$4" -icon packaging/linux/smolcorp.png \
     -license LICENSE -o "cmd/smolcorp/rsrc_windows_$1.syso"
 }

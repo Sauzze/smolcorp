@@ -519,6 +519,9 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		"sandbox-canary-*": notSecret,
 		// SA-X8: in each desk's own folder, hires/<id>/, by the name the sandbox's Policy gives it ("its own Claude folder").
 		"hires/<id>/claude": deskOwn,
+		// SA-X11: an earlier version's copy of report.sh, which the core rewrites at each start into a pointer to the
+		// app's (reportscript.go): it names the app's script, the port and this folder, and no key.
+		reportScriptName: notSecret,
 	}
 	d, mac, phoneKey, _ := macDeck(t)
 	sendKey := withAHire(t)

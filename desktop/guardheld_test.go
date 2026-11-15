@@ -249,7 +249,8 @@ func TestTheLinuxBuildStaysStatic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	build := regexp.MustCompile(`(?m)^build\(\) \{[^\n]*\n\s*CGO_ENABLED=0 GOOS="\$1" GOARCH="\$2" go build `)
+	// Run by the go pinned at the script's start, with its own settings only (SA-X11).
+	build := regexp.MustCompile(`(?m)^build\(\) \{[^\n]*\n\s*pinned_env CGO_ENABLED=0 GOOS="\$1" GOARCH="\$2" "\$GO" build `)
 	if !build.Match(script) {
 		t.Error("release-desktop.sh's build() no longer sets CGO_ENABLED=0")
 	}
@@ -261,12 +262,50 @@ func TestTheLinuxBuildStaysStatic(t *testing.T) {
 		if strings.HasPrefix(strings.TrimSpace(line), "build linux ") {
 			linux++
 		}
-		if strings.Contains(line, "go build") && !strings.Contains(line, "CGO_ENABLED=0") && !strings.HasPrefix(strings.TrimSpace(line), "#") {
-			t.Errorf("a go build without CGO_ENABLED=0: %s", line)
-		}
+	}
+	for _, line := range goBuildsWithCgo(string(script)) {
+		t.Errorf("a go build without CGO_ENABLED=0: %s", line)
 	}
 	if linux == 0 {
 		t.Error("no Linux build through build()")
+	}
+}
+
+// goBuild is a go build by the pinned go ("$GO", $GO, "${GO}", pinned_go) or by name.
+var goBuild = regexp.MustCompile(`(^|[^A-Za-z_])("?\$\{?GO\}?"?|go|pinned_go)\s+build\b`)
+
+// goBuildsWithCgo is the script's lines, outside comments, with a go build and no CGO_ENABLED=0.
+func goBuildsWithCgo(script string) []string {
+	var found []string
+	for _, line := range strings.Split(script, "\n") {
+		if goBuild.MatchString(line) && !strings.Contains(line, "CGO_ENABLED=0") && !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			found = append(found, line)
+		}
+	}
+	return found
+}
+
+// RMSYSAX11 B1: the catch-all sees a go build by the pinned go as well as by name, and only a go build.
+func TestTheLinuxBuildsCatchAllSeesThePinnedGo(t *testing.T) {
+	for line, caught := range map[string]bool{
+		// The reviewer's probes: the base's line by name (m5) and the pinned one (m4).
+		`build_plain() { GOOS="$1" GOARCH="$2" go build -o "$3" ./cmd/smolcorp; }`:               true,
+		`build_plain() { pinned_env GOOS="$1" GOARCH="$2" "$GO" build -o "$3" ./cmd/smolcorp; }`: true,
+		`  pinned_env GOOS=linux $GO build -o out ./cmd/smolcorp`:                                true,
+		`  pinned_env GOOS=linux "${GO}" build -o out ./cmd/smolcorp`:                            true,
+		`  /usr/bin/env -i "${go_env[@]}" GOOS=linux "$GO"  build ./cmd/smolcorp`:                true,
+		`go build ./cmd/smolcorp`:                 true,
+		`  pinned_go build -o out ./cmd/smolcorp`: true,
+		`  pinned_env CGO_ENABLED=0 GOOS="$1" GOARCH="$2" "$GO" build -trimpath -buildvcs=false \`: false,
+		`# a comment on go build or "$GO" build`:                                                   false,
+		`  pinned_go vet ./...`:                                                                    false,
+		`  cargo build --release`:                                                                  false,
+		`  echo "$GOOS" build`:                                                                     false,
+		`  "$GO" test -run '^TestBuild' ./desktop`:                                                 false,
+	} {
+		if got := len(goBuildsWithCgo(line)) > 0; got != caught {
+			t.Errorf("%s: caught %v, want %v", line, got, caught)
+		}
 	}
 }
 

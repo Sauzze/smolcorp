@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,8 @@ type releaseRepo struct {
 	t              *testing.T
 	dir, home, bin string
 	env            []string
+	// wait is how long a run may take: 30 seconds unless set.
+	wait time.Duration
 }
 
 func newReleaseRepo(t *testing.T) *releaseRepo {
@@ -62,10 +65,13 @@ func newReleaseRepo(t *testing.T) *releaseRepo {
 	_, goCache := realGo(t)
 	r := &releaseRepo{t: t, dir: t.TempDir(), home: t.TempDir(), bin: t.TempDir()}
 	// Its own home, so no one's own git or go settings apply, and its own temp folder; a stand-in go before the real
-	// one. The real go builds with the cache it already has, never a newer toolchain or a module from the network.
+	// one. None of these go settings reach a go the script runs (SA-X11): it gives each its own list, a build cache
+	// made fresh for the run among them.
 	r.env = []string{
 		"PATH=" + r.bin + ":" + filepath.Dir(gitPath) + ":/usr/bin:/bin",
-		"HOME=" + r.home, "XDG_CONFIG_HOME=" + r.home, "GIT_CONFIG_NOSYSTEM=1", "LANG=C", "TMPDIR=" + t.TempDir(),
+		"HOME=" + r.home, "XDG_CONFIG_HOME=" + r.home, "GIT_CONFIG_NOSYSTEM=1", "LANG=C",
+		// The script makes go's folders for the run in it (SA-X11).
+		"TMPDIR=" + t.TempDir(),
 		"GOCACHE=" + goCache, "GOTOOLCHAIN=local", "GOPROXY=off",
 	}
 	r.writeGo(false)
@@ -107,22 +113,23 @@ func newReleaseRepo(t *testing.T) *releaseRepo {
 // code). go list and go test of the bundled tmux's test go to the real go when real is set, and are otherwise
 // answered as a test keeping M7/L4's contract would answer them. Each go test it is given is logged in
 // bin/go-test.log, with the variable and the first folder on PATH. Anything else would build: it says so and exits 97.
-// With DROP_GO set, its first run also writes another go there, as something might while the script runs.
+// With DROP_GO set (in standin.conf beside it, standinSettings), its first run also writes another go there, as
+// something might while the script runs. When real is set, each run may take 2 minutes: the real go builds the tmux
+// test in the run's own build cache, made fresh, so cold (SA-X11).
 func (r *releaseRepo) writeGo(real bool) {
 	r.t.Helper()
 	goPath, _ := realGo(r.t)
 	bin := func(name string) string { return "'" + filepath.Join(r.bin, name) + "'" }
-	rows := ""
-	for _, name := range heavyReleaseTests(r.t) {
-		rows += "  echo '=== RUN   " + name + "'\n  echo '--- PASS: " + name + " (0.00s)'\n"
-	}
 	tmux := "list|test) exec '" + goPath + "' \"$@\";;\n"
-	if !real {
+	if real {
+		r.wait = 2 * time.Minute
+	} else {
 		writeReleaseFile(r.t, filepath.Join(r.bin, "_testmain.go"), "\t{\""+tmuxTestName+"\", _test."+tmuxTestName+"},\n", 0o644)
 		tmux = "list) printf 'example.invalid/release/desktop.test\\t%s\\n' " + bin("_testmain.go") + "; exit 0;;\n" +
 			"test)\n" + tmuxContractAnswer + ";;\n"
 	}
 	writeReleaseFile(r.t, filepath.Join(r.bin, "go"), "#!/bin/sh\n"+
+		"[ ! -f \"${0%/*}/standin.conf\" ] || . \"${0%/*}/standin.conf\"\n"+
 		"if [ -n \"${DROP_GO:-}\" ] && [ ! -e \"$DROP_GO\" ]; then cp "+bin("other-go")+" \"$DROP_GO\"; fi\n"+
 		"case \"$1\" in version|env) exec '"+goPath+"' \"$@\";; esac\n"+
 		"if [ \"$1\" = test ]; then\n"+
@@ -131,10 +138,21 @@ func (r *releaseRepo) writeGo(real bool) {
 		"if [ \"$1\" = test ] && [ \"${"+releaseGateRows+":-}\" = 1 ]; then\n"+
 		"  [ ! -e "+bin("rows-stray")+" ] || : > stray.txt\n"+
 		"  if [ -e "+bin("rows-out")+" ]; then cat "+bin("rows-out")+"; exit \"$(cat "+bin("rows-status")+")\"; fi\n"+
-		rows+"  echo PASS\n  printf 'ok  \\texample.invalid/release/desktop\\t0.01s\\n'\n  exit 0\n"+
+		heavyRowsPassing(r.t)+
 		"fi\n"+
 		"case \"$1\" in\n"+tmux+"esac\n"+
 		"echo '"+goReached+"'\nexit 97\n", 0o755)
+}
+
+// heavyRowsPassing is shell that prints what the script's run of its own tests prints when every heavy test passes,
+// and exits as it does, for a stand-in go to answer that run with (a row's dry run never runs the rows again).
+func heavyRowsPassing(t *testing.T) string {
+	t.Helper()
+	rows := ""
+	for _, name := range heavyReleaseTests(t) {
+		rows += "  echo '=== RUN   " + name + "'\n  echo '--- PASS: " + name + " (0.00s)'\n"
+	}
+	return rows + "  echo PASS\n  printf 'ok  \\texample.invalid/release/desktop\\t0.01s\\n'\n  exit 0\n"
 }
 
 func writeReleaseFile(t *testing.T, path, body string, mode os.FileMode) {
@@ -192,16 +210,32 @@ func (r *releaseRepo) blind(what string) {
 	}
 }
 
+// standinSettings are settings for a stand-in go itself, not for the script: release writes those of them in its
+// extra environment to standin.conf beside the stand-in, for it to read, since no setting of the caller's reaches a go
+// the script runs (SA-X11).
+var standinSettings = []string{"DROP", "DROPCC", "TO_BUILDS", "DROP_GO"}
+
 // release runs release-desktop.sh with the extra environment given, and gives its exit status and output.
 func (r *releaseRepo) release(extra ...string) (int, string) {
 	r.t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	var conf strings.Builder
+	for _, kv := range extra {
+		if name, value, _ := strings.Cut(kv, "="); slices.Contains(standinSettings, name) {
+			conf.WriteString(name + "='" + value + "'\n")
+		}
+	}
+	writeReleaseFile(r.t, filepath.Join(filepath.SplitList(pathOf(r))[0], "standin.conf"), conf.String(), 0o644)
+	wait := r.wait
+	if wait == 0 {
+		wait = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "/bin/bash", "scripts/release-desktop.sh")
 	cmd.Dir, cmd.Env = r.dir, append(append([]string{}, r.env...), extra...)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
-		r.t.Fatalf("release-desktop.sh didn't end within 30 seconds:\n%s", out)
+		r.t.Fatalf("release-desktop.sh didn't end within %v:\n%s", wait, out)
 	}
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		return exitErr.ExitCode(), string(out)
