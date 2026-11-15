@@ -188,6 +188,7 @@ func TestAFireOfAHireAlreadyGoneIsRefused(t *testing.T) {
 	_, r, hire := hiredForFire(t, "")
 	setHire(hire.ID, "fired", "")
 	windowShows(r, pane(t, "idle-empty"), true)
+	r.tmux.up = false // one still running is ended (gonedesk_unix_test.go)
 	if _, err := fireEngineHire(hire, 0, r.o, false); err == nil || err.Error() != "Janitor is already gone." {
 		t.Fatalf("err = %v", err)
 	}
@@ -841,6 +842,7 @@ func TestAFailedHireIsAnsweredAsAlreadyGoneLikeAFiredOne(t *testing.T) {
 	_, r, hire := hiredForFire(t, "")
 	setHire(hire.ID, "failed", "it never started")
 	windowShows(r, pane(t, "idle-empty"), true)
+	r.tmux.up = false // one still running is ended (gonedesk_unix_test.go)
 	if _, err := fireEngineHire(hire, 0, r.o, false); err == nil || err.Error() != "Janitor is already gone." {
 		t.Fatalf("err = %v", err)
 	}

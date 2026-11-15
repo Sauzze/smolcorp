@@ -1037,6 +1037,10 @@ func (d *Deck) hiredPending(token string) (desk, floor int, hireID string, ok bo
 	if time.Since(pending.at) > hiredTabWait {
 		return -1, 0, "", false
 	}
+	// Its row read again as its window connects: one marked gone meanwhile is never tied to it (gonedesk.go).
+	if pending.hireID != "" && !hireRowOpen(pending.hireID) {
+		return -1, 0, "", false
+	}
 	return pending.desk, pending.floor, pending.hireID, true
 }
 
@@ -1062,6 +1066,9 @@ func (d *Deck) hireState(apiKey apiKeyOffer) map[string]any {
 		// Whether agents' programs are checked here (a Mac checks Claude Code's signature), and an unsigned Claude
 		// Code refused since a signed one ran, for the owner to confirm (agentcheck.go), or "".
 		"agentsChecked": claudeSignaturesChecked, "claudeUnsigned": claudeInstalls.waiting(),
+		// Desks whose row says gone while their session still ran at the start, a line each, until fired again
+		// (gonedesk.go).
+		"goneDesks": goneDesksStanding(),
 	}
 }
 

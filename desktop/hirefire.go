@@ -49,17 +49,21 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 	defer func() { firing.Lock(); delete(firing.ids, h.ID); firing.Unlock() }()
 
 	// Read again once this fire holds the hire: a Take over that finished meanwhile left it in T3 Code, or
-	// waiting for Hand back, and it's handed back first (RM5c2 N1).
+	// waiting for Hand back, and it's handed back first (RM5c2 N1). A hire whose row already says gone is only
+	// stopped, if its session still runs (gonedesk.go): its worktree, recap and row are left as they are.
+	gone := false
 	for _, now := range readRegistry(registryPath(), false).hires {
 		if now.ID == h.ID && (now.State == "fired" || now.State == "failed") {
-			return refuse(calledHire(h) + " is already gone.")
-		}
-		if now.ID == h.ID && now.T3Session != "" {
+			h.State, gone = now.State, true
+		} else if now.ID == h.ID && now.T3Session != "" {
 			return refuse(t3FireTakenOver(now))
 		}
 	}
 	unreached := "Couldn't reach " + calledHire(h) + "'s tmux session, so nothing was changed."
 	tmux := hireOwnTmux(h, testPort, o.Tmux)
+	if tmux == nil && gone {
+		return refuse(alreadyGone(h))
+	}
 	if tmux == nil {
 		return refuse(unreached)
 	}
@@ -67,13 +71,16 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 	if !known {
 		return refuse(unreached)
 	}
+	if gone && !up {
+		return refuse(alreadyGone(h))
+	}
 	// What the window shows is read before anything is ended, and kept for the recap.
 	var capture string
 	readable := true
 	if up {
 		capture, readable = tmux.capture(200)
 	}
-	if h.Worktree != "" && !force {
+	if h.Worktree != "" && !force && !gone {
 		if message := uncommittedRefusal(h, o.Git); message != "" {
 			return refuse(message)
 		}
@@ -104,6 +111,9 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 		if still, known := tmux.alive(); !known || still {
 			return refuse("Couldn't end " + calledHire(h) + "'s tmux session, so nothing was changed.")
 		}
+	}
+	if gone {
+		return "", stoppedGone(h, "tmux session")
 	}
 	if refused := heldFire(h, "session"); refused != nil {
 		return "", refused
@@ -184,12 +194,18 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 	options := d.engine
 	options.Worktrees = d.worktreesFolder(options.Worktrees)
 	d.mu.Unlock()
+	stopped := "" // its row already said gone and only its session was ended (gonedesk.go): cleaned up as a fire
 	if _, err := fireEngineHire(h, testCopyPort(), options, force); err != nil {
-		d.failHeldMail(h, err)
-		if refused, ok := err.(*hireRefusal); ok {
-			return refused.Status, refused.Message, true
+		refused, ok := err.(*hireRefusal)
+		if ok && refused.Status == http.StatusOK {
+			stopped = refused.Message
+		} else {
+			d.failHeldMail(h, err)
+			if ok {
+				return refused.Status, refused.Message, true
+			}
+			return http.StatusInternalServerError, err.Error(), true
 		}
-		return http.StatusInternalServerError, err.Error(), true
 	}
 	// Its windows' records go with it (hirewindows.go): it has none to close any more.
 	forgetHireWindows(h.ID, windowsOfHire(h.ID))
@@ -206,6 +222,9 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 		d.changed()
 	}
 	d.mu.Unlock()
+	if stopped != "" {
+		return http.StatusOK, stopped, true
+	}
 	if note := heldFireNote(h); note != "" {
 		return http.StatusOK, note, true
 	}
@@ -230,6 +249,19 @@ func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (kept, note string, err er
 		note = heldFireNote(h)
 	}
 	return kept, note, err
+}
+
+// tmuxDeskRunning is whether h's tmux session runs on its own server: one whose recorded socket isn't there, or
+// isn't exactly its own, has no server Smolcorp could reach or end, and none is said to run.
+func (d *Deck) tmuxDeskRunning(h Hire) (running, known bool) {
+	d.mu.Lock()
+	run := d.engine.Tmux
+	d.mu.Unlock()
+	tmux := hireOwnTmux(h, testCopyPort(), run)
+	if tmux == nil {
+		return false, true
+	}
+	return tmux.alive()
 }
 
 func ownTmuxTab(h Hire, socket string) bool {

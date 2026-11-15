@@ -196,7 +196,8 @@ func (d *Deck) hireIntoT3Now(ask t3Ask, role Role, on bool, profiles []claudePro
 			}
 			return errors.New("the registry couldn't be written")
 		},
-		Fail: func(why string) error { return t3MarkFailed(registryPath(), hireID, "Didn't start in T3 Code: "+why) },
+		Fail:      func(why string) error { return t3MarkFailed(registryPath(), hireID, "Didn't start in T3 Code: "+why) },
+		StillOpen: func() bool { return hireRowOpen(hireID) },
 	}
 	if _, err := t3HireInto(hiring, ways); err != nil {
 		if refused, ok := err.(*hireRefusal); ok {

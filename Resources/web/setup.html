@@ -1202,6 +1202,8 @@
               <p class="note" id="claude-unsigned-line" role="alert"></p>
               <button class="btn" id="claude-unsigned-confirm">Use this copy</button>
             </div>
+            <!-- A desk marked gone whose session still ran when Smolcorp started, a line each (gonedesk.go). -->
+            <p class="note" id="gone-desks" role="alert" hidden></p>
             <p class="note" id="hiring-problem" role="alert" hidden></p>
           </div>
           <button class="switch" id="hiring" aria-label="Let the office hire and fire"></button>
@@ -3168,6 +3170,9 @@
     $('claude-unsigned-line').textContent = h.claudeUnsigned
       ? `Claude Code changed to an unsigned copy (${h.claudeUnsigned}), so no desk starts on it. Use it only if you installed it yourself, with npm; if not, reinstall Claude Code with Anthropic's installer.`
       : '';
+    const goneDesks = h.goneDesks || [];
+    $('gone-desks').hidden = !goneDesks.length;
+    $('gone-desks').textContent = goneDesks.join(' ');
     $('hire-tmux-label').title = state.launcher
       ? 'The agent runs in a tmux session of its own, which carries on when its window closes: tmux attach shows it again.'
       : "The agent runs in a tmux session of its own, so its keys and mic work from the phone in any terminal.";

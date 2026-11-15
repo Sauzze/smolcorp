@@ -672,7 +672,7 @@ func TestEveryWayAHireIsGoneListsItsPlace(t *testing.T) {
 	}
 	claudeRegistry(t, hires...)
 	for i, state := range []string{"fired", "failed"} {
-		if _, refused := editHire(registryPath(), []byte(`{"id":"`+hires[i].ID+`","state":"`+state+`"}`)); refused != nil {
+		if _, refused := editHire(registryPath(), []byte(`{"id":"`+hires[i].ID+`","state":"`+state+`"}`), noDeskSession); refused != nil {
 			t.Fatal(refused.message)
 		}
 	}
@@ -680,7 +680,7 @@ func TestEveryWayAHireIsGoneListsItsPlace(t *testing.T) {
 	if err := markFired(hires[3].ID, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, refused := editHire(registryPath(), []byte(`{"id":"`+hires[4].ID+`","nickname":"Bea"}`)); refused != nil {
+	if _, refused := editHire(registryPath(), []byte(`{"id":"`+hires[4].ID+`","nickname":"Bea"}`), noDeskSession); refused != nil {
 		t.Fatal(refused.message)
 	}
 	for i, h := range hires {
@@ -713,7 +713,7 @@ func TestWhatADeskPlantsAfterTheGMsEditMadeItGoneIsListedAtTheGate(t *testing.T)
 		h     Hire
 		state string
 	}{{folder, "fired"}, {tree, "failed"}} {
-		if _, refused := editHire(registryPath(), []byte(`{"id":"`+c.h.ID+`","state":"`+c.state+`"}`)); refused != nil {
+		if _, refused := editHire(registryPath(), []byte(`{"id":"`+c.h.ID+`","state":"`+c.state+`"}`), noDeskSession); refused != nil {
 			t.Fatal(refused.message)
 		}
 		if claudeListed(c.h.ID) {

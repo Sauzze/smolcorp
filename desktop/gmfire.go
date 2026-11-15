@@ -70,7 +70,10 @@ func (rt *router) gmFire(w http.ResponseWriter, r *request) {
 	}
 	if err != nil {
 		var refused *hireRefusal
-		if errors.As(err, &refused) {
+		if errors.As(err, &refused) && refused.Status == http.StatusOK { // its row already said gone: only its session was ended (gonedesk.go)
+			d.afterGMFire(h, launcher)
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "note": refused.Message})
+		} else if errors.As(err, &refused) {
 			refuse(refused.Status, refused.Message)
 		} else {
 			refuse(http.StatusInternalServerError, err.Error())

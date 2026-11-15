@@ -323,8 +323,10 @@ type refusal struct {
 }
 
 // editHire changes the nickname, state or notes of the hire `id`, and nothing
-// else; anything more is refused whole, with nothing changed.
-func editHire(path string, body []byte) (Hire, *refusal) {
+// else; anything more is refused whole, with nothing changed. session is how its
+// session is looked at (Deck.deskSession): a hire is never marked fired or failed
+// here while it still runs, or while its start is under way (goneWhileRunning).
+func editHire(path string, body []byte, session func(Hire) deskLook) (Hire, *refusal) {
 	var given map[string]json.RawMessage
 	if json.Unmarshal(body, &given) != nil {
 		return Hire{}, &refusal{http.StatusBadRequest, "Send {id, nickname, state, notes}."}
@@ -345,6 +347,10 @@ func editHire(path string, body []byte) (Hire, *refusal) {
 	}
 	if len(given) < 2 {
 		return Hire{}, &refusal{http.StatusBadRequest, "Give a nickname, a state or notes to change."}
+	}
+	refused, looked := goneWhileRunning(path, given["state"], id, session)
+	if refused != nil {
+		return Hire{}, refused
 	}
 	frontDeskMu.Lock()
 	defer frontDeskMu.Unlock()
@@ -374,6 +380,11 @@ func editHire(path string, body []byte) (Hire, *refusal) {
 		// gone, Hand back would never be offered again and T3 Code's project would stay (RM5c2 N2).
 		if (text == "fired" || text == "failed") && isOpen(file.hires[i]) && file.hires[i].T3Session != "" {
 			return Hire{}, &refusal{http.StatusConflict, calledHire(file.hires[i]) + " was taken over in T3 Code: hand it back first, then mark it " + text + "."}
+		}
+		// Again under the lock: a start under way now, or a row the look didn't find open and ended, is never marked
+		// gone (gonedesk.go, RT126GMEDIT1 B1).
+		if (text == "fired" || text == "failed") && isOpen(file.hires[i]) && (!looked || startUnderWay(id)) {
+			return Hire{}, stillStarting(file.hires[i], text)
 		}
 		// Letting a hire go while the records' key can't be read would last only until the restart (records.go's
 		// refusedWhileHeld, RT126SK1R4 follow-up 2).

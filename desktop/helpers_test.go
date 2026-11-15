@@ -51,6 +51,11 @@ func isolate(t *testing.T) string {
 	starts := nightShiftStarts
 	nightShiftStarts = false
 	t.Cleanup(func() { nightShiftStarts = starts })
+	// Nor the start's sweep for desks still running behind a gone row (gonedesk.go): a test runs it itself.
+	swept := goneDesksSwept
+	goneDesksSwept = false
+	t.Cleanup(func() { goneDesksSwept = swept })
+	t.Cleanup(func() { goneDesksListed.Lock(); clear(goneDesksListed.lines); goneDesksListed.Unlock() })
 	return homeDir
 }
 

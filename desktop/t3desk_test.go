@@ -34,6 +34,8 @@ type t3Rig struct {
 	log, failed, startedWith, opened []string
 	atBrief                          func(place hirePlace)
 	clock                            time.Time
+	// stillOpen is what StillOpen answers right before the thread starts: nil for open.
+	stillOpen func() bool
 }
 
 func newT3Rig(t *testing.T) *t3Rig {
@@ -209,6 +211,12 @@ func (r *t3Rig) ways() t3Ways {
 			return nil
 		},
 		Fail: func(why string) error { r.log = append(r.log, "fail"); r.failed = append(r.failed, why); return nil },
+		StillOpen: func() bool {
+			if r.stillOpen != nil {
+				return r.stillOpen()
+			}
+			return true
+		},
 	}
 }
 

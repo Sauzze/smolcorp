@@ -147,6 +147,9 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	hire := Hire{ID: id, Name: r.Role.Name, Nickname: r.Nickname, Account: r.AccountName, Role: r.Role.ID, Folder: r.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
 		TmuxSocket: tmux.socket, TmuxProgram: tmux.program, Model: r.Role.Model, Ports: place.Ports, Brief: brief, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note,
 		Scope: r.Scope, ScopeRoles: r.ScopeRoles}
+	// Its start is under way from its row until its server is up and its row read again: the edit never marks it
+	// gone meanwhile (gonedesk.go).
+	defer deskStarting(id)()
 	if err := updateRegistry(func(f *registryFile) { f.hires = append(f.hires, hire) }); err != nil {
 		return fail(http.StatusInternalServerError, "Couldn't save the hire in the registry.")
 	}
@@ -251,6 +254,17 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		return fail(http.StatusInternalServerError, "tmux didn't start the hire.")
 	}
 	deskStarts.pin(id, started)
+	// Its row read again now its server is up: marked gone meanwhile (by another program, say), the session is ended
+	// rather than left running behind it, and the row stays as it was (gonedesk.go, RT126GMEDIT1 B1).
+	if !hireRowOpen(id) {
+		deskStarts.forget(id) // its ticket first: an agent not yet started never is
+		tmux.endServer()
+		if up, known := tmux.alive(); !known || up {
+			return Hire{}, goneWhileStarting(hire, "Smolcorp ended its tmux session but couldn't see it gone: fire "+calledHire(hire)+" to end it")
+		}
+		undoMade()
+		return Hire{}, goneWhileStarting(hire, "its tmux session was ended")
+	}
 	if socket != hire.TmuxSocket {
 		// As tmux spells it (it may say /private/var for /var): the same file, which isHireSocket allows.
 		hire.TmuxSocket = socket

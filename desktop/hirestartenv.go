@@ -95,21 +95,41 @@ func (d *Deck) takeStartEnv(token, hireID string) (env *hireStartEnv, status int
 		return nil, http.StatusGone
 	case pending.env == nil:
 		return nil, http.StatusGone // used already
+	case !hireRowOpen(hireID):
+		// Marked gone before its window asked: nothing starts behind a gone row (gonedesk.go, RT126GMEDIT1 B1).
+		delete(d.hires, token)
+		return nil, http.StatusConflict
 	}
 	env, pending.env = pending.env, nil
 	return env, http.StatusOK
 }
 
+// A start the app refuses with a 409 says why in one word, so the launcher can tell the owner which it was: the
+// hire's row was marked gone before its window asked (gonedesk.go), or its settings file isn't the one Smolcorp
+// sealed (settingsfile.go). Both start nothing, and both spend the start.
+const (
+	startRefusedGone     = "gone"
+	startRefusedSettings = "settings"
+)
+
 // startEnvRoute answers GET /launcher/start?hire=<token>&id=<hire id>. The
 // caller has checked it is local and carries the hook key.
 func (d *Deck) startEnvRoute(w http.ResponseWriter, query url.Values) {
 	env, status := d.takeStartEnv(query.Get("hire"), query.Get("id"))
+	why := ""
+	if status == http.StatusConflict {
+		why = startRefusedGone
+	}
 	// Its settings file, as Smolcorp sealed it (settingsfile.go): a changed one starts nothing, and the start is spent.
 	if env != nil && (sealedSettings{Path: env.Settings, Sum: env.SettingsSum}).refusal() != nil {
-		env, status = nil, http.StatusConflict
+		env, status, why = nil, http.StatusConflict, startRefusedSettings
 	}
 	if env == nil {
+		if why != "" {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		}
 		w.WriteHeader(status)
+		_, _ = io.WriteString(w, why)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -124,6 +144,19 @@ var hireStartTimeout = 10 * time.Second
 // takes the call and never answers must not hold the window for good.
 func hireStartClient() *http.Client {
 	return &http.Client{Timeout: hireStartTimeout}
+}
+
+// startRefusal is the launcher's words for the app's 409, by the reason its body gives (startRefusedGone,
+// startRefusedSettings). One it doesn't know still starts nothing.
+func startRefusal(body io.Reader) error {
+	why, _ := io.ReadAll(io.LimitReader(body, 64))
+	switch strings.TrimSpace(string(why)) {
+	case startRefusedGone:
+		return errors.New("this hire was marked gone before its window opened, so nothing was started")
+	case startRefusedSettings:
+		return errors.New("this hire's settings file isn't the one Smolcorp wrote: something on this computer changed or replaced it. Hire again")
+	}
+	return errors.New("Smolcorp refused this hire's start, so nothing was started. Hire again")
 }
 
 // fetchHireStartEnv is the launcher's side: it asks the app at base for the
@@ -148,7 +181,7 @@ func fetchHireStartEnv(client *http.Client, base, hookKey, token, hireID string)
 	case http.StatusGone:
 		return env, errors.New("this hire's start settings were taken already, or too long ago. Hire again")
 	case http.StatusConflict:
-		return env, errors.New("this hire's settings file isn't the one Smolcorp wrote: something on this computer changed or replaced it. Hire again")
+		return env, startRefusal(response.Body)
 	case http.StatusForbidden, http.StatusUnauthorized, http.StatusNotFound:
 		return env, errors.New("Smolcorp doesn't know this hire. Hire again")
 	default:

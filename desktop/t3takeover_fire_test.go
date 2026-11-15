@@ -62,12 +62,12 @@ func TestT3ARegistryEditDoesntMarkAHireTakenOverGone(t *testing.T) {
 	h := Hire{ID: "abcdef123456", Name: "Ada", Role: "dev", Folder: "/w", State: "idle", Engine: t3Engine, T3Session: t3TakeOverSession}
 	t3Registered(t, h)
 	for _, state := range []string{"fired", "failed"} {
-		_, refused := editHire(registryPath(), []byte(`{"id":"abcdef123456","state":"`+state+`"}`))
+		_, refused := editHire(registryPath(), []byte(`{"id":"abcdef123456","state":"`+state+`"}`), noDeskSession)
 		if refused == nil || refused.status != http.StatusConflict || refused.message != "Ada was taken over in T3 Code: hand it back first, then mark it "+state+"." {
 			t.Errorf("%s: %+v", state, refused)
 		}
 	}
-	if _, refused := editHire(registryPath(), []byte(`{"id":"abcdef123456","notes":"x","nickname":"Ace"}`)); refused != nil {
+	if _, refused := editHire(registryPath(), []byte(`{"id":"abcdef123456","notes":"x","nickname":"Ace"}`), noDeskSession); refused != nil {
 		t.Errorf("notes: %+v", refused)
 	}
 	if after, _ := registryHire(h.ID); !isOpen(after) || after.T3Session == "" || after.Notes != "x" {
@@ -76,7 +76,7 @@ func TestT3ARegistryEditDoesntMarkAHireTakenOverGone(t *testing.T) {
 	if err := updateRegistry(func(f *registryFile) { f.hires[0].T3Session, f.hires[0].Engine = "", "" }); err != nil {
 		t.Fatal(err)
 	}
-	if got, refused := editHire(registryPath(), []byte(`{"id":"abcdef123456","state":"fired"}`)); refused != nil || got.State != "fired" {
+	if got, refused := editHire(registryPath(), []byte(`{"id":"abcdef123456","state":"fired"}`), noDeskSession); refused != nil || got.State != "fired" {
 		t.Errorf("handed back: %+v %+v", got, refused)
 	}
 }

@@ -2310,7 +2310,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			return
 		}
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
-		hire, refused := editHire(registryPath(), body)
+		hire, refused := editHire(registryPath(), body, d.deskSession)
 		if refused != nil {
 			writeStatus(w)(refused.status, refused.message)
 			return

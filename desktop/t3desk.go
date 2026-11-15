@@ -129,6 +129,8 @@ type t3Ways struct {
 	DiscardBrief func()
 	// Register writes its registry entry, with engine t3, once its worktree is made.
 	Register func(place hirePlace) error
+	// StillOpen is whether its registry entry is still open, read right before its thread starts.
+	StillOpen func() bool
 	// Started gives its thread, link and brief, once the thread runs in its worktree: an error when the registry
 	// couldn't keep them, and the hire is taken back (FXM5c).
 	Started func(thread, link, brief string) error
@@ -297,6 +299,11 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 	}
 	if !t3FenceHolds(fence, settings) {
 		return takeBack(http.StatusConflict, t3FenceLost, true, true)
+	}
+	// Its row read again right before its thread starts: marked gone meanwhile (by another program, say), nothing is
+	// started behind it (gonedesk.go, RT126GMEDIT1 B1). Without a way to read it, nothing is started either.
+	if ways.StillOpen == nil || !ways.StillOpen() {
+		return takeBack(http.StatusConflict, h.Called+" was marked gone while it was starting, so its thread wasn't started.", true, true)
 	}
 	// 7. The thread, in that folder, told to read its brief.
 	start := machine.Run(program, []string{"thread", "start", worktree, brief.Message, "--provider", t3Provider, "--model", h.Model, "--json"}, t3Within)
@@ -777,6 +784,9 @@ func t3LetGo(h Hire, leaving t3Leaving, letGone func(t3Gone)) (t3Gone, error) {
 	if err != nil {
 		return t3Gone{}, err
 	}
+	if !isOpen(h) { // its row already said gone: only its agent was ended (gonedesk.go), the row and recap left as they are
+		return t3Gone{Note: stoppedGone(h, "T3 Code agent").Message}, nil
+	}
 	gone := t3Gone{Recap: writeRecap(h, "", false, leaving.Now())}
 	if !fenceGone {
 		gone.Note = t3FenceKept(h)
@@ -794,8 +804,15 @@ func t3Leave(h Hire, leaving t3Leaving) (bool, error) {
 		return false, t3Refused(http.StatusConflict, name+" doesn't run in T3 Code.")
 	case t3IsHiring(h.ID):
 		return false, t3Refused(http.StatusConflict, t3StillHiring(name))
+	case !isOpen(h) && h.Worktree == "":
+		return false, t3Refused(http.StatusConflict, alreadyGone(h))
 	case !isOpen(h):
-		return false, t3Refused(http.StatusConflict, name+" is already gone.")
+		// Let go again only while something still works in its worktree (gonedesk.go).
+		if still, looked := leaving.Working(h.Worktree); !looked {
+			return false, t3Refused(http.StatusConflict, "Smolcorp can't see which processes work in "+name+"'s worktree on this "+t3Here()+", so nothing was changed.")
+		} else if len(still) == 0 {
+			return false, t3Refused(http.StatusConflict, alreadyGone(h))
+		}
 	case h.Worktree == "":
 		return false, t3Refused(http.StatusConflict, name+" has no worktree on record, so nothing was changed.")
 	}

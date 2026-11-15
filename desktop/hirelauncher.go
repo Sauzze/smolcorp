@@ -154,6 +154,9 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	// its row). It has no tmux socket: its launcher is known by its id.
 	hire = Hire{ID: id, Name: r.Role.Name, Nickname: r.Nickname, Account: r.AccountName, Role: r.Role.ID, Folder: r.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
 		ViaLauncher: true, Model: r.Role.Model, Ports: place.Ports, Brief: brief, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note}
+	// Its start is under way from its row until its token waits for its window (launcherWaitsFor): the edit never
+	// marks it gone meanwhile (gonedesk.go).
+	defer deskStarting(id)()
 	if err := updateRegistry(func(f *registryFile) { f.hires = append(f.hires, hire) }); err != nil {
 		return fail(http.StatusInternalServerError, "Couldn't save the hire in the registry.")
 	}
@@ -535,16 +538,25 @@ func (d *Deck) fireLauncherHire(h Hire, o launcherEngineOptions, force bool) (ke
 	firing.Unlock()
 	defer func() { firing.Lock(); delete(firing.ids, h.ID); firing.Unlock() }()
 
+	// A hire whose row already says gone is only stopped, if its window is still connected (gonedesk.go): its
+	// worktree, recap and row are left as they are.
+	gone := false
 	for _, now := range readRegistry(registryPath(), false).hires {
 		if now.ID == h.ID && (now.State == "fired" || now.State == "failed") {
-			return refuse(calledHire(h) + " is already gone.")
+			h.State, gone = now.State, true
 		}
 	}
 	launcher, tab := d.launcherOf(h.ID)
+	if gone && h.ViaLauncher && tab == nil && d.idlessWindowIn(h) {
+		return refuse(calledHire(h) + " is already marked " + h.State + ", but a window connected again in its worktree without its id, and Smolcorp can't end that: close it there.")
+	}
+	if gone && (tab == nil || !h.ViaLauncher) {
+		return refuse(alreadyGone(h))
+	}
 	if tab == nil || !h.ViaLauncher {
 		return refuse("Couldn't reach " + calledHire(h) + "'s window, so nothing was changed.")
 	}
-	if h.Worktree != "" && !force {
+	if h.Worktree != "" && !force && !gone {
 		if message := uncommittedRefusal(h, o.Git); message != "" {
 			return refuse(message)
 		}
@@ -566,6 +578,9 @@ func (d *Deck) fireLauncherHire(h Hire, o launcherEngineOptions, force bool) (ke
 	// A stop that didn't end it is not a fire: the launcher must be seen gone.
 	if !d.stopLauncherOf(h.ID, o.StopWait) {
 		return refuse("Couldn't end " + calledHire(h) + "'s window, so nothing was changed.")
+	}
+	if gone {
+		return "", stoppedGone(h, "window")
 	}
 	if refused := heldFire(h, "window"); refused != nil {
 		d.failHeldMail(h, refused)
@@ -617,12 +632,16 @@ func (d *Deck) fireLauncherTab(tab string, force bool) (status int, message stri
 	if !found {
 		return 0, "", false
 	}
+	stopped := "" // its row already said gone and only its window was ended (gonedesk.go): cleaned up as a fire
 	if _, err := d.fireLauncherHire(h, options, force); err != nil {
 		var refused *hireRefusal
-		if errors.As(err, &refused) {
+		if errors.As(err, &refused) && refused.Status == http.StatusOK {
+			stopped = refused.Message
+		} else if errors.As(err, &refused) {
 			return refused.Status, refused.Message, true
+		} else {
+			return http.StatusInternalServerError, err.Error(), true
 		}
-		return http.StatusInternalServerError, err.Error(), true
 	}
 	// A fired GM's token stops working unless another GM is open by now
 	// (clearFiredGMToken), and mail still waiting for the hire fails now rather than on the pump's next round.
@@ -642,6 +661,9 @@ func (d *Deck) fireLauncherTab(tab string, force bool) (status int, message stri
 		d.changed()
 	}
 	d.mu.Unlock()
+	if stopped != "" {
+		return http.StatusOK, stopped, true
+	}
 	if note := heldFireNote(h); note != "" {
 		return http.StatusOK, note, true
 	}

@@ -167,6 +167,8 @@ func TestADesksSettingsFileThatCantBeWrittenStartsNothing(t *testing.T) {
 func TestTheLaunchersRouteRefusesAChangedSettingsFile(t *testing.T) {
 	d := newTestDeck(t)
 	r := newHireSettingsRig(t)
+	// Its row, open, as a launcher hire's start writes it before its token: nothing starts behind a gone row (GMEDIT1).
+	claudeRegistry(t, Hire{ID: "abc123", Name: "Ada", Folder: r.root, State: "starting", ViaLauncher: true})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) { d.startEnvRoute(w, q.URL.Query()) }))
 	t.Cleanup(server.Close)
 	for _, changed := range []bool{false, true} {

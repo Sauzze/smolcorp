@@ -109,7 +109,7 @@ func gmRefusals(t *testing.T, fixture, path string, rows []gmRow, check func(i i
 
 func TestAGMFireRefusesEveryRowOfFireJSONWithItsStatusAndNeverTypes(t *testing.T) {
 	dirty := func(g *gmRig) { os.WriteFile(filepath.Join(g.hire.Worktree, "new.txt"), []byte("x"), 0o644) }
-	rows := []gmRow{{}, {}, {setup: dirty}, {setup: func(g *gmRig) { g.showing(t, "permission-menu") }}, {setup: func(g *gmRig) { markFired(g.hire.ID, "") }},
+	rows := []gmRow{{}, {}, {setup: dirty}, {setup: func(g *gmRig) { g.showing(t, "permission-menu") }}, {setup: func(g *gmRig) { g.r.tmux.up = false; markFired(g.hire.ID, "") }}, // one still running is ended (gonedesk_unix_test.go)
 		{request: map[string]any{"id": "live:s1"}, status: 404},
 		{setup: func(g *gmRig) { g.d.mu.Lock(); g.d.config.HiringEnabled = false; g.d.mu.Unlock() }, status: 403}}
 	gmRefusals(t, "fire.json", "/setup/gm/fire", rows, func(i int, g *gmRig, w *httptest.ResponseRecorder) {

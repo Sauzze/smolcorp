@@ -339,6 +339,10 @@ func NewDeck() *Deck {
 	}
 	// The hires in T3 Code, followed with the deck's rounds, so they stop with it.
 	d.startT3Follow()
+	// Desks whose row says gone but whose session still runs, listed once for the owner (gonedesk.go).
+	if goneDesksSwept {
+		d.rounds.run(d.sweepGoneDesks)
+	}
 	// The night shift: an approved job falls due from now on, and starts its hire (nightstart.go).
 	if nightShiftStarts {
 		d.startNight()

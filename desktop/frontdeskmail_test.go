@@ -29,7 +29,7 @@ func TestARegistryTheMacWroteKeepsItsKeysAndContactsThroughAnEdit(t *testing.T) 
 	if err := writeRegistryFile(registryPath(), original, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, refused := editHire(registryPath(), []byte(`{"id":"a1b2c3","notes":"same"}`)); refused != nil {
+	if _, refused := editHire(registryPath(), []byte(`{"id":"a1b2c3","notes":"same"}`), noDeskSession); refused != nil {
 		t.Fatal(refused.message)
 	}
 	var before, after map[string]any
@@ -51,7 +51,7 @@ func TestAnEmptyRegistryLeavesKeysAndContactsOut(t *testing.T) {
 	if err := writeRegistryFile(registryPath(), frontDeskFixture(t, "registry.json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, refused := editHire(registryPath(), []byte(`{"id":"a1b2c3","notes":"x"}`)); refused != nil {
+	if _, refused := editHire(registryPath(), []byte(`{"id":"a1b2c3","notes":"x"}`), noDeskSession); refused != nil {
 		t.Fatal(refused.message)
 	}
 	if data, _ := os.ReadFile(registryPath()); strings.Contains(string(data), `"keys"`) || strings.Contains(string(data), `"contacts"`) {
@@ -129,7 +129,7 @@ func TestAFiredOrFailedHiresKeyIsRefused(t *testing.T) {
 		t.Error("a fired hire's key was accepted")
 	}
 	for _, state := range []string{"fired", "failed"} {
-		if _, refused := editHire(registryPath(), []byte(`{"id":"d4e5f6","state":"`+state+`"}`)); refused != nil {
+		if _, refused := editHire(registryPath(), []byte(`{"id":"d4e5f6","state":"`+state+`"}`), noDeskSession); refused != nil {
 			t.Fatal(refused.message)
 		}
 		if isHireKey(registryPath(), "fake-key-jan") {

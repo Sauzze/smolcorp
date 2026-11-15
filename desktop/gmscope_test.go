@@ -125,7 +125,8 @@ func TestAScopedGMHiresOnTheAccountItWasHiredOn(t *testing.T) {
 // the scope follows the row, so a token left working would be unscoped.
 func TestTheOwnersRegistryEditTakesAGMsTokenAway(t *testing.T) {
 	for _, state := range []string{"failed", "fired"} {
-		d, _, _, token, project := scopedGM(t)
+		d, r, _, token, project := scopedGM(t)
+		r.tmux.up = false // its session ended first: the edit never marks a running desk gone (gonedesk.go)
 		gm := registered(t)[0]
 		body, _ := json.Marshal(map[string]any{"id": gm.ID, "state": state})
 		w := serve(t, d, call{method: "POST", target: "/setup/gm/registry", host: "localhost", from: thisComputer, body: string(body),

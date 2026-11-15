@@ -858,9 +858,13 @@ func TestAFireRefusesInTheEngineTmuxWordsAndChangesNothing(t *testing.T) {
 	t.Run("already gone", func(t *testing.T) {
 		r := newLRig(t)
 		h, w := r.hire("janitor")
+		// Its window closed first: one still running is ended (gonedesk_unix_test.go).
+		if !r.d.stopLauncherOf(h.ID, r.o.StopWait) {
+			t.Fatal("the window didn't stop")
+		}
 		markFired(h.ID, "")
 		r.fireRefused(h, false, "Janitor is already gone.")
-		if w.stopped() != 0 {
+		if w.stopped() != 1 {
 			t.Error("a launcher was stopped for a hire already gone")
 		}
 	})

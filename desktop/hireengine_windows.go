@@ -48,5 +48,8 @@ func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (kept, note string, err er
 
 func ownTmuxTab(Hire, string) bool { return false }
 
+// tmuxDeskRunning: no hire runs on a tmux server of its own here.
+func (d *Deck) tmuxDeskRunning(Hire) (running, known bool) { return false, true }
+
 // ownsHireSocket: no hire runs on a tmux server of its own here, so no socket is one of ours.
 func ownsHireSocket(socket string, testPort int) bool { return false }
