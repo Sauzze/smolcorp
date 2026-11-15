@@ -396,6 +396,14 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 			t.Fatalf("%s hire of %s: %d %q, registry %+v", map[bool]string{false: "desk", true: "route"}[route], role, status, text, hires)
 		}
 		data := startedSettings(t, hires[0].ID)
+		// FXMEM4bR1 B1: the GM's start sets Claude Code's memory variable and takes the launch modes out; a hire's
+		// names none of them.
+		plan, _ := issuedPlan(hires[0].ID)
+		for _, line := range gmMemoryStartLines {
+			if script := planText(plan); strings.Contains(script, line) != (role == "gm") {
+				t.Errorf("%s: the start has %q is %v:\n%s", role, line, role != "gm", script)
+			}
+		}
 		deniesTheAccounts(t, map[bool]string{false: "desk", true: "route"}[route]+" hire of "+role, data, work)
 		plain := strings.NewReplacer(hires[0].ID, "<hire>", work, "<work>", hires[0].Worktree, "<worktree>", d.config.HireFolder, "<repo>", supportDir, "<support>", homeDir, "<home>")
 		return plain.Replace(data), guard
@@ -410,6 +418,11 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 			}
 			if !strings.Contains(routeSettings, "PreToolUse") || (role == "gm") != strings.Contains(routeSettings, `"--profile","gm"`) || i > 0 && routeSettings == first {
 				t.Errorf("%s, case %d: no guard hook, the wrong profile, or a group turned the other way changed nothing: %s", role, i, routeSettings)
+			}
+			// MEM4b: the GM's desk starts with Claude Code's own memory off, a hire's as its account has it.
+			if off := `"autoMemoryEnabled":false`; strings.Contains(routeSettings, off) != (role == "gm") ||
+				strings.Contains(routeSettings, `"`+claudeMemoryEnv+`":"1"`) != (role == "gm") {
+				t.Errorf("%s, case %d: Claude Code's own memory isn't off for the GM alone: %s", role, i, routeSettings)
 			}
 			if i == 0 {
 				first = routeSettings

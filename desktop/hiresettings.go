@@ -39,7 +39,9 @@ import (
 //   - auto mode, where the account allows it;
 //   - Claude Code's own sandbox switched off ("sandbox":{"enabled":false}): a desk runs inside Smolcorp's
 //     sandbox, where Claude Code's can't start one of its own (SANDBOX-PLAN §A4.3), and a project's settings,
-//     which rank below these, can't switch it back on.
+//     which rank below these, can't switch it back on;
+//   - the GM's only: Claude Code's own memory switched off (claudeMemoryOff, with its start's claudeMemoryStart), so
+//     the GM keeps no notes but Smolcorp's.
 //
 // Deny rules only see the start of a command, so they stop the plain forms; the guard
 // sees the rest. A deny rule beats an allow, so the hire's own STATUS.md, which it must
@@ -388,13 +390,46 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 	return rules
 }
 
+// claudeMemoryEnv is the variable that switches Claude Code's own memory off, claudeMemoryOff the GM's settings'
+// keys that do it, and claudeMemoryStart the GM's start environment's part (MEM4b, FXMEM4bR1 B1). All are Claude
+// Code's own, read from its strings at 2.1.314 (the floor, claudeversion.go) and 2.1.325, never the owner's ~/.claude.
+//
+// autoMemoryEnabled is the setting, and CLAUDE_CODE_DISABLE_AUTO_MEMORY comes before it: 1, true, yes or on switch
+// memory off; 0, false, no or off switch it on whatever autoMemoryEnabled says. Claude Code reads the variable from
+// its own environment: the one it started with, with each settings file's env assigned over it in turn (the
+// account's, under SA-X8 the copy in the desk's own Claude folder; the project's; the local one; these; then managed
+// settings, an organization's). But two launch modes keep a file's env from being assigned at all:
+//   - CLAUDE_CODE_REMOTE_TOOLS_PIN_STORED_LOGIN on withholds every file's env but managed settings', these included;
+//   - CLAUDE_CODE_ENTRYPOINT claude-desktop, claude-desktop-3p or local-agent, or CLAUDE_CODE_ENVIRONMENT_KIND byoc,
+//     drops every file's env key that the start environment already has.
+//
+// Smolcorp sets none of the three, so a GM would have them only by inheriting them from whatever started Smolcorp
+// (Claude Code's desktop app puts the entrypoint in its sessions' environment). So the GM's start sets the variable
+// to 1 over any 0 it inherited, and takes the three out, and its settings set both keys besides: the start's 1 holds
+// in every mode, and the settings' keys hold if a later Claude Code reads the setting first. An owner's settings, a
+// project's or a terminal that sets the variable to 0 can't switch the GM's memory back on; only managed settings can.
+const claudeMemoryEnv = "CLAUDE_CODE_DISABLE_AUTO_MEMORY"
+
+var claudeMemoryStart = []envChange{
+	{Name: claudeMemoryEnv, Value: "1"},
+	{Name: "CLAUDE_CODE_REMOTE_TOOLS_PIN_STORED_LOGIN", Unset: true},
+	{Name: "CLAUDE_CODE_ENTRYPOINT", Unset: true},
+	{Name: "CLAUDE_CODE_ENVIRONMENT_KIND", Unset: true},
+}
+
+func claudeMemoryOff(settings, env map[string]any) {
+	settings["autoMemoryEnabled"] = false
+	env[claudeMemoryEnv] = "1"
+}
+
 // hireSettingsValue is the settings' content. Auto mode goes in as the default mode,
 // where Claude Code lets the account have it; otherwise the default mode is pinned too.
 // guard and config are the PreToolUse and ConfigChange hooks; shell the pinned shell.
 // reporting is only for a test copy's hire: the hooks that make it report to the
 // copy, after the guard (T704); nil for a real install's, which reports through the
-// account's own settings to the default port.
-func hireSettingsValue(deny []string, guard, config map[string]any, shell string, auto bool, reporting map[string]any) map[string]any {
+// account's own settings to the default port. profile is whose they are: the GM's
+// have Claude Code's own memory off.
+func hireSettingsValue(deny []string, guard, config map[string]any, shell string, auto bool, reporting map[string]any, profile guardProfile) map[string]any {
 	permissions := map[string]any{"deny": deny, "defaultMode": "default", "disableBypassPermissionsMode": "disable"}
 	if auto {
 		permissions["defaultMode"] = "auto"
@@ -412,7 +447,12 @@ func hireSettingsValue(deny []string, guard, config map[string]any, shell string
 	env := map[string]any{"CLAUDE_CODE_SHELL_PREFIX": "", "CLAUDE_CODE_SHELL": shell}
 	// Claude Code's own sandbox is off: Smolcorp's sandbox is the desk's, and Claude Code's can't nest in it.
 	sandbox := map[string]any{"enabled": false}
-	return map[string]any{"permissions": permissions, "disableAllHooks": false, "hooks": hooks, "env": env, "sandbox": sandbox}
+	settings := map[string]any{"permissions": permissions, "disableAllHooks": false, "hooks": hooks, "env": env, "sandbox": sandbox}
+	// The GM's one memory is Smolcorp's (memory.go), which the owner keeps entry by entry: Claude Code's own is off.
+	if profile == guardGM {
+		claudeMemoryOff(settings, env)
+	}
+	return settings
 }
 
 // reportingHooks are a test copy's hire's hooks: Claude's usual events, running
@@ -543,5 +583,5 @@ func hireSettingsObject(o hireSettingsOptions) (map[string]any, error) {
 	if shell == "" {
 		shell = pinnedShell(runtime.GOOS, os.Getenv("SHELL"), isExecutableFile)
 	}
-	return hireSettingsValue(deny, guardHook(o.CLI, rules, held, profile), configHook(o.CLI), shell, o.Auto, reporting), nil
+	return hireSettingsValue(deny, guardHook(o.CLI, rules, held, profile), configHook(o.CLI), shell, o.Auto, reporting, profile), nil
 }

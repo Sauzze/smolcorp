@@ -286,6 +286,11 @@ func TestTheGMHireOnTheLauncherStartsItsWindowWithTheGuardOfAHireFromTheOffice(t
 			if !strings.Contains(routeSettings, "PreToolUse") || (role == "gm") != strings.Contains(routeSettings, `"--profile","gm"`) || i > 0 && routeSettings == first {
 				t.Errorf("%s, case %d: no guard hook, the wrong profile, or a group turned the other way changed nothing: %s", role, i, routeSettings)
 			}
+			// MEM4b (RT126MEM4b nit 2): the GM's settings switch Claude Code's own memory off, a hire's don't.
+			if strings.Contains(routeSettings, `"autoMemoryEnabled":false`) != (role == "gm") ||
+				strings.Contains(routeSettings, `"`+claudeMemoryEnv+`":"1"`) != (role == "gm") {
+				t.Errorf("%s, case %d: Claude Code's own memory isn't off for the GM alone: %s", role, i, routeSettings)
+			}
 			if i == 0 {
 				first = routeSettings
 			}

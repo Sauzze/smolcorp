@@ -292,22 +292,26 @@ func TestADesksGuardNamesItsFolderInItsCommandLine(t *testing.T) {
 // A desk's settings ride in its command line, on Windows too, where a command line holds at most 32767
 // characters: a default hire's, with every deny rule and the core's groups, stays well under that. (25000 since
 // RT126SG2F B1's four rules for claude-install's temp file and folder forms, about 580 characters here: this test's
-// support folder is a long temp path, which every rule of the folder repeats.)
+// support folder is a long temp path, which every rule of the folder repeats.) The GM's too, with MEM4b's memory
+// switch.
 func TestADesksSettingsFitInACommandLine(t *testing.T) {
 	r := newHireSettingsRig(t)
-	line, err := r.write("abc123", func(o *hireSettingsOptions) {
-		o.Run = func(string, []string) (int, string, bool) {
-			return 0, `{"groups":` + strings.TrimPrefix(guard.GroupsArgument(guard.DefaultGroups()), `{"groups":`), true
+	for _, profile := range []guardProfile{guardHire, guardGM} {
+		line, err := r.write("abc123", func(o *hireSettingsOptions) {
+			o.Profile = profile
+			o.Run = func(string, []string) (int, string, bool) {
+				return 0, `{"groups":` + strings.TrimPrefix(guard.GroupsArgument(guard.DefaultGroups()), `{"groups":`), true
+			}
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
-	})
-	if err != nil {
-		t.Fatal(err)
+		// Quoted for Windows, each quote takes a backslash.
+		if quoted := len(line) + strings.Count(line, `"`); quoted > 25000 {
+			t.Errorf("%s: the settings are %d characters quoted", profile, quoted)
+		}
+		t.Logf("a default %s's settings: %d characters, %d quoted", profile, len(line), len(line)+strings.Count(line, `"`))
 	}
-	// Quoted for Windows, each quote takes a backslash.
-	if quoted := len(line) + strings.Count(line, `"`); quoted > 25000 {
-		t.Errorf("the settings are %d characters quoted", quoted)
-	}
-	t.Logf("a default hire's settings: %d characters, %d quoted", len(line), len(line)+strings.Count(line, `"`))
 }
 
 // RT126CMDLEN B1: each Claude account kept outside ~/.claude* adds its own deny rules, about 2,000 characters, so
@@ -362,6 +366,17 @@ func TestAWindowsDeskWhoseSettingsDontFitIsRefusedNamingItsAccounts(t *testing.T
 		t.Fatalf("8 ~/.claude-<name> accounts on Windows: %v", err)
 	}
 	t.Logf("windows, 8 ~/.claude-<name> accounts: %d quoted", quoted(line))
+	// The GM's, with MEM4b's memory switch, fits too.
+	gm, err := r.write("abc123", func(o *hireSettingsOptions) {
+		o.System, o.Profiles, o.Profile = "windows", tidy, guardGM
+		o.Run = func(string, []string) (int, string, bool) {
+			return 0, `{"groups":` + strings.TrimPrefix(guard.GroupsArgument(guard.DefaultGroups()), `{"groups":`), true
+		}
+	})
+	if err != nil || !strings.Contains(gm, `"autoMemoryEnabled":false`) {
+		t.Fatalf("the GM with 8 ~/.claude-<name> accounts on Windows: %v", err)
+	}
+	t.Logf("windows, the GM with 8 ~/.claude-<name> accounts: %d quoted, %d left", quoted(gm), exeLongest-quoted(gm))
 
 	// One account elsewhere is named alone; settings too long with none elsewhere still say what to do.
 	if err := settingsTooLong(strings.Repeat("x", exeLongest), elsewhere[:2], "windows"); err == nil ||

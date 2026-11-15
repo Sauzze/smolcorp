@@ -215,6 +215,15 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	} else if r.DefaultAccount {
 		env.Unset = append(env.Unset, "CLAUDE_CONFIG_DIR")
 	}
+	if r.Role.ID == gmRole { // as a tmux GM has them (claudeMemoryStart)
+		for _, change := range claudeMemoryStart {
+			if change.Unset {
+				env.Unset = append(env.Unset, change.Name)
+			} else {
+				env.Set[change.Name] = change.Value
+			}
+		}
+	}
 	token = newID()
 	o.Expect(token, id, env)
 	// Only ids and names are on the command line: the settings come with the environment.

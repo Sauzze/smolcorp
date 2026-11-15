@@ -190,6 +190,10 @@ func (h hireStart) plan() (deskPlan, error) {
 	if claude && h.GMPlugin != "" {
 		changes = append(changes, envChange{Name: gmCLIEnvironment, Value: h.GMCLI, Unset: h.GMCLI == ""})
 	}
+	// The GM's Claude Code starts with its own memory off, whatever Smolcorp inherited (claudeMemoryStart).
+	if claude && h.Role.ID == gmRole {
+		changes = append(changes, claudeMemoryStart...)
+	}
 	return deskPlan{Agent: string(agent), Words: words, Changes: slices.Concat(changes, secrets, deskToolEnvironment), PathFirst: h.CLIDir,
 		APIKey: h.APIKey && h.KeyText == ""}, nil
 }

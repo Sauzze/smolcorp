@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -461,6 +462,50 @@ func TestTheGMGetsTheTokenAndNoKeyOthersAKeyAndNoToken(t *testing.T) {
 	}
 	if slices.Contains(base, hireKeyEnvironment) || base[1] != "SMOLCORP_GM_TOKEN=inherited" {
 		t.Error("the inherited environment was changed")
+	}
+
+	// FXMEM4bR1 B1 and SIERRA's musts, the launcher's twin of the engine's: the GM's start sets Claude Code's memory
+	// variable to 1 and takes out the launch modes that keep its settings' env out; a hire's names none of them.
+	modes := []string{"CLAUDE_CODE_REMOTE_TOOLS_PIN_STORED_LOGIN", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_ENVIRONMENT_KIND"}
+	if gmWindow.env.Set[claudeMemoryEnv] != "1" || slices.ContainsFunc(modes, func(m string) bool { return !slices.Contains(gmWindow.env.Unset, m) }) {
+		t.Errorf("the GM's start doesn't keep its memory off: %+v", gmWindow.env)
+	}
+	if slices.ContainsFunc(append([]string{claudeMemoryEnv}, modes...), func(m string) bool {
+		_, set := otherWindow.env.Set[m]
+		return set || slices.Contains(otherWindow.env.Unset, m)
+	}) {
+		t.Errorf("a hire's start changes Claude Code's memory: %+v", otherWindow.env)
+	}
+	var gmSettings map[string]any
+	if err := json.Unmarshal([]byte(gmWindow.env.Settings), &gmSettings); err != nil {
+		t.Fatal(err)
+	}
+	account := map[string]any{"env": map[string]any{claudeMemoryEnv: "0"}, "autoMemoryEnabled": true}
+	for _, mode := range claudeLaunchModes {
+		for _, caseless := range []bool{false, true} {
+			inherited := append([]string{"PATH=/usr/bin", claudeMemoryEnv + "=0"}, mode...)
+			if caseless { // Windows: names in any case are the same variable, to the launcher and to Claude Code
+				for i, entry := range inherited {
+					name, value, _ := strings.Cut(entry, "=")
+					inherited[i] = strings.ToLower(name) + "=" + value
+				}
+			}
+			name := fmt.Sprintf("%q, caseless %v", mode, caseless)
+			got := startEnvironment(inherited, gmWindow.env, caseless)
+			if !slices.Contains(got, claudeMemoryEnv+"=1") || slices.ContainsFunc(got, func(e string) bool {
+				key, _, _ := strings.Cut(e, "=")
+				return strings.EqualFold(key, claudeMemoryEnv) && e != claudeMemoryEnv+"=1" ||
+					slices.ContainsFunc(modes, func(m string) bool { return strings.EqualFold(key, m) })
+			}) {
+				t.Errorf("%s: the GM starts with %q", name, got)
+			}
+			if !caseless && claudeAutoMemoryOn(environmentMap(got), account, gmSettings) {
+				t.Errorf("%s: the GM's memory is on", name)
+			}
+			if got := startEnvironment(inherited, otherWindow.env, caseless); slices.ContainsFunc(inherited[1:], func(e string) bool { return !slices.Contains(got, e) }) {
+				t.Errorf("%s: a hire's start changed what it inherited: %q", name, got)
+			}
+		}
 	}
 }
 

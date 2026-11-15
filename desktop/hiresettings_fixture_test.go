@@ -14,7 +14,9 @@ import (
 // as the Mac's HireSettings wrote them for fixed inputs, with 1.26's guard
 // (SANDBOX-PLAN §3.4: exec-form hooks that block when they fail, the
 // ConfigChange hook, the pinned keys, the core's groups in --groups), and
-// with SA-T1's "sandbox":{"enabled":false} added to each case's file. This
+// with SA-T1's "sandbox":{"enabled":false} added to each case's file, and
+// MEM4b's "autoMemoryEnabled":false and CLAUDE_CODE_DISABLE_AUTO_MEMORY to
+// the GM's. This
 // engine must make the same settings from the same inputs. (Windows writes its
 // paths as //c/…, so the Mac's paths aren't its.)
 func TestTheFenceIsTheMacsByteForByte(t *testing.T) {
@@ -56,7 +58,7 @@ func TestTheFenceIsTheMacsByteForByte(t *testing.T) {
 			profiles = append(profiles, claudeProfile{Name: p["name"], Dir: p["dir"]})
 		}
 		deny := hireDenyRules(c.HireID, groups, c.Support, profiles, c.Others, c.Entries, "darwin")
-		value := hireSettingsValue(deny, guardHook(fixture.CLI, rules, held, profile), configHook(fixture.CLI), fixtureShell, c.Auto, c.Reporting)
+		value := hireSettingsValue(deny, guardHook(fixture.CLI, rules, held, profile), configHook(fixture.CLI), fixtureShell, c.Auto, c.Reporting, profile)
 		got := string(swiftJSON(value))
 		if got != c.File {
 			gotLines, wantLines := strings.Split(got, "\n"), strings.Split(c.File, "\n")
