@@ -47,6 +47,7 @@ func RunApp() int {
 	defer forgetPid()
 	deck := NewDeck()
 	refreshHooks()
+	deck.refreshAccountHooks()
 	deck.mu.Lock()
 	// Nothing to read for a test copy on this computer only: the firewall doesn't filter loopback (RTCH N2).
 	if scope := effectiveScope(deck.config); scope != listenThisComputer {
@@ -116,6 +117,7 @@ func RunServer() int {
 	defer forgetPid()
 	deck := NewDeck()
 	refreshHooks()
+	deck.refreshAccountHooks()
 	watchOpenCode()
 	printSetupLink(os.Stdout, deck)
 	stopPortableOnSignal(deck)

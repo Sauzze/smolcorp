@@ -270,12 +270,17 @@ func claudeConnectedIn(p claudeProfile) bool {
 }
 
 // claudeAccountsState is what setup and the tools are told: each account, whether its folder is there, and
-// whether Smolcorp's hooks are in it.
+// whether Smolcorp's hooks are in it, and why its settings.json is left alone if it can't be read.
 func claudeAccountsState(saved []claudeProfile) map[string]any {
 	profiles := []map[string]any{}
 	list := claudeAccountList(saved)
 	for _, p := range list {
-		profiles = append(profiles, map[string]any{"name": p.Name, "dir": p.Dir, "default": p.Name == claudeDefaultName, "connected": claudeConnectedIn(p)})
+		profile := map[string]any{"name": p.Name, "dir": p.Dir, "default": p.Name == claudeDefaultName, "connected": claudeConnectedIn(p)}
+		// A settings.json the start-up refresh leaves untouched, said on its line (HOOKREFRESH1).
+		if problem := accountSettingsProblem(p.Dir); problem != "" {
+			profile["settingsProblem"] = problem
+		}
+		profiles = append(profiles, profile)
 	}
 	return map[string]any{"profiles": profiles, "found": foundClaudeAccounts(list), "most": claudeAccountsMost}
 }

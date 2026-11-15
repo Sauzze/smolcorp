@@ -258,6 +258,7 @@
   .accounts .row code { font-size: 11.5px; overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
   .accounts-fine { color: var(--dim); font-size: 11.5px; margin: 6px 0 0; }
   .accounts .gm-not { color: var(--dim); font-size: 11px; white-space: nowrap; }
+  .accounts .settings-problem { flex-basis: 100%; color: var(--error); font-size: 12px; }
   /* Come from Start here's account line: which account to add, said once, plainly. */
   .accounts-for-gm { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); font-size: 12.5px; }
   #accounts-next { color: var(--ink); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
@@ -3389,6 +3390,8 @@
       // The same word as the agents' line; a test copy's hires report through its own hook, whatever an account holds.
       const status = Object.assign(document.createElement('span'), { textContent: testCopy() ? '' : p.connected ? 'Reports to Smolcorp' : "Doesn't report yet" });
       row.append(name, dir, status);
+      // Its settings.json can't be read or isn't valid JSON: Smolcorp leaves it untouched, and says so here.
+      if (p.settingsProblem && !testCopy()) row.append(Object.assign(document.createElement('span'), { className: 'settings-problem', textContent: p.settingsProblem }));
       if (p.name === forGm) row.append(Object.assign(document.createElement('span'), { className: 'gm-uses', textContent: 'Your General Manager works on this one' }));
       if (adding && p.default) row.append(Object.assign(document.createElement('span'), { className: 'gm-not', textContent: 'The one you use yourself' }));
       if (!p.default) {
