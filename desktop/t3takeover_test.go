@@ -206,9 +206,9 @@ func (k *t3TakeOverRig) ways() t3Handing {
 			k.log = append(k.log, "stop "+session)
 			return k.stopped
 		},
-		Resume: func(h Hire, session string) (string, error) {
+		Resume: func(h Hire, session string) (t3Resumed, error) {
 			k.log = append(k.log, "resume "+session)
-			return k.socket, k.resumed
+			return t3Resumed{Socket: k.socket, Program: recordableTmux(tmuxPath())}, k.resumed
 		},
 		Save: func(id string, change func(*Hire)) error {
 			if id != k.hire.ID {

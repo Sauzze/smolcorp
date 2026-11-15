@@ -194,7 +194,7 @@ func recordedTmux(socket string) string {
 // path is "", recorded is that name and why says why (see untrustedWhy). With no tmux recorded all three are "".
 func recordedTmuxChecked(socket string) (path, recorded, why string) {
 	// Only a hire's own socket has a row: any other tab's tmux (a tab polls) costs no registry read.
-	if !hasTmuxHires || !strings.HasPrefix(filepath.Base(socket), hireSocketPrefix) {
+	if !hasTmuxHires || !strings.HasPrefix(filepath.Base(socket), hireSocketPrefix) && deskSocketID(socket, testCopyPort()) == "" {
 		return "", "", ""
 	}
 	for _, h := range readRegistry(registryPath(), false).hires {
@@ -258,6 +258,9 @@ func tmuxDriving(socket string) string {
 		return path
 	}
 	instead := tmuxPath()
+	if deskSocketID(socket, testCopyPort()) != "" {
+		instead = bundledTmux() // a sandboxed desk's (SA-M6): never another tmux
+	}
 	sayTmuxSkipped(socket, recorded, why, instead)
 	return instead
 }
@@ -283,6 +286,9 @@ func tmuxProgramFor(socket string) string {
 		return path
 	}
 	instead := tmuxProgram()
+	if deskSocketID(socket, testCopyPort()) != "" {
+		instead = bundledTmux() // a sandboxed desk's (SA-M6): never another tmux
+	}
 	sayTmuxSkipped(socket, recorded, why, instead)
 	return instead
 }
@@ -1005,10 +1011,11 @@ func showWindow(terminal hireOpener, folder string, command []string) (string, e
 // The office's own hires never get the port and support folder the Mac app
 // names its engine by: a Mac-engine hire doesn't have them either, and
 // `smolcorp` finds the office without them. A test copy's keep them, as a
-// Mac test copy's do, so its hires never reach the real office.
+// Mac test copy's do, so its hires never reach the real office. Nor the bundled tmux's guard variable,
+// SMOLCORP_TMUX_SERVER: the core gives it to each tmux call itself, never one it inherited (RT126SAL5, RT126SAM6 G1).
 func hireEnvironment() []string {
 	dropped := []string{"SMOLCORP_SESSION", "SAUZZEDECK_SESSION", "SMOLCORP_HEADLESS", "SMOLCORP_PARENT_FOLDER",
-		"SMOLCORP_GM_TOKEN", hireKeyEnvironment, hookKeyEnvironment, "TMUX", "TMUX_PANE", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON"}
+		"SMOLCORP_GM_TOKEN", "SMOLCORP_TMUX_SERVER", hireKeyEnvironment, hookKeyEnvironment, "TMUX", "TMUX_PANE", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON"}
 	if testCopyPort() == 0 {
 		dropped = append(dropped, "SMOLCORP_PORT", testSupportVariable)
 	}
@@ -1091,6 +1098,9 @@ func (d *Deck) hiredRoleAt(socket string) string {
 // inHireSocketFolder says whether socket is right inside a hire socket folder, with the folders on the way
 // resolved, as recordedOwnSocket compares them: a hire the Mac's engine made says /private/tmp for /tmp.
 func inHireSocketFolder(socket string) bool {
+	if deskSocketID(socket, testCopyPort()) != "" {
+		return true // a sandboxed desk's, in its own folder (SA-M6)
+	}
 	folder := physical(filepath.Dir(filepath.Clean(socket)))
 	return slices.ContainsFunc(hireSocketFolders(), func(own string) bool { return physical(own) == folder })
 }

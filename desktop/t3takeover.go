@@ -140,8 +140,8 @@ type t3Handing struct {
 	// Stop ends the hire's Claude Code (session) in its own tmux, as a fire would without force: an error says why not.
 	Stop func(h Hire, session string) error
 	// Resume starts `claude --resume <session>` in the hire's own tmux, with its own settings in its command line:
-	// its tmux socket as tmux spells it, for the registry.
-	Resume func(h Hire, session string) (string, error)
+	// where it runs, for the registry.
+	Resume func(h Hire, session string) (t3Resumed, error)
 	// Save changes hire id's row in the registry: an error when it couldn't be written, or the row is gone or no
 	// longer open (fired or failed meanwhile).
 	Save func(id string, change func(*Hire)) error
@@ -383,7 +383,7 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 		return "", t3Refused(http.StatusInternalServerError, "The registry couldn't be written, so "+name+" wasn't resumed.")
 	}
 	// 5. Its session resumed in its own tmux session, with its own settings file.
-	socket, err := ways.Resume(h, session)
+	resumed, err := ways.Resume(h, session)
 	if err != nil {
 		return "", t3Refused(http.StatusInternalServerError, name+"'s session is free, but it couldn't be resumed: "+err.Error()+" Hand it back again to retry.")
 	}
@@ -391,9 +391,10 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 	if !t3SaveTries(ways, func() error {
 		return ways.Save(h.ID, func(r *Hire) {
 			r.T3Session, r.T3Transcript, r.State = "", "", "working"
-			if socket != "" {
-				// A new server, started by the tmux this system picks now: its row says so.
-				r.TmuxSocket, r.TmuxProgram = socket, recordableTmux(tmuxPath())
+			if resumed.Socket != "" {
+				// A new server, started by the tmux this system picks now (a sandboxed desk's, the bundled one, with its
+				// server's pid as the core checked it: SA-M6): its row says so.
+				r.TmuxSocket, r.TmuxProgram, r.TmuxServer = resumed.Socket, resumed.Program, resumed.Server
 			}
 		})
 	}) {
@@ -407,6 +408,13 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 // t3BeingTakenOver is a fire of hire h refused while it's being taken over in T3 Code.
 func t3BeingTakenOver(h Hire) string {
 	return calledHire(h) + " is being taken over in T3 Code right now, so it wasn't fired: try again once that's done."
+}
+
+// t3Resumed is where Hand back's resume runs (t3ResumeInTmux): its socket as tmux spells it, the tmux that started
+// it, and a sandboxed desk's server pid as the core checked it (SA-M6).
+type t3Resumed struct {
+	Socket, Program string
+	Server          int
 }
 
 // t3ResumedUnsaved is what Hand back says when the hire was resumed but the registry still has it as handed over.
@@ -503,7 +511,7 @@ func (d *Deck) t3HandingFor(h Hire) t3Handing {
 			d.mu.Unlock()
 			return nil
 		},
-		Resume: func(h Hire, session string) (string, error) {
+		Resume: func(h Hire, session string) (t3Resumed, error) {
 			return d.t3ResumeInTmux(h, session, claudeDenyProfiles(saved))
 		},
 		Save: t3SaveOpen,
@@ -606,7 +614,9 @@ func (d *Deck) handBackFromT3(id string) (int, any) {
 		// Its server came from the pick of that Hand back, so its row says today's, not the old stopped server's.
 		if ways.Save(hire.ID, func(r *Hire) {
 			r.T3Session, r.T3Transcript, r.State = "", "", "working"
-			r.TmuxProgram = recordableTmux(tmuxPath())
+			if deskSocketID(r.TmuxSocket, testCopyPort()) == "" { // a sandboxed desk keeps its bundled tmux (SA-M6)
+				r.TmuxProgram = recordableTmux(tmuxPath())
+			}
 		}) != nil {
 			err = t3Refused(http.StatusInternalServerError, "The registry couldn't be written, so "+calledHire(hire)+" still shows as handed over.")
 		}

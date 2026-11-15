@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -37,6 +38,50 @@ type engineOptions struct {
 	Pause     func(time.Duration)
 	// The GM's fire, unless removeWorktree is asked: leave the worktree. Zero removes it when clean.
 	KeepWorktree bool
+	// Sandbox is a sandboxed desk's start-only runner, for the tests: nil is the system's own (SA-M6), with the real
+	// tmux (Tmux nil). A stand-in Tmux with no Sandbox starts a desk as before, through the stand-in alone.
+	Sandbox func(s *deskSandbox) tmuxStarter
+}
+
+// sandboxing is whether the engine starts this desk in its sandbox: on a Mac with the real tmux (deskSandboxed), or
+// with a stand-in runner for it.
+func (o engineOptions) sandboxing() bool { return o.Sandbox != nil || deskSandboxed && o.Tmux == nil }
+
+// deskTmux is a new desk's tmux server: in its sandbox when the engine starts it there (newDeskTmux), else as before.
+func (o engineOptions) deskTmux(id string, testPort int) (*hireTmux, error) {
+	if o.sandboxing() {
+		return newDeskTmux(id, testPort, o.Tmux)
+	}
+	if tmux := newHireTmux(id, testPort, o.Tmux); tmux != nil {
+		return tmux, nil
+	}
+	return nil, errors.New("Smolcorp couldn't set up a tmux server of its own for this hire: tmux is missing, or its socket's path is too long.")
+}
+
+// sandboxDesk makes desk d's sandbox and gives tmux its start-only runner, for a sandboxed desk; nothing for another.
+// The error is the owner's words.
+func (o engineOptions) sandboxDesk(tmux *hireTmux, d deskAt) error {
+	if !tmux.sandboxed {
+		return nil
+	}
+	desk, err := makeDeskSandbox(d)
+	if err != nil {
+		return err
+	}
+	if o.Sandbox != nil {
+		tmux.starts = o.Sandbox(desk)
+	} else {
+		tmux.starts = desk.starter(tmux.program, o.CLI)
+	}
+	return nil
+}
+
+// tmuxStartRefusal is a start tmux.start refused, as the engine answers it: the sandbox's words, or tmux's.
+func tmuxStartRefusal(err error) (status int, message string) {
+	if errors.Is(err, errTmuxDidntStart) {
+		return http.StatusInternalServerError, "tmux didn't start the hire."
+	}
+	return http.StatusConflict, err.Error()
 }
 
 // worktrees is the folder hires' worktrees are made in, "" for beside the repo (hiresFolder).
@@ -87,9 +132,9 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		return Hire{}, refusal
 	}
 	id := strings.ToLower(newID())[:12]
-	tmux := newHireTmux(id, r.TestPort, o.Tmux)
-	if tmux == nil {
-		return Hire{}, &hireRefusal{Status: http.StatusConflict, Message: "Smolcorp couldn't set up a tmux server of its own for this hire: tmux is missing, or its socket's path is too long."}
+	tmux, err := o.deskTmux(id, r.TestPort)
+	if err != nil {
+		return Hire{}, &hireRefusal{Status: http.StatusConflict, Message: err.Error()}
 	}
 	name := r.Role.Name
 	if r.Nickname != "" {
@@ -239,6 +284,24 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 			}
 		}
 	}
+	// Its sandbox, made from where it works, checked before anything of it runs (desksandbox.go): a Mac's every desk.
+	if tmux.sandboxed {
+		undoPlaced := undo
+		undo = func() {
+			deskStopped(Hire{ID: id, TmuxSocket: tmux.socket}, o) // its sandbox let go; its socket folder, when nothing answers
+			undoPlaced()
+		}
+	}
+	desk := deskAt{ID: id, GM: r.Role.ID == gmRole, Root: place.Folder, Socket: tmux.socket, Accounts: r.Profiles, Brief: brief, Git: o.Git}
+	if place.Worktree != "" {
+		desk.Root, desk.Checkout = place.Worktree, place.Repo
+	}
+	if place.Repo != "" {
+		desk.Hires = hiresFolder(place.Repo, o.Worktrees)
+	}
+	if err := o.sandboxDesk(tmux, desk); err != nil {
+		return fail(http.StatusConflict, err.Error())
+	}
 	// Its start goes to its pane alone, by a ticket (deskstart.go): no script, no shell.
 	command, err := deskStarts.issue(o.CLI, id, tmux, plan, key)
 	if err != nil {
@@ -249,9 +312,9 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		deskStarts.forget(id)
 		undoIssued()
 	}
-	_, socket, started, ok := tmux.start(place.Folder, command)
-	if !ok {
-		return fail(http.StatusInternalServerError, "tmux didn't start the hire.")
+	_, socket, started, err := tmux.start(place.Folder, command)
+	if err != nil {
+		return fail(tmuxStartRefusal(err))
 	}
 	deskStarts.pin(id, started)
 	// Its row read again now its server is up: marked gone meanwhile (by another program, say), the session is ended
@@ -260,17 +323,28 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		deskStarts.forget(id) // its ticket first: an agent not yet started never is
 		tmux.endServer()
 		if up, known := tmux.alive(); !known || up {
+			// The fire these words ask for must reach it: a sandboxed desk's tmux is run only told the server the core
+			// checked (SA-M6), so its row records that one, as a started desk's does. Nothing else of the row changes.
+			if tmux.server != 0 {
+				_ = updateRegistry(func(f *registryFile) {
+					if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id }); i >= 0 {
+						f.hires[i].TmuxSocket, f.hires[i].TmuxServer = socket, tmux.server
+					}
+				})
+			}
 			return Hire{}, goneWhileStarting(hire, "Smolcorp ended its tmux session but couldn't see it gone: fire "+calledHire(hire)+" to end it")
 		}
+		deskStopped(hire, o) // seen gone: its sandbox let go, and its socket folder (SA-M6)
 		undoMade()
 		return Hire{}, goneWhileStarting(hire, "its tmux session was ended")
 	}
-	if socket != hire.TmuxSocket {
-		// As tmux spells it (it may say /private/var for /var): the same file, which isHireSocket allows.
-		hire.TmuxSocket = socket
+	if socket != hire.TmuxSocket || tmux.server != 0 {
+		// As tmux spells it (it may say /private/var for /var): the same file, which isHireSocket allows. A sandboxed
+		// desk's server pid, as the core checked it (§A5.2 step 9), goes with it: its guarded tmux talks to that one.
+		hire.TmuxSocket, hire.TmuxServer = socket, tmux.server
 		if err := updateRegistry(func(f *registryFile) {
 			if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id }); i >= 0 {
-				f.hires[i].TmuxSocket = socket
+				f.hires[i].TmuxSocket, f.hires[i].TmuxServer = socket, tmux.server
 			}
 		}); err != nil {
 			tmux.end()
@@ -286,6 +360,7 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 			if ended { // its session is known to have ended (CLAUDEPLANT1)
 				claudeHireEnded(id)
 			}
+			deskStopped(hire, o)
 			undoMade()
 			return Hire{}, &hireRefusal{Status: http.StatusInternalServerError, Message: "The terminal didn't open."}
 		}
@@ -316,6 +391,7 @@ func watchManagedHire(hire Hire, testPort int, o engineOptions) {
 		func(id, why string) { setHire(id, "failed", firstRunes(why, longestNotes)) })
 	// Its windows' records go too, as a fired hire's do (hirewindows.go).
 	forgetHireWindows(hire.ID, windowsOfHire(hire.ID))
+	deskStopped(hire, o) // its sandbox, and a sandboxed desk's socket folder once nothing answers there
 	// Its own Claude folder goes, as at a fire (SA-X8), and its plans from a folder others share.
 	_ = removeDeskClaude(supportDir, hire.ID)
 	if hire.Worktree == "" {

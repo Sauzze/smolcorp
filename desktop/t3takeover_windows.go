@@ -14,6 +14,6 @@ func (d *Deck) t3StopInTmux(h Hire) error {
 	return t3Refused(http.StatusConflict, calledHire(h)+" runs in a window of Smolcorp's launcher: Take over reaches only a hire in a tmux session of its own, for now.")
 }
 
-func (d *Deck) t3ResumeInTmux(Hire, string, []claudeProfile) (string, error) {
-	return "", errors.New("a hire here runs in a window of Smolcorp's launcher, which can't resume a session yet.")
+func (d *Deck) t3ResumeInTmux(Hire, string, []claudeProfile) (t3Resumed, error) {
+	return t3Resumed{}, errors.New("a hire here runs in a window of Smolcorp's launcher, which can't resume a session yet.")
 }

@@ -4,7 +4,9 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,12 +46,108 @@ const (
 
 type tmuxRunner func(args []string) (output string, status int, ran bool)
 
+// tmuxStarter is a desk's start-only runner (SA-M6): it runs the one call that starts the desk's server, never another,
+// and says what tmux printed and the server's pid as the core checked it (0: not checked), or why nothing started, in
+// the words the owner sees.
+type tmuxStarter func(args []string) (output string, server int, err error)
+
 type hireTmux struct {
 	socket string
 	run    tmuxRunner
 	// program is the tmux that runs it, when it's the real one: what a hire's row records (TmuxProgram), and
 	// what a window attaches with. "" for a stand-in runner.
 	program string
+	// starts runs start's call alone, when it isn't run: a sandboxed desk's (desksandbox.go), inside its sandbox, or
+	// the real tmux's with its guard off for the start only. nil: run starts it too (a stand-in runner).
+	starts tmuxStarter
+	// sandboxed: a desk in its sandbox, on its own socket in deskSocketParent, started only through its sandbox (the
+	// engine sets starts before start). Its server's pid, as the core checked it at the start, is server.
+	sandboxed bool
+	server    int
+}
+
+// errTmuxDidntStart is a start tmux didn't make: no session, or what it printed isn't one.
+var errTmuxDidntStart = errors.New("tmux didn't start it")
+
+// A sandboxed desk's socket (SA-M6, SANDBOX-PLAN §A3.1 and §A5.2 step 8): deskSocketParent()/<id>/s, a test copy's
+// deskSocketParent()/<port>-<id>/s. The parent, /tmp/smolcorp-<uid>, is the core's alone (0700, checked at each
+// start); each desk's own folder in it is made new for its start, and a start whose folder or socket is there already
+// is refused. Its profile lets the desk connect to that exact path and write in its own folder alone (M2).
+const deskSocketFile = "s"
+
+// deskSocketParent is the folder every sandboxed desk's own folder is in, as the kernel spells it (/private/tmp on a
+// Mac): the Policy's SocketParent. Tests point it elsewhere.
+var deskSocketParent = func() string {
+	return filepath.Join(physical("/tmp"), "smolcorp-"+strconv.Itoa(os.Getuid()))
+}
+
+// deskSocketPath is where desk hireID's socket goes when it starts in its sandbox; "" for an id that can't name one.
+func deskSocketPath(hireID string, testPort int) string {
+	if !plainHireID(hireID) {
+		return ""
+	}
+	return filepath.Join(deskSocketParent(), testPortPart(testPort)+hireID, deskSocketFile)
+}
+
+// deskSocketID is the id of the sandboxed desk socket is the socket of, a test copy's on testPort, or "": a file
+// named s in a folder right inside deskSocketParent, named as deskSocketPath names it, the folders on the way resolved.
+func deskSocketID(socket string, testPort int) string {
+	socket = filepath.Clean(socket)
+	folder := filepath.Dir(socket)
+	if !filepath.IsAbs(socket) || filepath.Base(socket) != deskSocketFile || physical(filepath.Dir(folder)) != physical(deskSocketParent()) {
+		return ""
+	}
+	if id, ok := strings.CutPrefix(filepath.Base(folder), testPortPart(testPort)); ok && plainHireID(id) {
+		return id
+	}
+	return ""
+}
+
+// makeDeskSocketFolder makes the own folder of the desk whose socket is socket, new, for its start (§A5.2 step 8): the
+// parent made 0700 when it isn't there, then checked a folder, not a link, this user's, that nobody else can open; the
+// desk's folder made by this call, and checked the same. Anything already at the desk's folder refuses the start.
+func makeDeskSocketFolder(socket string) error {
+	folder := filepath.Dir(socket)
+	if !ownSocketFolder(filepath.Dir(folder)) {
+		return fmt.Errorf("the socket folder %s isn't this user's alone", filepath.Dir(folder))
+	}
+	if err := os.Mkdir(folder, 0o700); err != nil {
+		return fmt.Errorf("the desk's socket folder: %w", err)
+	}
+	if !ownSocketFolder(folder) {
+		return fmt.Errorf("the desk's socket folder %s isn't this user's alone", folder)
+	}
+	return nil
+}
+
+// deskSocketGoneWithin is how long removeDeskSocketFolder waits, in all, for a server just ended to stop answering.
+var deskSocketGoneWithin = 2 * time.Second
+
+// removeDeskSocketFolder takes a sandboxed desk's own socket folder away once nothing answers there: its socket (one
+// its ended server left) and then the folder, only while it's empty. A start that never made a server, a desk taken
+// over or ended, leaves no folder to refuse its next start (Hand back's resume uses its id again).
+func removeDeskSocketFolder(socket string) {
+	if deskSocketID(socket, testCopyPort()) == "" {
+		return
+	}
+	// One deadline for it all: something that holds the socket without answering doesn't hold up the engine.
+	for until := time.Now().Add(deskSocketGoneWithin); ; {
+		info, err := os.Lstat(socket)
+		if err != nil || info.Mode().Type() != os.ModeSocket {
+			break
+		}
+		conn, err := net.DialTimeout("unix", socket, 100*time.Millisecond)
+		if err != nil {
+			_ = os.Remove(socket)
+			break
+		}
+		conn.Close()
+		if time.Now().After(until) {
+			return // a server answers there still
+		}
+		time.Sleep(100 * time.Millisecond) // a server just ended may still be going
+	}
+	_ = os.Remove(filepath.Dir(socket))
 }
 
 // hireSocketName is a hire's socket's file name, or "" for an id that
@@ -114,33 +212,120 @@ func newHireTmux(hireID string, testPort int, run tmuxRunner) *hireTmux {
 	return hireTmuxUsing(filepath.Join(folder, name), testPort, run, func(string) string { return tmuxPath() })
 }
 
+// errNoBundledTmux is a sandboxed desk's start with no bundled tmux to start it: none falls back to another tmux.
+var errNoBundledTmux = errors.New("This copy of Smolcorp is missing its tmux. Reinstall Smolcorp.")
+
+// newDeskTmux is desk hireID's server in its sandbox (SA-M6): its socket at deskSocketPath, started and driven by the
+// tmux bundled with Smolcorp alone (with run nil), never Homebrew's or one on a PATH. The engine gives it its
+// start-only runner (starts) before its start. errNoBundledTmux when there's none.
+func newDeskTmux(hireID string, testPort int, run tmuxRunner) (*hireTmux, error) {
+	socket := deskSocketPath(hireID, testPort)
+	if socket == "" || len(socket) > maxSocketPath {
+		return nil, errors.New("Smolcorp couldn't set up a tmux server of its own for this hire: its socket's path is too long.")
+	}
+	h := &hireTmux{socket: socket, run: run, sandboxed: true}
+	if run == nil {
+		program := bundledTmux()
+		if program == "" {
+			return nil, errNoBundledTmux
+		}
+		h.program = recordableTmux(program)
+		h.run = h.checkedTmux(program)
+	}
+	return h, nil
+}
+
+// checkedTmux is a sandboxed desk's runner for the bundled tmux at program: each call told the server pid the core
+// checked (guard), and no call at all while there's none, before its start or for a row that records none. The
+// release gate (RT126SAL5): the bundled tmux is never run without a SMOLCORP_TMUX_SERVER the core set.
+func (h *hireTmux) checkedTmux(program string) tmuxRunner {
+	run := withoutStartFile(guardedTmux(program, h.guard))
+	return func(args []string) (string, int, bool) {
+		if h.guard() == "" {
+			return "", 0, false
+		}
+		return run(args)
+	}
+}
+
+// guard is what the hire's guarded tmux is told of its server (SMOLCORP_TMUX_SERVER): the pid the core checked at its
+// start, "" when there's none (the variable is then not given: never the core's own).
+func (h *hireTmux) guard() string {
+	if h.server > 1 {
+		return strconv.Itoa(h.server)
+	}
+	return ""
+}
+
 // hireTmuxAt is the server on socket, when it is one of ours: in a hire
 // socket folder, named like a hire's (a test copy owns only its own port's), never the default.
 func hireTmuxAt(socket string, testPort int, run tmuxRunner) *hireTmux {
 	return hireTmuxUsing(socket, testPort, run, tmuxDriving)
 }
 
-// hireTmuxUsing is hireTmuxAt with pick, which says what real tmux to run for a socket.
+// hireTmuxUsing is hireTmuxAt with pick, which says what real tmux to run for a socket. A sandboxed desk's (on its
+// socket in deskSocketParent) is driven by its recorded tmux alone, told the server pid its row records.
 func hireTmuxUsing(socket string, testPort int, run tmuxRunner, pick func(socket string) string) *hireTmux {
 	if !ownsHireSocket(socket, testPort) || len(socket) > maxSocketPath {
 		return nil
 	}
-	program := ""
+	h := &hireTmux{socket: filepath.Clean(socket), run: run, sandboxed: deskSocketID(socket, testPort) != ""}
 	if run == nil {
-		program = pick(socket)
+		var program string
+		if h.sandboxed {
+			program, h.server = recordedDeskTmux(socket)
+		} else {
+			program = pick(socket)
+		}
 		if program == "" {
 			return nil
 		}
-		run = withoutStartFile(realTmux(program))
-		program = recordableTmux(program)
+		if h.sandboxed {
+			h.run = h.checkedTmux(program)
+		} else {
+			h.run = withoutStartFile(guardedTmux(program, h.guard))
+			// The start alone runs its guard off: a guarded client never starts a server (third_party/tmux).
+			h.starts = startingTmux(withoutStartFile(guardedTmux(program, func() string { return "off" })))
+		}
+		h.program = recordableTmux(program)
 	}
-	return &hireTmux{socket: filepath.Clean(socket), run: run, program: program}
+	return h
+}
+
+// recordedDeskTmux is the tmux that started the sandboxed desk on socket and its server's pid, as its row records them,
+// or "" when its row records no tmux that is still a program you can run: a sandboxed desk is never driven by another
+// tmux (no fallback to tmuxPath's, which may be Homebrew's).
+func recordedDeskTmux(socket string) (program string, server int) {
+	for _, h := range readRegistry(registryPath(), false).hires {
+		if h.TmuxSocket == "" || !sameSocket(h.TmuxSocket, socket) {
+			continue
+		}
+		if !filepath.IsAbs(h.TmuxProgram) || untrustedWhy(filepath.Dir(h.TmuxProgram), filepath.Base(h.TmuxProgram)) != "" {
+			return "", 0
+		}
+		return h.TmuxProgram, h.TmuxServer
+	}
+	return "", 0
+}
+
+// startingTmux is a start-only runner from run: what tmux printed, or errTmuxDidntStart.
+func startingTmux(run tmuxRunner) tmuxStarter {
+	return func(args []string) (string, int, error) {
+		out, status, ran := run(args)
+		if !ran || status != 0 {
+			return "", 0, errTmuxDidntStart
+		}
+		return out, 0, nil
+	}
 }
 
 // ownsHireSocket says whether socket is one of ours: a hire's, in a hire socket
-// folder, with a name of only a-z, 0-9 and -, not the user's default.
+// folder, with a name of only a-z, 0-9 and -, not the user's default; or a sandboxed desk's (deskSocketID).
 func ownsHireSocket(socket string, testPort int) bool {
 	socket = filepath.Clean(socket)
+	if deskSocketID(socket, testPort) != "" {
+		return true
+	}
 	if socket == "" || !inHireSocketFolder(socket) {
 		return false
 	}
@@ -154,13 +339,17 @@ func ownsHireSocket(socket string, testPort int) bool {
 
 // realTmux runs tmux at path, in the environment a hire gets (hireEnvironment:
 // no TMUX, no session variables, no GM token), so the hire's server and pane
-// never inherit where Smolcorp was started or the GM's token.
-func realTmux(path string) tmuxRunner {
+// never inherit where Smolcorp was started or the GM's token. The bundled tmux's guard variable,
+// SMOLCORP_TMUX_SERVER, is never the core's own: it is what guard says at each call, or not there when that's "".
+func realTmux(path string) tmuxRunner { return guardedTmux(path, func() string { return "" }) }
+
+// guardedTmux is realTmux, its guard variable what guard says at each call.
+func guardedTmux(path string, guard func() string) tmuxRunner {
 	return func(args []string) (string, int, bool) {
 		ctx, cancel := context.WithTimeout(context.Background(), tmuxCallWait)
 		defer cancel()
 		cmd := disclaim.Cmd(exec.CommandContext(ctx, path, args...))
-		cmd.Env = hireEnvironment()
+		cmd.Env = withTmuxGuard(hireEnvironment(), guard())
 		out, err := cmd.Output()
 		if err == nil {
 			return strings.TrimRight(string(out), "\n"), 0, true
@@ -170,6 +359,19 @@ func realTmux(path string) tmuxRunner {
 		}
 		return "", -1, false
 	}
+}
+
+// tmuxGuardVariable is the bundled tmux's guard (third_party/tmux/guard.patch): the server pid a client may talk to,
+// "unchecked", or "off" for the call that starts a server.
+const tmuxGuardVariable = "SMOLCORP_TMUX_SERVER"
+
+// withTmuxGuard is env without any SMOLCORP_TMUX_SERVER of its own, and with guard's when it isn't "".
+func withTmuxGuard(env []string, guard string) []string {
+	env = slices.DeleteFunc(env, func(kv string) bool { return strings.HasPrefix(strings.ToUpper(kv), tmuxGuardVariable+"=") })
+	if guard != "" {
+		env = append(env, tmuxGuardVariable+"="+guard)
+	}
+	return env
 }
 
 // withoutStartFile runs tmux as run does, with no start file: a hire's server reads none of the owner's
@@ -192,22 +394,46 @@ func (h *hireTmux) ok(args ...string) bool {
 // command, and the socket's path (as the deck addresses a tab: tmux:<pane>@<socket>), or false if tmux didn't
 // start it. The pid is said by the same call that started the process, so no other call on the server comes in
 // between: it is the process the desk's start ticket is for (deskstart.go), whatever the pane runs later.
-func (h *hireTmux) start(folder string, command []string) (pane, socket string, pid int, ok bool) {
+//
+// A real start goes through h.starts, the start-only runner, never through run, which every other call takes: the
+// guard is off for that call alone (third_party/tmux), and the variable is taken out of the server's environment
+// before its first pane (RT126SAX3 nit 1). A sandboxed desk is started only through its sandbox (desksandbox.go): with
+// no runner for it, nothing starts. Its server's pid, as the core checked it, is kept in h.server before this returns,
+// so the start ticket's look at the pane (deskstart.go, after deskStarts.pin) is told it. The error is the owner's words.
+func (h *hireTmux) start(folder string, command []string) (pane, socket string, pid int, err error) {
 	if len(command) < 2 {
-		return "", "", 0, false // one word would be run by a shell
+		return "", "", 0, errTmuxDidntStart // one word would be run by a shell
 	}
-	out, status, ran := h.run(h.command(append([]string{"new-session", "-d", "-P", "-F", "#{pane_id} #{pane_pid} #{socket_path}",
-		"-s", hireSession, "-c", folder}, command...)...))
-	if !ran || status != 0 {
-		return "", "", 0, false
+	args := append([]string{"new-session", "-d", "-P", "-F", "#{pane_id} #{pane_pid} #{socket_path}", "-s", hireSession, "-c", folder}, command...)
+	var out string
+	switch {
+	case h.starts != nil:
+		args = append([]string{"start-server", ";", "set-environment", "-gu", tmuxGuardVariable, ";"}, args...)
+		var server int
+		if out, server, err = h.starts(h.command(args...)); err != nil {
+			return "", "", 0, err
+		}
+		h.server = server
+	case h.sandboxed:
+		// A sandboxed desk with no start-only runner of its own: nothing starts, never through run (RT126SAM6 B1).
+		return "", "", 0, errTmuxDidntStart
+	default:
+		output, status, ran := h.run(h.command(args...))
+		if !ran || status != 0 {
+			return "", "", 0, errTmuxDidntStart
+		}
+		out = output
 	}
 	pane, rest, _ := strings.Cut(out, " ")
 	said, socket, found := strings.Cut(rest, " ")
-	pid, err := strconv.Atoi(said)
-	if !found || !strings.HasPrefix(pane, "%") || socket == "" || err != nil || pid <= 1 {
-		return "", "", 0, false
+	pid, atoiErr := strconv.Atoi(said)
+	if !found || !strings.HasPrefix(pane, "%") || socket == "" || atoiErr != nil || pid <= 1 || h.sandboxed && h.server <= 1 {
+		if h.server > 1 {
+			h.endServer() // the server the core checked, told its pid: nothing of the refused start stays running
+		}
+		return "", "", 0, errTmuxDidntStart
 	}
-	return pane, socket, pid, true
+	return pane, socket, pid, nil
 }
 
 // panePID is the pid of the process the session's pane runs, as the hire's own server says it.

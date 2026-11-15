@@ -522,6 +522,8 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		// SA-X11: an earlier version's copy of report.sh, which the core rewrites at each start into a pointer to the
 		// app's (reportscript.go): it names the app's script, the port and this folder, and no key.
 		reportScriptName: notSecret,
+		// SA-M6: each sandboxed desk's profile, written at its start (sandbox.PrepareProfile): read only to the desk, no secret.
+		"hires/<id>/sandbox.sb": notSecret,
 	}
 	d, mac, phoneKey, _ := macDeck(t)
 	sendKey := withAHire(t)

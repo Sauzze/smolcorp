@@ -90,9 +90,9 @@ func TestT3TheResumeNamesItsScriptAndGivesItsSocket(t *testing.T) {
 	r.tmux.up = false
 	_ = os.Remove(hire.TmuxSocket)
 	before := registered(t)[0]
-	socket, err := d.t3ResumeInTmux(hire, t3TakeOverSession, nil)
-	if err != nil || socket == "" || !r.tmux.up {
-		t.Fatalf("%q %v", socket, err)
+	resumed, err := d.t3ResumeInTmux(hire, t3TakeOverSession, nil)
+	if err != nil || resumed.Socket == "" || !r.tmux.up {
+		t.Fatalf("%+v %v", resumed, err)
 	}
 	// No script: its start is its ticket's, and its pane runs desk-start with that ticket alone (SG2).
 	if scripts, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hire.ID), "*.sh")); len(scripts) != 0 {

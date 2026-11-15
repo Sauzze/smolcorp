@@ -29,6 +29,10 @@ func TestMain(m *testing.M) {
 	if args := os.Getenv(launcherStandInVariable); args != "" {
 		os.Exit(runWithTempSupport(func() int { return launcherStandIn(args) }))
 	}
+	// A sandboxed desk's start on a Mac, end to end: this program as its three stand-ins (desksandbox_standin_test.go).
+	if os.Getenv(deskStandInVariable) != "" && len(os.Args) > 1 {
+		os.Exit(deskStandIn(os.Args[1:]))
+	}
 	os.Exit(runWithTempSupport(m.Run))
 }
 

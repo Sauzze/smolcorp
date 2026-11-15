@@ -110,9 +110,9 @@ func TestStartIsDetachedInTheFolderOnItsOwnSocket(t *testing.T) {
 	r := newRecorder()
 	h, socket := fakeHireTmux(t, r, 0)
 	r.output = "%0 4242 " + socket
-	pane, got, pid, ok := h.start("/work/app", []string{"/x/smolcorp", "desk-start", "/s/desk-start", "42", "ticket"})
-	if !ok || pane != "%0" || got != socket || pid != 4242 {
-		t.Fatalf("start gave %q %q %d %v", pane, got, pid, ok)
+	pane, got, pid, err := h.start("/work/app", []string{"/x/smolcorp", "desk-start", "/s/desk-start", "42", "ticket"})
+	if err != nil || pane != "%0" || got != socket || pid != 4242 {
+		t.Fatalf("start gave %q %q %d %v", pane, got, pid, err)
 	}
 	// Its words as they are: tmux runs several without a shell, so no login shell and no start file runs (SG2). The
 	// pid of the process it started is said by the same call (the desk's ticket is for that process: RT126SG2 B1).
@@ -139,13 +139,13 @@ func TestStartFailsWhenTmuxDoes(t *testing.T) {
 	for _, c := range []recorder{{status: 1, ran: true}, {output: "garbage", ran: true}, {output: "%0 ", ran: true}, {output: "0 /s", ran: true},
 		{output: "%0 /s", ran: true}, {output: "%0 x /s", ran: true}, {output: "%0 1 /s", ran: true}, {output: "%0 42 ", ran: true}, {}} {
 		*r = c
-		if _, _, _, ok := h.start("/w", []string{"/bin/sh", "x"}); ok {
+		if _, _, _, err := h.start("/w", []string{"/bin/sh", "x"}); err == nil {
 			t.Errorf("start succeeded on %+v", c)
 		}
 	}
 	// One word would be run by tmux's shell: never asked.
 	*r = recorder{output: "%0 42 /s", ran: true}
-	if _, _, _, ok := h.start("/w", []string{"/x/hire.sh"}); ok || len(r.asked) != 0 {
+	if _, _, _, err := h.start("/w", []string{"/x/hire.sh"}); err == nil || len(r.asked) != 0 {
 		t.Errorf("a one-word start was asked: %q", r.asked)
 	}
 }
@@ -360,8 +360,8 @@ func TestARealSessionOnItsOwnSocket(t *testing.T) {
 	if err := os.WriteFile(agent, []byte("#!/bin/sh\necho 'fake agent is up'\nexec cat\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	pane, socket, _, ok := h.start(folder, []string{"/bin/sh", agent})
-	if !ok {
+	pane, socket, _, err := h.start(folder, []string{"/bin/sh", agent})
+	if err != nil {
 		t.Fatal("start failed")
 	}
 	// Ends only its own session, on its own socket, whatever else happens.

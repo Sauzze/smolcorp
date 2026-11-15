@@ -47,6 +47,9 @@ type Hire struct {
 	// TmuxProgram is the tmux that started that server (1.26): it keeps driving it while the file is there.
 	// Written only when known, so a 1.25 row is as it was, and read as "today's order" (findTmux).
 	TmuxProgram string `json:"tmuxProgram,omitempty"`
+	// TmuxServer is the pid of a sandboxed desk's tmux server, as the core checked it at its start (SA-M6, SANDBOX-PLAN
+	// §A5.2 step 9): the only server its guarded tmux may talk to. Written only then.
+	TmuxServer int `json:"tmuxServer,omitempty"`
 	// ViaLauncher: the hire engine made it in a window run by the launcher, which is known by this hire's id.
 	ViaLauncher bool    `json:"viaLauncher,omitempty"`
 	Account     string  `json:"account"`

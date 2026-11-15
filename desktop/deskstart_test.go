@@ -321,8 +321,8 @@ func TestADeskStartsByItsTicketWithNoScriptNoShellAndNoKeyInTmux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, started, ok := h.start(out, command)
-	if !ok {
+	_, _, started, err := h.start(out, command)
+	if err != nil {
 		t.Fatal("tmux didn't start the desk")
 	}
 	deskStarts.pin("sg2-real", started)

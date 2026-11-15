@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -471,6 +472,21 @@ func removeLeftStartScripts() {
 				f.hires[i].Notes = firstRunes(strings.Join(slices.DeleteFunc([]string{resumeScriptNotRun, f.hires[i].Notes}, func(s string) bool { return s == "" }), "\n"), longestNotes)
 			}
 		})
+	}
+}
+
+// leftCanary is a sandboxed start's canary as sandbox.NewCanary names it, or the file it writes before its rename.
+var leftCanary = regexp.MustCompile(`^sandbox-canary-[0-9a-f]{32}(\.new)?$`)
+
+// removeLeftCanaries takes away every canary a sandboxed start left in the support folder as the core starts (RT126SAX3
+// nit 2): each start's goes once its server is checked, so one still there is a core's that stopped mid-start. Only
+// a file named as a canary, and not a link, goes.
+func removeLeftCanaries() {
+	entries, _ := os.ReadDir(supportDir)
+	for _, e := range entries {
+		if e.Type().IsRegular() && leftCanary.MatchString(e.Name()) {
+			_ = os.Remove(filepath.Join(supportDir, e.Name()))
+		}
 	}
 }
 

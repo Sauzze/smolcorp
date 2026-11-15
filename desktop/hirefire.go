@@ -113,6 +113,9 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 		}
 	}
 	if gone {
+		// Its session was ended and seen gone: as at every stop, its sandbox is let go and its socket folder taken away
+		// (SA-M6). Its row stays as it was, and it stays off CLAUDEPLANT1's record (GMEDIT1).
+		deskStopped(h, o)
 		return "", stoppedGone(h, "tmux session")
 	}
 	if refused := heldFire(h, "session"); refused != nil {
@@ -129,6 +132,9 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 		markFired(h.ID, "")
 	}
 	claudeHireEnded(h.ID)
+	// Then its stop's listing, while its place is still as the desk left it, its sandbox let go and its socket
+	// folder taken away (SA-M6).
+	deskStopped(h, o)
 	// Its own Claude folder goes with its session (SA-X8): its transcripts too, as NB6 plans.
 	_ = removeDeskClaude(supportDir, h.ID)
 	// A hire without a worktree, and the GM, keep their plans in a folder others share: its own go now (MSYSAX8).

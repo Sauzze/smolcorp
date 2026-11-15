@@ -99,7 +99,7 @@ func startFakeClaude(t *testing.T, id, mode string, bracketed bool) *fakeClaude 
 	if err := os.WriteFile(agent, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, ok := h.start(dir, []string{"/bin/sh", agent}); !ok {
+	if _, _, _, err := h.start(dir, []string{"/bin/sh", agent}); err != nil {
 		t.Fatal("start failed")
 	}
 	// Ends only its own session, on its own socket.

@@ -53,3 +53,6 @@ func (d *Deck) tmuxDeskRunning(Hire) (running, known bool) { return false, true 
 
 // ownsHireSocket: no hire runs on a tmux server of its own here, so no socket is one of ours.
 func ownsHireSocket(socket string, testPort int) bool { return false }
+
+// deskSocketID: no desk runs on a tmux server of its own here, in its sandbox or not.
+func deskSocketID(socket string, testPort int) string { return "" }

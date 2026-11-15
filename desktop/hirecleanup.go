@@ -33,6 +33,14 @@ func hireOwnSocket(hireID string, testPort int) string {
 func recordedOwnSocket(hire Hire, testPort int) string {
 	name := hireSocketName(hire.ID, testPort)
 	recorded := hire.TmuxSocket
+	// A sandboxed desk's (SA-M6): its own folder in deskSocketParent, named for its id, spelt as the parent is.
+	if deskSocketID(recorded, testPort) == hire.ID && name != "" {
+		own := deskSocketPath(hire.ID, testPort)
+		if info, err := os.Lstat(own); err == nil && info.Mode().Type() == os.ModeSocket {
+			return own
+		}
+		return ""
+	}
 	if name == "" || !filepath.IsAbs(recorded) || strings.Contains(recorded, "..") {
 		return ""
 	}

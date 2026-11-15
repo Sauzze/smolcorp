@@ -204,6 +204,8 @@ var effortLevels = []string{"low", "medium", "high", "xhigh", "max"}
 func NewDeck() *Deck {
 	// Before anything is served: a start script left by a core that stopped has no watcher.
 	removeLeftStartScripts()
+	// So are a sandboxed start's canaries: each goes once its start is checked (desksandbox_darwin.go).
+	removeLeftCanaries()
 	// Before any record is read: the one-time change of every key (B1), and the record key from the Mac app
 	// (records.go), with the records it finds unsealed sealed as found at the first sealed start.
 	changeKeysOnce()
