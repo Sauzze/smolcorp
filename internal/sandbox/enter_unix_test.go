@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,6 +40,8 @@ func TestMain(m *testing.M) {
 		case "standin":
 			standIn(os.Args[2])
 			os.Exit(0)
+		case "serve":
+			standInServer(os.Args[2])
 		}
 	}
 	os.Exit(m.Run())
@@ -57,6 +60,30 @@ func standIn(out string) {
 	data, _ := json.Marshal(map[string]any{"fds": fds, "nonce": nonce, "guard": os.Getenv(tmuxGuardVar)})
 	// Its own descriptor for the file is opened after the list is made.
 	os.WriteFile(out, data, 0o600)
+}
+
+// standInServer is a desk's stand-in server (SA-M3): it listens at the socket path, says so on stdout, and takes
+// connections and keeps them open, as tmux keeps its clients', until it's killed, or for a minute at most. (A server
+// that hangs up at once has no audit token left to read, and the server check refuses it.)
+func standInServer(socket string) {
+	l, err := net.Listen("unix", socket)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "serve:", err)
+		os.Exit(3)
+	}
+	fmt.Println("listening")
+	go func() {
+		time.Sleep(time.Minute)
+		os.Exit(4)
+	}()
+	var open []net.Conn
+	for {
+		c, err := l.Accept()
+		if err != nil {
+			os.Exit(5)
+		}
+		open = append(open, c)
+	}
 }
 
 // shortTemp is a temp folder short enough for a unix socket's path (104 bytes on a Mac), links resolved.

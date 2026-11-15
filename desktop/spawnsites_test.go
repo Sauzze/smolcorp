@@ -45,7 +45,8 @@ var spawnExemptFunctions = map[string]string{
 	"desktop/launcher.go launch": "smolcorp run starting its agent in a pseudo-terminal: it runs only in a hire's terminal window (Terminal, " +
 		"iTerm or Ghostty) or a desk's tmux, itself started through disclaim.Cmd, so the agent is charged to that terminal or tmux, never to the core",
 	"internal/sandbox/enter_unix.go enter": "smolcorp sandbox enter becoming the desk's start in place, inside the desk's sandbox, once its checks " +
-		"passed: an exec in place starts no process, and `enter` itself is started through disclaim.Cmd (SA-M3)",
+		"passed: an exec in place starts no process, and `enter` itself is started through disclaim.Cmd, by sandbox-exec in " +
+		"internal/sandbox/run_darwin.go MacCommand (SA-M3; pinned below)",
 	"internal/gm/login_unix.go execGM": "smolcorp gm login putting the General Manager in its own place (SK2, B3): an exec in place starts no " +
 		"process, so the GM inherits the charge of whatever ran the command (the owner's terminal, or a hire's), and it's never the core's: " +
 		"only the command line runs it",
@@ -363,7 +364,10 @@ func TestEveryProgramStartsDisclaimedOnAMac(t *testing.T) {
 	// The context form is read too, where the plan names it.
 	for _, site := range []string{"desktop/hostphonemic.go exec.CommandContext", "desktop/tabs.go exec.CommandContext",
 		"desktop/hiresettings.go exec.CommandContext", "desktop/gitstate.go exec.CommandContext",
-		"desktop/opencode.go exec.CommandContext", "internal/acp/client.go exec.Command", "desktop/signinrun.go terminal.Command"} {
+		"desktop/opencode.go exec.CommandContext", "internal/acp/client.go exec.Command", "desktop/signinrun.go terminal.Command",
+		// A desk's start in its sandbox (SA-M3): smolcorp-spawn, then sandbox-exec, then `enter`, whose exec in place
+		// is exempt above only because of this.
+		"internal/sandbox/run_darwin.go exec.Command"} {
 		if !seen["wrapped "+site] {
 			t.Errorf("%s isn't handed to disclaim.Cmd (or given disclaim.Words's)", site)
 		}
