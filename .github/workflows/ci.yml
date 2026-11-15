@@ -566,3 +566,77 @@ jobs:
             Write-Output "::error::$name didn't pass as a standard user: it failed, was skipped or didn't run"
           }
           if ($status -ne '0' -or $missing) { exit 1 }
+
+  mac-sandbox:
+    # SA-M4 and SA-M5, the Mac's escape tables and its normal-work list (internal/sandbox/escape_darwin_test.go and
+    # escape2_darwin_test.go): a stand-in hire under the real /usr/bin/sandbox-exec and the real profile, made from a
+    # stand-in desk's Policy and the lists. SMOLCORP_SANDBOX_REQUIRED=1 turns a skip into a failure, and each test must
+    # say PASS by name. The guarded tmux is the one the tmux job built. The runner is thrown away after, so the rows
+    # that may not run on a Mac someone uses run here: the keychain row (it makes a keychain) and swift test (CLIP1).
+    # The TCC rows need a person's Accessibility grant, which GitHub's runners can't give: the Mac Studio runner's.
+    name: Mac sandbox, escape tables and normal work
+    needs: tmux
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: tmux-macos
+          path: build/ci-tmux
+      # The image has node, npm, python3, cargo, git, swift and Chrome, but not pnpm or bun. No package registry: each
+      # is its own project's release from github.com, at the version the rows were first run with, checked against
+      # third_party/js-tools/SHA256SUMS (scripts/fetch-js-tools.sh says where each hash came from). A mismatch stops here.
+      - name: pnpm and bun, pinned by SHA-256
+        shell: bash
+        run: |
+          dir="$(scripts/fetch-js-tools.sh "$RUNNER_TEMP/js-tools" | tail -n 1)"
+          echo "$dir" >> "$GITHUB_PATH"
+      - name: The escape tables and the normal-work list ran and passed
+        shell: bash
+        env:
+          SMOLCORP_SANDBOX_REQUIRED: "1"
+          SMOLCORP_TEST_KEYCHAIN: "1"
+          SMOLCORP_TEST_SWIFT_TEST: "1"
+        run: |
+          # An artifact keeps no file modes.
+          tmux_file="$(find "$PWD/build/ci-tmux" -type f -name tmux | head -n 1)"
+          [ -n "$tmux_file" ] || { echo "::error::the tmux job's build isn't in its artifact"; exit 1; }
+          chmod +x "$tmux_file"
+          export SMOLCORP_TEST_TMUX="$tmux_file"
+          names=(
+            TestOnAMacAHireReachesNoneOfTheOwnersFilesSocketsOrPorts
+            TestOnAMacADescriptorOpenedBeforeTheStartIsntTheDesks
+            TestOnAMacAHireCantSwapItsSandboxForALooserOne
+            TestOnAMacTheListsLetNormalProgramsRun
+            TestOnAMacAHireInALinkedWorktreeCantChangeWhatTheOwnersGitRuns
+            TestOnAMacAHiresTmuxServerReachesNothingOfTheOwners
+            TestOnAMacAHireCantOpenTheInspectorOfANodeOutside
+            TestOnAMacPsAndTopDontStartInADesk
+            TestOnAMacAPlantedLibraryOrModuleNeverRuns
+            TestOnAMacAHireReadsTheItemsSecurityMadeAsTheOwnerDoes
+            TestOnAMacNormalWorkRunsInADesksSandbox
+            TestOnAMacNormalWorkNeedsNoIOKitClass
+            TestOnAMacClaudeCodesDeskFolderWorksAndItsMarketplaceRefreshIsRefused
+            TestOnAMacOpenInADeskLaunchesNothing
+          )
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          go test -count=1 -v -run "^($(IFS='|'; echo "${names[*]}"))\$" ./internal/sandbox/ 2>&1 | tee "$RUNNER_TEMP/mac-sandbox.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in "${names[@]}"; do
+            if ! grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/mac-sandbox.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          # A cost the normal-work list found (a tool that needs what stays off the lists) is said in the summary, and so
+          # is which normal-work rows ran here with no IOKit class at all (cargo, swift test and Chrome among them), for
+          # SIERRA to keep or narrow the IOKit list.
+          grep -E "COST: |IOKIT: " "$RUNNER_TEMP/mac-sandbox.txt" >> "$GITHUB_STEP_SUMMARY" || true
+          [ "$status" -eq 0 ] && [ "$missing" -eq 0 ]

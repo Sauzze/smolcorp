@@ -14,8 +14,17 @@ import (
 //
 // The Mach and IOKit lists start from Claude Code's own Seatbelt profile (the plan's source, read from its 2.1
 // program), less what §A3.1 keeps off (WindowServer, the pasteboard, LaunchServices, TCC, audio, the camera, screen
-// capture, CoreSimulator, Spotlight, Apple Events), plus what §A3.1 names (FSEvents, configd, cfprefsd). Only user
-// lookup is proven needed here (P126SBXb S4); M5's normal-work run under the real profile settles both lists.
+// capture, CoreSimulator, Spotlight, Apple Events), plus what §A3.1 names (FSEvents, configd, cfprefsd). User lookup
+// is proven needed here (P126SBXb S4). M5's normal-work list (escape2_darwin_test.go) runs under both lists as they
+// are: on this Mac a commit signed through the SSH agent and a push, npm, pnpm, bun, go test, pip in a venv and swift
+// build need nothing more (cargo and swift test run in CI's Mac sandbox job). Headless Chrome needs the WindowServer's
+// and LaunchServices' services, which stay off.
+//
+// That settles the Mach list (without it the signed commit and git pull fail), not the IOKit list: no normal-work row
+// needs any IOKit entry. Every row passes with no IOKit class at all (TestOnAMacNormalWorkNeedsNoIOKitClass, which CI's
+// Mac sandbox job runs for cargo, swift test and Chrome too). IOSurface's two entries are named only for headless
+// Chrome's and Electron tests' drawing, and Chrome doesn't run in a desk; RootDomainUserClient has no row. The three
+// entries are SIERRA's to keep or narrow.
 
 // Need is when an entry is on a desk's list.
 type Need int8
