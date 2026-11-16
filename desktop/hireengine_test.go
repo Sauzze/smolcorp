@@ -318,9 +318,9 @@ func TestARoleHireInTmuxGoesThroughTheEngine(t *testing.T) {
 	if len(got) != 1 || got[0].State != "working" || got[0].Role != "janitor" || !r.tmux.ran("new-session") {
 		t.Fatalf("registry %+v, tmux %q", got, r.tmux.asked)
 	}
-	attach := h.windows[0]
-	if !slices.Contains(attach, "attach") || !slices.Contains(attach, got[0].TmuxSocket) {
-		t.Errorf("the window runs %q, want an attach on the hire's socket", attach)
+	// The window runs `smolcorp attach <its id>` (SA-M8): the attach finds its socket and server in the registry.
+	if attach, want := h.windows[0], attachLine(commandLineProgram(), got[0].ID); len(attach) < len(want) || !slices.Equal(attach[len(attach)-len(want):], want) {
+		t.Errorf("the window runs %q, want %q", attach, want)
 	}
 }
 

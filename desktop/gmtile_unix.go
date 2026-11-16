@@ -51,26 +51,23 @@ func teamGridCommands(socket string, panes []string) [][]string {
 	return calls
 }
 
-// teamGridPane is what a pane runs: a read-only attach to one hire's session, so typing in the grid can't reach it.
-func teamGridPane(tmux, hireSocket string) string {
-	return "exec " + shellQuoted(tmux) + " -S " + shellQuoted(hireSocket) + " attach -r -t " + shellQuoted("="+hireSession)
-}
-
-// showTeamGrid makes the grid afresh on its own server (an old one is ended first: only that socket's) and shows it
-// in a window of terminal, opened by the Mac app on a window's script, as a hire's window is (writeWindowScript): no
-// start script (SA-M7). The server reads no start file (-f /dev/null) and is started with its guard off for that call
-// alone (tmuxStartCall); every other call is a one-shot client's (tmuxClient), told the pid the start printed, so the
-// guard checks each call reaches that server. False if any step failed.
-var showTeamGrid = func(h hostBridge, sockets []string, terminal string, testPort int) bool {
+// showTeamGrid makes the grid of desks ids afresh on its own server (an old one is ended first: only that socket's) and
+// shows it in a window of terminal, opened by the Mac app on a window's script, as a hire's window is
+// (writeWindowScript): no start script (SA-M7). The server reads no start file (-f /dev/null) and is started with its
+// guard off for that call alone (tmuxStartCall); every other call is a one-shot client's (tmuxClient), told the pid the
+// start printed, so the guard checks each call reaches that server. Each pane, and the window, run `smolcorp attach`
+// with exec (SA-M8): a pane, its desk read-only, in that desk's sandbox where it has one; the window, the grid, told
+// its server's pid. False if any step failed.
+var showTeamGrid = func(h hostBridge, ids []string, terminal string, testPort int) bool {
 	tmux := tmuxPath()
 	if tmux == "" || !ownSocketFolder(hireSocketFolder()) {
 		return false
 	}
-	socket := teamGridSocket(testPort)
+	socket, smolcorp := teamGridSocket(testPort), commandLineProgram()
 	var panes []string
-	for _, hire := range sockets {
-		if ownsHireSocket(hire, testPort) && len(hire) <= maxSocketPath {
-			panes = append(panes, teamGridPane(tmuxDriving(hire), hire))
+	for _, id := range ids {
+		if hire, ok := registryHire(id); ok && hireOwnTmux(hire, testPort, nil) != nil {
+			panes = append(panes, gridPaneLine(smolcorp, id, testPort, supportDir))
 		}
 	}
 	if len(panes) == 0 {
@@ -90,8 +87,7 @@ var showTeamGrid = func(h hostBridge, sockets []string, terminal string, testPor
 			return false
 		}
 	}
-	script, err := writeWindowScript(filepath.Join(supportDir, "hires"),
-		[]string{tmux, "-S", socket, "attach-session", "-r", "-t", "=" + teamGridSession}, testPort, supportDir)
+	script, err := writeWindowScript(filepath.Join(supportDir, "hires"), gridAttachLine(smolcorp, server), testPort, supportDir)
 	if err != nil {
 		return false
 	}

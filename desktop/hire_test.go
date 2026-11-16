@@ -216,7 +216,8 @@ func TestAHireCanRunInTmux(t *testing.T) {
 		t.Errorf("tmux runs %q, want the launcher with no shell", h.tmux[0])
 	}
 	session := h.tmux[0][slices.Index(h.tmux[0], "-s")+1]
-	if want := []string{"/usr/bin/tmux", "-S", "/tmp/tmux-1000/default", "attach", "-t", session}; len(h.windows) != 1 || !slices.Equal(h.windows[0][3:], want) {
+	// Its window runs `smolcorp attach` on the session and the socket it was made on (SA-M8).
+	if want := plainAttachLine(commandLineProgram(), session, "/tmp/tmux-1000/default"); len(h.windows) != 1 || !slices.Equal(h.windows[0][3:], want) {
 		t.Errorf("the window runs %q, want it to show the session", h.windows)
 	}
 	// With no desktop, as over SSH, the session alone: tmux attach shows it.

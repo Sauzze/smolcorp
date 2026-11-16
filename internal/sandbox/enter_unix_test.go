@@ -756,3 +756,38 @@ func TestEnterWithNoSandboxIsRefusedAndRunsNothing(t *testing.T) {
 		t.Error("smolcorp sandbox took a word it doesn't have")
 	}
 }
+
+// An attach's `enter` (SA-M8): the same rows and report as a start's, and `--attach <pid>` read back; a pid that isn't
+// one, or given twice, is refused. NewAttach needs the pid the core checked.
+func TestAnAttachsEnterReadsItsServer(t *testing.T) {
+	d := newStandInDesk(t)
+	if s, err := NewAttach(d.checks, 1); err == nil {
+		s.Close()
+		s.Canary.Remove()
+		t.Error("an attach with no checked server was made")
+	}
+	s, err := NewAttach(d.checks, 5151)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close(); s.Canary.Remove() })
+	words := s.Words("/app/tmux", "attach-session")
+	if strings.Join(words[:4], " ") != "sandbox enter --attach 5151" {
+		t.Errorf("its words: %q", words)
+	}
+	e, err := parseEnter(words[2:])
+	if err != nil || e.attach != 5151 || len(e.rows) != len(s.rows) || e.program != "/app/tmux" {
+		t.Fatalf("read back: %+v %v", e, err)
+	}
+	if e, _ := parseEnter(mustStart(t, d.checks).Words("/app/tmux")[2:]); e.attach != 0 {
+		t.Errorf("a start's enter read an attach: %+v", e)
+	}
+	for _, pid := range []string{"1", "0", "-3", "x", "05", "5151 "} {
+		if _, err := parseEnter(append([]string{"--attach", pid}, words[4:]...)); err == nil {
+			t.Errorf("--attach %q was taken", pid)
+		}
+	}
+	if _, err := parseEnter(append([]string{"--attach", "77"}, words[2:]...)); err == nil {
+		t.Error("--attach given twice was taken")
+	}
+}

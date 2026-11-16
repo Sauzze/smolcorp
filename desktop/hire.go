@@ -1007,7 +1007,8 @@ func openHire(command []string, folder string, terminal hireOpener, hasTerminal,
 		_, _ = runTmux("kill-session", "-t", name)
 		return errUnsupported
 	}
-	if err := openWindow(terminal, folder, []string{tmuxPath(), "-S", socket, "attach", "-t", name}); err != nil {
+	// Its window runs `smolcorp attach` with exec, on the socket the session was made on (SA-M8).
+	if err := openWindow(terminal, folder, plainAttachLine(commandLineProgram(), name, socket)); err != nil {
 		// On the socket the session was made on: a one-shot client has none of the owner's TMUX_TMPDIR to find it by.
 		_, _ = runTmux("-S", socket, "kill-session", "-t", name)
 		return err

@@ -193,10 +193,10 @@ func tileNotAllowed(app string) string {
 var tileWait = 100 * time.Second
 
 // tileWith is the tiling: seats on grid as terminal allows, the tmux client's tty of a hire's socket asked of
-// clientTTY, the windows moved by the Mac app, and the team grid shown by teamGrid for a terminal that can't
-// place windows. A refused permission ends the work at once.
+// clientTTY, the windows moved by the Mac app, and the team grid of the seats' hires (by id) shown by teamGrid for a
+// terminal that can't place windows. A refused permission ends the work at once.
 func tileWith(h hostBridge, seats []tileSeat, terminal string, grid tileGrid, clientTTY func(socket string) string,
-	teamGrid func(sockets []string) bool) tileReport {
+	teamGrid func(ids []string) bool) tileReport {
 	report := tileReport{Method: "none", Placed: []string{}, Missed: []string{},
 		Office: []int{int(grid.office.X), int(grid.office.Y), int(grid.office.Width), int(grid.office.Height)}}
 	if len(seats) == 0 {
@@ -205,11 +205,7 @@ func tileWith(h hostBridge, seats []tileSeat, terminal string, grid tileGrid, cl
 	}
 	app := scriptableTerminal(terminal)
 	if app == "" {
-		sockets := make([]string, len(seats))
-		for i, seat := range seats {
-			sockets[i] = seat.socket
-		}
-		if !teamGrid(sockets) {
+		if !teamGrid(hireIDs(seats)) {
 			report.Message = "The team grid couldn't be made: tmux wasn't found or wouldn't start it."
 			return report
 		}
@@ -353,7 +349,7 @@ func (rt *router) gmScreenRoutes(w http.ResponseWriter, r *request) bool {
 		rows := buildTeam(readRegistry(registryPath(), false).hires, d.frontDeskLive(), 0, func(string) string { return "" })
 		testPort := testCopyPort()
 		report := tileWith(h, tileSeats(rows), terminal, grid, func(socket string) string { return hireClientTTY(socket, testPort) },
-			func(sockets []string) bool { return showTeamGrid(h, sockets, terminal, testPort) })
+			func(ids []string) bool { return showTeamGrid(h, ids, terminal, testPort) })
 		if len(report.Placed) > 0 {
 			_ = hostPlaceOffice(h, grid.office, mainHeight)
 		}

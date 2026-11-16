@@ -66,8 +66,8 @@ func TestTmuxClientRunsOnlyWithAGuardOfTheCores(t *testing.T) {
 }
 
 // tmuxPickers say which tmux to run. tmuxPickedIn is every function that may use one, with what it does with it: run
-// it only through tmuxClient or tmuxStartCall, record it, say whether there is one, or put it in a window's attach
-// line, which SA-M8 turns into `smolcorp attach`.
+// it only through tmuxClient or tmuxStartCall, record it, or say whether there is one. No window's or pane's line names
+// a tmux: each runs `smolcorp attach` (SA-M8), which runs it through tmuxClient, or in the desk's sandbox.
 var tmuxPickers = []string{"findTmux", "tmuxPath", "tmuxProgram", "tmuxProgramFor", "tmuxDriving", "bundledTmux",
 	"recordedTmux", "recordedTmuxChecked", "recordedDeskTmux", "tmuxFor"}
 
@@ -87,16 +87,14 @@ var tmuxPickedIn = map[string]string{
 	"hiretmux.go hireTmuxUsing":         "runs it through oneShotTmux and tmuxStartCall",
 	"tabs.go outputWith":                "runs it through tmuxClient",
 	"tabs.go alive":                     "runs it through tmuxClient",
-	"gmtile_unix.go showTeamGrid":       "runs it through tmuxStartCall and oneShotTmux; the panes' and window's attach lines are SA-M8's",
+	"gmtile_unix.go showTeamGrid":       "runs it through tmuxStartCall and oneShotTmux; its panes and window run smolcorp attach",
+	"attach.go attachCommand":           "runs it through tmuxClient (attachClient): the team grid's, a plain hire's",
 	"gmpreflight.go tmuxAvailable":      "says which tmux this computer has",
 	"hire.go hireWays":                  "says whether there is a tmux",
 	"server.go Serve":                   "finds it early, so a login shell is asked in the background; runs nothing",
 	"t3takeover_tmux.go t3StopInTmux":   "says whether there is a tmux",
 	"t3takeover_tmux.go t3ResumeInTmux": "records it",
 	"t3takeover.go handBackFromT3":      "records it",
-	"hire.go openHire":                  "a window's attach line (SA-M8)",
-	"hirecleanup.go openHireViewer":     "a window's attach line (SA-M8)",
-	"hireengine.go managedHireWith":     "a window's attach line (SA-M8)",
 }
 
 // The grep row (release gate item 1) reads the core's code for every place it starts a program (RT126SAM7 B1: not a
@@ -135,7 +133,7 @@ var tmuxExecSites = map[string]string{
 	"tmuxclient.go tmuxClient exec.CommandContext(program)": "tmux, a one-shot client: guarded, a clean environment, stdin /dev/null",
 	"tmuxclient.go tmuxStartCall exec.CommandContext(path)": "tmux, a start outside any sandbox, its guard off for that call alone",
 	// A package the core imports, where it can run a tmux (RT126SAM7R2 D3).
-	"internal/sandbox/enter_unix.go enter syscall.Exec(e.program)": "tmux, a sandboxed desk's start: smolcorp sandbox enter becomes the bundled tmux in its sandbox",
+	"internal/sandbox/enter_unix.go enter syscall.Exec(e.program)": "tmux, a sandboxed desk's start or attach: smolcorp sandbox enter becomes the bundled tmux in its sandbox",
 	// A desk's start-only runner (RT126SAM7R2 B1′): every place one is named, made, kept or called. It's called by
 	// hireTmux.start alone; it's kept only as onlyStarts made it, which refuses any call but that start.
 	"hiretmux.go hireTmux names tmuxStarter(…)":                                                                               "the desk's start-only runner, its field",
@@ -297,7 +295,7 @@ var tmuxExecAllowed = map[string]string{
 	"tmuxclient.go tmuxClient exec.CommandContext(program)":        "the one helper",
 	"tmuxclient.go tmuxStartCall exec.CommandContext(path)":        "the one start outside a sandbox",
 	"hiretmux.go start .startOnly(h.command(args...))":             "a desk's start, through its start-only runner (onlyStarts refuses any other call)",
-	"internal/sandbox/enter_unix.go enter syscall.Exec(e.program)": "a sandboxed desk's start: smolcorp sandbox enter becomes the bundled tmux, its guard off for that start alone",
+	"internal/sandbox/enter_unix.go enter syscall.Exec(e.program)": "a sandboxed desk's start (its guard off for that start alone) or attach (told the checked server, SA-M8): smolcorp sandbox enter becomes the bundled tmux",
 	// Not a tmux: the reading says so by its function's name (it resumes a desk in its tmux); it runs the guard tool.
 	"t3takeover_tmux.go t3ResumeInTmux writeHireSettings(hireSettingsOptions{…})": "not a tmux: smolcorp's own guard tool",
 }
@@ -2156,12 +2154,12 @@ func TestAnOldDeskKeepsItsRecordedTmuxAndStaysUnsandboxed(t *testing.T) {
 // The team grid (SA-M7): no start script; its server reads no start file and is started with its guard off for that
 // call alone; every later call is told the pid the start printed; its window opens on a window's script.
 func TestTheTeamGridStartsWithNoStartScriptAndChecksItsServer(t *testing.T) {
-	program, log, sandboxed, old := tmuxGateRig(t)
+	_, log, sandboxed, old := tmuxGateRig(t)
 	var asked bridgeRequest
 	opened := showTeamGrid(hostAnswering(func(r bridgeRequest) (bridgeAnswer, error) {
 		asked = r
 		return bridgeAnswer{OK: true}, nil
-	}), []string{sandboxed.TmuxSocket, old.TmuxSocket}, "terminal", 0)
+	}), []string{sandboxed.ID, old.ID}, "terminal", 0)
 	if !opened {
 		t.Fatal("the grid didn't open")
 	}
@@ -2182,8 +2180,15 @@ func TestTheTeamGridStartsWithNoStartScriptAndChecksItsServer(t *testing.T) {
 		t.Fatalf("asked %+v", asked)
 	}
 	script, err := os.ReadFile(asked.Script)
-	if err != nil || !strings.Contains(string(script), "exec '"+program+"' '-S' '"+teamGridSocket(0)+"' 'attach-session' '-r' '-t' '=team'") {
+	// Its window, and each pane, run `smolcorp attach` with exec (SA-M8): the window told the grid's server.
+	if err != nil || !strings.Contains(string(script), "exec '"+commandLineProgram()+"' 'attach' '--team-grid' '5252'\n") {
 		t.Errorf("its window's script: %s %v", script, err)
+	}
+	if !strings.Contains(start.args, "exec '"+commandLineProgram()+"' attach --read-only 'ab12'") ||
+		!slices.ContainsFunc(runs, func(r tmuxGateRun) bool {
+			return strings.Contains(r.args, "split-window") && strings.Contains(r.args, "attach --read-only 'cd34'")
+		}) {
+		t.Errorf("its panes: %+v", runs)
 	}
 	left, _ := filepath.Glob(filepath.Join(supportDir, "hires", "*", "hire-*.sh"))
 	if more, _ := filepath.Glob(filepath.Join(supportDir, "hires", "hire-*.sh")); len(left)+len(more) > 0 {

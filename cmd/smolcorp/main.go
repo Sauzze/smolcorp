@@ -8,6 +8,7 @@
 //	smolcorp demo [--dry-run]         a General Manager and its team on a sample project
 //	smolcorp gm <command>             ask the running app about the team (the GM's hands)
 //	smolcorp status | desks           the team, for you at the computer (see: smolcorp status --help)
+//	smolcorp attach <desk>            show a desk in this terminal, through its sandbox where it has one
 //	smolcorp guard [--profile gm] [--rules FILE]     the hire guard: Claude Code runs it before each Bash command
 //	smolcorp quit                     stop the running copy, by the pid it recorded
 //	smolcorp version
@@ -41,6 +42,8 @@ const usage = `Usage: smolcorp [command]
   gm <command>            ask the running Smolcorp about the team (gm help)
   status                  the office at a glance: the team, who waits on you
   desks                   the team, one line a desk
+  attach <desk>           show a desk's session in this terminal (its window's
+                          own line: tmux attach doesn't reach a desk)
   say, hire, open         come with app keys in Settings (not yet: use the office)
   guard [--profile gm] [--rules FILE]    the hire guard, a PreToolUse hook: reads the call on stdin
   mcp                     serve the gm commands as MCP tools on standard input and output
@@ -70,6 +73,9 @@ func main() {
 	case "desk-start":
 		// Not in the usage: Smolcorp starts a desk's tmux pane on it, with that desk's ticket (deskstart.go).
 		os.Exit(desktop.RunDeskStart(args[1:]))
+	case "attach":
+		// Every window, and every pane of the team grid, Smolcorp opens on a desk runs this with exec (desktop/attach.go).
+		os.Exit(desktop.RunAttach(args[1:]))
 	case "sandbox":
 		// Not in the usage: Smolcorp starts `sandbox enter` inside a desk's sandbox, before anything of the desk's,
 		// to check the sandbox holds and tell the core so (internal/sandbox/enter.go). On Linux, `sandbox check` and

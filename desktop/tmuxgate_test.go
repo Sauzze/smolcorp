@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -162,9 +163,15 @@ func driveEveryTmuxSite(t *testing.T, sandboxed, old Hire) {
 		t.Errorf("a plain hire's session: %v", err)
 	}
 	_, _ = runTmux("kill-session", "-t", "smolcorp-0000")
+	// `smolcorp attach` outside a sandbox (SA-M8): an old desk's, a plain hire's, the team grid's; a sandboxed desk's is
+	// refused here (no profile: nothing runs), and is attach_darwin_test.go's inside its sandbox.
+	for _, words := range [][]string{{old.ID}, {"--read-only", old.ID}, {"--session", "smolcorp-0a1b2c3d", "--socket", filepath.Join(t.TempDir(), "default")},
+		{"--team-grid", "5252"}, {sandboxed.ID}} {
+		runAttach(words, nil, io.Discard, io.Discard)
+	}
 	// The team grid, under a Mac app that opens no window.
 	showTeamGrid(hostAnswering(func(bridgeRequest) (bridgeAnswer, error) { return bridgeAnswer{}, errUnsupported }),
-		[]string{sandboxed.TmuxSocket, old.TmuxSocket}, "terminal", 0)
+		[]string{sandboxed.ID, old.ID}, "terminal", 0)
 }
 
 func TestNoExecOfTheBundledTmuxWithoutSmolcorpTmuxServer(t *testing.T) {

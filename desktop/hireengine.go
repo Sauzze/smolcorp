@@ -29,8 +29,8 @@ type engineOptions struct {
 	CLI       string // the app's own smolcorp command
 	Tmux      tmuxRunner
 	Worktrees string
-	// Opens a window attached to the hire's session, when there's a terminal.
-	Attach    func(socket string) error
+	// Opens a window attached to the hire's session (its row as started), when there's a terminal.
+	Attach    func(hire Hire) error
 	HeardFrom func(Hire) bool
 	Within    time.Duration
 	Every     time.Duration
@@ -356,7 +356,7 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		}
 	}
 	if o.Attach != nil {
-		if err := o.Attach(socket); err != nil {
+		if err := o.Attach(hire); err != nil {
 			// It was started, so its row stays, marked failed; its key's hash stays but is inert
 			// (hireForSendKey only finds open hires).
 			ended := tmux.end()
@@ -432,8 +432,9 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 	// The window shown, by its terminal's record (a Mac's): kept for the hire once it's made.
 	window := ""
 	if hasTerminal {
-		options.Attach = func(socket string) (err error) {
-			window, err = showWindow(terminal, folder, []string{tmuxDriving(socket), "-S", socket, "attach", "-t", "=" + hireSession})
+		// The window runs `smolcorp attach` with exec: the desk's guarded tmux, in its sandbox where it has one (SA-M8).
+		options.Attach = func(hire Hire) (err error) {
+			window, err = showWindow(terminal, folder, attachLine(commandLineProgram(), hire.ID))
 			return err
 		}
 	}

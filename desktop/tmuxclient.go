@@ -36,13 +36,18 @@ var errNoTmuxGuard = errors.New("no checked tmux server to talk to")
 // program with args (-f /dev/null first, so even a call that would start a server reads none of the owner's start
 // files), told the server it may talk to (guard: a pid the core checked, or tmuxUnchecked; never "off", which only a
 // start gives, and never one the core inherited), with tmuxClientEnvironment alone, and stdin from /dev/null (an
-// exec.Cmd's nil Stdin) unless the caller hands it a stream (load-buffer -). Disclaimed (ST1), and stopped after wait.
+// exec.Cmd's nil Stdin) unless the caller hands it a stream (load-buffer -, or an attach's terminal). Disclaimed (ST1),
+// and stopped after wait; with wait 0, only when cancelled (an attach, which lasts as long as its window: attach.go).
 // errNoTmuxGuard, and nothing run, for any other guard or no program.
 func tmuxClient(wait time.Duration, program, guard string, args ...string) (*exec.Cmd, context.CancelFunc, error) {
 	if pid, err := strconv.Atoi(guard); program == "" || guard != tmuxUnchecked && (err != nil || pid <= 1 || strconv.Itoa(pid) != guard) {
 		return nil, nil, errNoTmuxGuard
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), wait)
+	ctx, cancel := context.WithCancel(context.Background())
+	if wait > 0 {
+		cancel()
+		ctx, cancel = context.WithTimeout(context.Background(), wait)
+	}
 	cmd := disclaim.Cmd(exec.CommandContext(ctx, program, append([]string{"-f", os.DevNull}, args...)...))
 	cmd.Env = append(append([]string{}, tmuxClientEnvironment...), tmuxGuardVariable+"="+guard)
 	cmd.Stdin = nil

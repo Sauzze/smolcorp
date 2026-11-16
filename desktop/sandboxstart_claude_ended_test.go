@@ -41,7 +41,7 @@ func TestOnlyAGoneHireWhoseSessionEndedIsPutOnRecord(t *testing.T) {
 				}
 				return engine(args)
 			}
-			r.o.Attach = func(string) error { return errors.New("standin: the window didn't open") }
+			r.o.Attach = func(Hire) error { return errors.New("standin: the window didn't open") }
 			if _, err := runManagedHire(r.request("janitor"), r.o); err == nil {
 				t.Fatal("hired")
 			}

@@ -106,7 +106,8 @@ func detachHireViewers(hire Hire, run tmuxRunner) detached {
 }
 
 // openHireViewer is "Open a window" for a hire on its own tmux server: a
-// window of terminal attached to its session, in its worktree or folder.
+// window of terminal attached to its session, in its worktree or folder,
+// through `smolcorp attach` (SA-M8).
 func openHireViewer(hire Hire, terminal hireOpener) error {
 	server := hireOwnTmux(hire, testCopyPort(), nil)
 	if server == nil {
@@ -119,7 +120,7 @@ func openHireViewer(hire Hire, terminal hireOpener) error {
 	if folder == "" {
 		folder = hire.Folder
 	}
-	window, err := showWindow(terminal, folder, []string{cmpOr(server.program, tmuxPath()), "-S", server.socket, "attach", "-t", "=" + hireSession})
+	window, err := showWindow(terminal, folder, attachLine(commandLineProgram(), hire.ID))
 	recordHireWindow(hire.ID, window)
 	return err
 }

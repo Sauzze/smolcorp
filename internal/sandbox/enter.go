@@ -26,6 +26,10 @@ import (
 // pipe only the core holds, closes it, and becomes the desk's program in place. A row that fails: the report says
 // which, nothing runs, and the owner sees one sentence (Refusal).
 //
+// An attach (`smolcorp attach`, SA-M8, §A3.1) is checked the same way, by its own fresh canary and rows: the attach is
+// the core's side then (NewAttach), and `enter --attach <pid>` becomes the guarded bundled tmux's attach client inside
+// the desk's sandbox, told that pid, the server the core checked at the desk's start, never "off".
+//
 // The core's side is Start: it makes the canary fresh for each start (NewCanary, write-new-then-rename), the nonce,
 // the pipe and the other server, gives the words and the environment to start `enter` with, and marks the desk
 // "starting" only when Wait has read a full, passing report for this start. The report is compared whole with the one
@@ -36,8 +40,8 @@ import (
 const (
 	// nonceVar is where the core puts the start's nonce for `enter`, which takes it out before the exec.
 	nonceVar = "SMOLCORP_SANDBOX_NONCE"
-	// tmuxGuardVar is the tmux guard's variable (third_party/tmux/guard.patch): "off" only for what `enter` starts,
-	// the desk's own server, inside its sandbox (§A3.1).
+	// tmuxGuardVar is the tmux guard's variable (third_party/tmux/guard.patch): "off" only for what a start's `enter`
+	// starts, the desk's own server, inside its sandbox; an attach's server pid for an attach's (§A3.1).
 	tmuxGuardVar = "SMOLCORP_TMUX_SERVER"
 	// handshakeFD is the pipe's descriptor in `enter`: the first of the command's ExtraFiles (Start.Files).
 	handshakeFD = 3
@@ -189,6 +193,8 @@ type Checks struct {
 type Start struct {
 	Canary Canary
 	nonce  string
+	// attach is the desk's server pid for an attach (NewAttach): `enter` tells the guarded client that pid. 0 for a start.
+	attach int
 	rows   []checkRow
 	other  net.Listener
 	// read is the core's end of the handshake; write is `enter`'s, which the core closes once `enter` has started.
@@ -237,11 +243,28 @@ func NewStart(c Checks) (*Start, error) {
 	return s, nil
 }
 
+// NewAttach is NewStart for an attach to the desk whose server the core checked at its start as pid server (§A5.2 step
+// 9): `enter` becomes the attach client with SMOLCORP_TMUX_SERVER set to server, never "off".
+func NewAttach(c Checks, server int) (*Start, error) {
+	if server <= 1 {
+		return nil, errors.New("sandbox: an attach needs the server pid the core checked")
+	}
+	s, err := NewStart(c)
+	if err == nil {
+		s.attach = server
+	}
+	return s, err
+}
+
 // Words are the words after Smolcorp's own program that start `enter`, which then becomes program with args.
 // program must be a whole path: `enter` looks nothing up.
 func (s *Start) Words(program string, args ...string) []string {
-	words := []string{"sandbox", "enter", "--handshake", strconv.Itoa(handshakeFD),
-		"--canary-id", strconv.FormatUint(s.Canary.Dev, 10) + ":" + strconv.FormatUint(s.Canary.Ino, 10)}
+	words := []string{"sandbox", "enter"}
+	if s.attach > 1 {
+		words = append(words, "--attach", strconv.Itoa(s.attach))
+	}
+	words = append(words, "--handshake", strconv.Itoa(handshakeFD),
+		"--canary-id", strconv.FormatUint(s.Canary.Dev, 10)+":"+strconv.FormatUint(s.Canary.Ino, 10))
 	for _, r := range s.rows {
 		if r.kind != rowFDs {
 			words = append(words, "--"+r.kind, r.path)
@@ -317,6 +340,7 @@ func (s *Start) Close() {
 // entering is `enter`'s words, read.
 type entering struct {
 	handshake int
+	attach    int // an attach's server pid (--attach), 0 for a start
 	dev, ino  uint64
 	rows      []checkRow
 	program   string
@@ -342,6 +366,12 @@ func parseEnter(args []string) (entering, error) {
 				return e, fmt.Errorf("sandbox enter: the handshake %q isn't a descriptor above 2", value)
 			}
 			e.handshake = fd
+		case name == "attach":
+			pid, err := strconv.Atoi(value)
+			if err != nil || pid <= 1 || strconv.Itoa(pid) != value || e.attach != 0 {
+				return e, fmt.Errorf("sandbox enter: --attach %q isn't a server's pid, or is given twice", value)
+			}
+			e.attach = pid
 		case name == "canary-id":
 			dev, ino, ok := strings.Cut(value, ":")
 			var errDev, errIno error

@@ -437,7 +437,7 @@ func TestTheMacsWordsUnderTheMacApp(t *testing.T) {
 // never marks it working again.
 func TestAHireWhoseWindowDidntOpenStaysFailedEvenIfItReportedFirst(t *testing.T) {
 	r := newEngineRig(t)
-	r.o.Attach = func(string) error {
+	r.o.Attach = func(Hire) error {
 		setHire(registered(t)[0].ID, "working", "") // as its watcher would, had the agent reported first
 		return errors.New("the window didn't open")
 	}

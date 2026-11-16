@@ -269,7 +269,7 @@ func TestASandboxedStartWhoseWindowDidntOpenIsOnRecordAndLetGo(t *testing.T) {
 	r := sandboxedRig(t)
 	listed := stopListed(t)
 	var socket string
-	r.o.Attach = func(at string) error { socket = at; return errors.New("no terminal") }
+	r.o.Attach = func(h Hire) error { socket = h.TmuxSocket; return errors.New("no terminal") }
 	_, err := runManagedHire(r.request("janitor"), r.o)
 	if refused, ok := err.(*hireRefusal); !ok || refused.Message != "The terminal didn't open." {
 		t.Fatalf("%v", err)

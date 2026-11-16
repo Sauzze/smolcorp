@@ -260,7 +260,13 @@ func enter(args []string, stderr io.Writer) int {
 	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
 		return strings.HasPrefix(kv, nonceVar+"=") || strings.HasPrefix(kv, tmuxGuardVar+"=")
 	})
-	env = append(env, tmuxGuardVar+"=off")
+	// A start's tmux starts the desk's server, its guard off for that call alone; an attach's client is told the server
+	// the core checked, and talks to no other (§A3.1).
+	guard := "off"
+	if e.attach > 1 {
+		guard = strconv.Itoa(e.attach)
+	}
+	env = append(env, tmuxGuardVar+"="+guard)
 	err = syscall.Exec(e.program, e.args, env)
 	// The core read a passing report; with no server after it, its server check refuses the start (§A5.2 step 9).
 	return refuseHere(stderr, e.program+" didn't start: "+err.Error())

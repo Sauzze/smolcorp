@@ -62,6 +62,37 @@ func TestOnAMacEnterPassesInItsProfileAndTheDeskGetsNoDescriptor(t *testing.T) {
 	}
 }
 
+// An attach's `enter` (SA-M8) in the same profile: its rows pass, and the program it becomes is told the server the
+// core checked, never "off", whatever the environment it was started with says (4242 here).
+func TestOnAMacAnAttachsEnterTellsItsClientTheCheckedServer(t *testing.T) {
+	sandboxExec := sandboxExecOrSkip(t)
+	d := newStandInDesk(t)
+	p := mustNew(t, Places{GOOS: "darwin", Home: d.home, Support: d.support, OwnID: "h1", Root: d.root,
+		HiresFolder: filepath.Dir(d.root), SocketParent: filepath.Join(d.base, "k"), OwnSockets: filepath.Join(d.base, "k", "h1")})
+	profile := filepath.Join(d.own, "sandbox.sb")
+	if err := PrepareProfile(p, profile); err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewAttach(d.checks, 5151)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close(); s.Canary.Remove() })
+	waited, stderr, out := runEnter(t, s, d, sandboxExec, "-f", profile)
+	if waited != nil {
+		t.Fatalf("the attach's enter was refused in its profile: %v (%s)", waited, stderr)
+	}
+	data, err := os.ReadFile(out)
+	var given struct {
+		FDs   []int  `json:"fds"`
+		Nonce bool   `json:"nonce"`
+		Guard string `json:"guard"`
+	}
+	if err != nil || json.Unmarshal(data, &given) != nil || len(given.FDs) != 0 || given.Nonce || given.Guard != "5151" {
+		t.Errorf("the attach client was given %s (%v, %s)", data, err, stderr)
+	}
+}
+
 func TestOnAMacASandboxThatIsntOursIsRefused(t *testing.T) {
 	sandboxExec := sandboxExecOrSkip(t)
 	for name, profile := range map[string]string{

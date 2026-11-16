@@ -120,8 +120,8 @@ func TestTilingMovesEachHiresWindowByTheTTYItShows(t *testing.T) {
 	}
 
 	var shown []string
-	report = tileWith(mac, seats, "ghostty", grid, tty, func(sockets []string) bool { shown = sockets; return true })
-	if report.Method != "team-grid" || len(report.Placed) != 3 || !slices.Equal(shown, []string{"/s/a", "/s/b", "/s/c"}) ||
+	report = tileWith(mac, seats, "ghostty", grid, tty, func(ids []string) bool { shown = ids; return true })
+	if report.Method != "team-grid" || len(report.Placed) != 3 || !slices.Equal(shown, []string{"a", "b", "c"}) ||
 		!strings.Contains(report.Message, "a pane to a hire, read-only") {
 		t.Errorf("Ghostty: %+v", report)
 	}
