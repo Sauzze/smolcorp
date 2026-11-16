@@ -45,7 +45,10 @@ import (
 //   - the repo's config is read first (config --list -z) and the repo is refused whole at a key the store doesn't know
 //     (gitRepoConfig), and every filter, text converter and merge driver it names is blanked by name (clean, smudge,
 //     process; required is turned off) for the commands that run in the repo (none of which reads a file's content);
-//   - add, the one command that reads the files, never opens the repo's config or attributes at all, so what they say
+//   - add, the one command that reads the files, reads a copy of them the core made (cpMirror: no link followed, a
+//     file with one name only), never the desk's folder, where a link swapped in would lead it to a file the desk's
+//     sandbox denies it (RT126SAX6 B2);
+//   - add never opens the repo's config or attributes at all, so what they say
 //     when it runs (a filter written in since the look, say) can't matter: it runs in a private git folder the store
 //     wrote, by construction (cpPrivate); git 2.40 and later is also given the empty tree as the attribute source, so
 //     no .gitattributes of the working folder is read either;
@@ -230,19 +233,39 @@ func (r *cpRepo) refGit(ctx context.Context, args ...string) ([]byte, int, error
 }
 
 // gitIn is git with the folder and the repo named by the caller: after the first look, so that a folder's own .git, or
-// a core.worktree in the config, never decides which repo a command runs in.
+// a core.worktree in the config, never decides which repo a command runs in. Only a read runs in a desk's repo
+// (cpRepoReads).
 func (r *cpRepo) gitIn(ctx context.Context, dir string, bind, extra []string, args ...string) ([]byte, int, error) {
+	if !cpRepoReads(args) {
+		return nil, 0, errCpRepoWrite
+	}
 	env := append(gitReadEnv(os.Environ(), r.call.config), extra...)
 	argv := append([]string{"-C", dir}, bind...)
 	argv = append(append(argv, r.call.global...), args...)
 	return execGit(ctx, env, argv...)
 }
 
+// cpRepoReads is whether args are a command the store may run in a desk's repo: one that only reads (where the repo
+// is, its config's list, its checkpoint refs, a diff of two of them). Every write there is the store's own, by hand
+// through the git folder settle pinned (CK1), and git writes only in a snapshot's private folder (cpPrivate), which a
+// desk can't reach. So no checkpoint write runs a git a desk's repo could steer, in its sandbox or out of it (SA-X6),
+// and one added later is refused here rather than run outside: it would go through deskRun.
+func cpRepoReads(args []string) bool {
+	if len(args) > 0 && (args[0] == "rev-parse" || args[0] == "for-each-ref" || args[0] == "diff-tree") {
+		return true
+	}
+	return len(args) > 1 && args[0] == "config" && args[1] == "--list"
+}
+
 var (
+	errCpRepoWrite   = errors.New("checkpoints: a command that isn't a read was about to run in a desk's repo")
 	errDotGitMoved   = cpSkip("This desk's .git changed while its checkpoints were being kept, so nothing was written.")
 	errReftable      = cpSkip("This repo keeps its refs in a reftable, which the checkpoints can't write safely, so none was taken.")
 	errPackedLocked  = cpSkip(lockWords("packed-refs.lock"))
 	errRefsNotFolder = cpSkip("This repo's .git folder has a link or a file where a folder of the checkpoints' refs goes, so none was written there.")
+	errCpTooBig      = cpSkip("The files in this folder add up to more than " + strconv.FormatInt(checkpointMaxBytes>>20, 10) + " MB, so no checkpoint was taken.")
+	errCpHardLink    = cpSkip("A file in this folder has another name elsewhere (a hard link), so no checkpoint was taken: the checkpoints read only a file with one name.")
+	errCpChanging    = cpSkip("A file in this folder kept changing between a file and a link while the checkpoint was taken, so none was.")
 )
 
 // cpSay puts a line in the app's log; a variable so a test can read it.
@@ -976,7 +999,8 @@ func cpReadOpen(file *os.File, max int64) ([]byte, error) {
 // info/attributes; and the repo's info/exclude and info/sparse-checkout, copied (ignore and sparse rules are data).
 // The repo's own config and attributes can change at any moment: add never opens them. Objects are written in the
 // folder's own store; the repo's is only read, as an alternate (an object is named by its hash, so whichever store
-// answers, it is the same object). The files are the desk's top (--work-tree); the index is the folder's own.
+// answers, it is the same object). The files add reads are a copy of the desk's, made by the core's one reader
+// (cpMirror, --work-tree); the index is the folder's own.
 //
 // "What git reads is what the store wrote" only holds if nobody else can write the folder, so it is made in the app's
 // support folder (cpFolder), which a hire can't write (the sandbox's design denies it the whole support folder), and
@@ -984,6 +1008,7 @@ func cpReadOpen(file *os.File, max int64) ([]byte, error) {
 // each snapshot, 0700, under a name never used before, and refused if that name is already there (cpMakeFolder).
 type cpPrivate struct {
 	repo    *cpRepo
+	tree    string // the files add reads: the copy cpMirror made, "" for the desk's top (names only: ls-files)
 	dir     string // the private git folder
 	objects string // its own object store, where every object a snapshot makes is written
 	call    gitCall
@@ -992,7 +1017,8 @@ type cpPrivate struct {
 // git runs a command in the private git folder, on the desk's files; extra is environment for that one command.
 func (p *cpPrivate) git(ctx context.Context, extra []string, args ...string) ([]byte, int, error) {
 	env := gitReadEnv(os.Environ(), p.call.config)
-	argv := append([]string{"-C", p.repo.top, "--git-dir=" + p.dir, "--work-tree=" + p.repo.top}, p.call.global...)
+	tree := cmpOr(p.tree, p.repo.top)
+	argv := append([]string{"-C", tree, "--git-dir=" + p.dir, "--work-tree=" + tree}, p.call.global...)
 	return execGit(ctx, append(env, extra...), append(argv, args...)...)
 }
 
@@ -1295,7 +1321,9 @@ func gitlinkState(top, path string) (state int, dotGit string) {
 //   - anything else (a link or a file in its place, a folder with no .git, a HEAD that can't be read, as before the
 //     first commit): the commit HEAD of the repo had for it is kept. Plain git would record the file or the files, and
 //     the store doesn't: the difference is rare, and the checkpoints don't restore a submodule.
-func (s *checkpointStore) stage(ctx context.Context, repo *cpRepo, work *cpPrivate, scratch string) error {
+//
+// add reads the files from a copy (cpMirror), never from the desk's folder.
+func (s *checkpointStore) stage(ctx context.Context, repo *cpRepo, work *cpPrivate, scratch string, names []string) error {
 	out, status, err := work.git(ctx, nil, "ls-files", "--stage", "-z")
 	if err != nil || status != 0 {
 		return cpGitErr(err)
@@ -1322,6 +1350,16 @@ func (s *checkpointStore) stage(ctx context.Context, repo *cpRepo, work *cpPriva
 			return cpGitErr(err)
 		}
 	}
+	skip := map[string]bool{}
+	for _, link := range slices.Concat(links, behind) {
+		skip[link.path] = true
+	}
+	mirror, err := cpMirror(repo.top, names, skip, scratch)
+	if err != nil {
+		return err
+	}
+	work.tree = mirror
+	defer func() { work.tree = "" }()
 	args := []string{"add", "-A"}
 	if len(links) > 0 {
 		// The pathspecs go in a file (NUL between them, so no name is quoted), and not on the command line, which a repo
@@ -1365,6 +1403,127 @@ func (s *checkpointStore) stage(ctx context.Context, repo *cpRepo, work *cpPriva
 		}
 	}
 	return nil
+}
+
+// cpMirror copies the desk's files that names lists (ls-files' names, slash-separated) from top into a new folder in
+// scratch, by the core's one reader (SANDBOX-PLAN §A3.5.4; RT126SAX6 B2), and add runs on the copy, never on the
+// desk's folder. add looks at a file, then opens it by its path, and that open follows a link: a desk could swap one in
+// between, at a file its sandbox denies it, and have that file's bytes put in its own repo. The reader:
+//   - looks each name up through a handle on top (os.Root), so none leads out of it, and leaves out one behind a folder
+//     that is a link or gone (add takes the link, not what it leads to), a folder that is a repo of its own ("x/": the
+//     checkpoints keep no submodule) and the submodules skip names;
+//   - keeps a link as a link: its target, never followed;
+//   - opens a file with no link followed (openWatched), and copies it only when, open, it is a plain file with one
+//     name (a hard link is a name of a file elsewhere, maybe one the desk can't read), within the snapshot's cap. Its
+//     exec bit is kept.
+//
+// The copy is made through a handle on it too, so no link the reader made there leads a write out. Outside a sandbox,
+// only names and the ignore files are read in the desk's folder (ls-files), never the files themselves.
+func cpMirror(top string, names []string, skip map[string]bool, scratch string) (string, error) {
+	from, err := os.OpenRoot(top)
+	if err != nil {
+		return "", err
+	}
+	defer from.Close()
+	mirror := filepath.Join(scratch, "tree")
+	if err := os.Mkdir(mirror, 0o700); err != nil {
+		return "", err
+	}
+	to, err := os.OpenRoot(mirror)
+	if err != nil {
+		return "", err
+	}
+	defer to.Close()
+	left := checkpointMaxBytes
+	for _, name := range names {
+		local := filepath.FromSlash(name)
+		if name == "" || strings.HasSuffix(name, "/") || skip[name] || !filepath.IsLocal(local) || cpBehindLink(from, local) {
+			continue
+		}
+		if dir := filepath.Dir(local); dir != "." {
+			if err := to.MkdirAll(dir, 0o700); err != nil {
+				return "", err
+			}
+		}
+		if err := cpCopyOne(from, to, local, &left); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+	}
+	return mirror, nil
+}
+
+// cpBehindLink is whether a folder on name's way, below top, is a link or isn't a folder.
+func cpBehindLink(top *os.Root, name string) bool {
+	for dir := filepath.Dir(name); dir != "."; dir = filepath.Dir(dir) {
+		if info, err := top.Lstat(dir); err != nil || !info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+// cpCopyOne copies name from the desk's top to the copy: a link as a link, a plain file with one name, nothing else.
+// A name that turns from one into the other while it is read is looked at again, a few times.
+func cpCopyOne(from, to *os.Root, name string, left *int64) error {
+	for range 3 {
+		info, err := from.Lstat(name)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			target, err := from.Readlink(name)
+			if err != nil {
+				continue
+			}
+			return to.Symlink(target, name)
+		}
+		if !info.Mode().IsRegular() {
+			return nil // a fifo, a socket, a device: add takes none
+		}
+		file, err := openWatched(from, name)
+		if errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		if err != nil {
+			continue // a link now
+		}
+		err = cpCopyOpen(file, to, name, left)
+		file.Close()
+		if err != errCpChanging {
+			return err
+		}
+	}
+	return errCpChanging
+}
+
+func cpCopyOpen(file *os.File, to *os.Root, name string, left *int64) error {
+	info, err := file.Stat()
+	switch {
+	case err != nil:
+		return err
+	case !info.Mode().IsRegular():
+		return errCpChanging
+	case fileLinks(file, info) != 1:
+		return errCpHardLink
+	case info.Size() > *left:
+		return errCpTooBig
+	}
+	perm := fs.FileMode(0o600)
+	if info.Mode()&0o100 != 0 {
+		perm = 0o700
+	}
+	copied, err := to.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
+		return err
+	}
+	n, err := io.Copy(copied, io.LimitReader(file, *left+1))
+	if closed := copied.Close(); err == nil {
+		err = closed
+	}
+	if *left -= n; err == nil && *left < 0 {
+		err = errCpTooBig
+	}
+	return err
 }
 
 func (s *checkpointStore) take(ctx context.Context, desk checkpointDesk, label string) (Checkpoint, *cpRepo, error) {
@@ -1413,7 +1572,8 @@ func (s *checkpointStore) take(ctx context.Context, desk checkpointDesk, label s
 		return failed(err)
 	}
 	files, total := 0, int64(0)
-	for _, name := range strings.Split(string(out), "\x00") {
+	names := strings.Split(string(out), "\x00")
+	for _, name := range names {
 		if name == "" {
 			continue
 		}
@@ -1422,11 +1582,11 @@ func (s *checkpointStore) take(ctx context.Context, desk checkpointDesk, label s
 		}
 		if info, err := os.Lstat(filepath.Join(repo.top, filepath.FromSlash(name))); err == nil && info.Mode().IsRegular() {
 			if total += info.Size(); total > checkpointMaxBytes {
-				return Checkpoint{}, nil, cpSkip("The files in this folder add up to more than " + strconv.FormatInt(checkpointMaxBytes>>20, 10) + " MB, so no checkpoint was taken.")
+				return Checkpoint{}, nil, errCpTooBig
 			}
 		}
 	}
-	if err := s.stage(ctx, repo, work, scratch); err != nil {
+	if err := s.stage(ctx, repo, work, scratch, names); err != nil {
 		return failed(err)
 	}
 	out, status, err = work.git(ctx, nil, "write-tree")

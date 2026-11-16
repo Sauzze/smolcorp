@@ -40,7 +40,12 @@ var (
 // ok false if it couldn't be run or was stopped for taking too long.
 type gitRunner func(dir string, args ...string) (status int, output string, ok bool)
 
+// runGit is the real gitRunner. A dir in a hire's own worktree (and the fire's removal of one) is a desk's tree:
+// git runs there as deskRun runs it, named and hardened, in the hire's sandbox when it has one (deskrun.go).
 func runGit(dir string, args ...string) (int, string, bool) {
+	if run, mine := deskGitFor(dir, args); mine {
+		return run()
+	}
 	limit := gitTimeout
 	if len(args) >= 2 && args[0] == "worktree" && args[1] == "add" {
 		limit = worktreeTimeout // a checkout of a big repo can take a while
@@ -238,15 +243,19 @@ func strictlyInside(parent, path string) bool {
 
 // removeWorkspace removes a worktree made for a hire, and its branch, when it
 // is clean: nothing the hire did is lost. False when it was left, as it holds
-// changes (or git couldn't say).
+// changes (or git couldn't say). The clean check is this status, on the tree:
+// the removal is forced, as git's own check would run a status on whatever the
+// worktree's .git file names, a file the hire writes. For a hire's own tree the
+// removal is the core's, never git's: moved aside, checked again, deleted with
+// no link followed (deskrun.go, removeDeskTree).
 func removeWorkspace(repo, worktree, branch string, git gitRunner) bool {
 	if repo == "" || worktree == "" {
 		return false
 	}
-	if status, out, ok := git(worktree, "status", "--porcelain"); !ok || status != 0 || out != "" {
+	if status, out, ok := git(worktree, "status", "--porcelain", "--ignore-submodules=all"); !ok || status != 0 || out != "" {
 		return false
 	}
-	if status, _, ok := git(repo, "worktree", "remove", worktree); !ok || status != 0 {
+	if status, _, ok := git(repo, "worktree", "remove", "--force", worktree); !ok || status != 0 {
 		return false
 	}
 	git(repo, "branch", "-d", branch)

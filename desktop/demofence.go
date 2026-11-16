@@ -903,7 +903,7 @@ func (f demoFence) checkout(folder, cwd string) bool {
 	}
 	git := f.git
 	if git == nil {
-		git = runGit
+		git = scopeGit
 	}
 	return f.inside(folder, "") && gmScope{root: filepath.Join(f.root, demoRepoName), git: git}.holds(folder)
 }

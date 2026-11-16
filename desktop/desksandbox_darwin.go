@@ -159,20 +159,27 @@ func macStartCommand(s *sandbox.Start, profile, smolcorp string, env []string, p
 	return macCmd{cmd}, nil
 }
 
-// deskChecks are what desk s's `smolcorp sandbox enter` tries (§A5.2 steps 2-5): its profile and the guard file (and
-// the worktree's .claude/settings.json, when there is one) can't be opened for writing; its brief (else its profile)
-// reads; its status writes; a stand-in other server in the socket folder can't be reached. The canary is the start's.
+// checks are what desk s's `smolcorp sandbox enter` tries at its start (deskChecks).
 func (s *deskSandbox) checks(profile string) sandbox.Checks {
-	own := hireFolder(supportDir, s.at.ID)
+	return deskChecks(s.at, s.places.SocketParent, profile)
+}
+
+// deskChecks are what a `smolcorp sandbox enter` in desk d's sandbox tries (§A5.2 steps 2-5), at its start and at
+// each run the core makes in it (deskRun, SA-X6): one source. Its profile and the guard file (and the worktree's
+// .claude/settings.json, when there is one) can't be opened for writing; its brief (else its profile) reads; its
+// status writes; a stand-in other server in socketParent, the socket folder no desk can write, can't be reached. The
+// canary is the start's.
+func deskChecks(d deskAt, socketParent, profile string) sandbox.Checks {
+	own := hireFolder(supportDir, d.ID)
 	c := sandbox.Checks{Support: supportDir, NoWrite: []string{profile}, Read: []string{profile},
-		Write: []string{filepath.Join(own, "STATUS.md")}, Other: sandbox.OtherServerIn(s.places.SocketParent)}
-	for _, fence := range []string{filepath.Join(supportDir, hireGuardFile), filepath.Join(s.at.Root, ".claude", "settings.json")} {
+		Write: []string{filepath.Join(own, "STATUS.md")}, Other: sandbox.OtherServerIn(socketParent)}
+	for _, fence := range []string{filepath.Join(supportDir, hireGuardFile), filepath.Join(d.Root, ".claude", "settings.json")} {
 		if info, err := os.Lstat(fence); err == nil && info.Mode().IsRegular() {
 			c.NoWrite = append(c.NoWrite, fence)
 		}
 	}
-	if info, err := os.Lstat(s.at.Brief); s.at.Brief != "" && err == nil && info.Mode().IsRegular() {
-		c.Read = []string{s.at.Brief}
+	if info, err := os.Lstat(d.Brief); d.Brief != "" && err == nil && info.Mode().IsRegular() {
+		c.Read = []string{d.Brief}
 	}
 	return c
 }

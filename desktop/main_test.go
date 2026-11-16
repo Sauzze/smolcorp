@@ -43,8 +43,18 @@ func TestMain(m *testing.M) {
 	if os.Getenv(deskStandInVariable) != "" && len(os.Args) > 1 {
 		os.Exit(deskStandIn(os.Args[1:]))
 	}
+	// A desk's run in its sandbox on a Mac (deskrun_darwin_test.go): this program as `smolcorp sandbox enter`, then as
+	// the probe it becomes.
+	if deskRunStandIn != nil && os.Getenv(deskRunStandInVariable) != "" && len(os.Args) > 1 {
+		os.Exit(deskRunStandIn(os.Args[1:]))
+	}
 	os.Exit(runWithTempSupport(m.Run))
 }
+
+// deskRunStandIn is set by deskrun_darwin_test.go, on a Mac only.
+var deskRunStandIn func(args []string) int
+
+const deskRunStandInVariable = "SMOLCORP_TEST_DESKRUN_STANDIN"
 
 func runWithTempSupport(run func() int) int {
 	realSupport := supportDir // already a temp folder: makeSupportDir sees a test binary

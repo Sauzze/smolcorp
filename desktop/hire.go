@@ -1056,13 +1056,16 @@ func showWindow(terminal hireOpener, folder string, command []string) (string, e
 // `smolcorp` finds the office without them. A test copy's keep them, as a
 // Mac test copy's do, so its hires never reach the real office. Nor the bundled tmux's guard variable,
 // SMOLCORP_TMUX_SERVER: the core gives it to each tmux call itself, never one it inherited (RT126SAL5, RT126SAM6 G1).
-func hireEnvironment() []string {
+func hireEnvironment() []string { return hireEnvironmentOf(os.Environ()) }
+
+// hireEnvironmentOf is env without what hireEnvironment leaves out.
+func hireEnvironmentOf(env []string) []string {
 	dropped := []string{"SMOLCORP_SESSION", "SAUZZEDECK_SESSION", "SMOLCORP_HEADLESS", "SMOLCORP_PARENT_FOLDER",
 		"SMOLCORP_GM_TOKEN", "SMOLCORP_TMUX_SERVER", hireKeyEnvironment, hookKeyEnvironment, "TMUX", "TMUX_PANE", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON"}
 	if testCopyPort() == 0 {
 		dropped = append(dropped, "SMOLCORP_PORT", testSupportVariable)
 	}
-	return slices.DeleteFunc(os.Environ(), func(variable string) bool {
+	return slices.DeleteFunc(slices.Clone(env), func(variable string) bool {
 		name, _, _ := strings.Cut(variable, "=")
 		return slices.Contains(dropped, strings.ToUpper(name))
 	})

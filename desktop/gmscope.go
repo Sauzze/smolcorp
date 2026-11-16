@@ -115,7 +115,7 @@ type gmScope struct {
 
 // gmScopeOf is the scope GM gm is held to: a demo's (isDemoProject) with its demo folder and roles.
 func gmScopeOf(gm Hire) gmScope {
-	s := gmScope{root: gm.Scope, git: runGit}
+	s := gmScope{root: gm.Scope, git: scopeGit}
 	if isDemoProject(gm.Scope) {
 		s.demo = filepath.Dir(gm.Scope)
 		if gm.ScopeRoles != "" {

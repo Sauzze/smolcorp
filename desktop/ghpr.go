@@ -16,8 +16,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // The pull request badge (1.26 R1): for a desk whose folder is on a branch with a pull request on github.com, its
@@ -245,20 +243,17 @@ func (c *capped) Bytes() []byte { return c.buf.Bytes() }
 var errGHMissing = errors.New("gh isn't installed")
 
 // runGH is the real ghRunner: gh as findGH found it, run from a folder that is no repo (so no repo config is read),
-// with ghRunEnv, no shell, nothing on its standard input and a deadline from ctx.
+// with ghRunEnv, no shell, nothing on its standard input and a deadline from ctx. For a hire's branch (ctx's ghDesk)
+// it runs in the hire's sandbox when it has one (deskRun).
 func runGH(ctx context.Context, repo, branch string) (out, errText []byte, status int, err error) {
 	program := findGH()
 	if program == "" {
 		return nil, nil, 0, errGHMissing
 	}
-	cmd := disclaim.Cmd(exec.CommandContext(ctx, program, "pr", "view", branch, "--repo", repo, "--json", "number,state,reviewDecision,url"))
-	cmd.Dir = os.TempDir()
-	cmd.Env = ghRunEnv(os.Environ())
-	cmd.WaitDelay = 2 * time.Second
-	hideGitWindow(cmd)
+	desk, _ := ctx.Value(ghDesk{}).(string)
 	stdout, stderr := &capped{cap: prOutputCap}, &capped{cap: prErrorCap}
-	cmd.Stdout, cmd.Stderr = stdout, io.Writer(stderr)
-	runErr := cmd.Run()
+	runErr := deskRun(ctx, desk, os.TempDir(), ghRunEnv(os.Environ()), stdout, io.Writer(stderr),
+		program, "pr", "view", branch, "--repo", repo, "--json", "number,state,reviewDecision,url")
 	switch {
 	case stdout.over:
 		return nil, nil, 0, errGitTooBig
@@ -351,7 +346,7 @@ func (p *prBadges) For(state GitState) (*PRBadge, string) {
 	if !e.running && (!e.has || age >= prEvery) {
 		e.running = true
 		p.wg.Add(1)
-		go p.refresh(key, e, repo, state.Branch)
+		go p.refresh(key, e, repo, state.Branch, state.Top)
 	}
 	if !e.has || age >= prStaleFor {
 		return nil, ghHintNone
@@ -359,11 +354,12 @@ func (p *prBadges) For(state GitState) (*PRBadge, string) {
 	return e.answer.badge, e.answer.hint
 }
 
-// refresh runs gh once for key (a few at a time in all) and keeps what it said, whatever that was.
-func (p *prBadges) refresh(key string, e *prEntry, repo, branch string) {
+// refresh runs gh once for key (a few at a time in all) and keeps what it said, whatever that was. top is the folder
+// whose branch it is: a hire's own worktree has gh run in its sandbox (withGHDesk).
+func (p *prBadges) refresh(key string, e *prEntry, repo, branch, top string) {
 	defer p.wg.Done()
 	p.slots <- struct{}{}
-	ctx, cancel := context.WithTimeout(context.Background(), prTimeout)
+	ctx, cancel := context.WithTimeout(withGHDesk(context.Background(), top), prTimeout)
 	answer := p.ask(ctx, repo, branch)
 	cancel()
 	<-p.slots
