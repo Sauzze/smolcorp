@@ -28,9 +28,9 @@ import (
 //
 // The guard compares on both sides of every tool call (CheckKept) and, if one changed, only stops the desk: it never
 // touches what it found, whoever changed it, and it notes what it stopped the desk for beside the copy (NoteKeptStop),
-// the one file there the view lets it write. Only the core puts back, outside the view: at a fire or a hand-back
-// (RestoreKept), every place changed; at the next start (SaveKept), only what the desk was stopped for, as it was when
-// it was stopped. What it finds there is first set aside whole in the desk's found folder, never removed, and the
+// the one file there the view lets it write. Only the core puts back, outside the view, and only what the desk was
+// stopped for, as it was when it was stopped: at a fire, a Take over or a Hand back (RestoreKept, L1GUARD1FIRE), and at
+// the next start (SaveKept). What it finds there is first set aside whole in the desk's found folder, never removed, and the
 // owner is told which place, before and after, when, and where it was set aside (KeptWords). Anything else changed
 // between two sessions is left as it is, and is the next copy; the owner is told in Setup (KeptNewsFile).
 //
@@ -47,6 +47,19 @@ func KeptFolder(support, id string) string {
 	return path.Join(spell("linux", support), "hires", id, keptName)
 }
 
+// KeptCopy is the folder that holds a desk's last copy: KeptFolder, or, when a start stopped between its two renames
+// (SaveKept), the last copy it set aside beside it, which is still the last copy. "" when the desk keeps none: only a
+// Linux desk started in its view does (L1GUARD1FIRE).
+func KeptCopy(support, id string) string {
+	held := KeptFolder(support, id)
+	for _, at := range []string{held, held + keptOld} {
+		if _, err := os.Lstat(at); !errors.Is(err, fs.ErrNotExist) {
+			return at
+		}
+	}
+	return ""
+}
+
 // KeptNewsFile is where a desk's starts list what changed between two of its sessions and was taken as it was, for
 // Setup to show the owner: `<support>/hires/<id>/kept-news.txt`. Each start adds to it; Setup empties it once read.
 func KeptNewsFile(support, id string) string {
@@ -59,6 +72,7 @@ var ErrKeptChanged = errors.New("sandbox: the desk's last session was stopped fo
 
 const (
 	keptName      = "held"
+	keptOld       = ".old" // beside held: the last copy, while a start puts its new one in its place
 	keptList      = "kept.json"
 	keptStopName  = "kept-stop.json" // beside held: the guard's notes of what it stopped the desk for
 	keptNewsName  = "kept-news.txt"
@@ -215,7 +229,7 @@ func readKept(at string, st fs.FileInfo, most int) ([]byte, error) {
 // objects/info, which is never put back. A branch folder the start made again isn't counted.
 func SaveKept(pl Places) error {
 	held := KeptFolder(pl.Support, pl.OwnID)
-	old := held + ".old"
+	old := held + keptOld
 	// A start that stopped between its two renames below left the last copy aside: it is still the last copy.
 	if _, err := os.Lstat(held); errors.Is(err, fs.ErrNotExist) {
 		if _, err := os.Lstat(old); err == nil {
@@ -232,9 +246,13 @@ func SaveKept(pl Places) error {
 			changes, err = putBackAll(held, changes, c, func(ch KeptChange) bool { return stops[ch.At][ch.Seal] })
 		}
 		if err != nil {
+			words := KeptWords(changes) // what this look put back before, and where what it found is set aside
+			if words != "" {
+				words = "\n" + words
+			}
 			return fmt.Errorf("sandbox: the last start's copy of the places no mount holds couldn't be checked, or a place "+
 				"its session was stopped for put back (%w). Move that place aside yourself and start the hire again: "+
-				"what is there then is kept as its new copy. Removing %q starts it with everything as it is now.", err, held)
+				"what is there then is kept as its new copy. Removing %q starts it with everything as it is now.%s", err, held, words)
 		}
 		for _, ch := range changes {
 			if ch.Back {
@@ -304,19 +322,22 @@ func CheckKept(held string) ([]KeptChange, error) {
 	return changes, err
 }
 
-// RestoreKept is the core's put back at a fire or a hand-back: what changed of the places the copy in held keeps (an
-// error when there is no copy), each, but a branch folder and the shared objects/info, set aside whole in the desk's
-// found folder and made again as the copy has it.
+// RestoreKept is the core's put back at a fire, a Take over or a Hand back (L1GUARD1FIRE): what changed of the places
+// the copy in held keeps (an error when there is no copy). Only a place the desk's guard stopped it for, still as it
+// was then, is put back, what is there set aside whole in the desk's found folder first; anything else is Kept, left
+// as it is: the owner's own edit, the owner's gc in the shared objects/info, which is never put back, a change made
+// again after the stop. An error when one couldn't be put back: the caller then refuses what it was doing.
 func RestoreKept(held string) ([]KeptChange, error) {
 	changes, c, err := compareKept(held, true)
 	if err != nil {
 		return nil, err
 	}
-	return putBackAll(held, changes, c, func(KeptChange) bool { return true })
+	stops := keptStops(held)
+	return putBackAll(held, changes, c, func(ch KeptChange) bool { return stops[ch.At][ch.Seal] })
 }
 
 // putBackAll puts back each of changes back says, but a branch folder and the shared objects/info: what is there is
-// set aside in one found folder for this look. The others back refuses are Kept. Once all is put back, the copy's list takes the
+// set aside in one found folder for this look. The others back refuses, and objects/info, are Kept. Once all is put back, the copy's list takes the
 // devices and inodes of what was made again (the core alone writes it: in the desk's view it is read-only), so the
 // next look doesn't find the same change again. Content is still compared, so a place changed again is still found.
 func putBackAll(held string, changes []KeptChange, c keptCopy, back func(KeptChange) bool) ([]KeptChange, error) {
@@ -324,8 +345,8 @@ func putBackAll(held string, changes []KeptChange, c keptCopy, back func(KeptCha
 	var err error
 	for i, ch := range changes {
 		switch {
-		case ch.Branch || ch.Repo:
-		case !back(ch):
+		case ch.Branch:
+		case ch.Repo || !back(ch):
 			changes[i].Kept = true
 		case err == nil:
 			changes[i].Found, err = putBack(held, found, ch, c)
@@ -597,7 +618,42 @@ func putBack(held, found string, ch KeptChange, c keptCopy) (string, error) {
 			err = fmt.Errorf("%s can't be made again (%s)", e.At, e.Mode)
 		}
 	}
-	return aside, err
+	if err != nil {
+		return putBackFailed(held, ch, aside, err)
+	}
+	return aside, nil
+}
+
+// keptRename is os.Rename, for setAside and putBackFailed: a test's stand-in for a found folder on another disk.
+var keptRename = os.Rename
+
+// putBackFailed is a put back whose saved copy couldn't be made again whole once what was there was set aside (a full
+// disk at the write, the copy's content unreadable): what it made is taken away and what was set aside goes back in
+// its place, so the place is as it was found, nothing set aside. When it can't go back, the error and the words say
+// where what was there is set aside, and that the place is half made or not there (RT126L1GUARD1FIRE B2). Either way
+// the place is noted, as the guard notes what it stops the desk for, so the next look (a fire, a Hand back, a start)
+// puts its saved copy back again, setting what is there aside whole, and refuses again until it can: it never goes on
+// as if nothing had been tried.
+func putBackFailed(held string, ch KeptChange, aside string, failed error) (string, error) {
+	why := fmt.Errorf("%s couldn't be made again as its saved copy has it (%w)", ch.At, failed)
+	undo := os.RemoveAll(ch.At)
+	switch {
+	case undo != nil:
+		why = fmt.Errorf("%w, and what it made couldn't be taken away (%v): the place is left half made", why, undo)
+	case aside != "":
+		if undo = keptRename(aside, ch.At); undo != nil {
+			why = fmt.Errorf("%w, and what was there couldn't go back in its place (%v): the place is not there now", why, undo)
+		}
+	}
+	if undo == nil {
+		why, aside = fmt.Errorf("%w, so what it made is taken away, and the place is as it was found", why), ""
+	} else if aside != "" {
+		why = fmt.Errorf("%w, and what was there is set aside whole in %q", why, aside)
+	}
+	if note := NoteKeptStop(held, []KeptChange{{At: ch.At, Seal: keptSeal(ch.At)}}); note != nil {
+		return aside, fmt.Errorf("%w. It couldn't be noted to be put back again either (%v)", why, note)
+	}
+	return aside, fmt.Errorf("%w. It is noted, to be put back again before anything goes on", why)
 }
 
 // setAside moves at, whole, to aside, which must not be there yet: by a rename, or on another disk by a copy, and only
@@ -609,7 +665,7 @@ func setAside(at, aside string) error {
 	if err := os.MkdirAll(path.Dir(aside), 0o700); err != nil {
 		return err
 	}
-	if os.Rename(at, aside) == nil {
+	if keptRename(at, aside) == nil {
 		return nil
 	}
 	most := keptMost
@@ -685,6 +741,9 @@ func KeptWords(changes []KeptChange) string {
 			fmt.Fprintf(&b, " What was there is set aside whole in %q, and its saved copy is put back.", c.Found)
 		case c.Back:
 			b.WriteString(" Its saved copy is put back.")
+		case c.Found != "": // a put back that stopped once what was there was set aside (putBackFailed)
+			fmt.Fprintf(&b, " Its saved copy couldn't be made again whole: what was there is set aside whole in %q, and "+
+				"the place is half made or not there, to be put back again before anything goes on.", c.Found)
 		case c.Kept:
 			b.WriteString(" The desk's last session wasn't stopped for it as it is now, so it is left as it is, and kept as the desk's new copy.")
 		default:

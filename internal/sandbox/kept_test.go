@@ -3,7 +3,9 @@
 package sandbox
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,8 +16,8 @@ import (
 )
 
 // L1GUARD1: the places no mount holds in Linux's view are kept by the start and compared on both sides of every tool
-// call by the guard, which only stops the desk and notes why. Only the core puts back: at a fire or a hand-back,
-// everything changed; at the next start, only what the desk was stopped for, as it was found then. What it finds is
+// call by the guard, which only stops the desk and notes why. Only the core puts back, and only what the desk was
+// stopped for, as it was found then: at a fire, a Take over or a Hand back (L1GUARD1FIRE), and at the next start. What it finds is
 // set aside whole, never removed, and the repo's shared objects/info is never put back (SIERRA's rulings, 15 Nov).
 // Each test works in its own temp folder, a stand-in for a desk's worktree, its registration and its shared .git.
 
@@ -273,8 +275,9 @@ func mapsEqual(a, b map[string]string) bool {
 	return true
 }
 
-// The core's put back, at a fire or a hand-back: what it finds is set aside whole in the desk's found folder first,
-// never removed, and the words give where; then the saved content comes back, never the desk's.
+// The core's put back, at a fire, a Take over or a Hand back, of what the desk's guard stopped it for: what it finds is
+// set aside whole in the desk's found folder first, never removed, and the words give where; then the saved content
+// comes back, never the desk's.
 func TestAChangedKeptPlaceIsSetAsideWholeThenPutBack(t *testing.T) {
 	for _, c := range keptCases {
 		t.Run(c.name, func(t *testing.T) {
@@ -289,6 +292,7 @@ func TestAChangedKeptPlaceIsSetAsideWholeThenPutBack(t *testing.T) {
 			var wasThere []string
 			filepath.Walk(at, func(p string, _ os.FileInfo, _ error) error { wasThere = append(wasThere, p); return nil })
 			found := snapshot(t, wasThere...)
+			guardStops(t, pl)
 			changes, err := RestoreKept(held)
 			if err != nil || len(changes) != 1 || changes[0].At != at || !changes[0].Back {
 				t.Fatalf("put back: %v, %+v", err, changes)
@@ -326,6 +330,42 @@ func TestAChangedKeptPlaceIsSetAsideWholeThenPutBack(t *testing.T) {
 				t.Errorf("the words don't say where, when, what and where it was set aside: %s", words)
 			}
 		})
+	}
+}
+
+// L1GUARD1FIRE: the core's put back at a fire, a Take over or a Hand back is only what the desk's guard stopped it for,
+// still as it was then. The owner's own edit after the stop, and a place changed again after it, are left as they are
+// and said; what the desk was stopped for is set aside whole and put back.
+func TestTheCoresPutBackIsOnlyWhatTheDeskWasStoppedFor(t *testing.T) {
+	pl := keptDesk(t)
+	held := KeptFolder(pl.Support, "h1")
+	reg := pl.GitDir + "/worktrees/h1"
+	replaceByRename(t, reg+"/gitdir", "/elsewhere/.git\n")
+	replaceByRename(t, reg+"/commondir", "../../stand-in\n")
+	guardStops(t, pl)
+	// After the stop: the owner's own edit, and the desk's commondir changed again.
+	owners := pl.Root + "/.claude/settings.local.json"
+	writeKeptFile(t, owners, `{"permissions":{"allow":["the owner's own"]}}`+"\n")
+	replaceByRename(t, reg+"/commondir", "../../changed again\n")
+	changes, err := RestoreKept(held)
+	if err != nil || len(changes) != 3 {
+		t.Fatalf("the core's put back: %v, %+v", err, changes)
+	}
+	for _, ch := range changes {
+		if back := ch.At == reg+"/gitdir"; ch.Back != back || ch.Kept == back || (ch.Found != "") != back {
+			t.Errorf("%s: put back %v, kept %v, set aside in %q", ch.At, ch.Back, ch.Kept, ch.Found)
+		}
+	}
+	if got := readKeptFile(t, reg+"/gitdir") + readKeptFile(t, reg+"/commondir") + readKeptFile(t, owners); got !=
+		pl.Root+"/.git\n"+"../../changed again\n"+`{"permissions":{"allow":["the owner's own"]}}`+"\n" {
+		t.Fatalf("after the core's put back: %q", got)
+	}
+	if words := KeptWords(changes); strings.Count(words, "left as it is") != 2 || strings.Count(words, "set aside whole in") != 1 {
+		t.Fatalf("the words: %s", words)
+	}
+	// Its note is used up: the next look puts nothing more back.
+	if again, err := RestoreKept(held); err != nil || slices.ContainsFunc(again, func(ch KeptChange) bool { return ch.Back }) || len(again) != 2 {
+		t.Fatalf("the next look: %v, %+v", err, again)
 	}
 }
 
@@ -517,6 +557,7 @@ func TestTheWordsShowTheChangeLineByLine(t *testing.T) {
 	pl := keptDesk(t)
 	at := pl.GitDir + "/worktrees/h1/config.worktree"
 	writeKeptFile(t, at, "[core]\n\tfsmonitor = ./stand-in\n")
+	guardStops(t, pl)
 	changes, err := RestoreKept(KeptFolder(pl.Support, "h1"))
 	if err != nil || len(changes) != 1 {
 		t.Fatal(err, changes)
@@ -529,6 +570,7 @@ func TestTheWordsShowTheChangeLineByLine(t *testing.T) {
 		t.Fatalf("the time has no zone: %s", words)
 	}
 	writeKeptFile(t, pl.Root+"/.claude/settings.json", "{}\n")
+	guardStops(t, pl)
 	changes, _ = RestoreKept(KeptFolder(pl.Support, "h1"))
 	if words = KeptWords(changes); !strings.Contains(words, `- "{\"hooks\":{}}"`) || !strings.Contains(words, `+ "{}"`) {
 		t.Fatalf("the lines taken away aren't shown: %s", words)
@@ -687,4 +729,110 @@ func TestAStartStoppedBetweenItsRenamesFindsItsLastCopy(t *testing.T) {
 	if got := readKeptFile(t, at); got != "../..\n" {
 		t.Fatalf("commondir is %q", got)
 	}
+}
+
+// RT126L1GUARD1FIRE B2 (probe PB): a put back whose saved copy can't be made again once what was there is set aside.
+// The stand-in for a full disk at the write is the copy's content gone from held, so the re-make fails at the same
+// step. What it made is taken away and the desk's version goes back in its place, as it was found; the words say so,
+// and the next look tries again rather than going on: a fire, a Hand back and a start refuse until it can. When the
+// desk's version can't go back (its found folder on another disk: renames fail), the words give where it is set aside
+// whole, and the next look puts the copy back. The start's SaveKept says the same, the found path in its error.
+func TestAPutBackThatFailsAfterTheSetAsideSaysWhereAndTriesAgain(t *testing.T) {
+	desk := `{"hooks":{"the desk's":1}}` + "\n"
+	stopped := func(t *testing.T) (Places, string, func(), func()) {
+		pl := keptDesk(t)
+		held := KeptFolder(pl.Support, "h1")
+		claude := pl.Root + "/.claude"
+		writeKeptFile(t, claude+".desk/settings.json", desk)
+		os.RemoveAll(claude)
+		os.Rename(claude+".desk", claude)
+		guardStops(t, pl)
+		content := filepath.Join(held, fmt.Sprintf("%x", sha256.Sum256([]byte("Review it.\n"))))
+		if _, err := os.Lstat(content); err != nil {
+			t.Fatalf("the copy's content: %v", err)
+		}
+		full := func() { os.Rename(content, content+".gone") }
+		room := func() { os.Rename(content+".gone", content) }
+		full()
+		return pl, claude, full, room
+	}
+	aside := func(pl Places, at string) []string {
+		found, _ := filepath.Glob(foundFolder(pl) + "/*" + at)
+		return found
+	}
+
+	t.Run("put back as it was found", func(t *testing.T) {
+		pl, claude, _, room := stopped(t)
+		held := KeptFolder(pl.Support, "h1")
+		for try := 1; try <= 2; try++ {
+			changes, err := RestoreKept(held)
+			if err == nil || !strings.Contains(err.Error(), "couldn't be made again") || !strings.Contains(err.Error(), "the place is as it was found") ||
+				len(changes) != 1 || changes[0].Back || changes[0].Found != "" {
+				t.Fatalf("try %d: %v, %+v", try, err, changes)
+			}
+			if got := readKeptFile(t, claude+"/settings.json"); got != desk || len(aside(pl, claude)) != 0 {
+				t.Fatalf("try %d: .claude has %q, set aside %v", try, got, aside(pl, claude))
+			}
+		}
+		room()
+		changes, err := RestoreKept(held)
+		if err != nil || len(changes) != 1 || !changes[0].Back || readKeptFile(t, claude+"/commands/review.md") != "Review it.\n" {
+			t.Fatalf("with room again: %v, %+v", err, changes)
+		}
+		if found := aside(pl, claude); len(found) != 1 || readKeptFile(t, found[0]+"/settings.json") != desk {
+			t.Fatalf("the desk's .claude set aside: %v", found)
+		}
+	})
+
+	t.Run("set aside elsewhere", func(t *testing.T) {
+		pl, claude, _, room := stopped(t)
+		held := KeptFolder(pl.Support, "h1")
+		keptRename = func(string, string) error { return syscall.EXDEV }
+		t.Cleanup(func() { keptRename = os.Rename })
+		changes, err := RestoreKept(held)
+		found := aside(pl, claude)
+		if err == nil || len(found) != 1 || readKeptFile(t, found[0]+"/settings.json") != desk || len(changes) != 1 ||
+			changes[0].Back || changes[0].Found != found[0] {
+			t.Fatalf("%v, %+v, set aside %v", err, changes, found)
+		}
+		for _, words := range []string{err.Error(), KeptWords(changes)} {
+			if !strings.Contains(words, "set aside whole in "+`"`+found[0]+`"`) || !strings.Contains(words, "not there") ||
+				strings.Contains(words, "Nothing is undone here") {
+				t.Errorf("the words: %s", words)
+			}
+		}
+		// Not silently gone on with: the next look puts back again, and fails again while there is no room.
+		if _, err := RestoreKept(held); err == nil {
+			t.Fatal("the next look went on")
+		}
+		keptRename = os.Rename
+		room()
+		changes, err = RestoreKept(held)
+		if err != nil || len(changes) != 1 || !changes[0].Back || readKeptFile(t, claude+"/commands/review.md") != "Review it.\n" {
+			t.Fatalf("with room again: %v, %+v", err, changes)
+		}
+	})
+
+	t.Run("at the start", func(t *testing.T) {
+		pl, claude, _, room := stopped(t)
+		keptRename = func(string, string) error { return syscall.EXDEV }
+		t.Cleanup(func() { keptRename = os.Rename })
+		err := SaveKept(pl)
+		found := aside(pl, claude)
+		if err == nil || errors.Is(err, ErrKeptChanged) || len(found) != 1 || !strings.Contains(err.Error(), "Move that place aside yourself") ||
+			strings.Count(err.Error(), "set aside whole in "+`"`+found[0]+`"`) != 2 {
+			t.Fatalf("the start: %v, set aside %v", err, found)
+		}
+		if err := SaveKept(pl); err == nil {
+			t.Fatal("the next start went on")
+		}
+		keptRename = os.Rename
+		room()
+		if err := SaveKept(pl); !errors.Is(err, ErrKeptChanged) || readKeptFile(t, claude+"/commands/review.md") != "Review it.\n" {
+			t.Fatalf("with room again: %v", err)
+		}
+		if err := SaveKept(pl); err != nil {
+			t.Fatalf("the start after it: %v", err)
+		}
+	})
 }

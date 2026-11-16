@@ -31,9 +31,19 @@ const fireExitWithin = 10 * time.Second
 // Otherwise its session is ended (and seen to be gone), its worktree removed
 // when clean (kept says why not), its recap written and it is marked fired.
 func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept string, err error) {
+	kept, _, err = fireEngineHireSaid(h, testPort, o, force)
+	return kept, err
+}
+
+// fireEngineHireSaid is fireEngineHire, with what the core's looks at a Linux desk's places no mount holds found and
+// did (said, deskKept), for your card: in its notes and in the fire's answer. Those looks are the one change a refusal
+// may leave: what the desk's guard stopped it for is put back, as its next start would.
+func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept, said string, err error) {
 	o = o.withDefaults()
-	refuse := func(message string) (string, error) {
-		return "", &hireRefusal{Status: http.StatusConflict, Message: message}
+	// What the first look put back, said in every refusal after it: no later look finds it again (RT126L1GUARD1FIRE B1).
+	wasPutBack := ""
+	refuse := func(message string) (string, string, error) {
+		return "", "", &hireRefusal{Status: http.StatusConflict, Message: joinNote(message, wasPutBack)}
 	}
 	firing.Lock()
 	if firing.ids[h.ID] {
@@ -60,9 +70,19 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 		}
 	}
 	unreached := "Couldn't reach " + calledHire(h) + "'s tmux session, so nothing was changed."
+	// A desk whose row says gone with nothing left running is looked at too before it's said to be gone
+	// (L1GUARD1FIRE): a fire whose look refused asked for this retry, and its session is gone by then, its socket
+	// with it once its stop ran (RMSYLCHAIN B1). A put back is said; a look that refuses still refuses.
+	goneAlready := func() (string, string, error) {
+		looked, refused := deskKept(h, "fired")
+		if refused != "" {
+			return refuse(refused)
+		}
+		return refuse(joinNote(alreadyGone(h), keptSaid(h, looked)))
+	}
 	tmux := hireOwnTmux(h, testPort, o.Tmux)
 	if tmux == nil && gone {
-		return refuse(alreadyGone(h))
+		return goneAlready()
 	}
 	if tmux == nil {
 		return refuse(unreached)
@@ -72,7 +92,7 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 		return refuse(unreached)
 	}
 	if gone && !up {
-		return refuse(alreadyGone(h))
+		return goneAlready()
 	}
 	// What the window shows is read before anything is ended, and kept for the recap.
 	var capture string
@@ -80,6 +100,14 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 	if up {
 		capture, readable = tmux.capture(200)
 	}
+	// A Linux desk's places no mount holds (L1GUARD1FIRE): what its guard stopped it for is put back before git runs
+	// in its worktree, then looked at again once its session is gone. One that can't be put back refuses the fire. A
+	// desk whose row already says gone is looked at too: its session still ran (GMEDIT1).
+	looked, refused := deskKept(h, "fired")
+	if refused != "" {
+		return refuse(refused)
+	}
+	wasPutBack = keptSaid(h, keptOnce(looked, nil))
 	if h.Worktree != "" && !force && !gone {
 		if message := uncommittedRefusal(h, o.Git); message != "" {
 			return refuse(message)
@@ -112,14 +140,28 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 			return refuse("Couldn't end " + calledHire(h) + "'s tmux session, so nothing was changed.")
 		}
 	}
+	again, refused := deskKept(h, "fired")
+	if refused != "" {
+		if gone {
+			// Its session was ended and seen gone: SA-M6's stop runs before the refusal, as it would below, so its
+			// sandbox isn't left kept. The retry the refusal asks for puts back at goneAlready (RMSYLCHAIN B1).
+			deskStopped(h, o)
+		}
+		return refuse(refused)
+	}
+	said = keptSaid(h, keptOnce(looked, again))
 	if gone {
 		// Its session was ended and seen gone: as at every stop, its sandbox is let go and its socket folder taken away
-		// (SA-M6). Its row stays as it was, and it stays off CLAUDEPLANT1's record (GMEDIT1).
+		// (SA-M6). Its row stays as it was, and it stays off CLAUDEPLANT1's record (GMEDIT1). What the looks found is
+		// said with it (L1GUARD1FIRE).
 		deskStopped(h, o)
-		return "", stoppedGone(h, "tmux session")
+		stopped := stoppedGone(h, "tmux session")
+		stopped.Message = joinNote(stopped.Message, said)
+		return "", said, stopped
 	}
 	if refused := heldFire(h, "session"); refused != nil {
-		return "", refused
+		refused.Message = joinNote(refused.Message, said)
+		return "", "", refused
 	}
 	removed := h.Worktree != "" && !o.KeepWorktree && removeHireWorktree(o.Git, testPort, o.Worktrees)(h)
 	writeRecap(h, paneText(capture), removed, o.Now())
@@ -127,9 +169,9 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 	// That listing comes first, while its place is as the desk left it: the folders below go only after it.
 	worktreeKept := h.Worktree != "" && !removed && !o.KeepWorktree
 	if worktreeKept {
-		markFired(h.ID, firedKeptNote(h.Worktree))
+		markFired(h.ID, joinNote(firedKeptNote(h.Worktree), said))
 	} else {
-		markFired(h.ID, "")
+		markFired(h.ID, said)
 	}
 	claudeHireEnded(h.ID)
 	// Then its stop's listing, while its place is still as the desk left it, its sandbox let go and its socket
@@ -143,9 +185,9 @@ func fireEngineHire(h Hire, testPort int, o engineOptions, force bool) (kept str
 		_ = removeDeskPlans(startedIn(h), h.ID)
 	}
 	if worktreeKept {
-		return firedWorktreeKept, nil
+		return firedWorktreeKept, said, nil
 	}
-	return "", nil
+	return "", said, nil
 }
 
 // waitForSessionEnd waits up to fireExitWithin for the hire's session to end by itself after "/exit",
@@ -201,10 +243,11 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 	options.Worktrees = d.worktreesFolder(options.Worktrees)
 	d.mu.Unlock()
 	stopped := "" // its row already said gone and only its session was ended (gonedesk.go): cleaned up as a fire
-	if _, err := fireEngineHire(h, testCopyPort(), options, force); err != nil {
+	_, said, err := fireEngineHireSaid(h, testCopyPort(), options, force)
+	if err != nil {
 		refused, ok := err.(*hireRefusal)
 		if ok && refused.Status == http.StatusOK {
-			stopped = refused.Message
+			stopped = refused.Message // what the looks found is in it (fireEngineHireSaid)
 		} else {
 			d.failHeldMail(h, err)
 			if ok {
@@ -231,7 +274,7 @@ func (d *Deck) fireTab(tab string, force bool) (status int, message string, hand
 	if stopped != "" {
 		return http.StatusOK, stopped, true
 	}
-	if note := heldFireNote(h); note != "" {
+	if note := joinNote(heldFireNote(h), said); note != "" {
 		return http.StatusOK, note, true
 	}
 	return http.StatusNoContent, "", true
@@ -249,10 +292,10 @@ func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (kept, note string, err er
 	options.Worktrees = d.worktreesFolder(options.Worktrees)
 	d.mu.Unlock()
 	options.KeepWorktree = keep
-	kept, err = fireEngineHire(h, testCopyPort(), options, force)
+	kept, said, err := fireEngineHireSaid(h, testCopyPort(), options, force)
 	d.failHeldMail(h, err)
 	if err == nil {
-		note = heldFireNote(h)
+		note = joinNote(heldFireNote(h), said)
 	}
 	return kept, note, err
 }

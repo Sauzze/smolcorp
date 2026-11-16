@@ -2440,7 +2440,7 @@
       // Said in full, whatever happened: a refusal says where it stopped, and what still holds the session.
       const done = res && res.ok ? await res.json().catch(() => ({})) : null;
       t3Handing.set(r.id, { busy: false, at: Date.now(),
-        text: done ? (back ? `Handed back: ${name} goes on in its tmux session.${done.note ? ` ${done.note}` : ''}` : `Taken over: ${name} goes on in T3 Code.`)
+        text: done ? (back ? `Handed back: ${name} goes on in its tmux session.${done.note ? ` ${done.note}` : ''}` : `Taken over: ${name} goes on in T3 Code.${done.note ? ` ${done.note}` : ''}`)
           : await refusal(res, back ? `${name} couldn't be handed back.` : `${name} couldn't be taken over.`) });
       load();
     };

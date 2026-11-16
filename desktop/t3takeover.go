@@ -214,6 +214,13 @@ func t3Quiet(transcript string, ways t3Handing) bool {
 // t3TakeOver takes hire h over in T3 Code, its session being session; it runs git, t3 and T3 Code's internal
 // import. The thread T3 Code runs it in, or a refusal. h has passed t3TakeOverRefusal and the gate.
 func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
+	thread, _, err := t3TakeOverSaid(h, session, ways)
+	return thread, err
+}
+
+// t3TakeOverSaid is t3TakeOver, with what the core's look at a Linux desk's places no mount holds found and did
+// (said, deskKept), for Take over's answer.
+func t3TakeOverSaid(h Hire, session t3Session, ways t3Handing) (thread, said string, err error) {
 	name := calledHire(h)
 	git := ways.Git
 	if git == nil {
@@ -221,41 +228,45 @@ func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
 	}
 	program := t3Program(ways.Machine)
 	if program == "" {
-		return "", t3Refused(http.StatusConflict, "T3 Code's t3 command isn't there, so nothing was changed.")
+		return "", "", t3Refused(http.StatusConflict, "T3 Code's t3 command isn't there, so nothing was changed.")
 	}
 	fence := filepath.Join(h.Worktree, filepath.FromSlash(t3FenceName))
 	if _, err := os.Lstat(fence); err == nil {
-		return "", t3Refused(http.StatusConflict, "This repository keeps its own "+t3FenceName+", so Smolcorp can't put "+name+"'s fence there, and nothing was changed.")
+		return "", "", t3Refused(http.StatusConflict, "This repository keeps its own "+t3FenceName+", so Smolcorp can't put "+name+"'s fence there, and nothing was changed.")
 	}
 	if t3HooksSwitchedOff(h.Worktree, git) {
-		return "", t3Refused(http.StatusConflict, t3HooksOff)
+		return "", "", t3Refused(http.StatusConflict, t3HooksOff)
 	}
 	if _, looked := ways.Holding(h.Worktree, session.ID); !looked {
-		return "", t3Refused(http.StatusConflict, t3CantLook(name))
+		return "", "", t3Refused(http.StatusConflict, t3CantLook(name))
 	}
 	settings, err := ways.Fence()
 	if err != nil {
-		return "", t3Refused(http.StatusInternalServerError, name+"'s fence couldn't be made, so nothing was changed.")
+		return "", "", t3Refused(http.StatusInternalServerError, name+"'s fence couldn't be made, so nothing was changed.")
 	}
 	// 1. Its Claude Code stopped in its tmux, as a fire would without force.
 	if err := ways.Stop(h, session.ID); err != nil {
-		return "", err
+		return "", "", err
 	}
 	// From here it's on record as taken over: whatever stops part way is handed back, never lost.
 	h.T3Session, h.T3Transcript = session.ID, session.Transcript
 	if !t3SaveTries(ways, func() error {
 		return ways.Save(h.ID, func(r *Hire) { r.T3Session, r.T3Transcript = session.ID, session.Transcript })
 	}) {
-		return "", t3Refused(http.StatusInternalServerError, t3UnsavedAfterStop(h))
+		return "", "", t3Refused(http.StatusInternalServerError, t3UnsavedAfterStop(h))
 	}
-	giveBack := func(status int, why string) (string, error) {
+	// What step 2b put back, said in every refusal after it, with what Hand back said: no later look finds it again
+	// (RT126L1GUARD1FIRE B1).
+	wasPutBack := ""
+	giveBack := func(status int, why string) (string, string, error) {
 		h.Engine = ""
-		if _, err := t3HandBack(h, ways); err != nil {
+		note, err := t3HandBack(h, ways)
+		if err != nil {
 			why += " Then handing it back didn't finish either: " + err.Error()
 		} else {
 			why += " Nothing stayed in T3 Code, and " + name + " was resumed in its tmux session."
 		}
-		return "", t3Refused(status, why)
+		return "", "", t3Refused(status, joinNote(why, joinNote(wasPutBack, note)))
 	}
 	// 2. Nothing else holds its session, nor works in its worktree.
 	if still, looked := t3WaitFree(h.Worktree, session.ID, ways); !looked || len(still) > 0 {
@@ -263,9 +274,18 @@ func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
 		if looked {
 			why = name + " was stopped, but a process still holds its session or works in its worktree (" + t3StillHeld(still, ways.Name) + "), so it wasn't handed to T3 Code."
 		}
-		return "", t3Refused(http.StatusConflict, why+" Hand it back once that's closed.")
+		return "", "", t3Refused(http.StatusConflict, why+" Hand it back once that's closed.")
 	}
-	// 2b. What it made named .claude or .mcp.json in its worktree is listed and held for you, now that it's stopped,
+	// 2b. A Linux desk's places no mount holds, now that it's stopped (L1GUARD1FIRE): T3 Code's agent is your own
+	// Claude Code, which reads its .claude and its git. What its guard stopped it for is put back before T3 Code hears
+	// of it, and Take over's answer says what was found; it isn't handed over only when something can't be put back.
+	// It comes before 2c's listing, so what is listed and held for you is what T3 Code will read.
+	changes, refused := deskKept(h, "handed to T3 Code")
+	if refused != "" {
+		return giveBack(http.StatusConflict, refused)
+	}
+	said, wasPutBack = keptSaid(h, changes), keptSaid(h, keptOnce(changes, nil))
+	// 2c. What it made named .claude or .mcp.json in its worktree is listed and held for you, now that it's stopped,
 	// with what other hires left around it: T3 Code's agent is your own Claude Code, which reads them (CLAUDEPLANT1).
 	if why := claudeGate(h.Worktree, append([]Hire{h}, officeHires()...)); why != "" {
 		return giveBack(http.StatusConflict, why)
@@ -281,7 +301,7 @@ func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
 	if added.Ended && added.Code == 0 {
 		project = t3AddedProject(added.Output, h.Worktree)
 	}
-	thread := t3ImportedThread + session.ID
+	thread = t3ImportedThread + session.ID
 	if project == "" {
 		// Added but not as asked, or no answer (T3 Code may have added it): taken back as Smolcorp's. Only a project
 		// T3 Code refused to add (one already there, someone else's) is left alone. Its thread goes on record first,
@@ -326,7 +346,7 @@ func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
 	if ways.Save(h.ID, func(r *Hire) { r.Engine, r.T3Thread, r.T3Link, r.State = t3Engine, thread, link, "idle" }) != nil {
 		return giveBack(http.StatusInternalServerError, "The registry couldn't be written, so "+name+" wasn't handed over.")
 	}
-	return thread, nil
+	return thread, said, nil
 }
 
 // t3HandBack gives hire h back to its own tmux session: T3 Code's hold released and its project removed (only one
@@ -374,18 +394,28 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 		return "", t3Refused(http.StatusConflict, name+"'s session is still being written, or its file is gone, so it wasn't resumed.")
 	}
 	// 4. The fence off the worktree: in its tmux session, its own settings file is its fence.
-	note := ""
+	fenceNote := ""
 	fence := filepath.Join(h.Worktree, filepath.FromSlash(t3FenceName))
 	if !t3RemoveFence(fence, filepath.Dir(fence)) {
-		note = t3FenceKept(h)
+		fenceNote = t3FenceKept(h)
 	}
+	// 4b. A Linux desk's places no mount holds, before its session is resumed (L1GUARD1FIRE), the fence off first: what
+	// its guard stopped it for is put back, and what changed while T3 Code had it (your own Claude Code) is left as it
+	// is, and said. When something can't be put back, it isn't resumed.
+	changes, refused := deskKept(h, "resumed")
+	if refused != "" {
+		return "", t3Refused(http.StatusConflict, refused)
+	}
+	// What it put back is said in a refusal after it too: no later look finds it again (RT126L1GUARD1FIRE B1).
+	said := keptSaid(h, changes)
+	note := joinNote(said, fenceNote)
 	if ways.Save(h.ID, func(r *Hire) { r.Engine, r.T3Thread, r.T3Link, r.T3Floor, r.T3Desk = "", "", "", nil, nil }) != nil {
-		return "", t3Refused(http.StatusInternalServerError, "The registry couldn't be written, so "+name+" wasn't resumed.")
+		return "", t3Refused(http.StatusInternalServerError, joinNote("The registry couldn't be written, so "+name+" wasn't resumed.", said))
 	}
 	// 5. Its session resumed in its own tmux session, with its own settings file.
 	resumed, err := ways.Resume(h, session)
 	if err != nil {
-		return "", t3Refused(http.StatusInternalServerError, name+"'s session is free, but it couldn't be resumed: "+err.Error()+" Hand it back again to retry.")
+		return "", t3Refused(http.StatusInternalServerError, joinNote(name+"'s session is free, but it couldn't be resumed: "+err.Error()+" Hand it back again to retry.", said))
 	}
 	// Its socket as tmux spells it, as the engine keeps it, in the same checked save.
 	if !t3SaveTries(ways, func() error {
@@ -534,7 +564,7 @@ func (d *Deck) takeOverIntoT3(id string) (int, any) {
 	}
 	session := d.t3SessionOf(asked)
 	// The desk and the slot are let go by defer, so a panic inside t3TakeOver leaves neither held (FXTO2 N2).
-	var thread string
+	var thread, said string
 	var err error
 	func() {
 		t3Desk.Lock()
@@ -565,7 +595,7 @@ func (d *Deck) takeOverIntoT3(id string) (int, any) {
 			if why := t3TakeOverRefusal(hire, session, ways.Machine.Home, testCopyPort() != 0); why != "" {
 				err = t3Refused(http.StatusConflict, why)
 			} else {
-				thread, err = t3TakeOver(hire, session, ways)
+				thread, said, err = t3TakeOverSaid(hire, session, ways)
 			}
 		}
 	}()
@@ -578,7 +608,11 @@ func (d *Deck) takeOverIntoT3(id string) (int, any) {
 	if err != nil {
 		return t3Answer(err)
 	}
-	return http.StatusOK, map[string]any{"ok": true, "thread": thread, "tag": t3TakeOverTag}
+	answer := map[string]any{"ok": true, "thread": thread, "tag": t3TakeOverTag}
+	if said != "" {
+		answer["note"] = said // what the look at a Linux desk's places no mount holds found and did (L1GUARD1FIRE)
+	}
+	return http.StatusOK, answer
 }
 
 // handBackFromT3 is Hand back for hire id, taken over before: t3HandBack after any hire or let go under way.
