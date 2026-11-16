@@ -415,3 +415,32 @@ func TestSandboxResponsibilityHolder(t *testing.T) {
 	}
 	fmt.Printf("--- as it is\n%s--- through sandbox-exec alone\n%s--- through MacCommand\n%s", plain, alone, through.String())
 }
+
+// SA-M11: ChildIsOurs, for a desk with no server (an ACP agent, its terminals): a child in no sandbox may read the
+// canary and is refused; a pid that can't be ours is refused before macOS is asked. A child in its desk's sandbox
+// passes it in desktop's end-to-end ACP start (acpsandbox_darwin_test.go).
+func TestOnAMacAChildInNoSandboxIsntOurs(t *testing.T) {
+	support := t.TempDir()
+	c, err := NewCanary(support)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Remove()
+	child := disclaim.Cmd(exec.Command("/bin/sleep", "30"))
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { child.Process.Kill(); child.Wait() })
+	var refused *Refused
+	if err := ChildIsOurs(child.Process.Pid, c); !errors.As(err, &refused) || !strings.Contains(err.Error(), "may read the canary") {
+		t.Errorf("a child in no sandbox: %v", err)
+	}
+	for _, pid := range []int{0, 1} {
+		if err := ChildIsOurs(pid, c); !errors.As(err, &refused) {
+			t.Errorf("pid %d: %v", pid, err)
+		}
+	}
+	if err := ChildIsOurs(child.Process.Pid, Canary{}); !errors.As(err, &refused) {
+		t.Errorf("no canary: %v", err)
+	}
+}

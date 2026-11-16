@@ -76,11 +76,27 @@ type TerminalHandler interface {
 //     hireEnvironment() in package desktop (it leaves out Smolcorp's tokens,
 //     keys and session variables). An empty, non-nil list is fine; nil is not.
 //   - Dir is the folder it runs in, an absolute path.
+//
+// Runner, when set, starts the agent in place of a plain start: on a Mac, the sandbox's runner, so the agent runs
+// inside its desk's sandbox (SA-M11). Path must then be a whole path.
 type Command struct {
-	Path string
-	Args []string
-	Dir  string
-	Env  []string
+	Path   string
+	Args   []string
+	Dir    string
+	Env    []string
+	Runner Runner
+}
+
+// Runner makes the agent's command and says whether its start held. Command makes it for path and args, with env as
+// the agent's whole environment: it may add its own (a start's nonce, its ExtraFiles), and it must go through
+// disclaim.Cmd as every start does. Start then sets the folder, the pipes and the process group, and starts it.
+// Started is asked once the agent runs and before anything is sent to it, with its pid (Start's own child, not yet
+// waited for, so the pid is still its own): an error kills the agent and Start fails with it. Close is called once,
+// whichever way the start went.
+type Runner interface {
+	Command(path string, args, env []string) (*exec.Cmd, error)
+	Started(pid int) error
+	Close()
 }
 
 // Options; zero values take the defaults.
@@ -169,14 +185,29 @@ func Start(command Command, h Handler, opt Options) (*Client, error) {
 		inW.Close()
 		return nil, err
 	}
-	cmd := disclaim.Cmd(exec.Command(command.Path, command.Args...))
-	cmd.Dir, cmd.Env = command.Dir, command.Env
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = inR, outW, opt.Stderr
-	cmd.WaitDelay = opt.ShutdownGrace // a child it left behind can't hold Wait open
-	ownGroup(cmd)
-	err = cmd.Start()
+	var cmd *exec.Cmd
+	if command.Runner != nil {
+		defer command.Runner.Close()
+		cmd, err = command.Runner.Command(command.Path, command.Args, command.Env)
+	} else {
+		cmd = disclaim.Cmd(exec.Command(command.Path, command.Args...))
+		cmd.Env = command.Env
+	}
+	if err == nil {
+		cmd.Dir = command.Dir
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = inR, outW, opt.Stderr
+		cmd.WaitDelay = opt.ShutdownGrace // a child it left behind can't hold Wait open
+		ownGroup(cmd)
+		err = cmd.Start()
+	}
 	inR.Close()
 	outW.Close()
+	if err == nil && command.Runner != nil {
+		if err = command.Runner.Started(cmd.Process.Pid); err != nil {
+			killTree(cmd.Process)
+			cmd.Wait()
+		}
+	}
 	if err != nil {
 		inW.Close()
 		outR.Close()

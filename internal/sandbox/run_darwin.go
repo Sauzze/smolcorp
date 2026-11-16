@@ -204,3 +204,20 @@ func ServerIsOurs(socket string, c Canary) (int, error) {
 	}
 	return peer.pid, nil
 }
+
+// ChildIsOurs is ServerIsOurs for a desk with no server, whose first process is the core's own child: an ACP desk's
+// agent, or a terminal its agent asked for (SA-M11). Once that child's handshake has passed, macOS, asked by its pid,
+// must say it may not read c; anything else is a *Refused. pid must be the core's child, started and not yet waited
+// for: until it is waited for, its pid can't be given to another process.
+func ChildIsOurs(pid int, c Canary) error {
+	if pid <= 1 || !filepath.IsAbs(c.Path) {
+		return &Refused{Why: fmt.Sprintf("pid %d can't be checked against canary %q", pid, c.Path)}
+	}
+	switch childDeniesCanary(pid, c.Path) {
+	case 1:
+		return nil
+	case 0:
+		return &Refused{Why: fmt.Sprintf("pid %d may read the canary: it is in no sandbox, or in one that isn't this start's", pid)}
+	}
+	return &Refused{Why: fmt.Sprintf("macOS didn't say whether pid %d is in a sandbox", pid)}
+}

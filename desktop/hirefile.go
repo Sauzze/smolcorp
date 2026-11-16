@@ -36,18 +36,10 @@ func openHireFile(place, path string) (*os.File, os.FileInfo, error) {
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return nil, nil, errHireFile
 	}
-	dir, err := os.OpenRoot(place)
+	names := strings.Split(rel, string(filepath.Separator))
+	dir, err := openHireFolder(place, names[:len(names)-1])
 	if err != nil {
 		return nil, nil, err
-	}
-	names := strings.Split(rel, string(filepath.Separator))
-	for _, name := range names[:len(names)-1] {
-		next, err := hireFolderStep(dir, name)
-		dir.Close()
-		if err != nil {
-			return nil, nil, err
-		}
-		dir = next
 	}
 	defer dir.Close()
 	name := names[len(names)-1]
@@ -64,6 +56,24 @@ func openHireFile(place, path string) (*os.File, os.FileInfo, error) {
 	}
 	file.Close()
 	return nil, nil, errHireFile
+}
+
+// openHireFolder opens the folder names, one name after another, below place: each a folder, never a link. The
+// caller closes it.
+func openHireFolder(place string, names []string) (*os.Root, error) {
+	dir, err := os.OpenRoot(place)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range names {
+		next, err := hireFolderStep(dir, name)
+		dir.Close()
+		if err != nil {
+			return nil, err
+		}
+		dir = next
+	}
+	return dir, nil
 }
 
 // hireFolderStep opens the folder name inside dir: a folder there, never a link, and the one looked at.
