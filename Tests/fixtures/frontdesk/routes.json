@@ -769,6 +769,24 @@
       "method" : "*",
       "path" : "\/bots\/*",
       "why" : "a cloud bot's news, from a tool of yours"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "GET",
+      "path" : "\/setup\/sandbox",
+      "why" : "whether desks start in their sandbox, and each desk's tag: only you see it (AQ1)"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/sandbox",
+      "why" : "the sandbox's switch: only you turn it off, never the GM, a tool, an MCP key or a hire (AQ1)"
     }
   ],
   "unlisted" : {

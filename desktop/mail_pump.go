@@ -29,6 +29,9 @@ type mailPump struct {
 	typeIn func(h Hire, text string, commit func() bool) mailResult
 	// t3 sends a hire in T3 Code its message, on t3's standard input (t3desk.go); nil is t3Mail on this computer.
 	t3 func(h Hire, text string, commit func() bool) mailResult
+	// across is why a message isn't typed into a desk on the other side of the sandbox from its sender, looked at
+	// again at each try (Deck.mailDeliveryRefusal, AQ10), or ""; nil looks at nothing.
+	across func(m mailMessage, h Hire, hires []Hire) string
 	// look looks in the bots' mailboxes for replies, at the given time.
 	look func(time.Time)
 	now  func() time.Time
@@ -53,6 +56,12 @@ func (p *mailPump) round() {
 				// A try still out is left to finish (due leaves such a message out already).
 				p.outbox.fail(m.ID, m.ToName+" is gone.")
 				continue
+			}
+			if p.across != nil {
+				if why := p.across(m, *found, open); why != "" {
+					p.outbox.fail(m.ID, why)
+					continue
+				}
 			}
 			p.deliverToHire(m, *found)
 		}
@@ -102,6 +111,7 @@ func (d *Deck) startMailPump() (stop func()) {
 		hires:  func() []Hire { return readRegistry(registryPath(), false).hires },
 		bot:    d.mailDeliverBot,
 		typeIn: d.mailTypeIntoHire,
+		across: d.mailDeliveryRefusal,
 		look:   d.botMailboxLook,
 		now:    time.Now,
 	}

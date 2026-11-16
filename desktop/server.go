@@ -2349,6 +2349,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"project": project, "nickname": name})
 
+	// The sandbox's switch and each desk's tag (sandboxswitch.go): the page's alone (routes.json, AQ1).
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/setup/sandbox":
+		rt.sandboxRoute(w, r)
+
 	// Mail (routes.json): send is for gm, page and hire; the outbox is read by gm, page and tool, and a tool is not given the texts.
 	case r.Method == http.MethodPost && path == "/setup/gm/send":
 		rt.mailSend(w, r)

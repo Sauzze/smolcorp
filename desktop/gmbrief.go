@@ -35,6 +35,12 @@ func (rt *router) gmBrief(w http.ResponseWriter, r *request) {
 	case file == "":
 		refuse(http.StatusConflict, calledHire(h)+" has no BRIEF file to add to.")
 	default:
+		// Words for a desk on one side of the sandbox from the GM on the other: neither the brief nor its mail
+		// (AQ10, sandboxswitch.go).
+		if refusal := d.mailSandboxRefusal(r.caller, nil, mailDest{ID: h.ID, Name: calledHire(h)}); refusal != nil {
+			refuse(refusal.Status, refusal.Message)
+			return
+		}
 		if err := appendBriefPart(file, text, time.Now()); err != nil {
 			refuse(http.StatusInternalServerError, "Couldn't add to the brief file.")
 			return

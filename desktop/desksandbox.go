@@ -51,6 +51,10 @@ type deskAt struct {
 	Git   gitRunner
 }
 
+// startedInSandbox is whether tmux's start was a desk's in its sandbox, with the server the core checked at it
+// (§A5.2 step 9): what a desk's row tags it with (Hire.Sandboxed, SA-X13).
+func startedInSandbox(tmux *hireTmux) bool { return tmux.sandboxed && tmux.server > 1 }
+
 // deskSandbox is one desk's sandbox, made before its start: its Places and its Policy, and what its start checks.
 type deskSandbox struct {
 	at     deskAt

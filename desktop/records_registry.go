@@ -143,8 +143,9 @@ func withoutGrants(f registryFile) registryFile {
 }
 
 // registryTightens is whether the registry going from old to now takes authority away (§3.2, RT126SK1 B3): a send
-// key renewed or removed, a contact removed, a hire gone or let go, a hire's role or scope changed, or a desk marked
-// unguarded (SA-M7). Those are written under a new record key, so a copy from before no longer fits.
+// key renewed or removed, a contact removed, a hire gone or let go, a hire's role or scope changed, a desk marked
+// unguarded (SA-M7), or a desk no longer tagged as in its sandbox (SA-X13). Those are written under a new record key, so
+// a copy from before no longer fits.
 func registryTightens(old, now registryFile) bool {
 	for id, hash := range old.keys {
 		if now.keys[id] != hash {
@@ -167,7 +168,7 @@ func registryTightens(old, now registryFile) bool {
 			return true
 		}
 		n := now.hires[i]
-		if n.Role != h.Role || n.Scope != h.Scope || n.ScopeRoles != h.ScopeRoles || isOpen(h) && !isOpen(n) || h.Unguarded == "" && n.Unguarded != "" {
+		if n.Role != h.Role || n.Scope != h.Scope || n.ScopeRoles != h.ScopeRoles || isOpen(h) && !isOpen(n) || h.Unguarded == "" && n.Unguarded != "" || h.Sandboxed && !n.Sandboxed {
 			return true
 		}
 	}
@@ -190,6 +191,10 @@ func configSecurityPart(c *Config) []byte {
 	if c.LocalDatabaseAsksPassword {
 		part["localDatabaseAsksPassword"] = true
 	}
+	// AQ1's switch (SA-X13) the same way: only while the sandbox is off.
+	if c.SandboxOff {
+		part["sandboxOff"] = true
+	}
 	data, _ := json.Marshal(part)
 	return data
 }
@@ -201,10 +206,10 @@ func vouchConfig(c *Config, data []byte) {
 	}
 	recordDropped("config.json", "config.json's security settings were changed by another program, or their seal doesn't fit: they're "+
 		"back to their safe defaults (this computer and Tailscale only, no keys to other apps, no GM started by hand, "+
-		"the front desk and hiring off, no webhook, desks kept from your local databases). Set them again in Setup.")
+		"the front desk and hiring off, no webhook, desks kept from your local databases, the sandbox on). Set them again in Setup.")
 	c.Listen, c.KeystrokesAllowed, c.KeystrokeApps, c.GMByHand = "tailscale", false, nil, false
 	c.MailInboxSocket, c.ManagerEnabled, c.HiringEnabled, c.Webhook = false, false, false, standardWebhook()
-	c.LocalDatabaseAsksPassword = false
+	c.LocalDatabaseAsksPassword, c.SandboxOff = false, false
 }
 
 // configChanges is whether the security settings going from old to now are changed: any change, loosening

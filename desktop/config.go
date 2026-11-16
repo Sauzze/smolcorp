@@ -187,6 +187,9 @@ type Config struct {
 	// and Smolcorp's own login with none was refused, so a desk in the sandbox may reach Postgres and MySQL here. Off
 	// until then; each desk's start tries that login again. A security setting, sealed.
 	LocalDatabaseAsksPassword bool `json:"localDatabaseAsksPassword,omitempty"`
+	// SandboxOff is AQ1's switch (sandboxswitch.go): the owner turned the sandbox off, so the next desks start as before
+	// it, tagged "no sandbox". Off (the sandbox on) until then, and set by Setup's page alone. A security setting, sealed.
+	SandboxOff bool `json:"sandboxOff,omitempty"`
 	// What the file held that this version doesn't read, as it was: saved
 	// back with the rest, so a setting from another version, older or newer,
 	// or the Mac app's, isn't lost at the next save.

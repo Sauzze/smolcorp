@@ -251,7 +251,8 @@ func t3TakeOverSaid(h Hire, session t3Session, ways t3Handing) (thread, said str
 	// From here it's on record as taken over: whatever stops part way is handed back, never lost.
 	h.T3Session, h.T3Transcript = session.ID, session.Transcript
 	if !t3SaveTries(ways, func() error {
-		return ways.Save(h.ID, func(r *Hire) { r.T3Session, r.T3Transcript = session.ID, session.Transcript })
+		// It leaves its sandbox with its worktree (C6): untagged until Hand back resumes it in one.
+		return ways.Save(h.ID, func(r *Hire) { r.T3Session, r.T3Transcript, r.Sandboxed = session.ID, session.Transcript, false })
 	}) {
 		return "", "", t3Refused(http.StatusInternalServerError, t3UnsavedAfterStop(h))
 	}
@@ -424,7 +425,7 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 			if resumed.Socket != "" {
 				// A new server, started by the tmux this system picks now (a sandboxed desk's, the bundled one, with its
 				// server's pid as the core checked it: SA-M6): its row says so.
-				r.TmuxSocket, r.TmuxProgram, r.TmuxServer = resumed.Socket, resumed.Program, resumed.Server
+				r.TmuxSocket, r.TmuxProgram, r.TmuxServer, r.Sandboxed = resumed.Socket, resumed.Program, resumed.Server, resumed.Sandboxed
 				// Its new pane's process, the one this start made: what a respawn is told from (SA-M7).
 				r.TmuxPane, r.TmuxPaneStarted, r.Unguarded = resumed.Pane, resumed.PaneStarted, ""
 			}
@@ -450,6 +451,8 @@ type t3Resumed struct {
 	// Pane is the pid of the process tmux started for it, and PaneStarted when that started (processStartedAt).
 	Pane        int
 	PaneStarted int64
+	// Sandboxed: resumed in its sandbox, as the engine's start would tag it (SA-X13).
+	Sandboxed bool
 }
 
 // t3ResumedUnsaved is what Hand back says when the hire was resumed but the registry still has it as handed over.

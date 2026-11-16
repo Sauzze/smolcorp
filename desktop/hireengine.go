@@ -41,11 +41,16 @@ type engineOptions struct {
 	// Sandbox is a sandboxed desk's start-only runner, for the tests: nil is the system's own (SA-M6), with the real
 	// tmux (Tmux nil). A stand-in Tmux with no Sandbox starts a desk as before, through the stand-in alone.
 	Sandbox func(s *deskSandbox) tmuxStarter
+	// SandboxOff: the owner turned the sandbox off in Settings (AQ1, sandboxswitch.go), as the deck's config held it
+	// when this start was asked for. A desk then starts as before, and its row says it isn't in a sandbox.
+	SandboxOff bool
 }
 
 // sandboxing is whether the engine starts this desk in its sandbox: on a Mac with the real tmux (deskSandboxed), or
-// with a stand-in runner for it.
-func (o engineOptions) sandboxing() bool { return o.Sandbox != nil || deskSandboxed && o.Tmux == nil }
+// with a stand-in runner for it; never while the owner has the sandbox off.
+func (o engineOptions) sandboxing() bool {
+	return !o.SandboxOff && (o.Sandbox != nil || deskSandboxed && o.Tmux == nil)
+}
 
 // deskTmux is a new desk's tmux server: in its sandbox when the engine starts it there (newDeskTmux), else as before.
 func (o engineOptions) deskTmux(id string, testPort int) (*hireTmux, error) {
@@ -344,10 +349,11 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if socket != hire.TmuxSocket || tmux.server != 0 || hire.TmuxPane != 0 {
 		// As tmux spells it (it may say /private/var for /var): the same file, which isHireSocket allows. A sandboxed
 		// desk's server pid, as the core checked it (§A5.2 step 9), goes with it: its guarded tmux talks to that one.
-		hire.TmuxSocket, hire.TmuxServer = socket, tmux.server
+		// Its tag goes with it too (SA-X13): in its sandbox only with that server checked.
+		hire.TmuxSocket, hire.TmuxServer, hire.Sandboxed = socket, tmux.server, startedInSandbox(tmux)
 		if err := updateRegistry(func(f *registryFile) {
 			if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id }); i >= 0 {
-				f.hires[i].TmuxSocket, f.hires[i].TmuxServer = socket, tmux.server
+				f.hires[i].TmuxSocket, f.hires[i].TmuxServer, f.hires[i].Sandboxed = socket, tmux.server, hire.Sandboxed
 				f.hires[i].TmuxPane, f.hires[i].TmuxPaneStarted = hire.TmuxPane, hire.TmuxPaneStarted
 			}
 		}); err != nil {
@@ -425,6 +431,7 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 	}
 	role, how := d.config.Roles[i], hiredIntoGeneralFolder
 	options, testPort := d.engine, testCopyPort()
+	options.SandboxOff = d.config.SandboxOff // the owner's switch, as held now (AQ1)
 	options.Worktrees = d.worktreesFolder(options.Worktrees)
 	if options.HeardFrom == nil {
 		options.HeardFrom = d.hireHeardFrom

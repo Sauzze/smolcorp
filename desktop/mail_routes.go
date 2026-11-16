@@ -109,10 +109,18 @@ func (rt *router) mailSend(w http.ResponseWriter, r *request) {
 		req.To = to
 	}
 	req.Resolve = func() (mailDest, *mailError) {
+		var found mailDest
+		var refusal *mailError
 		if signer != nil {
-			return d.mailTowardFrom(*signer, to)
+			found, refusal = d.mailTowardFrom(*signer, to)
+		} else {
+			found, refusal = d.mailTarget(to)
 		}
-		return d.mailTarget(to)
+		if refusal == nil {
+			// Between a desk in its sandbox and one without (AQ10, sandboxswitch.go).
+			refusal = d.mailSandboxRefusal(r.caller, signer, found)
+		}
+		return found, refusal
 	}
 	added, refusal := d.mail.add(req)
 	if refusal != nil {

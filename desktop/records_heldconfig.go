@@ -38,7 +38,7 @@ var heldSwitches = map[string]bool{
 	"keystrokesAllowed": true, "dictationEnabled": true, "dictationForClaude": true, "dictationCleanup": true,
 	"phoneMicEnabled": true, "phoneMicSkipsConfirm": true, "phoneTextOverWiFi": true, "floorsFromOtherMacs": true,
 	"mailInboxSocket": true, "builtinWatches": true, "gmByHand": true, "acpRegistry": true, "t3CodeEnabled": true,
-	"localDatabaseAsksPassword": true,
+	"localDatabaseAsksPassword": true, "sandboxOff": true,
 }
 
 // heldLists are the settings that are a list whose every item lets more happen (an app keys may go to, a bot and its

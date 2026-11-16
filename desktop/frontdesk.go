@@ -57,6 +57,10 @@ type Hire struct {
 	TmuxPane        int    `json:"tmuxPane,omitempty"`
 	TmuxPaneStarted int64  `json:"tmuxPaneStarted,omitempty"`
 	Unguarded       string `json:"unguarded,omitempty"`
+	// Sandboxed: its last start was in its sandbox, its server checked as TmuxServer says (SA-X13). A desk started
+	// before this version, while the sandbox was off, or anywhere else has it false, and keeps that tag until it starts
+	// again (inSandbox, sandboxswitch.go). Written only when true.
+	Sandboxed bool `json:"sandboxed,omitempty"`
 	// ViaLauncher: the hire engine made it in a window run by the launcher, which is known by this hire's id.
 	ViaLauncher bool    `json:"viaLauncher,omitempty"`
 	Account     string  `json:"account"`
@@ -509,6 +513,10 @@ func teamRow(h *Hire, s *liveSession, now float64, status func(string) string) m
 		// A hire in T3 Code says so, with its thread; nobody else's row changes.
 		if h.Engine != "" {
 			row["engine"], row["t3Thread"] = h.Engine, h.T3Thread
+		}
+		// A desk in its sandbox says so (SA-X13): mail goes only between desks both in theirs, or neither.
+		if inSandbox(*h) {
+			row["sandboxed"] = true
 		}
 	} else {
 		folder, place = s.Project, s.Folder

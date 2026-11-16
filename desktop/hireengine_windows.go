@@ -62,3 +62,6 @@ func tmuxFor(socket string) (program, guard string) { return tmuxProgramFor(sock
 
 // markRespawnedDesks: no desk runs in tmux here.
 func (d *Deck) markRespawnedDesks() {}
+
+// deskSandboxed: no desk starts in a sandbox on Windows (none in 1.26): each one is tagged "No sandbox on this computer."
+const deskSandboxed = false

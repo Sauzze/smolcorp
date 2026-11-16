@@ -113,6 +113,8 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 | POST | `/setup/claude-accounts` | page | `{profiles: [{name, dir}]}` | as GET | 200, 400, 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | served |
 | GET | `/setup/guard` | gm, page, tool | — | `{extra, groups, limits}` | 200 | setup.json | served |
 | POST | `/setup/guard` | page | the guard's groups and patterns | as GET | 200, 400, 409 (Go: the records' key can't be read, so nothing is saved until the owner unlocks the keychain and restarts: 1.26 SK1), 500 | setup.json | served |
+| GET | `/setup/sandbox` | page | — | `{on, here, gmByHand, desks: [{id, name, sandboxed, tag}]}`: whether desks start in their sandbox (AQ1; false on a system that starts none there, whatever the switch), whether this system starts any there (a Mac), whether a GM was started by hand (outside any sandbox), and each open desk with its tag ("" in its sandbox, else why not: started before 1.26 or while the sandbox was off, taken over or run in T3 Code, or "No sandbox on this computer yet" on Linux, "No sandbox on this computer." on Windows, which has none in 1.26) (1.26, SA-X13) | 200, 403 (a tool, the GM, a hire, an MCP key, a night job) | none: the sandbox's switch (1.26, SA-X13), new in the Go app; desktop/sandboxswitch_test.go asks it | served |
+| POST | `/setup/sandbox` | page | `?on=0` (off) or `?on=1` | as GET. Off, the desks started from then on start as before 1.26, outside a sandbox, tagged; a desk keeps its tag, in its sandbox or not, until it starts again; Smolcorp never stops or restarts a desk itself. Sealed in config.json (`sandboxOff`): one written by another program counts for nothing (1.26, SA-X13) | 200, 400, 403 (a tool, the GM, a hire, an MCP key, a night job), 409 (on a system whose desks start in no sandbox, Linux and Windows: nothing to switch; while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | none: the sandbox's switch (1.26, SA-X13), new in the Go app; desktop/sandboxswitch_test.go asks it | served |
 | POST | `/setup/choices` | page | `?t3=&background=&asked=1`, each 0 or 1 | the setup state, and `windowsSaid` when it switched hires to the background | 200, 400 (background without tmux), 409 (Go: while the records' key can't be read, a change that would come back at the restart, as anything but a plain setting switched off, changed or taken off: 1.26 SK1F) | setup.json | differs |
 | GET | `/setup/t3code` | page | `?fresh=1` | `{installed, …, lane}` | 200, 404 (T3 Code off) | setup.json (T3 Code off; with it on, it looks for the T3 Code app and runs its command: not asked) | served |
 | POST | `/setup/t3code/open` | page | `{id}` | empty or text | 204, 404 (T3 Code off, no such hire), 409 | setup.json | served |
@@ -172,7 +174,7 @@ hires its GM so (`desktop/demooffice.go`).
 |---|---|---|---|---|---|---|---|
 | GET | `/setup/gm/version` | gm, page, tool | — | `{features, managerEnabled, version}` | 200 | gm.json, frontdesk/version.json | served |
 | POST | `/setup/gm/manager` | gm, page | `?enabled=1 or 0` | `{managerEnabled}` | 200, 400, 409 (Go: off while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | gm.json | served |
-| GET | `/setup/gm/team` | gm, page, tool | — | `{at, contacts, team}` (a hire in T3 Code's row: `engine`, `t3Thread`, and `t3` for the page) | 200, 409 | gm.json, frontdesk/team.json | served |
+| GET | `/setup/gm/team` | gm, page, tool | — | `{at, contacts, team}` (a hire in T3 Code's row: `engine`, `t3Thread`, and `t3` for the page; a desk in its sandbox's: `sandboxed: true`, 1.26 SA-X13) | 200, 409 | gm.json, frontdesk/team.json | served |
 | GET | `/setup/gm/events` | gm, page, tool | `?since=&wait=&limit=` | `{events, next, oldest}` | 200, 409 | gm.json, frontdesk/events.json | served |
 | GET | `/setup/gm/approvals` | gm, page, tool | — | `{approvals, at}` | 200, 409 | gm.json, frontdesk/approvals.json | differs |
 | GET | `/setup/gm/outbox` | gm, page, tool | `?limit=` | `{messages}` (a tool: no texts) | 200, 409 | gm.json, frontdesk/outbox.json | served |
@@ -185,8 +187,8 @@ hires its GM so (`desktop/demooffice.go`).
 | POST | `/setup/gm/tile` | gm, page | — | the tiling's report | 200, 409 | none: tiles the team's windows on a screen, which moves them; with the manager off, both apps answer 409 first, and a test copy answers 409 too, whatever the screens | served (under the Mac app, through the bridge; 404 on Linux and Windows) |
 | POST | `/setup/gm/hire` | gm, page | as `/setup/hire`, folder optional | `{ok, desk, session}` | 200, 400, 403, 404, 409 | gm.json, frontdesk/hire.json | served |
 | POST | `/setup/gm/fire` | gm, page | `{id, force, removeWorktree}` | empty, or `{ok, kept, worktree, branch}` when removal was asked and the worktree stayed, or `{ok, note}` (and `kept`…) when a hire in a window of its own was marked fired with no window closed | 200, 204, 400, 403, 404, 409 (Go also: while the records' key can't be read, the hire's session or window is ended and its key stopped for the run, but the fire isn't saved, and the answer says so; one hired in that run is fired in full, `{ok, note}` saying so: 1.26 SK1, SK1F) | gm.json, frontdesk/fire.json | served |
-| POST | `/setup/gm/brief` | gm, page | `{id, text, file}` | `{ok, …}` | 200, 400, 404, 409 | gm.json, frontdesk/brief.json | served |
-| POST | `/setup/gm/send` | gm, page, hire | `{to, text, …}` | the message | 200, 400, 403, 404, 409 | gm.json, frontdesk/send.json | served |
+| POST | `/setup/gm/brief` | gm, page | `{id, text, file}` | `{ok, …}` | 200, 400, 403 (the GM and the hire on either side of the sandbox, or the GM in its sandbox while a GM started by hand is allowed: neither the brief nor its mail, 1.26 SA-X13), 404, 409 | gm.json, frontdesk/brief.json | served |
+| POST | `/setup/gm/send` | gm, page, hire | `{to, text, …}` | the message | 200, 400, 403 (also between a desk in its sandbox and one without, either way: only the owner's mail crosses; and between the GM and any desk while the hired GM is in its sandbox and a GM started by hand is allowed, as its token may then be held on either side, 1.26 SA-X13), 404, 409 | gm.json, frontdesk/send.json | served |
 | POST | `/setup/gm/contacts` | gm, page | `{pairs, remove}` | `{contacts}` | 200, 400, 409 (Go also: a pair removed while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | gm.json, frontdesk/contacts.json | served |
 | POST | `/setup/gm/registry` | gm, page | `{id, nickname, state, notes}` | the hire | 200, 400, 404, 409 (Go also: fired or failed while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | gm.json, frontdesk/registry-edit.json | served |
 | GET | `/setup/gm/registry` | page | — | nothing: listed for the page, not answered | 404 | gm.json | served |
@@ -244,6 +246,90 @@ hires its GM so (`desktop/demooffice.go`).
 | GET | `/sw.js` | 🔔 the phone page's notifications worker (1.26, PUSH2), anyone, like `/office.js`: served before any key is looked at, the same file for everyone, `text/javascript`; it holds no key (a phone's stays after `#` in its page's address), answers no request and asks nothing, and only shows what a push brings (`pushNote`'s event, desk and floor); the page registers it only where its 🔔 key shows: a secure context, on an iPhone or iPad from the Home Screen | the Mac's too, as it runs the Go app |
 | GET | `/manifest.webmanifest` | 🔔 the phone page's manifest (1.26, PUSH2), the same: `application/manifest+json`, its name, look and scope, and no start address, so a Home Screen app opens where it was added, its `#k=` with it (Q-F5 (a)); the page links it on an iPhone or iPad alone | the Mac's too |
 
+
+## What a desk in its sandbox reaches over TCP
+
+A desk in its sandbox (1.26, design A) can't read Smolcorp's support folder, so it holds none of the setup key, a
+tool's key, the window key, a phone's key, an MCP key, `selftest-key`, the owner's hook key (`hook-key`) or a Setup
+link's token. It can still connect to this app's port on this computer: its hooks and the GM's tools use it. What it
+holds is its own hook key, and a hire's send key or the GM's token, each given through its start ticket. With them, or
+with nothing, it reaches the routes below; any other answers it 401, 403 or 404. `desktop/sandboxswitch_test.go`
+checks every route the route table gives the GM or a hire is here (1.26, SA-X13). What the GM's routes change, the
+core does, outside the desk's sandbox: the GM's powers, as before, behind the gates (`gates.go`).
+
+| With | Method | Path | What it can do there |
+|---|---|---|---|
+| nothing | POST, GET | `/terminal/ask` | ask for a tool's key or the GM's token, under the Mac app: given only on the owner's Allow in Smolcorp's own window, after the code is checked. Up to 3 asks wait, so while a desk keeps 3 waiting the owner's own ask gets 429 (RT126SK2, not changed by the sandbox) |
+| nothing | POST, GET | `/setup/tap` | off a Mac only: ask the paired phone for the tap that opens Setup, given only on the owner's tap; the same 3 asks (429) |
+| nothing | POST | `/setup/session` | a Setup link's token, which it never sees: 401 |
+| nothing | POST | `/pair` | a pairing code or a QR code's key, shown only in Setup: 403 |
+| nothing | GET | `/office` | the pairing page; `?o=` the tray's one-time token, which it never sees |
+| nothing | GET | `/` | the pairing page, or with `?deck` the deck's page, which holds nothing of yours |
+| nothing | GET | `/icon.png` | a file of the app, with nothing of yours |
+| nothing | GET | `/favicon-16.png` | the same |
+| nothing | GET | `/favicon-32.png` | the same |
+| nothing | GET | `/office.js` | the same |
+| nothing | GET | `/sign.js` | the same |
+| nothing | GET | `/sw.js` | the same |
+| nothing | GET | `/manifest.webmanifest` | the same |
+| nothing | GET | `/guide.js` | the same |
+| nothing | GET | `/licenses` | the same |
+| nothing | GET | `/sounds/*` | the same |
+| nothing | GET, POST | `/peer/*` | another Mac's key, over Tailscale only, or its code: 403 or 404 |
+| its own hook key | POST | `/hook` | its own desk's events only (403 for another desk's) |
+| the GM's token | GET | `/setup/gm/team` | as its row above |
+| the GM's token | GET | `/setup/gm/events` | as its row above |
+| the GM's token | GET | `/setup/gm/version` | as its row above |
+| the GM's token | GET | `/setup/gm/outbox` | as its row above |
+| the GM's token | GET | `/setup/gm/watches` | as its row above |
+| the GM's token | GET | `/setup/gm/approvals` | as its row above |
+| the GM's token | GET | `/setup/gm/screens` | as its row above |
+| the GM's token | POST | `/setup/gm/hire` | as its row above |
+| the GM's token | POST | `/setup/gm/fire` | as its row above |
+| the GM's token | POST | `/setup/gm/brief` | a part added to a hire's brief, and a mail saying so; across the sandbox, 403 (SA-X13) |
+| the GM's token | POST | `/setup/gm/tile` | as its row above |
+| the GM's token | POST | `/setup/gm/screen` | as its row above |
+| the GM's token, a hire's send key | POST | `/setup/gm/send` | mail to a desk on its side of the sandbox (or, from a hire, one its contacts allow); across, 403 (SA-X13) |
+| the GM's token | POST | `/setup/gm/contacts` | as its row above |
+| the GM's token | POST | `/setup/gm/registry` | as its row above |
+| the GM's token | POST | `/setup/gm/nickname` | as its row above |
+| the GM's token | POST | `/setup/gm/watch` | as its row above |
+| the GM's token | POST, DELETE | `/setup/gm/unwatch` | as its row above |
+| the GM's token | POST | `/setup/gm/manager` | as its row above |
+| the GM's token | GET | `/setup/gm/memory` | as its row above |
+| the GM's token | POST | `/setup/gm/memory/propose` | as its row above |
+| the GM's token | POST | `/setup/gm/memory/withdraw` | as its row above |
+| the GM's token | * | `/setup/gm/*` | the rest of the GM's routes (404, or 409 while the manager is off) |
+| the GM's token | POST | `/setup/hire` | as its row above |
+| the GM's token | POST | `/setup/hire/gm` | as its row above |
+| the GM's token | POST | `/setup/hiring` | as its row above |
+| the GM's token | POST | `/setup/hire-folder` | as its row above |
+| the GM's token | POST | `/setup/roles` | as its row above |
+| the GM's token | POST | `/setup/hooks` | as its row above |
+| the GM's token | POST | `/setup/unpair` | as its row above |
+| the GM's token | POST | `/setup/notify` | as its row above |
+| the GM's token | POST | `/setup/webhook` | as its row above |
+| the GM's token | POST | `/setup/webhook/test` | as its row above |
+| the GM's token | POST | `/setup/bots` | as its row above |
+| the GM's token | POST | `/setup/bots/override` | as its row above |
+| the GM's token | POST | `/setup/bots/resolve` | as its row above |
+| the GM's token | POST | `/setup/maxconfirm` | as its row above |
+| the GM's token | POST | `/setup/phonemic` | as its row above |
+| the GM's token | POST | `/setup/dictation` | as its row above |
+| the GM's token | POST | `/setup/login` | as its row above |
+| the GM's token | POST | `/setup/layout` | as its row above |
+| the GM's token | POST | `/setup/profiles` | as its row above |
+| the GM's token | GET | `/setup/claude-accounts` | as its row above |
+| the GM's token | GET | `/setup/guard` | as its row above |
+| the GM's token | POST | `/setup/pin` | as its row above |
+| the GM's token | POST | `/setup/unpin` | as its row above |
+| the GM's token | POST | `/setup/floors` | as its row above |
+| the GM's token | GET | `/setup/gm/git` | as its row above |
+| the GM's token | GET | `/setup/hire/queue` | as its row above |
+| the GM's token | POST | `/setup/hire/plan/propose` | as its row above |
+| the GM's token | GET | `/setup/night` | as its row above |
+| the GM's token | POST | `/setup/night/propose` | as its row above |
+| the GM's token, a hire's send key | POST | `/setup/preview` | a desk's preview address: a hire its own desk's, the GM a hire's |
 
 ## Fields of `/setup/state` (shape `setup-state`, the page's)
 
