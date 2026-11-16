@@ -206,7 +206,7 @@ func TestTheGMHireFieldsAndFloor(t *testing.T) {
 		}
 	}
 	nothingMade(t, r, h)
-	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","apiKey":false,"worktree":true,"task":"","answers":[],"account":null,"engine":"terminal","floor":2}`); code != http.StatusOK || !strings.HasPrefix(text, `{"branch":"hire/janitor-`) || !strings.Contains(text, `"desk":null,"floor":2,"ok":true,"session":null,"worksIn":"`) {
+	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","apiKey":false,"worktree":true,"task":"","answers":[],"account":null,"engine":"terminal","floor":2}`); code != http.StatusOK || !strings.HasPrefix(text, `{"branch":"hire/`) || !strings.Contains(text, `/janitor-`) || !strings.Contains(text, `"desk":null,"floor":2,"ok":true,"session":null,"worksIn":"`) {
 		t.Fatalf("what is already so, on floor 2: %d %q", code, text)
 	}
 	d.mu.Lock()

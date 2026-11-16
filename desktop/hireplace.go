@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Sauzze/smolcorp/internal/disclaim"
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 // The hire's place (Phase 6 T602, part A), as the Mac's HireDesk.prepare: a git
@@ -151,7 +152,7 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 		// Both parts are slugs: the ID is never trusted to be a safe path part.
 		name := hireSlug(r.Name) + "-" + firstRunes(hireSlug(r.HireID), 6)
 		parent := hiresFolder(repo, o.Worktrees)
-		path, branch := filepath.Join(parent, name), "hire/"+name
+		path, branch := filepath.Join(parent, name), hireBranch(r.HireID, name)
 		_ = os.MkdirAll(parent, 0o755)
 		status, out, ok := git(repo, "worktree", "add", "-b", branch, path)
 		if !ok || status != 0 {
@@ -191,6 +192,12 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 	}
 	return place, nil
 }
+
+// hireBranch is the branch a hire works on in its worktree, hire/<its id>/<name>: in a folder of its own, the one a
+// Linux desk's view lets it write (sandbox.HireBranch, SIERRA's ruling on RT126SAL1R2 N1). The ID is a slug here too,
+// as in the worktree's name; the core's IDs are 12 lower-case hex digits, which a slug keeps as they are (a desk's
+// Places.OwnID must be the same, or its view lets it write no branch).
+func hireBranch(id, name string) string { return sandbox.HireBranch(hireSlug(id), name) }
 
 // hiresFolder is where the worktrees of a repo's hires are made: beside the
 // repo, or under worktrees when that is set.

@@ -67,7 +67,7 @@ func TestT3AHireThroughTheDeckIsOnTheTeamAndLetGoByItsRoute(t *testing.T) {
 	// The gate asked t3 its version, fresh, before anything was made.
 	runs := r.runs()
 	if firsts := r.firsts(); len(runs) != 4 || runs[0][0] != "--version" || !reflect.DeepEqual(firsts[1:], [][]string{{"project", "add"}, {"thread", "start"}, {"thread", "show"}}) ||
-		!strings.HasPrefix(runs[1][4], "Ada · hire/ada-") || !strings.HasSuffix(strings.Join(runs[2], " "), "--provider claudeAgent --model "+t3DefaultModel+" --json") {
+		!strings.HasPrefix(runs[1][4], "Ada · hire/") || !strings.Contains(runs[1][4], "/ada-") || !strings.HasSuffix(strings.Join(runs[2], " "), "--provider claudeAgent --model "+t3DefaultModel+" --json") {
 		t.Errorf("%q", runs)
 	}
 	// The fence is the hire's settings on the default account, written as the Mac writes it.

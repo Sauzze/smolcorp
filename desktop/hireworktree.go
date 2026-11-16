@@ -45,7 +45,8 @@ func removeOwnWorktree(git gitRunner, worktrees string, h Hire) bool {
 	if info, err := os.Lstat(own); err != nil || info.Mode()&os.ModeSymlink != 0 {
 		return false
 	}
-	if filepath.Dir(tree) != physical(hiresFolder(repo, worktrees)) || h.Branch != "hire/"+filepath.Base(tree) {
+	// The branch prepareHire made for it (hireBranch), or the one a hire made before branches had a folder of their own.
+	if base := filepath.Base(tree); filepath.Dir(tree) != physical(hiresFolder(repo, worktrees)) || h.Branch != hireBranch(h.ID, base) && h.Branch != "hire/"+base {
 		return false
 	}
 	// What the worktree really has checked out must be the hire's branch (not

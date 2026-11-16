@@ -1,0 +1,76 @@
+--unshare-pid
+--bind / /
+--dev /dev
+--bind /etc /etc
+--bind /home /home
+--bind /opt /opt
+--proc /proc
+--bind /run /run
+--tmpfs /tmp
+--ro-bind /dev/log /dev/log
+--ro-bind /etc/gitconfig /etc/gitconfig
+--tmpfs /home/ada
+--ro-bind /opt/smolcorp /opt/smolcorp
+--tmpfs /run/screen
+--bind /run/user /run/user
+--bind-try /home/ada/.1password /home/ada/.1password
+--ro-bind /home/ada/.bashrc /home/ada/.bashrc
+--tmpfs /home/ada/.claude
+--tmpfs /home/ada/.claude-work
+--tmpfs /home/ada/.codex
+--tmpfs /home/ada/.config
+--tmpfs /home/ada/.gemini
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1/git-copy-241a891aca19f95c /home/ada/.gitconfig
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1/git-copy-28717818503f9925 /home/ada/.gitconfig-work
+--ro-bind /home/ada/.githooks /home/ada/.githooks
+--bind /home/ada/.local /home/ada/.local
+--ro-bind /home/ada/.profile /home/ada/.profile
+--tmpfs /home/ada/.ssh
+--ro-bind /home/ada/.tmux.conf /home/ada/.tmux.conf
+--ro-bind /home/ada/Library /home/ada/Library
+--ro-bind /home/ada/Projects /home/ada/Projects
+--bind-try /home/ada/notes /home/ada/notes
+--tmpfs /run/user/1000
+--bind /tmp/tmux-1000/smolcorp-gm1.d /tmp/tmux-1000/smolcorp-gm1.d
+--bind-try /home/ada/.codex/config.toml /home/ada/.codex/config.toml
+--ro-bind /home/ada/.config/fish /home/ada/.config/fish
+--ro-bind /home/ada/.config/git /home/ada/.config/git
+--tmpfs /home/ada/.config/sauzzedeck-pro
+--ro-bind /home/ada/.config/systemd /home/ada/.config/systemd
+--ro-bind /home/ada/.local/share /home/ada/.local/share
+--ro-bind /home/ada/.ssh/config /home/ada/.ssh/config
+--bind /home/ada/.ssh/id_ed25519.pub /home/ada/.ssh/id_ed25519.pub
+--bind /home/ada/.ssh/known_hosts /home/ada/.ssh/known_hosts
+--bind /home/ada/Projects/app-gm /home/ada/Projects/app-gm
+--bind /home/ada/Projects/smolcorp /home/ada/Projects/smolcorp
+--ro-bind /home/ada/.config/sauzzedeck-pro/desk-start /home/ada/.config/sauzzedeck-pro/desk-start
+--ro-bind /home/ada/.config/sauzzedeck-pro/hire-guard.json /home/ada/.config/sauzzedeck-pro/hire-guard.json
+--ro-bind /home/ada/.config/sauzzedeck-pro/nightshift.json /home/ada/.config/sauzzedeck-pro/nightshift.json
+--ro-bind /home/ada/Projects/app-gm/.claude /home/ada/Projects/app-gm/.claude
+--ro-bind /home/ada/Projects/app-gm/.git /home/ada/Projects/app-gm/.git
+--ro-bind /run/user/1000/gnupg/S.gpg-agent /run/user/1000/gnupg/S.gpg-agent
+--ro-bind /run/user/1000/keyring/ssh /run/user/1000/keyring/ssh
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1 /home/ada/.config/sauzzedeck-pro/hires/gm1
+--bind /home/ada/Projects/app/.git/logs /home/ada/Projects/app/.git/logs
+--bind /home/ada/Projects/app/.git/objects /home/ada/Projects/app/.git/objects
+--bind /home/ada/Projects/app/.git/refs /home/ada/Projects/app/.git/refs
+--bind /home/ada/.config/sauzzedeck-pro/hires/gm1/STATUS.md /home/ada/.config/sauzzedeck-pro/hires/gm1/STATUS.md
+--bind /home/ada/Projects/app/.git/logs/refs /home/ada/Projects/app/.git/logs/refs
+--ro-bind /home/ada/Projects/app/.git/objects/info /home/ada/Projects/app/.git/objects/info
+--ro-bind /home/ada/Projects/app/.git/refs/heads /home/ada/Projects/app/.git/refs/heads
+--bind /home/ada/Projects/app/.git/worktrees/gm /home/ada/Projects/app/.git/worktrees/gm
+--ro-bind /home/ada/Projects/app/.git/logs/refs/heads /home/ada/Projects/app/.git/logs/refs/heads
+--ro-bind /home/ada/Projects/app/.git/worktrees/gm/branches /home/ada/Projects/app/.git/worktrees/gm/branches
+--ro-bind /home/ada/Projects/app/.git/worktrees/gm/commondir /home/ada/Projects/app/.git/worktrees/gm/commondir
+--ro-bind /home/ada/Projects/app/.git/worktrees/gm/config.worktree /home/ada/Projects/app/.git/worktrees/gm/config.worktree
+--ro-bind /home/ada/Projects/app/.git/worktrees/gm/gitdir /home/ada/Projects/app/.git/worktrees/gm/gitdir
+--ro-bind /home/ada/Projects/app/.git/worktrees/gm/remotes /home/ada/Projects/app/.git/worktrees/gm/remotes
+--bind /home/ada/Projects/app/.git/refs/heads/hire/gm1 /home/ada/Projects/app/.git/refs/heads/hire/gm1
+--bind /home/ada/Projects/app/.git/logs/refs/heads/hire/gm1 /home/ada/Projects/app/.git/logs/refs/heads/hire/gm1
+--remount-ro /home/ada
+--remount-ro /home/ada/.codex
+--remount-ro /home/ada/.config
+--remount-ro /home/ada/.gemini
+--remount-ro /home/ada/.ssh
+--chdir /home/ada/Projects/app-gm
+--

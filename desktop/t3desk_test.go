@@ -225,7 +225,7 @@ func (r *t3Rig) worktree() string {
 }
 
 func (r *t3Rig) branchExists(repo string) bool {
-	return exec.Command("git", "-C", repo, "rev-parse", "--verify", "-q", "refs/heads/hire/ada-abcdef").Run() == nil
+	return exec.Command("git", "-C", repo, "rev-parse", "--verify", "-q", "refs/heads/"+hireBranch(t3TestHireID, "ada-abcdef")).Run() == nil
 }
 
 func exists(path string) bool {
@@ -303,7 +303,7 @@ func TestT3TheHireGoesWorktreeFenceExcludeBriefProjectThreadInThatOrder(t *testi
 		t.Fatalf("refused: %v %v", err, r.failed)
 	}
 	wt := r.worktree()
-	if started.Place.Worktree != wt || started.Place.Branch != "hire/ada-abcdef" {
+	if started.Place.Worktree != wt || started.Place.Branch != hireBranch(t3TestHireID, "ada-abcdef") {
 		t.Errorf("place: %+v", started.Place)
 	}
 	link := "https://app.t3.codes/threads/env-1/mcp%3Aabc-1"
@@ -312,7 +312,7 @@ func TestT3TheHireGoesWorktreeFenceExcludeBriefProjectThreadInThatOrder(t *testi
 	}
 	brief := filepath.Join(r.home, "brief.md")
 	want := [][]string{
-		{"project", "add", wt, "--title", "Ada · hire/ada-abcdef"},
+		{"project", "add", wt, "--title", "Ada · hire/abcdef12-0000-4000-8000-000000/ada-abcdef"},
 		{"thread", "start", wt, "Read your brief at " + brief + ", then start.", "--provider", "claudeAgent", "--model", "claude-haiku-5-5", "--json"},
 		{"thread", "show", "mcp:abc-1", "--json"},
 	}
@@ -323,7 +323,7 @@ func TestT3TheHireGoesWorktreeFenceExcludeBriefProjectThreadInThatOrder(t *testi
 	if notes, _ := os.ReadFile(r.notes); strings.TrimSpace(string(notes)) != "worktree fence ignored brief" {
 		t.Errorf("at project add: %q", notes)
 	}
-	if !reflect.DeepEqual(r.log, []string{"register hire/ada-abcdef", "settings", "brief", "started"}) {
+	if !reflect.DeepEqual(r.log, []string{"register hire/abcdef12-0000-4000-8000-000000/ada-abcdef", "settings", "brief", "started"}) {
 		t.Errorf("log: %q", r.log)
 	}
 	if !reflect.DeepEqual(r.startedWith, []string{"mcp:abc-1", link}) {
@@ -389,7 +389,7 @@ func TestT3AProjectAddThatFailsTakesEverythingBack(t *testing.T) {
 	if exists(r.worktree()) || r.branchExists(repo) {
 		t.Error("the worktree or its branch is left")
 	}
-	if !reflect.DeepEqual(r.log, []string{"register hire/ada-abcdef", "settings", "brief", "discard", "fail"}) || !reflect.DeepEqual(r.failed, []string{refused.Message}) {
+	if !reflect.DeepEqual(r.log, []string{"register hire/abcdef12-0000-4000-8000-000000/ada-abcdef", "settings", "brief", "discard", "fail"}) || !reflect.DeepEqual(r.failed, []string{refused.Message}) {
 		t.Errorf("%q %q", r.log, r.failed)
 	}
 }
@@ -446,7 +446,7 @@ func TestT3AProjectT3CodeKeepsKeepsItsFenceAndSaysSo(t *testing.T) {
 	r.fake("startfail", "removefail")
 	_, err := t3HireInto(r.hiring(r.repo()), r.ways())
 	refused := refusalOf(t, err)
-	if !strings.HasSuffix(refused.Message, ` T3 Code didn't remove the project it was given (Could not reach the T3 Code desktop app.), so the hire's worktree and fence were kept: remove "Ada · hire/ada-abcdef" in T3 Code.`) {
+	if !strings.HasSuffix(refused.Message, ` T3 Code didn't remove the project it was given (Could not reach the T3 Code desktop app.), so the hire's worktree and fence were kept: remove "Ada · hire/abcdef12-0000-4000-8000-000000/ada-abcdef" in T3 Code.`) {
 		t.Errorf("%q", refused.Message)
 	}
 	if !exists(filepath.Join(r.worktree(), ".claude", "settings.local.json")) {
@@ -951,7 +951,7 @@ func TestT3AFenceGoneBeforeThreadStartStartsNoThread(t *testing.T) {
 	if refusalOf(t, err).Message != t3FenceLost {
 		t.Errorf("%v", err)
 	}
-	want := [][]string{{"project", "add", r.worktree(), "--title", "Ada · hire/ada-abcdef"}, {"project", "remove", r.worktree(), "--force"}}
+	want := [][]string{{"project", "add", r.worktree(), "--title", "Ada · " + hireBranch(t3TestHireID, "ada-abcdef")}, {"project", "remove", r.worktree(), "--force"}}
 	if got := r.runs(); !reflect.DeepEqual(got, want) {
 		t.Errorf("no thread start: %q", got)
 	}

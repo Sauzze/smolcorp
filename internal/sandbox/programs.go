@@ -39,11 +39,13 @@ import (
 //     folder missing on the way, whose parent exists. A place is denied as spelled and where its links lead: the
 //     kernel checks the place a link resolves to.
 //
-// Left out, as no desk writes them: a link at the top of the volume (/tmp, /var, /bin), the Mac's shared-cache
-// libraries and every place its System Integrity Protection seals (/System, /usr but /usr/local, /bin, /sbin,
-// /Library/Apple), and Linux's system libraries. No place denied is, or holds, the home folder, or is a
-// top folder: a layout that would give one denies the program itself. Nothing is run: files are read, as a loader
-// reads them. Anything that can't be read fails the whole: the desk doesn't start.
+// Left out, as no desk writes them: a link at the top of the volume (/tmp, /var, /bin) itself, though a program met
+// through one is still denied as spelled as well as where it leads (Ubuntu's merged /usr: /bin/sh, with /usr/bin/sh
+// and the dash it leads to; FXSAL1VM1 B1); the Mac's shared-cache libraries and every place its System Integrity
+// Protection seals (/System, /usr but /usr/local, /bin, /sbin, /Library/Apple); and Linux's system libraries. No
+// place denied is, or holds, the home folder, or is a top folder: a layout that would give one denies the program
+// itself. Nothing is run: files are read, as a loader reads them. Anything that can't be read fails the whole: the
+// desk doesn't start.
 
 // ErrPrograms is a program, or something it loads, that can't be told whole: a link loop, too many files, a file that
 // can't be read or parsed.
@@ -218,10 +220,13 @@ func ResolvePrograms(f Finding) (*Programs, error) {
 
 type resolver struct {
 	goos, home, devRoot string
-	search, xcrunDBs    []string
-	denied              []string
-	seen                map[string]bool
-	budget              int
+	// volume is the folder taken as the top of the volume: "" for the real one. A test's temp folder stands in for it
+	// to lay out a merged /usr (FXSAL1VM1 B1).
+	volume           string
+	search, xcrunDBs []string
+	denied           []string
+	seen             map[string]bool
+	budget           int
 }
 
 // named resolves the program n: first (the bundled tmux), its Places, then the search. Path is the first found.
@@ -309,7 +314,7 @@ func (r *resolver) appear(p string) string {
 // deny adds p, unless it is a top folder, holds the home folder or is sealed (see above).
 func (r *resolver) deny(p string) {
 	p = filepath.Clean(p)
-	if k := key(r.goos, p); k == "" || topFolder(p) || under(key(r.goos, r.home), k) || sealed(r.goos, k) {
+	if k := key(r.goos, p); k == "" || r.topFolder(p) || under(key(r.goos, r.home), k) || sealed(r.goos, k) {
 		return
 	}
 	r.denied = append(r.denied, p)
@@ -319,6 +324,14 @@ func (r *resolver) deny(p string) {
 func sealed(goos, k string) bool {
 	return goos == "darwin" && !under(k, "/usr/local") &&
 		slices.ContainsFunc([]string{"/system", "/usr", "/bin", "/sbin", "/library/apple"}, func(s string) bool { return under(k, s) })
+}
+
+// topFolder is whether p is the top of the resolver's volume or a folder right below it.
+func (r *resolver) topFolder(p string) bool {
+	if r.volume != "" {
+		return p == r.volume || filepath.Dir(p) == r.volume
+	}
+	return topFolder(p)
 }
 
 // topFolder is whether p is the top of its volume or a folder right below it.
@@ -334,6 +347,9 @@ func (r *resolver) program(p, exe string) error {
 	if err != nil {
 		return err
 	}
+	// p as spelled too, whichever spelling of the file was met first: a link at the top of the volume isn't a hop
+	// denied, so /bin/sh on a merged /usr would otherwise be denied only as /usr/bin/sh and /usr/bin/dash.
+	r.deny(p)
 	for _, hop := range hops {
 		r.deny(hop)
 	}
@@ -402,7 +418,7 @@ func (r *resolver) rootOf(real string) string {
 			root = folder
 		}
 	}
-	if root == "" || topFolder(root) || under(key(r.goos, r.home), key(r.goos, root)) {
+	if root == "" || r.topFolder(root) || under(key(r.goos, r.home), key(r.goos, root)) {
 		return real
 	}
 	return root

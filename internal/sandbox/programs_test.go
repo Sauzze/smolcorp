@@ -262,6 +262,44 @@ fi
 	})
 }
 
+// Ubuntu's merged /usr (FXSAL1VM1 B1, VM run 1): /bin is a link to usr/bin at the top of the volume, which no desk
+// writes, so it isn't a hop denied, and /usr/bin/sh is a link to dash. A script run by /bin/sh has its interpreter
+// denied as spelled, and where it leads: /usr/bin/sh and /usr/bin/dash. A temp folder stands in for the top of the
+// volume, so this runs on any computer; on either system, and whether dash was met first by its own name.
+func TestOnAMergedUsrAnInterpreterIsDeniedAsSpelledAndWhereItLeads(t *testing.T) {
+	for _, goos := range []string{"linux", "darwin"} {
+		for _, first := range []string{"", "usr/bin/dash", "usr/bin/sh"} {
+			s := newStandins(t)
+			volume := s.dir("volume")
+			s.program("volume/usr/bin/dash", "a shell's stand-in\n")
+			s.link("volume/usr/bin/sh", "dash")
+			s.link("volume/bin", "usr/bin")
+			s.dir("volume/usr/bin/other")
+			script := s.program("volume/opt/tool/bin/tool", "#!"+filepath.Join(volume, "bin", "sh")+"\n")
+			r := &resolver{goos: goos, home: s.home, volume: volume, budget: maxProgramFiles, seen: map[string]bool{}}
+			if first != "" {
+				if err := r.hold(s.at("volume/" + first)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := r.hold(script); err != nil {
+				t.Fatal(err)
+			}
+			met := "only through the script"
+			if first != "" {
+				met = "first as " + first
+			}
+			t.Run(goos+", "+met, func(t *testing.T) {
+				denied(t, &Programs{roots: outermost(goos, r.denied)}, goos, map[string]bool{
+					s.at("volume/bin/sh"): true, s.at("volume/usr/bin/sh"): true, s.at("volume/usr/bin/dash"): true, script: true,
+					// The link at the top itself, and what else is in the folder it leads to, are left as they were.
+					s.at("volume/bin"): false, s.at("volume/bin/other"): false, s.at("volume/usr/bin/other"): false,
+				})
+			})
+		}
+	}
+}
+
 func TestEnvsProgramIsTheFirstWordThatIsntAnOption(t *testing.T) {
 	for line, want := range map[string]string{"node": "node", "-S node --x": "node", "-u HOME bun": "bun", "A=1 -i python3": "python3", "-": ""} {
 		if got := envProgram(strings.Fields(line)); got != want {

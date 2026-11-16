@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -632,6 +633,15 @@ func TestEachCheckFakedIsRefused(t *testing.T) {
 // program writes what it was given.
 func runEnter(t *testing.T, s *Start, d standInDesk, wrap ...string) (error, string, string) {
 	t.Helper()
+	cmd, stderr, out := startEnter(t, s, d, wrap...)
+	waited := s.Wait(30 * time.Second)
+	cmd.Wait()
+	return waited, stderr.String(), out
+}
+
+// startEnter starts what runEnter waits for, and gives the command, its stderr, and where the stand-in program writes.
+func startEnter(t *testing.T, s *Start, d standInDesk, wrap ...string) (*exec.Cmd, *bytes.Buffer, string) {
+	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -647,14 +657,76 @@ func runEnter(t *testing.T, s *Start, d standInDesk, wrap ...string) (error, str
 	}
 	defer leaked.Close()
 	cmd.ExtraFiles = append(s.Files(), leaked, leaked)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	stderr := &bytes.Buffer{}
+	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	waited := s.Wait(30 * time.Second)
-	cmd.Wait()
-	return waited, stderr.String(), out
+	return cmd, stderr, out
+}
+
+// A bwrap that can't make its namespaces (FXSAL1VM1, VM run 1: Ubuntu 24.04's AppArmor rule refuses an unprivileged
+// user namespace, "bwrap: setting up uid map: Permission denied") exits before `enter` runs: the core refuses the
+// start at once, with no handshake, and the owner is told in plain words; nothing of the desk's runs, unsandboxed or
+// not. One that hangs instead is refused when the wait is over. The view itself never asks bwrap to go on without a
+// namespace it can't make (an `--unshare-*-try` word). A stand-in bwrap, which only says bwrap's words or waits,
+// takes the real view's words; this runs on any Unix.
+func TestABwrapThatCantStartIsRefusedInPlainWordsAndRunsNothing(t *testing.T) {
+	_, view := viewOf(t, linuxSetups()[0], linuxComputer())
+	for _, w := range view {
+		if strings.HasPrefix(w, "--unshare-") && strings.HasSuffix(w, "-try") {
+			t.Errorf("the view goes on without a namespace bwrap can't make: %s", w)
+		}
+	}
+	if !slices.Contains(view, "--unshare-pid") || view[len(view)-1] != "--" {
+		t.Fatalf("the view's words: %q", view)
+	}
+	const said = "bwrap: setting up uid map: Permission denied"
+	for _, c := range []struct {
+		name, script string
+		within       time.Duration
+	}{
+		{"exits", "#!/bin/sh\necho '" + said + "' >&2\nexit 1\n", 30 * time.Second},
+		{"hangs", "#!/bin/sh\nexec sleep 20\n", 2 * time.Second},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d := newStandInDesk(t)
+			s := mustStart(t, d.checks)
+			bwrap := filepath.Join(d.base, "bwrap")
+			if err := os.WriteFile(bwrap, []byte(c.script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			began := time.Now()
+			cmd, stderr, out := startEnter(t, s, d, append([]string{bwrap}, view...)...)
+			waited := s.Wait(c.within)
+			took := time.Since(began)
+			cmd.Process.Kill() // the core's runner ends a start it refused
+			cmd.Wait()
+			var refused *Refused
+			if !errors.As(waited, &refused) || !strings.HasPrefix(refused.Why, "no handshake") {
+				t.Errorf("the core's answer: %v", waited)
+			}
+			limit := c.within + 5*time.Second
+			if c.name == "exits" { // no wait for the handshake: bwrap's exit ends it
+				limit = 5 * time.Second
+			}
+			if took > limit {
+				t.Errorf("the refusal took %v, over %v", took, limit)
+			}
+			if c.name == "exits" && !strings.Contains(stderr.String(), said) {
+				t.Errorf("bwrap's own words don't reach the start's log: %q", stderr.String())
+			}
+			if got := Refusal("linux"); got != "The sandbox didn't hold on this computer, so the hire wasn't started." {
+				t.Errorf("the owner is told %q", got)
+			}
+			if _, err := os.Lstat(out); err == nil {
+				t.Error("the desk's program ran")
+			}
+			if _, err := os.Lstat(d.checks.Write[0]); err == nil {
+				t.Error("a status file was made")
+			}
+		})
+	}
 }
 
 // With no sandbox around it, the real `enter` fails its canary row: the core refuses the start, the owner's sentence

@@ -320,7 +320,7 @@ func runDesk(cmd string, args []string, env Env, stdout, stderr io.Writer) int {
 	return finish(err, stderr)
 }
 
-// worksNote is " Works in /path/repo-hires/name (a worktree of its own on branch hire/name, not the project folder
+// worksNote is " Works in /path/repo-hires/name (a worktree of its own on branch hire/id/name, not the project folder
 // itself)." from the hire's answer, when it says where the hire works.
 func worksNote(raw []byte) string {
 	var a struct {

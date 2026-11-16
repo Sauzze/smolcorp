@@ -445,7 +445,9 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           missing=0
-          for name in TestLinuxSandboxCapabilitiesAreRecorded TestTheProbeFilterUsesTheKernelsNumbers TestTheProbeFilterRefusesOnlyTheTwoIoctls; do
+          # SA-L1's rows: a desk's view starts on the packaged bwrap and holds, a key replaced outside stays hidden, and
+          # branches and git config the owner replaces outside stay held (bwrap_linux_test.go).
+          for name in TestLinuxSandboxCapabilitiesAreRecorded TestTheProbeFilterUsesTheKernelsNumbers TestTheProbeFilterRefusesOnlyTheTwoIoctls TestTheLinuxViewStartsOnBwrap TestTheViewHidesAKeyReplacedOutside TestTheViewHoldsBranchesAndGitConfigReplacedOutside; do
             if ! grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/linuxcaps.txt"; then
               echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
               missing=1
