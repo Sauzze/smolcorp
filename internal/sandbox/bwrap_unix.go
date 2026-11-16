@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"io/fs"
+	"os"
 	"syscall"
 )
 
@@ -21,4 +22,14 @@ func fileGroup(fi fs.FileInfo) int64 {
 		return int64(st.Gid)
 	}
 	return -1
+}
+
+// openKept opens the file at to read, never through a link and never waiting on a pipe.
+func openKept(at string) (*os.File, error) {
+	return os.OpenFile(at, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+}
+
+// openKeptWrite opens the file at to write, with flag added, never through a link.
+func openKeptWrite(at string, flag int) (*os.File, error) {
+	return os.OpenFile(at, os.O_WRONLY|flag|syscall.O_NOFOLLOW, 0o600)
 }

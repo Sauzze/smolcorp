@@ -8,8 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/Sauzze/smolcorp/internal/appdirs"
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 // Exit codes: the hook itself always ends 0 (its answer is its JSON, or
@@ -69,6 +71,25 @@ func stop(stdout io.Writer, after bool, reason string) int {
 		return exitUsage
 	}
 	return exitOK
+}
+
+// keptStop is why a Linux desk stops (L1GUARD1): a place no mount holds isn't as its start kept it in the folder
+// held, or the copy can't be read. "" when all is as kept. Nothing found is touched here (only the core puts back,
+// sandbox.RestoreKept and SaveKept): what stopped the desk is noted for its next start.
+func keptStop(held string) string {
+	changes, err := sandbox.CheckKept(held)
+	why := ""
+	if len(changes) > 0 {
+		why = "Smolcorp stopped this desk. " + sandbox.KeptWords(changes)
+		if nerr := sandbox.NoteKeptStop(held, changes); nerr != nil {
+			why += "\n(What stopped it couldn't be noted for its next start: " + nerr.Error() + ".)"
+		}
+	}
+	if err != nil {
+		why = strings.TrimSpace(why + "\nSmolcorp stopped this desk: the places it may not change couldn't all be checked " +
+			"against its start's copy (" + err.Error() + ").")
+	}
+	return why
 }
 
 // Hook is `smolcorp guard`, run by Claude Code before each tool call with
@@ -165,20 +186,24 @@ func KeptCwd(cwd string) bool {
 //	                               the hook: the tool call on stdin, the groups of FILE
 //	                               (default: hire-guard.json in the support folder); with
 //	                               --groups, those groups, which FILE only adds to (held.go)
+//	guard ... --held DIR           the hook as above, but first a Linux desk's places no mount
+//	                               holds compared with its start's copy in DIR (L1GUARD1): one
+//	                               changed stops the desk, and is noted beside DIR (never touched)
 //	guard --print [--profile P] [--groups JSON] [--rules FILE]
 //	                               the groups it uses now, as JSON, and what's wrong with FILE
 //	guard ... --settings FILE --sum HEX
 //	                               the hook as above, but first the desk's settings file
 //	                               checked against its seal (settings.go): one changed stops the desk
-//	guard --after --settings FILE --sum HEX
-//	                               the PostToolUse hook: that check alone, after each call
+//	guard --after --settings FILE --sum HEX [--held DIR]
+//	                               the PostToolUse hook: those checks alone, after each call; the
+//	                               settings file must be named there, --held or not
 //	guard --config                 the ConfigChange hook: a settings change on stdin, refused
 //	                               unless it is managed settings' or a skill's (held.go)
 //	guard --default                the default file, to start one from
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	rules, profile, printing := "", ProfileHire, false
 	held, holding := "", false
-	settings, sum, after := "", "", false
+	settings, sum, kept, after := "", "", "", false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--settings", "--sum":
@@ -191,6 +216,12 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				sum = args[i+1]
 			}
 			i++
+		case "--held":
+			if i+1 >= len(args) || kept != "" || args[i+1] == "" {
+				return deny(stdout, "Refused by Smolcorp's hire guard: --held needs its kept copy's folder, once.")
+			}
+			i++
+			kept = args[i]
 		case "--after":
 			after = true
 		case "--groups":
@@ -227,21 +258,36 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return deny(stdout, fmt.Sprintf("Refused by Smolcorp's hire guard: unknown word %q in its own command line.", args[i]))
 		}
 	}
-	// The desk's settings file, on both sides of each call: named with its seal, or not at all.
+	if after { // the call's answer, read to its end so Claude Code's write of it never meets a closed pipe
+		_, _ = io.Copy(io.Discard, stdin)
+	}
+	// Both checks below run before either stops the desk, and the stop gives every reason found: keptStop notes what
+	// it found for the core to put back, so a settings file out of step must not keep it from running (RMSYLCHAIN B2).
+	var whys []string
+	// The desk's settings file, on both sides of each call: named with its seal, or not at all; after a call it must
+	// be named, --held or not (SETTINGSFILE1: a guard told to check nothing after a call stops the desk).
 	if settings != "" || sum != "" || after {
-		if after { // the call's answer, read to its end so Claude Code's write of it never meets a closed pipe
-			_, _ = io.Copy(io.Discard, stdin)
-		}
 		var err error = errors.New("its name or its seal is missing from the guard's own command line")
 		if settings != "" && sum != "" {
 			err = CheckSettings(settings, sum)
 		}
 		if err != nil {
-			return stop(stdout, after, settingsStop(err))
+			whys = append(whys, settingsStop(err))
 		}
-		if after {
-			return exitOK
+	}
+	// A Linux desk's places no mount holds, on both sides of each call too (a long Bash call can write after the check
+	// before it), each check on its own: a settings file as sealed never excuses a kept place changed (L1GUARD1).
+	if kept != "" {
+		if why := keptStop(kept); why != "" {
+			whys = append(whys, why)
 		}
+	}
+	if len(whys) > 0 {
+		return stop(stdout, after, strings.Join(whys, "\n"))
+	}
+	// After a call, nothing else is checked.
+	if after {
+		return exitOK
 	}
 	if rules == "" {
 		path, err := supportFile()

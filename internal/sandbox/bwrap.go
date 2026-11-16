@@ -134,9 +134,10 @@ type View struct {
 
 // PrepareBwrap is what a Linux desk's start does with its Places before the desk's first process (the runner, SA-L2,
 // calls it): it makes the folders the Policy holds that are missing (MakeHold), then what the view makes (the
-// placeholders, the shared .git's logs, its own branch folders and View.Writes), then gives the words after BwrapPath,
-// up to and with "--", and writes the copies of git's config files they bind (gitCopy): the program and its words go
-// after them. Anything that fails fails the start.
+// placeholders, the shared .git's logs, its own branch folders and View.Writes), then keeps the copy of the places no
+// mount holds (SaveKept, L1GUARD1: ErrKeptChanged when it put back what the last session was stopped for), then gives
+// the words after BwrapPath, up to and with "--", and writes the copies of git's config files they bind (gitCopy):
+// the program and its words go after them. Anything that fails fails the start.
 func PrepareBwrap(pl Places, v View) ([]string, error) { return prepareBwrap(pl, v, osView{}, "/tmp") }
 
 func prepareBwrap(pl Places, v View, sys viewFS, tmp string) ([]string, error) {
@@ -155,6 +156,11 @@ func prepareBwrap(pl Places, v View, sys viewFS, tmp string) ([]string, error) {
 		return nil, err
 	}
 	if err := makeEmpty(made); err != nil {
+		return nil, err
+	}
+	// The copy of the places no mount holds (L1GUARD1), before the view, which brings it back read-only, and its
+	// guard's notes beside it, writable.
+	if err := SaveKept(pl); err != nil {
 		return nil, err
 	}
 	args, err := bwrapArgs(p, pl, v, sys, tmp)

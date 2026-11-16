@@ -240,6 +240,8 @@ func prepare(t *testing.T, p *Policy, pl Places, v View, f fakeFS) {
 		t.Fatal(err)
 	}
 	f.owners().makeAll(made)
+	// The start's copy of the places no mount holds, and its guard's notes beside it (SaveKept, L1GUARD1).
+	f.add(KeptFolder(pl.Support, pl.OwnID)+"/"+keptList, keptStopFile(KeptFolder(pl.Support, pl.OwnID))).owners()
 }
 
 // argvText is the words, a line per option, a word with a space or a quote quoted.
@@ -610,9 +612,27 @@ func TestTheLinuxViewHoldsWhatThePolicySays(t *testing.T) {
 		for _, why := range whys {
 			t.Error(why)
 		}
+		kept := map[string]bool{}
+		for _, k := range keptPlaces(s.pl) {
+			kept[k.at] = !k.branch
+		}
 		for at, why := range awaitingSierra(s) {
 			if !needs[at] {
-				t.Errorf("%s: %s awaits SIERRA, but no rule needs it (%s)", s.name, at, why)
+				t.Errorf("%s: %s is listed, but no rule needs it (%s)", s.name, at, why)
+			}
+			if !kept[at] {
+				t.Errorf("%s: %s is listed as held by L1GUARD1, but its start doesn't keep it", s.name, at)
+			}
+		}
+		for at, why := range heldBelow(s) {
+			if !needs[at+"/"] {
+				t.Errorf("%s: %s is listed as holding a denied place below it, but no rule needs it (%s)", s.name, at, why)
+			}
+		}
+		// F1: the desk's own branch folders, which a mount holds writable, are watched by what they are.
+		for _, at := range []string{lGit + "/refs/heads/hire/" + s.pl.OwnID, lGit + "/logs/refs/heads/hire/" + s.pl.OwnID} {
+			if b, ok := kept[at]; !ok || b {
+				t.Errorf("%s: its branch folder %s isn't watched", s.name, at)
 			}
 		}
 		var places []string
@@ -667,21 +687,35 @@ func gitConfigFiles(s setup) []string {
 }
 
 // awaitingSierra are the places RT126SAL1R2 N1 names that no mount can hold against a rename outside, each in a
-// folder the desk's own work keeps making new names in (its place, its registration, the shared objects). FXSAL1R2
-// asks SIERRA to list them, or rule otherwise: until she does, each is named here, and nothing else may be. MSYSAL1
-// adds its registration's branches and remotes (X12LINK1's rows; L1GUARD1's lesson): git neither writes nor reads
-// them there, only in the shared .git, so only a program of the owner's renaming over one by hand lets it go.
+// folder the desk's own work keeps making new names in (its place, its registration, the shared objects). SIERRA's
+// ruling (15 Nov): L1GUARD1 holds each, by the start's copy compared on both sides of every tool call, at the next start
+// and at a fire or a take over (kept.go); the test checks each is one of keptPlaces. Nothing else may be named here.
+// MSYSAL1 added its registration's branches and remotes (X12LINK1's rows): git neither writes nor reads them there,
+// only in the shared .git, so only a program of the owner's renaming over one by hand lets it go.
 func awaitingSierra(s setup) map[string]string {
 	reg := lGit + "/worktrees/" + s.pl.OwnWorktree
+	const by = "held by L1GUARD1's kept copy: "
 	return map[string]string{
-		s.pl.Root + "/.claude":   "its place's .claude: its place takes its new files",
-		s.pl.Root + "/.git":      "its place's .git: its place takes its new files",
-		reg + "/commondir":       "its registration's commondir: the registration takes git's HEAD.lock and index.lock",
-		reg + "/gitdir":          "its registration's gitdir: the registration takes git's HEAD.lock and index.lock",
-		reg + "/config.worktree": "its registration's config: the registration takes git's HEAD.lock and index.lock",
-		reg + "/branches":        "its registration's old remote folder (L1GUARD1): the registration takes git's HEAD.lock and index.lock",
-		reg + "/remotes":         "its registration's old remote folder (L1GUARD1): the registration takes git's HEAD.lock and index.lock",
-		lGit + "/objects/info":   "the shared objects/info: objects takes the desk's new objects' folders",
+		s.pl.Root + "/.claude":   by + "its place's .claude: its place takes its new files",
+		s.pl.Root + "/.git":      by + "its place's .git: its place takes its new files",
+		reg + "/commondir":       by + "its registration's commondir: the registration takes git's HEAD.lock and index.lock",
+		reg + "/gitdir":          by + "its registration's gitdir: the registration takes git's HEAD.lock and index.lock",
+		reg + "/config.worktree": by + "its registration's config: the registration takes git's HEAD.lock and index.lock",
+		reg + "/branches":        by + "its registration's old remote folder: the registration takes git's HEAD.lock and index.lock",
+		reg + "/remotes":         by + "its registration's old remote folder: the registration takes git's HEAD.lock and index.lock",
+		lGit + "/objects/info":   by + "the shared objects/info: objects takes the desk's new objects' folders",
+	}
+}
+
+// heldBelow are the mounts whose folder holds a place the Policy denies writing, held only by that mount: a rename
+// outside of the folder itself lets the place go (RT126SAL1R3 F3). Each says why that is left as it is.
+func heldBelow(s setup) map[string]string {
+	return map[string]string{
+		lGit + "/refs/heads": "the base branches: refs/heads is read-only for new names, and no git renames or removes " +
+			"refs/heads itself (pack-refs empties and removes only the folders below it), so only a program of the " +
+			"owner's renaming the whole folder by hand lets them go",
+		lHome + "/.local/share": "the install root ~/.local/share/claude: only a program of the owner's renaming " +
+			"~/.local/share itself, the data folder of every program they run, lets it go",
 	}
 }
 
@@ -723,6 +757,31 @@ func heldOnlyByItself(s setup, f fakeFS, mounts []mounted) (whys []string, needs
 			needs[m.at] = true
 		} else {
 			whys = append(whys, why...)
+		}
+		// F3: and each place below it the Policy denies writing, a new name in each folder below it included. A folder
+		// L1GUARD1 keeps is kept whole, each file's content in it too.
+		if exempt[m.at] != "" {
+			continue
+		}
+		var below []string
+		for at, e := range f {
+			if at != m.at && under(at, m.at) {
+				below = append(below, at)
+				if e.kind == 'd' {
+					below = append(below, path.Join(at, viewProbe))
+				}
+			}
+		}
+		slices.Sort(below)
+		for _, at := range below {
+			if v, _ := p.Decide(at, Write); v == Deny && says(mounts, at, Write) == Deny && says(rest, at, Write) == Allow {
+				if heldBelow(s)[m.at] != "" {
+					needs[m.at+"/"] = true
+				} else {
+					whys = append(whys, fmt.Sprintf("%s: once the owner replaces %s by a rename, %s below it can be written", s.name, m.at, at))
+				}
+				break
+			}
 		}
 	}
 	return whys, needs

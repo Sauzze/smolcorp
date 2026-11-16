@@ -602,6 +602,15 @@ func build(pl Places) (*Policy, error) {
 	for _, link := range []string{"CLAUDE.md", "commands", "agents", "skills", "plugins", "output-styles"} {
 		b.add(Rule{Row: "the links the core put in its Claude folder", Path: join(claude, link), Below: true, Read: Allow, Write: Deny, Opens: opens})
 	}
+	// Linux's copy of the places no mount holds (L1GUARD1, kept.go): its guard compares them with it. It holds copies
+	// of places the desk can read anyway (its place's .claude, its registration's files, the shared objects/info), and
+	// a place is never home nor holds the support folder (ErrRootHasSupport), so reading it opens nothing new. Beside
+	// it, the file the guard notes what it stopped the desk for in: whatever the desk writes there, the next start puts
+	// back only a place still as it was found (keptSeal), and a note lost leaves the change as it is, listed in Setup.
+	if goos == "linux" {
+		b.add(Rule{Row: "its kept copy: its guard reads it", Path: join(own, keptName), Below: true, Read: Allow, Write: Deny, Opens: opens})
+		b.add(Rule{Row: "its guard's notes of what stopped it", Path: join(own, keptStopName), Read: Allow, Write: Allow, Opens: opens})
+	}
 	if pl.DeskStart != "" {
 		at := key(goos, pl.DeskStart)
 		for _, s := range supports {

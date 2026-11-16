@@ -66,6 +66,7 @@
 --ro-bind /home/ada/Projects/smolcorp/.dev/support/hires/h1 /home/ada/Projects/smolcorp/.dev/support/hires/h1
 --bind /home/ada/Projects/app/.git/refs/heads/hire/h1 /home/ada/Projects/app/.git/refs/heads/hire/h1
 --bind /home/ada/Projects/smolcorp/.dev/support/hires/h1/STATUS.md /home/ada/Projects/smolcorp/.dev/support/hires/h1/STATUS.md
+--bind /home/ada/Projects/smolcorp/.dev/support/hires/h1/kept-stop.json /home/ada/Projects/smolcorp/.dev/support/hires/h1/kept-stop.json
 --bind /home/ada/Projects/app/.git/logs/refs/heads/hire/h1 /home/ada/Projects/app/.git/logs/refs/heads/hire/h1
 --remount-ro /home/ada
 --remount-ro /home/ada/.codex

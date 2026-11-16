@@ -58,6 +58,8 @@
 --bind /home/ada/.config/sauzzedeck-pro/hires/h1/REPORT.md /home/ada/.config/sauzzedeck-pro/hires/h1/REPORT.md
 --bind /home/ada/.config/sauzzedeck-pro/hires/h1/STATUS.md /home/ada/.config/sauzzedeck-pro/hires/h1/STATUS.md
 --ro-bind /home/ada/.config/sauzzedeck-pro/hires/h1/claude /home/ada/.config/sauzzedeck-pro/hires/h1/claude
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/h1/held /home/ada/.config/sauzzedeck-pro/hires/h1/held
+--bind /home/ada/.config/sauzzedeck-pro/hires/h1/kept-stop.json /home/ada/.config/sauzzedeck-pro/hires/h1/kept-stop.json
 --ro-bind /home/ada/.config/sauzzedeck-pro/hires/h1/settings.json /home/ada/.config/sauzzedeck-pro/hires/h1/settings.json
 --bind /home/ada/Projects/app/.git/logs/refs /home/ada/Projects/app/.git/logs/refs
 --ro-bind /home/ada/Projects/app/.git/objects/info /home/ada/Projects/app/.git/objects/info
