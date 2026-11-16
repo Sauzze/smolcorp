@@ -521,8 +521,9 @@ func agentNamed(program string) Agent {
 	return ""
 }
 
-// consoleSize is the console's rows and columns, and whether they could be read.
-func consoleSize() (rows, cols int, ok bool) {
+// consoleSize is the console's rows and columns, and whether they could be read. A variable for the launcher
+// stand-in alone (voicewin_test.go), which has no console of its own and is given one's size.
+var consoleSize = func() (rows, cols int, ok bool) {
 	width, height, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || width <= 0 || height <= 0 {
 		return 24, 80, false

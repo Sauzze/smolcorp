@@ -363,6 +363,34 @@ jobs:
           if [ "$status" -ne 0 ] || [ "$missing" -ne 0 ]; then
             exit 1
           fi
+      # VOICEWIN1: the words dictated on the phone (/dictate) and sent from the office's window (/talk/say) reach a
+      # stand-in agent through the real launcher and its terminal (ConPTY on Windows), Return included, and every
+      # refusal types nothing. Run by name, each part must say PASS: a skip or a rename fails the step.
+      - name: Dictated words reach a desk through the real launcher
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set +e
+          go test -count=1 -v -run '^TestDictatedWordsReachAnAgentThroughTheRealLauncher$' ./desktop/ 2>&1 | tee "$RUNNER_TEMP/voice.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in \
+            TestDictatedWordsReachAnAgentThroughTheRealLauncher \
+            TestDictatedWordsReachAnAgentThroughTheRealLauncher/refusals_type_nothing \
+            "TestDictatedWordsReachAnAgentThroughTheRealLauncher/the_phone's_words_and_Return" \
+            "TestDictatedWordsReachAnAgentThroughTheRealLauncher/the_window's_words_and_Return" \
+            TestDictatedWordsReachAnAgentThroughTheRealLauncher/type_only,_no_Return \
+            TestDictatedWordsReachAnAgentThroughTheRealLauncher/several_lines_go_as_one_paste_or_not_at_all
+          do
+            if ! grep -qF -- "--- PASS: $name (" "$RUNNER_TEMP/voice.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          if [ "$status" -ne 0 ] || [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
       # GUARDPS1: the premise of the guard's reading of quoted wildcards on Windows (internal/guard/lex.go,
       # windowsWild; FXGUARDPS1R1). The real pwsh, powershell and cmd are handed stand-in files and must fill in a * or ?
       # written in quotes (in a here-string, after > and in -LiteralPath after -- too, and in each item of a comma array),

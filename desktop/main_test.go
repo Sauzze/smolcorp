@@ -17,6 +17,11 @@ var realAskTailnet = askTailnet
 // still can't touch the real app's files (on a Mac that folder is the Mac
 // app's own, Application Support/AgentDeck). It removes the folders after.
 func TestMain(m *testing.M) {
+	// A desk's stand-in agent, started by the launcher stand-in below in its own terminal (voicewin_test.go): first,
+	// as it inherits the launcher's variables.
+	if len(os.Args) == 3 && os.Args[1] == voiceAgentArgument {
+		os.Exit(voiceAgentStandIn(os.Args[2]))
+	}
 	// A row's stand-in for Smolcorp: this test program again, run as far as RunApp's first step (memory_test.go).
 	if part := os.Getenv(memoryStandInVariable); part != "" {
 		if part == "silent" { // one that never answers, as a window that never opens, and makes no folder to leave
@@ -27,7 +32,12 @@ func TestMain(m *testing.M) {
 	}
 	// `smolcorp run` itself, the real launcher, in a process of its own (plainenv_test.go).
 	if args := os.Getenv(launcherStandInVariable); args != "" {
-		os.Exit(runWithTempSupport(func() int { return launcherStandIn(args) }))
+		os.Exit(runWithTempSupport(func() int {
+			if !wireLauncherStandIn() {
+				return 3
+			}
+			return launcherStandIn(args)
+		}))
 	}
 	// A sandboxed desk's start on a Mac, end to end: this program as its three stand-ins (desksandbox_standin_test.go).
 	if os.Getenv(deskStandInVariable) != "" && len(os.Args) > 1 {
