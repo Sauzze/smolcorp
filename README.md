@@ -51,6 +51,8 @@ can do.
 
 - **Only you answer permission prompts.** The General Manager and its hires
   can't.
+- **While desks run, a Keychain prompt you didn't expect is a reason to click
+  Deny.** A desk can raise one; it can't answer it.
 - **A fence against mistakes, for the General Manager and the Claude Code
   hires it manages.** They start with deny rules and a guard that refuse
   `git push`, deploys, publishing and cloud commands, and keep out of `.env`
