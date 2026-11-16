@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -77,9 +78,31 @@ var socketLists = map[string][]Socket{
 func Sockets(goos string) []Socket { return slices.Clone(socketLists[goos]) }
 
 // SocketPaths is the sockets on list a desk may connect to, whole: each as spelled and, where a link leads elsewhere,
-// where it leads (a Mac's profile checks the place a link resolves to: T8). getenv is the core's environment. An entry
-// whose variable is unset, or not whole, is left out; so is one whose Need isn't met.
+// where it leads (a Mac's profile checks the place a link resolves to: T8), but only when each link on the way, and
+// every folder above it, is root's alone: a link the owner's account can change, a desk can too (FXSAL3R1, RT126SAL3
+// B3). An entry whose way goes through a session bus, systemd --user's own (busPlace) or a socket Linux's view always
+// masks, at any hop, is left out whole (SIERRA's class ruling). getenv is the core's environment. An entry whose
+// variable is unset, or not whole, is left out; so is one whose Need isn't met.
 func SocketPaths(list []Socket, home string, getenv func(string) string, gpg, database bool) []string {
+	return socketPaths(list, home, getenv, gpg, database, osView{})
+}
+
+func socketPaths(list []Socket, home string, getenv func(string) string, gpg, database bool, sys viewFS) []string {
+	never := func(at string) bool {
+		return busPlace(at, []string{getenv("XDG_RUNTIME_DIR")}) ||
+			slices.ContainsFunc(linuxMasked, func(m Place) bool { return m.At == at })
+	}
+	rootsAlone := func(folder string) bool {
+		for ; ; folder = path.Dir(folder) {
+			st, err := sys.stat(folder, false)
+			if err != nil || st.uid != 0 || st.mode.Perm()&0o022 != 0 {
+				return false
+			}
+			if folder == "/" {
+				return true
+			}
+		}
+	}
 	var out []string
 	for _, s := range list {
 		if s.Need == GPGSigning && !gpg || s.Need == DatabaseOptIn && !database {
@@ -98,8 +121,12 @@ func SocketPaths(list []Socket, home string, getenv func(string) string, gpg, da
 		if !filepath.IsAbs(at) || home == "" {
 			continue
 		}
-		places := []string{filepath.Clean(at)}
-		if real, err := resolve(at); err == nil {
+		at = filepath.Clean(at)
+		if _, ok := way(sys, at, func(string) bool { return true }, never); !ok {
+			continue // a bus, systemd's, or a socket always masked, somewhere on its way
+		}
+		places := []string{at}
+		if real, ok := way(sys, at, rootsAlone, never); ok {
 			places = append(places, real)
 		}
 		for _, p := range places {
@@ -133,7 +160,8 @@ var linuxMasked = []Place{
 // LinuxCovered is the folders Linux's view covers with an empty tmpfs (L1, L3), whatever is made in them later.
 func LinuxCovered() []Place { return slices.Clone(linuxCovered) }
 
-// LinuxMasked is the sockets Linux's view masks with an empty file (L3), beside each listening socket off its list.
+// LinuxMasked is the sockets Linux's view masks (L3), there at the start or not, beside each listening socket off its
+// list; the folders root has alone they are in are covered (mask.go), so one made there later isn't seen.
 func LinuxMasked() []Place { return slices.Clone(linuxMasked) }
 
 // MachService is a Mach service by its global name.

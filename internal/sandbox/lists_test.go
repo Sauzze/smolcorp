@@ -61,6 +61,8 @@ func TestEachSocketOnAListHasItsRow(t *testing.T) {
 	}
 }
 
+// A link the owner's account can change (here, in the test's own folder) is given as spelled, not where it leads: a
+// desk could plant it (FXSAL3R1, RT126SAL3 B3). Where a link root has alone leads: TestNoSessionBusNorSystemdUserByAnyPath.
 func TestASocketIsGivenWhereItIsAndWhereItsLinkLeads(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the socket lists are a Mac's and Linux's")
@@ -85,10 +87,10 @@ func TestASocketIsGivenWhereItIsAndWhereItsLinkLeads(t *testing.T) {
 		gpg, database bool
 		want          []string
 	}{
-		{false, false, []string{"/dev/log", env["SSH_AUTH_SOCK"], filepath.Join(home, ".1password", "agent.sock"), agent}},
+		{false, false, []string{"/dev/log", env["SSH_AUTH_SOCK"], filepath.Join(home, ".1password", "agent.sock")}},
 		// The runtime folder's isn't whole, and GNUPGHOME is unset: only the home folder's gpg socket.
-		{true, false, []string{"/dev/log", env["SSH_AUTH_SOCK"], filepath.Join(home, ".1password", "agent.sock"), agent, filepath.Join(home, ".gnupg", "S.gpg-agent")}},
-		{false, true, []string{"/dev/log", env["SSH_AUTH_SOCK"], filepath.Join(home, ".1password", "agent.sock"), agent,
+		{true, false, []string{"/dev/log", env["SSH_AUTH_SOCK"], filepath.Join(home, ".1password", "agent.sock"), filepath.Join(home, ".gnupg", "S.gpg-agent")}},
+		{false, true, []string{"/dev/log", env["SSH_AUTH_SOCK"], filepath.Join(home, ".1password", "agent.sock"),
 			"/var/run/postgresql/.s.PGSQL.5432", "/tmp/.s.PGSQL.5432", "/var/run/mysqld/mysqld.sock"}},
 	} {
 		got := SocketPaths(Sockets("linux"), home, getenv, c.gpg, c.database)
@@ -98,6 +100,9 @@ func TestASocketIsGivenWhereItIsAndWhereItsLinkLeads(t *testing.T) {
 		})
 		if !slices.Equal(got, c.want) {
 			t.Errorf("gpg %v, database %v: %q, want %q", c.gpg, c.database, got, c.want)
+		}
+		if slices.Contains(got, agent) {
+			t.Errorf("where the owner's link leads, %s, is given", agent)
 		}
 	}
 	if got := SocketPaths(Sockets("darwin"), "", getenv, true, true); len(got) != 0 {

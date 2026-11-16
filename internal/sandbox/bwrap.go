@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -18,10 +19,14 @@ import (
 
 // Linux's view (SA-L1, SANDBOX-PLAN §A3.2, §A4.1 and §A5.2 step 1): a desk's Policy written as the words Smolcorp's
 // BwrapPath starts the desk with. bwrap gives the desk a pid namespace with its own /proc, so it sees and signals
-// only its own processes, and a mount namespace: the computer as it is (`--bind / /`, the normal work a Mac's profile
-// writes as `(allow default)`), its own /dev (no other terminal's pty, no device), a private /tmp, an empty tmpfs over
-// the folders the core covers ($XDG_RUNTIME_DIR, /run/screen: View.Covered) with the agents brought back
-// (View.Agents), then each place a Policy row names, as it is at the start:
+// only its own processes, a network namespace of its own (FXSAL3R1, SIERRA's class ruling: abstract unix sockets,
+// D-Bus's @/tmp/dbus-* and X11's, live in a network namespace, so none of the computer's is reached; SA-L6 brings the
+// network back through the core), an environment with no DBUS_* in it, and a mount namespace: the computer as it is
+// (`--bind / /`, the normal work a Mac's profile writes as `(allow default)`), its own /dev (no other terminal's pty,
+// no device), a private /tmp, an empty tmpfs over the folders the core covers ($XDG_RUNTIME_DIR, /run/screen:
+// View.Covered) and over every /run/user/<uid>, with the agents brought back (View.Agents: never a bus, nor systemd
+// --user's, nor one a link the desk can change leads to: mask.go), then each place a Policy row names, as it is at
+// the start:
 //   - a folder the desk may not read: an empty tmpfs over it (the support folder whole, the account folders' tokens
 //     and history), with what the Policy opens in it brought back from the disk: in the support folder, the guard
 //     file and the night shift's jobs, the desk's own folder, and the desk-start socket;
@@ -88,8 +93,8 @@ import (
 // it can't be replaced, and it leads where the view says. The canary, `serve.sock` and the GM's memory are under the support folder's tmpfs:
 // nothing brings them back.
 //
-// Left to the pieces after this one: seccomp (SA-L2), the sockets listening elsewhere (SA-L3's mask), the network
-// namespace (SA-L6), and `--new-session` stays off (§A3.2).
+// Then the sockets that listen elsewhere are masked (SA-L3, mask.go). Left to the pieces after this one: seccomp
+// (SA-L2), the network through the core (SA-L6), and `--new-session` stays off (§A3.2).
 
 // BwrapPath is the only bubblewrap the core runs: Smolcorp's own copy of the system's package, in folders root has
 // alone, which its AppArmor profile names (apparmor.go, L1APPARMOR1); never one on PATH.
@@ -118,7 +123,9 @@ type View struct {
 	// fails the start (ErrNotWhole), one that isn't a folder is left out.
 	Covered []string
 	// Agents are the sockets brought back where a tmpfs covers them: the ssh and gpg agents, the system log (SA-X2's
-	// SocketPaths). One that isn't a socket, or that the Policy denies by its path or where it leads, is left out.
+	// SocketPaths). One that isn't a socket, or that the Policy denies by its path or where it leads, is left out, and
+	// so is one the view doesn't trust (mask.go): a link on its way the desk can change, a bus, systemd --user's, a
+	// socket Smolcorp always masks, or where another agent's untrusted link leads.
 	Agents []string
 	// Writes are the files in the desk's own folder it is told to write and may not find there (its status and
 	// report, as its brief names them; what Claude Code makes at the top of its Claude folder, a folder ending in /):
@@ -130,6 +137,9 @@ type View struct {
 	// a rename works in it). Each must be a folder, not a link, the Policy lets the desk read and write, in it as at
 	// it, with no row of the Policy denying anything in it (ErrNotOwn). An account folder of the owner's never is.
 	Owned []string
+	// Log is where the start says what it can't mask (a socket listening by a relative name: mask.go), and each
+	// folder the owner's account can't open that it decides nothing by (closedAbove); nil is the core's log.
+	Log func(format string, args ...any)
 }
 
 // PrepareBwrap is what a Linux desk's start does with its Places before the desk's first process (the runner, SA-L2,
@@ -168,7 +178,7 @@ func prepareBwrap(pl Places, v View, sys viewFS, tmp string) ([]string, error) {
 		return nil, err
 	}
 	for i := 0; i+2 < len(args); i++ {
-		if args[i] == "--ro-bind" && args[i+1] != args[i+2] && args[i+1] != "/dev/null" {
+		if args[i] == "--ro-bind" && args[i+1] == gitCopy(path.Dir(args[i+1]), args[i+2]) { // not an agent's bind (F2b)
 			if err := writeGitCopy(args[i+1], args[i+2], args[i+2] == spell("linux", path.Join(pl.Home, ".gitconfig"))); err != nil {
 				return nil, err
 			}
@@ -369,12 +379,21 @@ type viewFS interface {
 	names(folder string) ([]string, error)
 	// real is path with every link on it resolved.
 	real(path string) (string, error)
+	// link is where the link at path leads, as written.
+	link(path string) (string, error)
+	// unixSockets is the text of the computer's list of unix sockets (/proc/net/unix: mask.go).
+	unixSockets() ([]byte, error)
+	// unixDiag is the kernel's dump of its unix sockets, each one's name and file (NETLINK_SOCK_DIAG: mask.go).
+	unixDiag() ([]byte, error)
+	// environ is the core's environment, which the desk's starts from.
+	environ() []string
 }
 
 type viewStat struct {
 	mode fs.FileMode
 	uid  int64
 	gid  int64
+	ino  uint64
 }
 
 type osView struct{}
@@ -388,7 +407,7 @@ func (osView) stat(p string, follow bool) (viewStat, error) {
 	if err != nil {
 		return viewStat{}, err
 	}
-	return viewStat{mode: fi.Mode(), uid: fileOwner(fi), gid: fileGroup(fi)}, nil
+	return viewStat{mode: fi.Mode(), uid: fileOwner(fi), gid: fileGroup(fi), ino: fileIno(fi)}, nil
 }
 
 func (osView) names(folder string) ([]string, error) {
@@ -401,6 +420,7 @@ func (osView) names(folder string) ([]string, error) {
 }
 
 func (osView) real(p string) (string, error) { return filepath.EvalSymlinks(p) }
+func (osView) link(p string) (string, error) { return os.Readlink(p) }
 
 // viewKind is how a place goes into the view.
 type viewKind int8
@@ -434,7 +454,8 @@ type viewOp struct {
 	// masked is a tmpfs over a folder holding a name the Policy denies reading, with all else in it brought back, and
 	// made read-only once everything inside is mounted.
 	masked bool
-	// to is where a vLink leads, and the copy a vCopy is bound from.
+	// to is where a vLink leads, the copy a vCopy is bound from, and the socket an agent's way leads to, which it is
+	// bound from (RT126SAL3R2 F2b: bwrap would follow a link at the agent's name again when it mounts).
 	to string
 }
 
@@ -451,6 +472,9 @@ func (o viewOp) words(try bool) []string {
 	case vCopy:
 		return []string{"--ro-bind", o.to, o.at}
 	case vRO:
+		if o.agent {
+			return []string{roBind, o.to, o.at}
+		}
 		return []string{roBind, o.at, o.at}
 	case vHide:
 		return []string{"--ro-bind", "/dev/null", o.at}
@@ -493,6 +517,18 @@ type viewBuilder struct {
 	// masks are the folders holding a name the Policy denies reading, to cover; maskDone those done.
 	masks    []string
 	maskDone map[string]bool
+	// rootCovers are the folders only a system account has that hold, or would hold, a socket Smolcorp always masks:
+	// covered like masks, though no program of the owner's changes them (mask.go).
+	rootCovers map[string]bool
+	// ownerUID owns the home folder.
+	ownerUID int64
+	// runtimes are the folders covered whole: a bus or systemd's own in one is never brought back (busPlace).
+	runtimes []string
+	// unset are the names taken out of the desk's environment (unsetEnv).
+	unset []string
+	// logf is View.Log, or the core's log; closedLogged are the folders closed to the owner's account it has named.
+	logf         func(format string, args ...any)
+	closedLogged map[string]bool
 }
 
 // bwrapArgs is the view of p, a Linux Policy for pl, as the places are on sys; tmp is the folder made private.
@@ -503,8 +539,11 @@ func bwrapArgs(p *Policy, pl Places, v View, sys viewFS, tmp string) ([]string, 
 	root := spell("linux", pl.Root)
 	home := spell("linux", pl.Home)
 	b := &viewBuilder{p: p, sys: sys, ops: map[string]viewOp{}, own: path.Join(spell("linux", pl.Support), "hires", pl.OwnID),
-		keeps: map[string]bool{root: true}, shutDone: map[string]bool{}, maskDone: map[string]bool{}, accounts: map[string]bool{},
-		branches: map[string]bool{}, gitFiles: map[string]bool{path.Join(home, ".gitconfig"): true}}
+		keeps: map[string]bool{root: true}, shutDone: map[string]bool{}, maskDone: map[string]bool{}, accounts: map[string]bool{}, rootCovers: map[string]bool{},
+		branches: map[string]bool{}, gitFiles: map[string]bool{path.Join(home, ".gitconfig"): true}, logf: v.Log, closedLogged: map[string]bool{}}
+	if b.logf == nil {
+		b.logf = log.Printf
+	}
 	for _, account := range append([]string{path.Join(home, ".claude")}, pl.Accounts...) {
 		b.accounts[spell("linux", account)] = true
 	}
@@ -522,11 +561,24 @@ func bwrapArgs(p *Policy, pl Places, v View, sys viewFS, tmp string) ([]string, 
 	for _, o := range []viewOp{{kind: vBind, at: "/"}, {kind: vDev, at: "/dev"}, {kind: vProc, at: "/proc"}, {kind: vTmpfs, at: spell("linux", tmp)}} {
 		b.ops[o.at] = o
 	}
-	for _, c := range v.Covered {
+	b.ownerUID = -1
+	if st, err := sys.stat(home, true); err == nil {
+		b.ownerUID = st.uid
+	}
+	b.unset = unsetEnv(sys.environ())
+	// Every user's runtime folder is covered too, whatever XDG_RUNTIME_DIR says: no session bus, no systemd --user
+	// (SIERRA's class ruling).
+	covered := slices.Clone(v.Covered)
+	users, _ := sys.names("/run/user")
+	for _, uid := range users {
+		covered = append(covered, "/run/user/"+uid)
+	}
+	for _, c := range covered {
 		at := spell("linux", c)
 		if at == "" {
 			return nil, fmt.Errorf("%w: a covered folder %q", ErrNotWhole, c)
 		}
+		b.runtimes = append(b.runtimes, at)
 		if st, err := sys.stat(at, true); err == nil && st.mode.IsDir() && !b.has(at) {
 			b.ops[at] = viewOp{kind: vTmpfs, at: at}
 		}
@@ -563,6 +615,32 @@ func bwrapArgs(p *Policy, pl Places, v View, sys viewFS, tmp string) ([]string, 
 			}
 		}
 	}
+	if err := b.settle(); err != nil {
+		return nil, err
+	}
+	agents := b.trusted(v.Agents)
+	for _, a := range agents {
+		b.agent(a)
+	}
+	if err := b.maskSockets(pl, v, agents); err != nil {
+		return nil, err
+	}
+	if err := b.settle(); err != nil {
+		return nil, err
+	}
+	// The owner's global git config, even when there is none: from a copy whose identity is the owner's or none.
+	if global := path.Join(home, ".gitconfig"); b.ops[home].masked && !b.has(global) {
+		b.ops[global] = viewOp{kind: vCopy, at: global, held: true, opened: true, to: gitCopy(b.own, global)}
+	}
+	if len(b.unheld) > 0 {
+		slices.Sort(b.unheld)
+		return nil, fmt.Errorf("%w: %s", ErrUnheld, strings.Join(slices.Compact(b.unheld), ", "))
+	}
+	return b.words(root)
+}
+
+// settle covers the folders to cover and shuts those that take no new name, until none is left: each can find more.
+func (b *viewBuilder) settle() error {
 	for len(b.shut) > 0 || len(b.masks) > 0 {
 		var err error
 		if len(b.masks) > 0 {
@@ -575,21 +653,10 @@ func bwrapArgs(p *Policy, pl Places, v View, sys viewFS, tmp string) ([]string, 
 			err = b.shutNewNames(at)
 		}
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
-	// The owner's global git config, even when there is none: from a copy whose identity is the owner's or none.
-	if global := path.Join(home, ".gitconfig"); b.ops[home].masked && !b.has(global) {
-		b.ops[global] = viewOp{kind: vCopy, at: global, held: true, opened: true, to: gitCopy(b.own, global)}
-	}
-	if len(b.unheld) > 0 {
-		slices.Sort(b.unheld)
-		return nil, fmt.Errorf("%w: %s", ErrUnheld, strings.Join(slices.Compact(b.unheld), ", "))
-	}
-	for _, at := range v.Agents {
-		b.agent(at)
-	}
-	return b.words(root)
+	return nil
 }
 
 // owned brings back the folder at whole, writable, for the desk that owns it (View.Owned).
@@ -670,16 +737,22 @@ func (b *viewBuilder) hide(at string) {
 // cover makes folder a tmpfs with each place in it the Policy lets the desk read brought back as it says (a link it
 // doesn't hold made again, to where it led), read-only once all is mounted: a name it denies reading isn't there,
 // whether the owner makes, replaces or removes it, and nothing new is made. A folder that is missing is covered in its
-// own folder; one root has alone (no program of the owner's changes it), or covered already, needs nothing.
+// own folder; one root has alone (no program of the owner's changes it), but for a socket Smolcorp always masks
+// (rootCovers), or covered already, needs nothing, and so does one behind a folder the owner's account can't open
+// (closedAbove). One the owner's account can't open itself, closed so, is covered with nothing in it brought back
+// (containerd's /run/containerd: VM run 3 B2).
 func (b *viewBuilder) cover(folder string) error {
 	st, err := b.sys.stat(folder, false)
 	if notThere(err) {
 		b.hide(folder)
 		return nil
 	} else if err != nil {
+		if b.unreached(folder, err) {
+			return nil
+		}
 		return err
 	}
-	if st.uid == 0 && (st.mode&fs.ModeSymlink != 0 || st.mode.Perm()&0o022 == 0) {
+	if st.uid == 0 && (st.mode&fs.ModeSymlink != 0 || st.mode.Perm()&0o022 == 0) && !b.rootCovers[folder] {
 		return nil
 	}
 	op, ok := b.ops[folder]
@@ -697,7 +770,7 @@ func (b *viewBuilder) cover(folder string) error {
 	op.kind, op.masked = vTmpfs, true
 	b.ops[folder] = op
 	names, err := b.sys.names(folder)
-	if err != nil {
+	if err != nil && !b.unreached(folder, err) {
 		return err
 	}
 	for _, name := range names {
@@ -717,14 +790,17 @@ func (b *viewBuilder) cover(folder string) error {
 }
 
 // shutNewNames makes folder take no new name: read-only, with each place in it brought back as the Policy says. A
-// folder that is missing is refused in its own folder; one root has alone (no desk makes a name there), or already
-// read-only or covered, needs nothing.
+// folder that is missing is refused in its own folder; one root has alone (no desk makes a name there), behind a
+// folder the owner's account can't open (closedAbove), or already read-only or covered, needs nothing.
 func (b *viewBuilder) shutNewNames(folder string) error {
 	st, err := b.sys.stat(folder, false)
 	if notThere(err) {
 		b.refuse(folder)
 		return nil
 	} else if err != nil {
+		if b.unreached(folder, err) {
+			return nil
+		}
 		return err
 	}
 	if st.uid == 0 && (st.mode&fs.ModeSymlink != 0 || st.mode.Perm()&0o022 == 0) { // root's: no desk changes it
@@ -746,10 +822,10 @@ func (b *viewBuilder) shutNewNames(folder string) error {
 }
 
 // bringBack considers each place in a folder made read-only, but a link the Policy doesn't deny: the folder holds
-// it, and it leads where the view says.
+// it, and it leads where the view says. One the owner's account can't open, closed (closedAbove), brings nothing back.
 func (b *viewBuilder) bringBack(folder string) error {
 	names, err := b.sys.names(folder)
-	if err != nil {
+	if err != nil && !b.unreached(folder, err) {
 		return err
 	}
 	for _, name := range names {
@@ -789,8 +865,8 @@ func (b *viewBuilder) expand(folder string, names []string, deny, hide bool) err
 		if hide {
 			b.hide(path.Join(folder, names[0]))
 		}
-		entries, err := b.sys.names(folder)
-		if err != nil && !notThere(err) {
+		entries, err := b.sys.names(folder) // none in a folder closed to the owner's account (closedAbove)
+		if err != nil && !notThere(err) && !b.unreached(folder, err) {
 			return err
 		}
 		for _, e := range entries {
@@ -811,8 +887,9 @@ func (b *viewBuilder) expand(folder string, names []string, deny, hide bool) err
 }
 
 // consider is how place at goes into the view, by what the Policy says of it and, for a folder, of a new file in it.
-// A place the Policy denies writing is refused when it is made, there or not (refuse); one that doesn't exist needs
-// nothing more, and one that can't be looked at fails the start.
+// A place the Policy denies writing is refused when it is made, there or not (refuse); one that doesn't exist, or is
+// behind a folder the owner's account can't open (closedAbove), needs nothing more, and any other that can't be looked
+// at fails the start.
 func (b *viewBuilder) consider(at string) error {
 	if v, _ := b.p.Decide(at, Write); v == Deny {
 		b.refuse(at)
@@ -824,7 +901,7 @@ func (b *viewBuilder) consider(at string) error {
 		return nil
 	}
 	st, err := b.sys.stat(at, false)
-	if notThere(err) {
+	if notThere(err) || err != nil && b.unreached(at, err) {
 		return nil
 	} else if err != nil {
 		return err
@@ -877,17 +954,14 @@ func (b *viewBuilder) consider(at string) error {
 	return b.bringBack(at)
 }
 
-// agent brings back the socket at, where a tmpfs covers it.
-func (b *viewBuilder) agent(at string) {
-	if at = spell("linux", at); at == "" || b.has(at) {
+// agent brings back a trusted agent's socket (mask.go), where a tmpfs covers it, bound from where its way was checked
+// to lead: a link swapped at its name between the start and bwrap's mount isn't followed (RT126SAL3R2 F2b).
+func (b *viewBuilder) agent(a agentAt) {
+	at, real := a.at, a.real
+	if b.has(at) {
 		return
 	}
-	st, err := b.sys.stat(at, true)
-	if err != nil || st.mode&fs.ModeSocket == 0 {
-		return
-	}
-	real, err := b.sys.real(at)
-	if err != nil {
+	if st, err := b.sys.stat(real, false); err != nil || st.mode&fs.ModeSocket == 0 {
 		return
 	}
 	for _, place := range []string{at, real} {
@@ -895,7 +969,7 @@ func (b *viewBuilder) agent(at string) {
 			return
 		}
 	}
-	b.ops[at] = viewOp{kind: vRO, at: at, opened: true, agent: true}
+	b.ops[at] = viewOp{kind: vRO, at: at, opened: true, agent: true, to: real}
 }
 
 // notThere is whether err says a place isn't there: none of that name, or a file where a folder on its path would be.
@@ -928,7 +1002,10 @@ func (b *viewBuilder) words(root string) ([]string, error) {
 	slices.SortFunc(ops, func(x, y viewOp) int {
 		return cmp.Or(cmp.Compare(depth(x.at), depth(y.at)), strings.Compare(x.at, y.at))
 	})
-	args := []string{"--unshare-pid"}
+	args := []string{"--unshare-pid", "--unshare-net"}
+	for _, name := range b.unset {
+		args = append(args, "--unsetenv", name)
+	}
 	var kept []viewOp
 	var masked []string
 	for _, o := range ops {

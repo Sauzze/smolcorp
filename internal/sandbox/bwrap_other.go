@@ -20,3 +20,6 @@ func openKept(at string) (*os.File, error) { return os.Open(at) }
 func openKeptWrite(at string, flag int) (*os.File, error) {
 	return os.OpenFile(at, os.O_WRONLY|flag, 0o600)
 }
+
+// fileIno is 0 there: no socket's file matches it.
+func fileIno(fs.FileInfo) uint64 { return 0 }

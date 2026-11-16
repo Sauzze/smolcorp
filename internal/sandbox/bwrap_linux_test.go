@@ -113,11 +113,20 @@ func TestTheLinuxViewStandIn(t *testing.T) {
 			if err = os.Chmod(at, 0); err == nil {
 				os.Chmod(at, 0o700) // the view let it through: put it back, so the test's folder can be removed
 			}
+		case strings.HasPrefix(name, "env "): // FXSAL3R1: a name the desk's environment mustn't hold
+			if value, set := os.LookupEnv(at); set {
+				err = errors.New("set: " + value)
+			}
 		case strings.HasPrefix(name, "connect "):
 			var c net.Conn
 			if c, err = net.Dial("unix", at); err == nil {
 				c.Close()
 			}
+		case strings.HasPrefix(name, "run "): // FXSAL3R1, VM run 3: at is a program, then its words, a line each
+			words := strings.Split(at, "\n")
+			out, runErr := exec.Command(words[0], words[1:]...).CombinedOutput()
+			got[name] = fmt.Sprintf("%s: %s", errName(runErr), strings.TrimSpace(string(out)))
+			continue
 		case strings.HasPrefix(name, "git "): // at is the folder, then git's words, a line each
 			words := strings.Split(at, "\n")
 			out, gitErr := exec.Command("git", append([]string{"-C", words[0]}, words[1:]...)...).CombinedOutput()

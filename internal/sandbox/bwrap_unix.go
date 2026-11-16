@@ -33,3 +33,11 @@ func openKept(at string) (*os.File, error) {
 func openKeptWrite(at string, flag int) (*os.File, error) {
 	return os.OpenFile(at, os.O_WRONLY|flag|syscall.O_NOFOLLOW, 0o600)
 }
+
+// fileIno is fi's file's inode number.
+func fileIno(fi fs.FileInfo) uint64 {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return uint64(st.Ino)
+	}
+	return 0
+}

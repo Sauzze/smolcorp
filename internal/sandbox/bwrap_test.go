@@ -1,8 +1,10 @@
 package sandbox
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -11,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -38,21 +41,74 @@ type fakeEntry struct {
 	uid  int64
 	perm fs.FileMode
 	gid  int64
+	ino  uint64 // 0: one of its path's own (fakeIno)
 }
 
 type fakeFS map[string]fakeEntry
 
 func (f fakeFS) stat(p string, follow bool) (viewStat, error) {
+	if err := f.refused(p); err != nil {
+		return viewStat{}, err
+	}
 	e, ok := f[p]
 	for hops := 0; ok && follow && e.kind == 'l' && hops < 8; hops++ {
-		e, ok = f[e.to]
+		p = e.to
+		if err := f.refused(p); err != nil {
+			return viewStat{}, err
+		}
+		e, ok = f[p]
 	}
 	if !ok {
 		return viewStat{}, fs.ErrNotExist
 	}
 	perm := cmpOr(e.perm, 0o755)
 	mode := map[byte]fs.FileMode{'d': fs.ModeDir, 'f': 0, 's': fs.ModeSocket, 'l': fs.ModeSymlink}[e.kind] | perm
-	return viewStat{mode: mode, uid: e.uid, gid: e.gid}, nil
+	return viewStat{mode: mode, uid: e.uid, gid: e.gid, ino: f.fakeIno(p)}, nil
+}
+
+// refused is the refusal the owner's account (uid 1000, in no group that matters) gets for looking at p on the made-up
+// computer: a folder above p it can't go through, as a root-only 0700 folder (Docker's /run/docker) refuses it (VM run
+// 3 B1, B2). The kernel spells it EACCES, the error the view tells it by.
+func (f fakeFS) refused(p string) error {
+	for dir := p; dir != path.Dir(dir); { // up to "/", or "." for a name that isn't whole
+		dir = path.Dir(dir)
+		if e, ok := f[dir]; ok && e.kind == 'd' && !e.lets(0o1) {
+			return &fs.PathError{Op: "lstat", Path: p, Err: syscall.EACCES}
+		}
+	}
+	return nil
+}
+
+// lets is whether the owner's account may go through (0o1) or list (0o4) the folder e: by the owner's bits in a
+// folder of its own, the others' in anyone else's.
+func (e fakeEntry) lets(bit fs.FileMode) bool {
+	if e.uid == 1000 {
+		bit <<= 6
+	}
+	return cmpOr(e.perm, 0o755)&bit != 0
+}
+
+// fakeIno is the inode of the file at p: its own, or one made of its path.
+func (f fakeFS) fakeIno(p string) uint64 {
+	if e := f[p]; e.ino != 0 {
+		return e.ino
+	}
+	return uint64(crc32.ChecksumIEEE([]byte(p)))
+}
+
+func (f fakeFS) link(p string) (string, error) {
+	if err := f.refused(p); err != nil {
+		return "", err
+	}
+	if e, ok := f[p]; ok && e.kind == 'l' {
+		return e.to, nil
+	}
+	return "", fs.ErrInvalid
+}
+
+// environ is the core's environment on the made-up computer: the session bus's address, and another of D-Bus's.
+func (f fakeFS) environ() []string {
+	return []string{"PATH=/usr/bin", "DBUS_SESSION_BUS_ADDRESS=unix:path=" + lRun + "/bus", "DBUS_FATAL_WARNINGS=0", "HOME=" + lHome}
 }
 
 func cmpOr(a, b fs.FileMode) fs.FileMode {
@@ -63,8 +119,13 @@ func cmpOr(a, b fs.FileMode) fs.FileMode {
 }
 
 func (f fakeFS) names(folder string) ([]string, error) {
+	if err := f.refused(folder); err != nil {
+		return nil, err
+	}
 	if e, ok := f[folder]; !ok || e.kind != 'd' {
 		return nil, fs.ErrNotExist
+	} else if !e.lets(0o4) {
+		return nil, &fs.PathError{Op: "open", Path: folder, Err: syscall.EACCES}
 	}
 	var names []string
 	for p := range f {
@@ -78,6 +139,9 @@ func (f fakeFS) names(folder string) ([]string, error) {
 
 func (f fakeFS) real(p string) (string, error) {
 	for hops := 0; hops < 8; hops++ {
+		if err := f.refused(p); err != nil {
+			return "", err
+		}
 		e, ok := f[p]
 		if !ok {
 			return "", fs.ErrNotExist
@@ -88,6 +152,86 @@ func (f fakeFS) real(p string) (string, error) {
 		p = e.to
 	}
 	return "", errors.New("too many links")
+}
+
+// sockets are the made-up computer's sockets, in order: the i-th one's inode is 1000+i.
+func (f fakeFS) sockets() []string {
+	var sockets []string
+	for p, e := range f {
+		if e.kind == 's' {
+			sockets = append(sockets, p)
+		}
+	}
+	slices.Sort(sockets)
+	return sockets
+}
+
+// unixSockets is /proc/net/unix as the made-up computer's kernel would write it: every socket on it listens.
+func (f fakeFS) unixSockets() ([]byte, error) {
+	text := netUnixHeader + "\n"
+	for i, p := range f.sockets() {
+		text += fmt.Sprintf("0000000000000000: 00000002 00000000 00010000 0001 01 %5d %s\n", 1000+i, p)
+	}
+	return []byte(text), nil
+}
+
+// unixDiag is the kernel's dump of the same sockets: each bound to the file at its name.
+func (f fakeFS) unixDiag() ([]byte, error) { return diagDump(f.diagEntries()), nil }
+
+// diagEntries are the dump's entries for the made-up computer's sockets.
+func (f fakeFS) diagEntries() []diagEntry {
+	var entries []diagEntry
+	for i, p := range f.sockets() {
+		entries = append(entries, diagEntry{ino: uint32(1000 + i), name: p + "\x00", vfs: uint32(f.fakeIno(p)), file: true})
+	}
+	return entries
+}
+
+// diagEntry is a socket in the kernel's dump: its inode, its name as bound (a path's ends with its NUL, an abstract
+// one starts with one), and its file's inode when it has one.
+type diagEntry struct {
+	ino  uint32
+	name string
+	vfs  uint32
+	file bool
+}
+
+// diagDump is the kernel's dump of entries as NETLINK_SOCK_DIAG gives it, byte for byte, and its end.
+func diagDump(entries []diagEntry) []byte {
+	ne := binary.NativeEndian
+	var out []byte
+	pad := func(b []byte) []byte {
+		for len(b)%4 != 0 {
+			b = append(b, 0)
+		}
+		return b
+	}
+	message := func(kind uint16, body []byte) {
+		h := make([]byte, 16)
+		ne.PutUint32(h, uint32(16+len(body)))
+		ne.PutUint16(h[4:], kind)
+		out = pad(append(append(out, h...), body...))
+	}
+	for _, e := range entries {
+		body := make([]byte, 16)
+		body[0] = 1 // AF_UNIX
+		ne.PutUint32(body[4:], e.ino)
+		attr := func(kind uint16, value []byte) {
+			a := make([]byte, 4)
+			ne.PutUint16(a, uint16(4+len(value)))
+			ne.PutUint16(a[2:], kind)
+			body = pad(append(append(body, a...), value...))
+		}
+		attr(unixDiagName, []byte(e.name))
+		if e.file {
+			v := make([]byte, 8)
+			ne.PutUint32(v, e.vfs)
+			attr(unixDiagVFS, v)
+		}
+		message(sockDiagByFamily, body)
+	}
+	message(nlmsgDone, make([]byte, 4))
+	return out
 }
 
 // add puts each place, and the folders above it, on the computer: a name ending in / is a folder, @ a socket.
@@ -156,8 +300,16 @@ func linuxComputer() fakeFS {
 		lTmux+"/smolcorp-h1.d/s@", lTmux+"/smolcorp-h2.d/s@", lTmux+"/smolcorp-gm1.d/s@", lTmux+"/default@",
 		lRun+"/bus@", lRun+"/keyring/ssh@", lRun+"/gnupg/S.gpg-agent@", lRun+"/gdm/Xauthority", "/run/screen/S-ada/1.pts@",
 		"/run/systemd/journal/dev-log@",
+		// SA-L3's sockets off the list: the system D-Bus, Docker's, a system service's, one in the home folder, and one
+		// in a folder of the owner's the view brings back writable.
+		"/run/dbus/system_bus_socket@", "/run/dbus/pid", "/run/docker.sock@", "/run/avahi-daemon/socket@",
+		lHome+"/stand-in.sock@", lHome+"/.local/state/app/ipc.sock@",
+		// SIERRA's class ruling (FXSAL3R1): systemd --user's own socket, and another user's runtime folder and bus.
+		lRun+"/systemd/private@", "/run/user/1001/bus@",
 	)
+	f.add("/dev/")
 	f["/dev/log"] = fakeEntry{kind: 'l', to: "/run/systemd/journal/dev-log"}
+	f["/var/run"] = fakeEntry{kind: 'l', to: "/run"}
 	f.owners()
 	return f
 }
@@ -304,7 +456,10 @@ func playView(t *testing.T, args []string) (mounts []mounted, chdir string) {
 	for i := 0; i < len(args); i++ {
 		var m mounted
 		switch w := args[i]; w {
-		case "--unshare-pid":
+		case "--unshare-pid", "--unshare-net":
+			continue
+		case "--unsetenv":
+			i++
 			continue
 		case "--":
 			if i != len(args)-1 {
@@ -337,9 +492,11 @@ func playView(t *testing.T, args []string) (mounts []mounted, chdir string) {
 			case w == "--ro-bind" && src == "/dev/null":
 				m = mounted{"hide", at}
 			case w == "--ro-bind" && strings.HasPrefix(path.Base(src), "git-copy-") && src == gitCopy(path.Dir(src), at):
-				m = mounted{"copy", at} // RT126SAL1R2 N2: the one place bound from elsewhere, a git config file's copy
+				m = mounted{"copy", at} // RT126SAL1R2 N2: a place bound from elsewhere, a git config file's copy
+			case w == "--ro-bind" && src != at && path.IsAbs(src) && path.Clean(src) == src:
+				m = mounted{"agent", at} // RT126SAL3R2 F2b: and an agent's socket, from where its way was checked to lead
 			case src != at:
-				t.Fatalf("%s %s %s: a place is only ever bound onto itself, hidden, or a git config file's copy", w, src, at)
+				t.Fatalf("%s %s %s: a place is only ever bound onto itself, hidden, a git config file's copy or an agent's socket", w, src, at)
 			default:
 				m = mounted{w, at}
 			}
@@ -375,7 +532,7 @@ func says(mounts []mounted, p string, op Op) Verdict {
 		return Deny
 	case "--tmpfs", "--dev", "--proc", "hide", "symlink":
 		return Deny
-	case "--ro-bind", "copy":
+	case "--ro-bind", "copy", "agent":
 		if op == Read || op == Connect {
 			return Allow
 		}
@@ -424,7 +581,7 @@ var viewDiffs = []viewDiff{
 	}},
 	// Tighter than the Policy: the view's own denials, and read-only folders.
 	{"tight: /tmp is private, the runtime folder and /run/screen covered, /dev and /proc the view's own", func(s setup, p string, op Op, v Verdict) bool {
-		return v == Allow && inside(p, "/tmp", lRun, "/run/screen", "/dev", "/proc")
+		return v == Allow && inside(p, "/tmp", lRun, "/run/user/1001", "/run/screen", "/dev", "/proc")
 	}},
 	{"tight: a place held is a mount point: it can't be moved, removed or made a link where the Policy says only a write", func(s setup, p string, op Op, v Verdict) bool {
 		return v == Allow && (op == Move || op == Link)
@@ -436,6 +593,14 @@ var viewDiffs = []viewDiff{
 		return v == Allow && op == Read && !onTheComputer(p) && slices.ContainsFunc(coveredFolders(s), func(f string) bool { return p != f && under(p, f) })
 	}},
 	// SIERRA's N1 ruling (RT126SAL1R2): only the desk's own folder of the branches comes back writable.
+	// SA-L3 (mask.go): every listening socket off the list is masked, and the folders root has alone of the sockets
+	// Smolcorp always masks are covered.
+	{"tight: a socket that listens at the start, off the desk's list, is masked: not there, or /dev/null over it", func(s setup, p string, op Op, v Verdict) bool {
+		return v == Allow && slices.Contains(maskedSockets(s), p)
+	}},
+	{"tight: /run and /run/dbus, root's, hold a socket Smolcorp always masks: covered, with all else brought back; nothing made there later is seen", func(s setup, p string, op Op, v Verdict) bool {
+		return v == Allow && (inside(p, "/run", "/run/dbus") && !onTheComputer(p) || (p == "/run" || p == "/run/dbus") && op != Read)
+	}},
 	{"tight: refs/heads and logs/refs/heads are read-only but for the desk's own hire/<id>/: it writes no other branch or reflog", func(s setup, p string, op Op, v Verdict) bool {
 		own := []string{lGit + "/refs/heads/hire/" + s.pl.OwnID, lGit + "/logs/refs/heads/hire/" + s.pl.OwnID}
 		return v == Allow && op == Write && inside(p, lGit+"/refs/heads", lGit+"/logs/refs/heads") && !inside(p, own...)
@@ -445,6 +610,17 @@ var viewDiffs = []viewDiff{
 			return p == f || path.Dir(p) == f && !onTheComputer(p)
 		})
 	}},
+}
+
+// maskedSockets are the sockets on the made-up computer a setup's view masks (SA-L3): each listens, and isn't an agent,
+// its own socket, or its core's desk-start socket. The ones under a folder covered whole are there too, already gone.
+func maskedSockets(s setup) []string {
+	masked := []string{"/run/dbus/system_bus_socket", "/run/docker.sock", "/run/avahi-daemon/socket", lHome + "/stand-in.sock",
+		lHome + "/.local/state/app/ipc.sock", lRun + "/bus", lRun + "/systemd/private", "/run/user/1001/bus"}
+	if s.pl.Support != lCopy {
+		masked = append(masked, lCopy+"/desk-start")
+	}
+	return masked
 }
 
 // noNewNames are the folders of a setup that take no new name, on the made-up computer: each holds a name the Policy
@@ -595,6 +771,12 @@ func TestTheLinuxViewHoldsWhatThePolicySays(t *testing.T) {
 		// SIERRA's call 2: a file the Policy denies reading, in a folder a program of the owner's can change, is hidden by
 		// its folder's tmpfs, never by /dev/null over it, which a rename outside would take away.
 		for _, m := range mounts {
+			// SA-L3: a socket the mask masks is masked by /dev/null where its folder is brought back writable (mask.go;
+			// §A3.2 step 4 says a socket made again there is reachable). Keyed on those sockets alone (RT126SAL3 nit 1):
+			// any other place the Policy denies, a socket too, still fails here.
+			if slices.Contains(maskedSockets(s), m.at) {
+				continue
+			}
 			if e := f[path.Dir(m.at)]; m.kind == "hide" && !(e.uid == 0 && cmpOr(e.perm, 0o755)&0o022 == 0) {
 				t.Errorf("%s: %s is hidden by a mount on itself, in a folder the owner changes", s.name, m.at)
 			}
@@ -868,18 +1050,22 @@ func TestOnlyAgentsUnderACoverComeBack(t *testing.T) {
 	s := linuxSetups()[0]
 	f := linuxComputer().add(lRun+"/not-a-socket", lRun+"/pipewire-0@")
 	f[lRun+"/tap"] = fakeEntry{kind: 'l', to: lSupport + "/serve.sock"}
+	f[lRun+"/ssh-link"] = fakeEntry{kind: 'l', to: lRun + "/keyring/ssh"}
 	p := mustNew(t, s.pl)
 	prepare(t, p, s.pl, linuxView, f)
 	v := linuxView
-	v.Agents = append(slices.Clone(v.Agents), lRun+"/not-a-socket", lRun+"/tap", lRun+"/missing", "relative/agent")
+	v.Agents = append(slices.Clone(v.Agents), lRun+"/not-a-socket", lRun+"/tap", lRun+"/missing", "relative/agent", lRun+"/ssh-link")
 	args, err := bwrapArgs(p, s.pl, v, f, "/tmp")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := argvText(args)
-	for _, in := range []string{lRun + "/keyring/ssh", lRun + "/gnupg/S.gpg-agent", "/dev/log"} {
-		if !strings.Contains(text, "--ro-bind "+in+" "+in+"\n") {
-			t.Errorf("%s isn't brought back read-only:\n%s", in, text)
+	// RT126SAL3R2 F2b: each from where its way was checked to lead (/dev/log is a link root has), so a link swapped at
+	// its name before bwrap mounts it isn't followed.
+	for in, from := range map[string]string{lRun + "/keyring/ssh": lRun + "/keyring/ssh", lRun + "/gnupg/S.gpg-agent": lRun + "/gnupg/S.gpg-agent",
+		"/dev/log": "/run/systemd/journal/dev-log", lRun + "/ssh-link": lRun + "/keyring/ssh"} {
+		if !strings.Contains(text, "--ro-bind "+from+" "+in+"\n") {
+			t.Errorf("%s isn't brought back read-only from %s:\n%s", in, from, text)
 		}
 	}
 	for _, out := range []string{lHome + "/.1password/agent.sock", lRun + "/not-a-socket", lRun + "/tap", lRun + "/pipewire-0", lRun + "/bus", lRun + "/missing", "relative"} {
@@ -982,7 +1168,9 @@ func TestTheStartMakesThePlaceholdersEmpty(t *testing.T) {
 		}
 		pl := Places{GOOS: "linux", Subject: Hire, Home: home, Support: support, OwnID: "h1", Root: root, Checkout: repo, GitDir: git,
 			OwnWorktree: "h1", DefaultBranch: "develop", HiresFolder: home + "/Projects/app-hires"}
-		v := View{Writes: []string{support + "/hires/h1/STATUS.md", support + "/hires/h1/claude/"}}
+		var logged []string
+		v := View{Writes: []string{support + "/hires/h1/STATUS.md", support + "/hires/h1/claude/"},
+			Log: func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }}
 		if err := os.WriteFile(home+"/.gitconfig", []byte("[user]\n\temail = stand-in@example.invalid"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -991,6 +1179,15 @@ func TestTheStartMakesThePlaceholdersEmpty(t *testing.T) {
 			t.Fatalf("reftable %v: %v", reftable, err)
 		}
 		text := argvText(args)
+		// VM run 3 B2: containerd's folder, which the owner's account can't open, doesn't stop the start. It is covered
+		// (a socket Smolcorp always masks is made there) with nothing in it brought back, and the log says why.
+		if !strings.Contains(text, "--tmpfs "+closedRun+"\n") || !strings.Contains(text, "--remount-ro "+closedRun+"\n") ||
+			strings.Contains(text, closedRun+"/") {
+			t.Errorf("reftable %v: %s isn't covered with nothing in it brought back:\n%s", reftable, closedRun, text)
+		}
+		if len(logged) != 1 || !strings.Contains(logged[0], "can't open "+closedRun+",") {
+			t.Errorf("reftable %v: logged %q, want %s named once", reftable, logged, closedRun)
+		}
 		wantFolders := []string{root + "/.claude", git + "/logs", git + "/objects/info", support + "/hires/h1/claude",
 			git + "/logs/refs/heads/hire/h1", git + "/worktrees/h1/branches", git + "/worktrees/h1/remotes"}
 		wantFiles := []string{git + "/worktrees/h1/config.worktree", support + "/hires/h1/STATUS.md"}
@@ -1093,18 +1290,68 @@ func TestTheViewRefusesWhatItCantPlace(t *testing.T) {
 }
 
 // rootAbove is the disk, but the folders above the test's own are root's alone, as a computer's folders above a home
-// are: the test's temp folder isn't walked (a Mac's holds tens of thousands of other tests' folders).
+// are: the test's temp folder isn't walked (a Mac's holds tens of thousands of other tests' folders). Its /run is a
+// stand-in, the same on every computer: root's, holding only containerd's folder, root's alone and closed to the
+// owner's account (0700), as a computer with Docker installed has it (VM run 3 B2).
 type rootAbove struct{ base string }
 
+// closedRun is the stand-in /run's containerd folder.
+const closedRun = "/run/containerd"
+
 func (r rootAbove) stat(p string, follow bool) (viewStat, error) {
-	if p != r.base && under(r.base, p) {
+	switch {
+	case p == "/run":
+		return viewStat{mode: fs.ModeDir | 0o755}, nil
+	case p == closedRun:
+		return viewStat{mode: fs.ModeDir | 0o700}, nil
+	case under(p, closedRun):
+		return viewStat{}, &fs.PathError{Op: "lstat", Path: p, Err: syscall.EACCES}
+	case under(p, "/run"):
+		return viewStat{}, fs.ErrNotExist
+	case p != r.base && under(r.base, p):
 		return viewStat{mode: fs.ModeDir | 0o755}, nil
 	}
 	return osView{}.stat(p, follow)
 }
 
-func (r rootAbove) names(folder string) ([]string, error) { return osView{}.names(folder) }
-func (r rootAbove) real(p string) (string, error)         { return osView{}.real(p) }
+func (r rootAbove) names(folder string) ([]string, error) {
+	switch {
+	case folder == "/run":
+		return []string{path.Base(closedRun)}, nil
+	case under(folder, closedRun):
+		return nil, &fs.PathError{Op: "open", Path: folder, Err: syscall.EACCES}
+	case under(folder, "/run"):
+		return nil, fs.ErrNotExist
+	}
+	return osView{}.names(folder)
+}
+
+func (r rootAbove) real(p string) (string, error) {
+	if under(p, "/run") {
+		_, err := r.stat(p, false)
+		return p, err
+	}
+	return osView{}.real(p)
+}
+
+func (r rootAbove) link(p string) (string, error) {
+	if under(p, "/run") {
+		return "", fs.ErrInvalid
+	}
+	return osView{}.link(p)
+}
+
+func (r rootAbove) environ() []string { return nil }
+
+// unixSockets is a list with one stand-in socket, gone from a folder root has alone: nothing to mask, and the start
+// goes on.
+func (r rootAbove) unixSockets() ([]byte, error) {
+	return []byte(netUnixHeader + "\n0000000000000000: 00000002 00000000 00010000 0001 01  4242 /run/smolcorp-gone.sock\n"), nil
+}
+
+func (r rootAbove) unixDiag() ([]byte, error) {
+	return diagDump([]diagEntry{{ino: 4242, name: "/run/smolcorp-gone.sock\x00", vfs: 7, file: true}}), nil
+}
 
 // A folder whose only name the Policy denies is a pattern's takes no new name: no name the pattern matches can be made
 // there, whatever it is. Today's Policy has no such folder alone (its own folder, its Claude folder, .ssh and the
@@ -1115,7 +1362,8 @@ func TestAPatternsFolderTakesNoNewName(t *testing.T) {
 	b.add(Rule{Row: "a stand-in secret's pattern", Path: lHome + "/vault", Tail: "secret*", Read: Deny})
 	p := &Policy{goos: "linux", rules: b.rules}
 	f := fakeFS{"/": {kind: 'd'}}
-	f.add(lHome+"/box/kept.txt", lHome+"/notes/todo.txt", lHome+"/vault/kept.txt").owners()
+	// The system log's socket: a computer's list of sockets is never empty (mask.go).
+	f.add(lHome+"/box/kept.txt", lHome+"/notes/todo.txt", lHome+"/vault/kept.txt", "/run/systemd/journal/dev-log@").owners()
 	pl := Places{GOOS: "linux", Home: lHome, Support: lSupport, OwnID: "h1", Root: lHome + "/notes"}
 	args, err := bwrapArgs(p, pl, View{}, f, "/tmp")
 	if err != nil {
@@ -1138,6 +1386,57 @@ func TestAPatternsFolderTakesNoNewName(t *testing.T) {
 	}
 	if says(mounts, lHome+"/vault/kept.txt", Read) != Allow {
 		t.Errorf("the file there, which the pattern doesn't match, isn't brought back:\n%s", argvText(args))
+	}
+}
+
+// VM run 3 B2 (SIERRA's ruling): every place the start looks at a folder, a folder the owner's account can't open,
+// root's alone, where no desk can change a name in it or above it (/srv/closed, 0700), is nothing a desk reaches: a
+// Policy row in it decides nothing, and the start goes on and says so. Each row reaches it by another way: a name it
+// denies reading (consider, then cover), one it denies writing (consider, then shutNewNames), a pattern it denies
+// reading (expand's listing), and every new name in it denied writing (bringBack's listing). The same rows in a folder
+// of the owner's it can't open (chmod 600), or in a root 0700 folder a desk could rename into place (in the home
+// folder), still fail the start: fail-closed for anything a desk can change, as before.
+func TestAPlaceTheOwnersAccountCantOpenDecidesNothing(t *testing.T) {
+	for _, folder := range []struct {
+		at    string
+		entry fakeEntry
+		ok    bool
+	}{
+		{"/srv/closed", fakeEntry{kind: 'd', perm: 0o700}, true},
+		{lHome + "/locked", fakeEntry{kind: 'd', uid: 1000, perm: 0o600}, false},
+		{lHome + "/rootdir", fakeEntry{kind: 'd', perm: 0o700}, false},
+	} {
+		for _, r := range []struct {
+			name string
+			rule Rule
+		}{
+			{"a name it denies reading", Rule{Path: folder.at + "/sub/secret", Read: Deny}},
+			{"a name it denies writing", Rule{Path: folder.at + "/sub/plant", Write: Deny}},
+			{"a pattern it denies reading", Rule{Path: folder.at, Tail: "secret*", Read: Deny}},
+			{"every new name denied writing", Rule{Path: folder.at, Tail: "*", Write: Deny}},
+		} {
+			b := &builder{goos: "linux"}
+			r.rule.Row = "a stand-in row"
+			b.add(r.rule)
+			p := &Policy{goos: "linux", rules: b.rules}
+			f := fakeFS{"/": {kind: 'd'}}
+			f.add(folder.at+"/sub/secret", folder.at+"/kept.txt", lHome+"/notes/todo.txt", "/run/systemd/journal/dev-log@").owners()
+			f[folder.at] = folder.entry
+			pl := Places{GOOS: "linux", Home: lHome, Support: lSupport, OwnID: "h1", Root: lHome + "/notes"}
+			var logged []string
+			v := View{Log: func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }}
+			args, err := bwrapArgs(p, pl, v, f, "/tmp")
+			switch {
+			case folder.ok && err != nil:
+				t.Errorf("%s, %s: %v, want the start to go on", folder.at, r.name, err)
+			case folder.ok && strings.Contains(argvText(args), folder.at+"/"):
+				t.Errorf("%s, %s: the view decides something in it:\n%s", folder.at, r.name, argvText(args))
+			case folder.ok && (len(logged) != 1 || !strings.Contains(logged[0], "can't open "+folder.at+",")):
+				t.Errorf("%s, %s: logged %q, want %s named once", folder.at, r.name, logged, folder.at)
+			case !folder.ok && !errors.Is(err, fs.ErrPermission):
+				t.Errorf("%s, %s: %v, want the refusal to fail the start", folder.at, r.name, err)
+			}
+		}
 	}
 }
 

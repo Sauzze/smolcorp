@@ -1,17 +1,28 @@
 --unshare-pid
+--unshare-net
+--unsetenv AT_SPI_BUS_ADDRESS
+--unsetenv DBUS_FATAL_WARNINGS
+--unsetenv DBUS_SESSION_BUS_ADDRESS
+--unsetenv DBUS_STARTER_ADDRESS
+--unsetenv DBUS_STARTER_BUS_TYPE
+--unsetenv DBUS_SYSTEM_BUS_ADDRESS
+--unsetenv NOTIFY_SOCKET
 --bind / /
 --dev /dev
 --bind /etc /etc
 --bind /home /home
 --bind /opt /opt
 --proc /proc
---bind /run /run
+--tmpfs /run
 --tmpfs /tmp
---ro-bind /dev/log /dev/log
+--ro-bind /run/systemd/journal/dev-log /dev/log
 --ro-bind /etc/gitconfig /etc/gitconfig
 --tmpfs /home/ada
 --ro-bind /opt/smolcorp /opt/smolcorp
+--bind-try /run/avahi-daemon /run/avahi-daemon
+--tmpfs /run/dbus
 --tmpfs /run/screen
+--bind-try /run/systemd /run/systemd
 --bind /run/user /run/user
 --bind-try /home/ada/.1password /home/ada/.1password
 --ro-bind /home/ada/.bashrc /home/ada/.bashrc
@@ -30,7 +41,10 @@
 --ro-bind /home/ada/Library /home/ada/Library
 --ro-bind /home/ada/Projects /home/ada/Projects
 --bind-try /home/ada/notes /home/ada/notes
+--ro-bind /dev/null /run/avahi-daemon/socket
+--bind-try /run/dbus/pid /run/dbus/pid
 --tmpfs /run/user/1000
+--tmpfs /run/user/1001
 --bind /tmp/tmux-1000/smolcorp-h1.d /tmp/tmux-1000/smolcorp-h1.d
 --bind-try /home/ada/.codex/config.toml /home/ada/.codex/config.toml
 --ro-bind /home/ada/.config/fish /home/ada/.config/fish
@@ -45,6 +59,7 @@
 --tmpfs /home/ada/Projects/smolcorp/.dev
 --ro-bind /run/user/1000/gnupg/S.gpg-agent /run/user/1000/gnupg/S.gpg-agent
 --ro-bind /run/user/1000/keyring/ssh /run/user/1000/keyring/ssh
+--ro-bind /dev/null /home/ada/.local/state/app/ipc.sock
 --ro-bind /home/ada/Projects/app-hires/h1/.claude /home/ada/Projects/app-hires/h1/.claude
 --ro-bind /home/ada/Projects/app-hires/h1/.git /home/ada/Projects/app-hires/h1/.git
 --bind /home/ada/Projects/app/.git/logs /home/ada/Projects/app/.git/logs
@@ -68,7 +83,9 @@
 --bind /home/ada/Projects/smolcorp/.dev/support/hires/h1/STATUS.md /home/ada/Projects/smolcorp/.dev/support/hires/h1/STATUS.md
 --bind /home/ada/Projects/smolcorp/.dev/support/hires/h1/kept-stop.json /home/ada/Projects/smolcorp/.dev/support/hires/h1/kept-stop.json
 --bind /home/ada/Projects/app/.git/logs/refs/heads/hire/h1 /home/ada/Projects/app/.git/logs/refs/heads/hire/h1
+--remount-ro /run
 --remount-ro /home/ada
+--remount-ro /run/dbus
 --remount-ro /home/ada/.codex
 --remount-ro /home/ada/.config
 --remount-ro /home/ada/.gemini
