@@ -1,14 +1,13 @@
 import Foundation
 
-/// A hire's tmux session on a server of its own: `tmux -L smolcorp-<hire id>`
-/// (a test copy's: `smolcorp-<port>-<hire id>`), one session called `hire`,
-/// started detached in the hire's folder. A terminal window is only a viewer
-/// of it: closing the window leaves the hire running. Every call names our
-/// socket with -L, so the user's own tmux server, or any socket not made by
-/// us, is never reached.
+/// A hire's tmux session on a server of its own, as desks started before the sandbox have it: `tmux -L
+/// smolcorp-<hire id>` (a test copy's: `smolcorp-<port>-<hire id>`), one session called `hire`. The core starts every
+/// desk (desktop/hireengine.go); a terminal window is only a viewer of it, through `smolcorp attach`. Every call names
+/// our socket with -L, so the user's own tmux server, or any socket not made by us, is never reached.
 ///
-/// All of it goes through `run`, which takes tmux's arguments and answers as
-/// `Tool.run` does, so tests give a stand-in and no real tmux is needed.
+/// All of it goes through `run`, which takes tmux's arguments and answers as `Tool.run` does, so tests give a stand-in
+/// and no real tmux is needed. The real one is `TmuxClient`'s, told "unchecked", as the core tells its own calls on
+/// such a socket (desktop/hiretmux.go `tmuxFor`): no server pid was ever checked for a desk from before the sandbox.
 struct HireTmux {
     typealias Runner = ([String]) -> (status: Int32, output: String)?
 
@@ -32,12 +31,6 @@ struct HireTmux {
         run = runner
     }
 
-    /// With the real tmux on this Mac; nil without one.
-    init?(hireID: String) {
-        guard let path = Tmux.path else { return nil }
-        self.init(hireID: hireID, runner: { Tool.run(path, $0) })
-    }
-
     /// The server named `socketName`, with the real tmux, when it is one of ours.
     init?(socketName: String, testPort: UInt16? = TestCopy.port, runner: Runner? = nil) {
         guard HireTmux.owns(socketName, testPort: testPort), socketName.count <= 100,
@@ -46,33 +39,45 @@ struct HireTmux {
             run = runner
         } else {
             guard let path = Tmux.path else { return nil }
-            run = { Tool.run(path, $0) }
+            run = { TmuxClient.run(path, server: TmuxClient.unchecked, $0) }
         }
         self.socketName = socketName
     }
 
-    /// Whether `socketPath` (or a bare name) is one of ours: a hire's, not the user's `default`.
-    /// A test copy owns only `smolcorp-<port>-` sockets, so it never touches a real install's hires.
+    /// Whether `socketPath` (or a bare name) is one of ours: a hire's, not the user's `default`. A desk from before the
+    /// sandbox has `smolcorp-<id>` in tmux's own folder; one started in its sandbox, `s` in a folder of its own,
+    /// `<id>`, inside `/tmp/smolcorp-<uid>` (desktop/hiretmux.go `deskSocketPath`). A test copy owns only those with
+    /// its port first (`smolcorp-<port>-<id>`, `<port>-<id>`), so it never touches a real install's hires.
     static func owns(_ socketPath: String, testPort: UInt16? = TestCopy.port) -> Bool {
-        let name = URL(fileURLWithPath: socketPath).lastPathComponent
-        return name.hasPrefix(prefix + (testPort.map { "\($0)-" } ?? ""))
+        let port = testPort.map { "\($0)-" } ?? ""
+        if let folder = sandboxedFolder(socketPath) { return folder.hasPrefix(port) && isDeskID(String(folder.dropFirst(port.count))) }
+        return URL(fileURLWithPath: socketPath).lastPathComponent.hasPrefix(prefix + port)
+    }
+
+    /// Whether `socketPath` is shaped as any desk's socket, a test copy's or the real app's: a server the app drives only
+    /// with what the core recorded of that desk (`TmuxDesk`), never on its own.
+    static func isDeskSocket(_ socketPath: String) -> Bool {
+        sandboxedFolder(socketPath) != nil || URL(fileURLWithPath: socketPath).lastPathComponent.hasPrefix(prefix)
+    }
+
+    /// The folder of a desk's socket in its sandbox, `/tmp/smolcorp-<uid>/<folder>/s` (or /private/tmp's), or nil.
+    private static func sandboxedFolder(_ socketPath: String) -> String? {
+        let parts = socketPath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        let parent = parts.dropLast(2).joined(separator: "/")
+        guard socketPath.hasPrefix("/"), parts.count >= 4, parts.last == "s", !parts.contains(".."),
+              ["/tmp", "/private/tmp"].contains(where: { parent == $0 + "/smolcorp-\(getuid())" }) else { return nil }
+        return parts[parts.count - 2]
+    }
+
+    /// Whether `id` can be a desk's id: only a-z, 0-9 and -, as the core makes them (desktop/hireshared.go `plainHireID`).
+    static func isDeskID(_ id: String) -> Bool {
+        !id.isEmpty && id.count <= 64 && id.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "-") }
     }
 
     /// tmux's arguments for `arguments` on our server.
     func command(_ arguments: [String]) -> [String] { ["-L", socketName] + arguments }
 
     private func ran(_ arguments: [String]) -> Bool { run(command(arguments))?.status == 0 }
-
-    /// Starts the session, `command` run by your login shell in `folder`.
-    /// Gives its pane and the socket's path (as the deck addresses a tab:
-    /// tmux:<pane>@<socket>), or nil if tmux didn't start it.
-    func start(in folder: String, shell: String, running command: String) -> (pane: String, socket: String)? {
-        let arguments = self.command(Openers.session(HireTmux.session, in: folder, shell: shell, running: command))
-        guard let made = run(arguments), made.status == 0 else { return nil }
-        let parts = made.output.split(separator: " ", maxSplits: 1).map(String.init)
-        guard parts.count == 2, parts[0].hasPrefix("%"), !parts[1].isEmpty else { return nil }
-        return (parts[0], parts[1])
-    }
 
     /// Whether the session is there; nil when tmux couldn't be asked. No
     /// server at all (the hire's ended, or the Mac restarted) is a no.
@@ -135,9 +140,59 @@ struct HireTmux {
 
     /// Ends the hire's server, and so its session. Only this socket's.
     func kill() -> Bool { ran(["kill-server"]) }
+}
 
-    /// The line a terminal window runs to show the session. `exec`, so the window ends when the viewer detaches.
-    func attachLine(tmuxPath: String) -> String {
-        "exec \(Openers.quoted(tmuxPath)) -L \(Openers.quoted(socketName)) attach-session -t \(Openers.quoted("=" + HireTmux.session))"
+/// The one way the app runs tmux (SA-M9, SANDBOX-PLAN §A3.1), as the core's own (desktop/tmuxclient.go `tmuxClient`):
+/// told the server it may talk to, in `SMOLCORP_TMUX_SERVER`, the bundled tmux's guard (third_party/tmux/guard.patch):
+/// a desk's server pid as the core checked it at its start and gave it over the bridge (`TmuxDesk`), or "unchecked"
+/// (a desk from before the sandbox, or a tmux of your own; a stock tmux ignores the variable). Never "off", which only
+/// the core's start of a server gives. Nothing of the app's own environment reaches it, nor through it a server: a
+/// fixed PATH, TERM and LANG alone, and stdin from /dev/null unless `input` is given (`load-buffer -`). Any other
+/// guard, and nothing runs. Started by `Tool.run`, so on its own account (`Disclaimed`).
+enum TmuxClient {
+    static let variable = "SMOLCORP_TMUX_SERVER"
+    static let unchecked = "unchecked"
+    static let environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "TERM": "xterm-256color", "LANG": "en_US.UTF-8"]
+
+    /// Whether `server` is a guard the app may give: "unchecked", or a pid above 1 written as a plain number.
+    static func isGuard(_ server: String) -> Bool {
+        server == unchecked || Int32(server).map { $0 > 1 && String($0) == server } == true
+    }
+
+    static func run(_ program: String, server: String, _ arguments: [String], input: Data? = nil) -> (status: Int32, output: String)? {
+        guard !program.isEmpty, isGuard(server) else { return nil }
+        return Tool.run(program, arguments, input: input, environment: environment.merging([variable: server]) { $1 })
+    }
+}
+
+/// A desk's tmux as the core recorded it, given over the bridge with an action on its pane (SA-M9, desktop/hostbridge.go
+/// `bridgeDesk`): its id, the guard its calls are told (`TmuxClient`), the pid of the process its start made in its
+/// pane and when that process started (µs since 1970, as the core's processStartedAt; 0 for none recorded), and its
+/// folder. The `Tmux` driver drives a desk's pane only with these: what a desk's server says of its own pane
+/// (#{pane_pid}, #{pane_current_path}) is never taken (RSBXPLANc N1).
+struct TmuxDesk: Equatable {
+    /// The start of a plain hire's own server's id (desktop/hire_unix.go `plainHireTmuxID`, SA-M10): a server the core
+    /// started for a hire with no registry row, which the core gives from its own record of the sockets it made, told
+    /// "unchecked" (desktop/hostbridge.go `deskOfPane`).
+    static let plain = "plain-"
+
+    let id: String
+    let server: String
+    var pane: pid_t = 0
+    var paneStarted: Int64 = 0
+    var folder = ""
+
+    /// From the bridge's `desk`; nil when it isn't one.
+    init?(_ object: Any?) {
+        guard let desk = object as? [String: Any], let id = desk["id"] as? String, HireTmux.isDeskID(id),
+              let server = desk["server"] as? String, TmuxClient.isGuard(server) else { return nil }
+        let folder = desk["folder"] as? String ?? ""
+        guard folder.isEmpty || folder.hasPrefix("/") && !folder.utf8.contains(0) else { return nil }
+        self.init(id: id, server: server, pane: (desk["pane"] as? NSNumber).flatMap { pid_t(exactly: $0.int64Value) } ?? 0,
+                  paneStarted: (desk["paneStarted"] as? NSNumber)?.int64Value ?? 0, folder: folder)
+    }
+
+    init(id: String, server: String, pane: pid_t = 0, paneStarted: Int64 = 0, folder: String = "") {
+        (self.id, self.server, self.pane, self.paneStarted, self.folder) = (id, server, pane, paneStarted, folder)
     }
 }

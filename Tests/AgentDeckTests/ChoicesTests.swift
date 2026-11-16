@@ -239,27 +239,6 @@ final class ChoicesTests: XCTestCase {
         XCTAssertTrue(HireWindows.Terminals.ghosttyLook.contains("try\n        return \"tty:\" & (tty of terminal id (item 1 of argv))\n    on error\n        return \"?\""))
     }
 
-    /// In the background a hire starts in tmux and no window is opened: only tmux is run, never a terminal.
-    func testAHireInTheBackgroundOpensNoWindow() throws {
-        let log = folder.appendingPathComponent("tmux-calls")
-        let fake = folder.appendingPathComponent("tmux")
-        try """
-            #!/bin/sh
-            echo "$@" >> '\(log.path)'
-            case "$*" in *new-session*) echo "%7 /private/tmp/tmux-501/smolcorp-bgtest" ;; esac
-            """.write(to: fake, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
-        let kept = Tmux.path
-        Tmux.path = fake.path
-        defer { Tmux.path = kept }
-        let opened = try XCTUnwrap(Openers.open("echo hi", in: folder.path, terminal: "terminal", inTmux: true, window: false, hireID: "bgtest"))
-        XCTAssertEqual(opened, Openers.Opened(tab: "tmux:%7@/private/tmp/tmux-501/smolcorp-bgtest", window: nil))
-        let calls = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
-        XCTAssertEqual(calls.count, 1)
-        XCTAssertTrue(calls[0].contains("new-session -d"), String(calls[0]))
-        XCTAssertFalse(calls[0].contains("attach"), "no viewer is started")
-    }
-
     /// Once, by hand (the owner asked for it): a real Terminal window attached to a session on our own socket,
     /// t796test, opened by the same opener code; then switched to the background. The client is detached, only
     /// that window closes, the session lives on. Run with SMOLCORP_T796_REAL=1; it cleans up its own socket.

@@ -255,6 +255,10 @@ func TestNoExecOfTheBundledTmuxWithoutSmolcorpTmuxServer(t *testing.T) {
 	for _, problem := range tmuxExecProblems(coreExecSites(t), tmuxExecSites, tmuxExecAllowed) {
 		t.Error(problem)
 	}
+	// The Mac app's Swift too (SA-M9): it runs tmux only through TmuxClient, told a server (tmuxgate_swift_test.go).
+	for _, problem := range swiftTmuxProblems(readSwiftApp(t)) {
+		t.Error(problem)
+	}
 	if os.Getenv("SMOLCORP_TMUXGATE_CONTROL") == "1" {
 		broken := exec.Command(program)
 		broken.Env = []string{}

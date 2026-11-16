@@ -21,24 +21,6 @@ final class HireTmuxTests: XCTestCase {
         }
     }
 
-    func testStartIsDetachedInTheFolderOnItsOwnSocket() {
-        answer = (0, "%0 /private/tmp/tmux-501/smolcorp-ab12-cd34")
-        let made = desk().start(in: "/work/app", shell: "/bin/zsh", running: "/x/hire.sh")
-        XCTAssertEqual(made?.pane, "%0")
-        XCTAssertEqual(made?.socket, "/private/tmp/tmux-501/smolcorp-ab12-cd34")
-        XCTAssertEqual(asked, [["-L", "smolcorp-ab12-cd34", "new-session", "-d", "-P", "-F", "#{pane_id} #{socket_path}",
-                                "-s", "hire", "-c", "/work/app", "/bin/zsh", "-lic", "'/x/hire.sh'"]])
-    }
-
-    func testStartFailsWhenTmuxDoes() {
-        answer = (1, "")
-        XCTAssertNil(desk().start(in: "/w", shell: "/bin/zsh", running: "x"))
-        answer = (0, "garbage")
-        XCTAssertNil(desk().start(in: "/w", shell: "/bin/zsh", running: "x"))
-        answer = nil
-        XCTAssertNil(desk().start(in: "/w", shell: "/bin/zsh", running: "x"))
-    }
-
     func testIsAliveIsAskedByExactName() {
         XCTAssertEqual(desk().isAlive(), true)
         answer = (1, "")
@@ -99,17 +81,10 @@ final class HireTmuxTests: XCTestCase {
 
     func testEveryCallNamesOurSocket() {
         let hire = desk()
-        _ = hire.start(in: "/w", shell: "/bin/sh", running: "x"); _ = hire.isAlive(); _ = hire.capture(lines: 3)
+        _ = hire.isAlive(); _ = hire.capture(lines: 3)
         _ = hire.paste("t"); _ = hire.kill()
         XCTAssertFalse(asked.isEmpty)
         XCTAssertTrue(asked.allSatisfy { $0.prefix(2) == ["-L", "smolcorp-ab12-cd34"] })
-    }
-
-    func testTheViewerAttachesToThatSocketOnly() {
-        XCTAssertEqual(desk().attachLine(tmuxPath: "/opt/homebrew/bin/tmux"),
-                       "exec '/opt/homebrew/bin/tmux' -L 'smolcorp-ab12-cd34' attach-session -t '=hire'")
-        XCTAssertEqual(desk(port: 7811).attachLine(tmuxPath: "/Applications/My Tools/tmux"),
-                       "exec '/Applications/My Tools/tmux' -L 'smolcorp-7811-ab12-cd34' attach-session -t '=hire'")
     }
 
     func testOwnsOnlyOurSockets() {
@@ -125,5 +100,98 @@ final class HireTmuxTests: XCTestCase {
         XCTAssertNil(HireTmux(socketName: "default", testPort: nil) { _ in nil })
         XCTAssertNil(HireTmux(socketName: "smolcorp-../x", testPort: nil) { _ in nil })
         XCTAssertEqual(HireTmux(socketName: "smolcorp-ab12", testPort: nil) { _ in nil }?.socketName, "smolcorp-ab12")
+    }
+
+    /// SA-M9: a desk started in its sandbox has `s` in a folder of its own inside /tmp/smolcorp-<uid> (the core's
+    /// deskSocketPath), a test copy's with its port first. Both forms are a desk's socket; nothing else is.
+    func testADesksSocketInItsSandboxIsOursToo() {
+        let parent = "/private/tmp/smolcorp-\(getuid())"
+        XCTAssertTrue(HireTmux.owns("\(parent)/ab12/s", testPort: nil))
+        XCTAssertTrue(HireTmux.owns("/tmp/smolcorp-\(getuid())/ab12/s", testPort: nil))
+        XCTAssertTrue(HireTmux.owns("\(parent)/7811-ab12/s", testPort: 7811))
+        XCTAssertFalse(HireTmux.owns("\(parent)/ab12/s", testPort: 7811), "a test copy never owns the real app's desks")
+        XCTAssertFalse(HireTmux.owns("\(parent)/7812-ab12/s", testPort: 7811), "nor another copy's")
+        for other in ["/private/tmp/smolcorp-\(getuid() + 1)/ab12/s", "\(parent)/ab12/t", "\(parent)/AB12/s", "/private/tmp/x/ab12/s",
+                      "\(parent)/../ab12/s", "\(parent)/ab12/s/s", "ab12/s", "/private/tmp/tmux-501/default"] {
+            XCTAssertFalse(HireTmux.owns(other, testPort: nil), other)
+        }
+        // Shaped as a desk's socket but not one of ours: never owned, yet still a desk's shape, so the app drives it
+        // only with what the core recorded (it fails closed), never as a tmux of your own.
+        XCTAssertTrue(HireTmux.isDeskSocket("\(parent)/AB12/s"))
+        for other in ["/private/tmp/smolcorp-\(getuid() + 1)/ab12/s", "\(parent)/ab12/t", "/private/tmp/x/ab12/s",
+                      "\(parent)/../ab12/s", "\(parent)/ab12/s/s", "ab12/s", "/private/tmp/tmux-501/default"] {
+            XCTAssertFalse(HireTmux.isDeskSocket(other), other)
+        }
+        for desk in ["\(parent)/ab12/s", "\(parent)/7811-ab12/s", "/private/tmp/tmux-501/smolcorp-ab12", "/private/tmp/tmux-501/smolcorp-7811-ab12"] {
+            XCTAssertTrue(HireTmux.isDeskSocket(desk), desk)
+        }
+    }
+
+    // MARK: TmuxClient, the one way the app runs tmux
+
+    private func standIn() throws -> (program: String, log: URL, folder: URL) {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tc-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        let log = folder.appendingPathComponent("runs"), program = folder.appendingPathComponent("tmux")
+        // As the gate's stand-in (desktop/tmuxgate_test.go): the guard, whether stdin was /dev/null, the names in its environment, its words.
+        try """
+            #!/bin/sh
+            names=$(/usr/bin/env | /usr/bin/sed -e 's/=.*//' -e '/^PWD$/d' -e '/^SHLVL$/d' -e '/^_$/d' -e '/^OLDPWD$/d' | /usr/bin/sort | /usr/bin/tr '\\n' ',')
+            if [ /dev/stdin -ef /dev/null ]; then stdin=null; else stdin=$(/bin/cat); fi
+            printf '%s|%s|%s|%s\\n' "${SMOLCORP_TMUX_SERVER-UNSET}" "$stdin" "$names" "$*" >> '\(log.path)'
+            """.write(to: program, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: program.path)
+        return (program.path, log, folder)
+    }
+
+    private func runs(_ log: URL) -> [String] {
+        ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+    }
+
+    /// Told its server, with a fixed PATH, TERM and LANG and nothing else of the app's environment, stdin from
+    /// /dev/null unless it's given text.
+    func testTheClientIsToldItsServerAndNothingElse() throws {
+        let tmux = try standIn()
+        XCTAssertEqual(TmuxClient.run(tmux.program, server: "5151", ["-S", "/x/s", "list-clients"])?.status, 0)
+        XCTAssertEqual(TmuxClient.run(tmux.program, server: TmuxClient.unchecked, ["load-buffer", "-"], input: Data("hé;".utf8))?.status, 0)
+        XCTAssertEqual(runs(tmux.log), ["5151|null|LANG,PATH,SMOLCORP_TMUX_SERVER,TERM,|-S /x/s list-clients",
+                                        "unchecked|hé;|LANG,PATH,SMOLCORP_TMUX_SERVER,TERM,|load-buffer -"])
+    }
+
+    /// Only a pid above 1, as a plain number, or "unchecked": "off" is the core's start alone. Anything else runs nothing.
+    func testTheClientRunsOnlyWithAGuard() throws {
+        let tmux = try standIn()
+        for server in ["", "off", "OFF", "1", "0", "-5", "05", "5151 ", " 5151", "5151;", "abc", "99999999999", "Unchecked"] {
+            XCTAssertNil(TmuxClient.run(tmux.program, server: server, ["ls"]), server)
+        }
+        XCTAssertNil(TmuxClient.run("", server: "5151", ["ls"]))
+        XCTAssertEqual(runs(tmux.log), [], "nothing ran")
+        XCTAssertTrue(TmuxClient.isGuard("5151") && TmuxClient.isGuard("unchecked") && TmuxClient.isGuard("2"))
+    }
+
+    /// An old desk's own server, from a socket's name: "unchecked", as the core tells its own calls there.
+    func testAnOldDesksServerIsUnchecked() throws {
+        let tmux = try standIn()
+        let saved = Tmux.path
+        Tmux.path = tmux.program
+        defer { Tmux.path = saved }
+        XCTAssertEqual(HireTmux(socketName: "smolcorp-ab12", testPort: nil)?.isAlive(), true)
+        XCTAssertEqual(runs(tmux.log), ["unchecked|null|LANG,PATH,SMOLCORP_TMUX_SERVER,TERM,|-L smolcorp-ab12 has-session -t =hire"])
+    }
+
+    /// The desk the core gives with an action on its pane: its id, its guard, and a folder by its full path, or none.
+    func testADeskIsReadAsTheCoreGivesIt() {
+        let given: [String: Any] = ["id": "ab12", "server": "5151", "pane": 4242, "paneStarted": NSNumber(value: Int64(1_794_000_000_000_000)),
+                                    "folder": "/Users/example/repo-hires/ab12"]
+        XCTAssertEqual(TmuxDesk(given), TmuxDesk(id: "ab12", server: "5151", pane: 4242, paneStarted: 1_794_000_000_000_000,
+                                                 folder: "/Users/example/repo-hires/ab12"))
+        XCTAssertEqual(TmuxDesk(["id": "cd34", "server": "unchecked"]), TmuxDesk(id: "cd34", server: "unchecked"))
+        for (name, change) in [("an id that isn't one", ["id": "../x"]), ("no id", ["id": 3]), ("the start's own guard", ["server": "off"]),
+                               ("a pid as a number", ["server": 5151]), ("a folder that isn't a full path", ["folder": "repo"])] as [(String, [String: Any])] {
+            XCTAssertNil(TmuxDesk(given.merging(change) { $1 }), name)
+        }
+        XCTAssertNil(TmuxDesk("ab12"))
+        XCTAssertNil(TmuxDesk(nil))
     }
 }

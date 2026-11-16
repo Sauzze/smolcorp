@@ -373,15 +373,28 @@ final class TmuxFiringTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("x").path))
     }
 
-    /// A hire's script lives in Application Support: its path has a space.
-    func testAHireInTmuxStartsFromAPathWithASpace() throws {
-        let place = folder.appendingPathComponent("Application Support", isDirectory: true)
-        try FileManager.default.createDirectory(at: place, withIntermediateDirectories: true)
-        let script = place.appendingPathComponent("hire.sh"), started = folder.appendingPathComponent("started")
-        try "#!/bin/sh\ntouch '\(started.path)'\n".write(to: script, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
-        let made = try XCTUnwrap(Tool.run(tmux, ["-S", socket] + Openers.session("hire", in: folder.path, shell: "/bin/sh", running: script.path)))
-        XCTAssertEqual(made.status, 0)
-        XCTAssertTrue(eventually { FileManager.default.fileExists(atPath: started.path) }, "the hire's script ran")
+    /// SA-M9: a desk's pane is fired by the process the core recorded in it (its pid and when it started) and that
+    /// process's own tty, read from the kernel, never by what its server says of the pane (#{pane_pid}). One whose
+    /// recorded process started at another time (its pid used again), or a desk with none recorded, is left.
+    func testADesksPaneIsFiredByTheProcessTheCoreRecorded() throws {
+        let agent = try pane(claude)
+        let pid = try XCTUnwrap(Tool.run(tmux, ["-S", socket, "display-message", "-p", "-t", agent.id, "#{pane_pid}"]).flatMap { pid_t($0.output) })
+        let started = try XCTUnwrap(startedAt(pid))
+        func desk(_ pane: pid_t, _ at: Int64) -> Tmux { Tmux(desk: TmuxDesk(id: "ab12", server: TmuxClient.unchecked, pane: pane, paneStarted: at)) }
+        XCTAssertEqual(desk(pid, started + 1).fire(agent, agent: .claude), .notStopped, "a pid used again")
+        XCTAssertEqual(desk(0, 0).fire(agent, agent: .claude), .notStopped, "none recorded")
+        XCTAssertEqual(desk(pid, 0).fire(agent, agent: .claude), .notStopped, "no start recorded")
+        XCTAssertTrue(isThere(agent))
+        XCTAssertEqual(desk(pid, started).fire(agent, agent: .claude), .fired)
+        XCTAssertTrue(eventually { !isThere(agent) })
+    }
+
+    /// When `pid` started, in µs since 1970, as the kernel says it (the core's processStartedAt).
+    private func startedAt(_ pid: pid_t) -> Int64? {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+        return Int64(info.kp_proc.p_starttime.tv_sec) * 1_000_000 + Int64(info.kp_proc.p_starttime.tv_usec)
     }
 }

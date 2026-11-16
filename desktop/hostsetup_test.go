@@ -427,6 +427,13 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		"a hire's own window closed strictly, only a shell left there": func(h hostBridge) (any, error) {
 			return errors.Is(macTab{name: "tty:/dev/ttys005", host: h}.CloseStrict(Claude), errTabClosed), nil
 		},
+		// SA-M9: a desk's pane, with the desk as the core recorded it (deskOfPane's own rows are hostbridge_desk_test.go's).
+		"a desk's tmux pane brought forward, with its server and folder from the core": func(h hostBridge) (any, error) {
+			return nil, fixtureDeskPane(t, h).Focus()
+		},
+		"a desk's tmux pane fired, by the process the core recorded in it": func(h hostBridge) (any, error) {
+			return nil, fixtureDeskPane(t, h).Close(Claude)
+		},
 		"Grok Bots looked for in the Grok Bot app": func(h hostBridge) (any, error) {
 			return hostResolveBots(h, []bridgeBot{{Bot: "Smolcorp Mini"}, {Bot: "Nobody Here"}})
 		},
@@ -617,6 +624,20 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 			t.Errorf("%q: the core reads %#v, want %#v", c.Name, result, expected)
 		}
 	}
+}
+
+// fixtureDeskPane is the bridge fixture's desk pane under the Mac app, its desk as the core would record it (SA-M9).
+func fixtureDeskPane(t *testing.T, h hostBridge) macTab {
+	const socket = "/private/tmp/smolcorp-501/ab12/s"
+	saved := paneDesk
+	t.Cleanup(func() { paneDesk = saved })
+	paneDesk = func(asked string) *bridgeDesk {
+		if asked != socket {
+			return nil
+		}
+		return &bridgeDesk{ID: "ab12", Server: "5151", Pane: 4242, PaneStarted: 1794000000000000, Folder: "/Users/example/repo-hires/ab12"}
+	}
+	return macTab{name: "tmux:%3@" + socket, host: h, pane: &commandTab{kind: "tmux", id: "%3", socket: socket}}
 }
 
 // Without the Mac app (Windows, Linux) nothing of the Mac's is said or served: nothing is made up.

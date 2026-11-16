@@ -1334,6 +1334,13 @@ final class HostBridgeTests: XCTestCase {
         mac.placeOffice = { [unowned self] rect, mainHeight in asked.append("office \(Int(rect.minX)) \(Int(rect.minY)) \(Int(rect.width)) \(Int(rect.height)) \(Int(mainHeight))") }
         // The record key (SK1): a stand-in store with the fixture's stand-in keys, never the Keychain.
         mac.records = FixtureRecordKeys()
+        // A desk's tmux pane (SA-M9): brought forward and fired by stand-ins told the desk as the core gave it.
+        mac.deskFocus = { [unowned self] tab, desk in
+            asked.append("desk focus \(tab.text) \(desk.id) \(desk.server) \(desk.folder)"); return true
+        }
+        mac.deskFire = { [unowned self] tab, agent, desk in
+            asked.append("desk fire \(agent.rawValue) \(tab.text) \(desk.server) \(desk.pane) \(desk.paneStarted)"); return .fired
+        }
         func text(_ object: Any) -> String {
             String(decoding: (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data(), as: UTF8.self)
         }
@@ -1358,12 +1365,40 @@ final class HostBridgeTests: XCTestCase {
                                "clean-up problem cleared",
                                "insert Fix the Smolcorp build tty:/dev/ttys003", "terminal command true",
                                "t3 app opened", "t3 link t3code://threads/local/mcp%3Aabc-1", "volume 30",
-                               "list Terminal", "move Terminal 101 0 30 480 573", "list iTerm", "office 0 1750 1440 810 2560"])
+                               "list Terminal", "move Terminal 101 0 30 480 573", "list iTerm", "office 0 1750 1440 810 2560",
+                               "desk focus tmux:%3@/private/tmp/smolcorp-501/ab12/s ab12 5151 /Users/example/repo-hires/ab12",
+                               "desk fire claude tmux:%3@/private/tmp/smolcorp-501/ab12/s 5151 4242 1794000000000000"])
         XCTAssertTrue(login, "Open at login, switched on")
         // The phone's text, by `Deck.typePhoneWords` on the stand-in drivers: nothing for an agent that has ended,
         // nor for "!", nor for Codex, nor to a desk asking. ⌘V that wasn't read in time went.
         XCTAssertEqual(typed, ["insert tty:/dev/ttys003 Bonjour l’équipe « ça marche » 👩‍💻 ;",
                                "paste iterm:AB12 first line\n    indented\tand a tab", "paste iterm:CD34 one\ntwo"])
+    }
+
+    /// SA-M9: a desk is given only with a tmux pane's focus or close, and only as the core gives one: anything else, and
+    /// nothing is driven. Without one, a pane's focus and close go to the drivers as ever (which run nothing on a
+    /// desk's socket: DeskTmuxTests).
+    func testADeskIsTakenOnlyWithATmuxPanesFocusOrClose() {
+        var mac = actions
+        mac.deskFocus = { [unowned self] tab, desk in asked.append("desk focus \(tab.text) \(desk.server)"); return true }
+        mac.deskFire = { [unowned self] tab, _, desk in asked.append("desk fire \(tab.text) \(desk.server)"); return .fired }
+        let desk: [String: Any] = ["id": "ab12", "server": "5151", "pane": 4242, "paneStarted": 1, "folder": "/w"]
+        let pane = "tmux:%3@/private/tmp/smolcorp-501/ab12/s"
+        for request in [["action": "focus", "tab": pane, "desk": desk.merging(["server": "off"]) { $1 }],
+                        ["action": "focus", "tab": pane, "desk": desk.merging(["id": "AB 12"]) { $1 }],
+                        ["action": "focus", "tab": pane, "desk": "ab12"],
+                        ["action": "focus", "tab": "tty:/dev/ttys003", "desk": desk],
+                        ["action": "press", "key": "enter", "tab": pane, "desk": desk],
+                        ["action": "scroll", "lines": 3, "tab": pane, "desk": desk]] as [[String: Any]] {
+            let answer = ask(request, actions: mac)
+            XCTAssertFalse(isOK(answer), "\(request)")
+            XCTAssertEqual(answer["error"] as? String, "Not a desk's tmux pane.", "\(request)")
+        }
+        XCTAssertEqual(asked, [], "nothing driven")
+        XCTAssertTrue(isOK(ask(["action": "focus", "tab": pane, "desk": desk], actions: mac)))
+        XCTAssertTrue(isOK(ask(["action": "close", "agent": "claude", "tab": pane, "desk": desk], actions: mac)))
+        XCTAssertTrue(isOK(ask(["action": "focus", "tab": pane], actions: mac)))
+        XCTAssertEqual(asked, ["desk focus \(pane) 5151", "desk fire \(pane) 5151", "focus \(pane)"])
     }
 
     /// The GM's tiling refuses what isn't its own (M7GAPC): a terminal that can't place its windows, a place that isn't

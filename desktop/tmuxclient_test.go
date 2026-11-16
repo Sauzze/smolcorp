@@ -94,6 +94,7 @@ var tmuxPickedIn = map[string]string{
 	"t3takeover_tmux.go t3StopInTmux":   "says whether there is a tmux",
 	"t3takeover_tmux.go t3ResumeInTmux": "records it",
 	"t3takeover.go handBackFromT3":      "records it",
+	"hostbridge.go deskOfPane":          "runs nothing: the guard alone, for the Mac app's TmuxClient (SA-M9)",
 }
 
 // The grep row (release gate item 1) reads the core's code for every place it starts a program (RT126SAM7 B1: not a

@@ -960,6 +960,12 @@ final class HostBridge {
 
     private static func tabAction(_ action: String, _ request: [String: Any], _ actions: Actions, until deadline: DispatchTime) -> [String: Any] {
         guard let text = request["tab"] as? String, let tab = TabAddress(text) else { return refused("Not a tab.") }
+        // A tmux pane on a desk's own server, as the core recorded that desk (SA-M9): brought forward and fired with
+        // that alone. With none, the driver runs nothing on a desk's socket (`Tmux.run`).
+        let desk = TmuxDesk(request["desk"])
+        if request["desk"] != nil, desk == nil || tab.kind != "tmux" || !["focus", "close"].contains(action) {
+            return refused("Not a desk's tmux pane.")
+        }
         // Checked here; run on the terminals' queue, below, if it's still wanted.
         let work: () -> [String: Any]
         switch action {
@@ -987,7 +993,7 @@ final class HostBridge {
                 return done(action == "type" ? actions.type(text, tab) : actions.insert(text, tab))
             }
         case "focus":
-            work = { done(actions.focus(tab)) }
+            work = { done(desk.map { actions.deskFocus(tab, $0) } ?? actions.focus(tab)) }
         case "scroll":
             guard let lines = request["lines"] as? Int, lines != 0 else { return refused("No lines to scroll.") }
             work = { done(actions.scroll(max(-Terminal.maxScroll, min(Terminal.maxScroll, lines)), tab)) }
@@ -1010,7 +1016,7 @@ final class HostBridge {
                     case .behind?, nil: return ["ok": true, "fired": "not-stopped"]
                     }
                 }
-                switch actions.fire(tab, agent) {
+                switch desk.map({ actions.deskFire(tab, agent, $0) }) ?? actions.fire(tab, agent) {
                 case .fired?: return ["ok": true, "fired": "fired"]
                 case .gone?: return ["ok": true, "fired": "gone"]
                 case .notStopped?: return ["ok": true, "fired": "not-stopped"]
@@ -1392,6 +1398,9 @@ final class HostBridge {
         var scroll: (Int, TabAddress) -> Bool?
         var scrollToBottom: (TabAddress) -> Bool?
         var fire: (TabAddress, Agent) -> Terminal.Fired?
+        /// A desk's tmux pane brought forward, or its agent fired, by the `Tmux` driver told that desk (SA-M9).
+        var deskFocus: (TabAddress, TmuxDesk) -> Bool? = { tab, desk in Tmux(desk: desk).focus(tab) }
+        var deskFire: (TabAddress, Agent, TmuxDesk) -> Terminal.Fired? = { tab, agent, desk in Tmux(desk: desk).fire(tab, agent: agent) }
         /// Whether the agent has left its tab, known for sure (`agentEnded`), given whether this is a test copy.
         var ended: (TabAddress, Agent, _ testCopy: Bool) -> Bool = HostBridge.agentEnded
         /// The ttys of Terminal's open tabs (`Terminal.openTTYs`), nil if it couldn't be asked: for `agents-ended`.
@@ -1496,7 +1505,7 @@ final class HostBridge {
         static func onThisMac(testCopy: Bool = TestCopy.isOn,
                               loginItem: (get: () -> Bool, set: (Bool) -> Void) = (get: { LoginItem.isEnabled }, set: { LoginItem.isEnabled = $0 }),
                               opener: @escaping (_ command: String, _ folder: String, _ terminal: String) -> Openers.Opened? = { command, folder, terminal in
-                                  Openers.open(command, in: folder, terminal: terminal, inTmux: false, hireID: "")
+                                  Openers.open(command, in: folder, terminal: terminal)
                               }) -> Actions {
             // On `queue`, already: see `HostBridge.run`.
             func drive<T>(_ tab: TabAddress, _ body: (TerminalDriver) -> T) -> T? {

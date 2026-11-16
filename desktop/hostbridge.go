@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 )
@@ -95,6 +96,9 @@ type bridgeRequest struct {
 	Agents []Agent  `json:"agents,omitempty"`
 	// close: only with the agent in front, never a tab with only its shell left (closeStrict).
 	Strict bool `json:"strict,omitempty"`
+	// focus, close: a tmux pane on a desk's own server, as the core recorded that desk (paneDesk). The app runs tmux on a
+	// desk's socket only with these.
+	Desk *bridgeDesk `json:"desk,omitempty"`
 	// bots-resolve: the Grok Bots to look for in the Grok Bot app.
 	Bots []bridgeBot `json:"bots,omitempty"`
 	// tile: the hires' windows to move (Terminal is the terminal), by the tty each shows; office-place: where the
@@ -112,6 +116,94 @@ type bridgeRequest struct {
 	// How long this request may take, when longer than the transport's own: the Mac's folder panel waits
 	// for you (folderPanelWait). Never sent itself.
 	wait time.Duration
+}
+
+// bridgeDesk is a desk's tmux as the core recorded it, given with an action on its pane (SA-M9, SANDBOX-PLAN §A3.1): its
+// id (for `smolcorp attach`), the guard the core's own calls on its socket are told (tmuxFor: the server pid the core
+// checked at its start, or "unchecked"), the pid of the process its start made in its pane and when that started
+// (processStartedAt), and its folder. The Mac app drives the pane with the bundled tmux told that server, fires by that
+// pid and opens a window again in that folder, never by what the desk's server says of its pane (#{pane_pid},
+// #{pane_current_path}: RSBXPLANc N1).
+type bridgeDesk struct {
+	ID          string `json:"id"`
+	Server      string `json:"server"`
+	Pane        int    `json:"pane,omitempty"`
+	PaneStarted int64  `json:"paneStarted,omitempty"`
+	Folder      string `json:"folder,omitempty"`
+}
+
+// paneDesk is deskOfPane: a variable, for the bridge fixture's test.
+var paneDesk = deskOfPane
+
+// deskOfPane is the open desk whose own tmux server is on socket, as its row records it, or a plain hire's own server
+// the core started there (plainTmuxOn), told "unchecked"; or nil: a socket neither names (a tmux of your own), or one
+// whose server the core never checked (tmuxFor's guard ""), where the Mac app then runs nothing.
+func deskOfPane(socket string) *bridgeDesk {
+	_, guard := tmuxFor(socket)
+	if socket == "" || guard == "" {
+		return nil
+	}
+	for _, h := range readRegistry(registryPath(), false).hires {
+		if !isOpen(h) || h.TmuxSocket == "" || !sameSocket(h.TmuxSocket, socket) {
+			continue
+		}
+		folder := h.Worktree
+		if folder == "" {
+			folder = h.Folder
+		}
+		return &bridgeDesk{ID: h.ID, Server: guard, Pane: h.TmuxPane, PaneStarted: h.TmuxPaneStarted, Folder: folder}
+	}
+	if plain, ok := plainTmuxOn(socket); ok && guard == tmuxUnchecked {
+		return &bridgeDesk{ID: plain.id, Server: tmuxUnchecked, Pane: plain.pane, PaneStarted: plain.paneStarted, Folder: plain.folder}
+	}
+	return nil
+}
+
+// plainTmux is a plain hire's own tmux server as the core started it (SA-M10, openHireInTmux): its id (plain-…), the
+// pid of the process its start made in its pane and when that process started, and its folder. A plain hire has no
+// registry row, so this is the core's only record of the sockets it made for them. Without it, the Mac app would be
+// sent no desk for such a pane, and its socket, named smolcorp-plain-… like a hire's, would get nothing run: no
+// focus, no close (RT126SAM9's condition on SA-M10). Its server was never checked, so it's told "unchecked", as the
+// core's own calls there are. Kept while the core runs: a plain hire started before the core's restart gets nothing
+// run by the app, which fails closed.
+type plainTmux struct {
+	id          string
+	pane        int
+	paneStarted int64
+	folder      string
+}
+
+// plainTmuxes are the plain hires' own servers the core started, by the socket tmux said it made.
+var plainTmuxes = struct {
+	sync.Mutex
+	on map[string]plainTmux
+}{on: map[string]plainTmux{}}
+
+// notePlainTmux records the plain hire's server the core just started on socket.
+func notePlainTmux(socket string, plain plainTmux) {
+	plainTmuxes.Lock()
+	defer plainTmuxes.Unlock()
+	plainTmuxes.on[socket] = plain
+}
+
+// forgetPlainTmux drops the record of the plain hire's server on socket, once the core has ended it.
+func forgetPlainTmux(socket string) {
+	plainTmuxes.Lock()
+	defer plainTmuxes.Unlock()
+	delete(plainTmuxes.on, socket)
+}
+
+// plainTmuxOn is the plain hire's server the core started on socket (the same file, however tmux spells its folder:
+// sameSocket), if it started one there.
+func plainTmuxOn(socket string) (plainTmux, bool) {
+	plainTmuxes.Lock()
+	defer plainTmuxes.Unlock()
+	for made, plain := range plainTmuxes.on {
+		if sameSocket(made, socket) {
+			return plain, true
+		}
+	}
+	return plainTmux{}, false
 }
 
 // bridgeVolume is the Mac's output volume, as the jukebox's bar shows it: 0 to 100, and whether it's muted.
@@ -775,6 +867,9 @@ func paneOf(tab Tab) (commandTab, bool) {
 
 func (t macTab) do(request bridgeRequest) (bridgeAnswer, error) {
 	request.Tab = t.name
+	if t.pane != nil && t.pane.kind == "tmux" {
+		request.Desk = paneDesk(t.pane.socket)
+	}
 	return ask(t.host, request)
 }
 

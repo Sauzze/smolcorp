@@ -126,6 +126,16 @@ enum Processes {
         return matches.count == 1 ? matches.first : nil
     }
 
+    /// The tty of process `pid`, read from the kernel, only while `pid` is still the process that started at
+    /// `startedAt` (µs since 1970, as the core records a desk's pane: processStartedAt). Nil for one that has ended,
+    /// a pid used again for another process, or one with no terminal (SA-M9).
+    static func terminal(of pid: pid_t, startedAt: Int64) -> String? {
+        guard pid > 1, let info = bsdInfo(pid), info.pbi_pid == UInt32(pid),
+              Int64(info.pbi_start_tvsec) * 1_000_000 + Int64(info.pbi_start_tvusec) == startedAt,
+              info.e_tdev != noTerminal, let device = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) else { return nil }
+        return "/dev/" + String(cString: device)
+    }
+
     /// Every process's id, as the kernel lists them.
     static func allPIDs() -> [pid_t] {
         var pids = [pid_t](repeating: 0, count: 8192)

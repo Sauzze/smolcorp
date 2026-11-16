@@ -50,10 +50,16 @@ enum Tool {
     /// `input`, if given, is its standard input, then closed: text that must arrive byte for byte goes
     /// there, as Process passes each argument in the file system's form, its accents taken apart (é as
     /// e and a combining accent).
+    /// `environment`, if given, is all of its environment, and its standard input is /dev/null unless `input` is
+    /// given (a tmux client: `TmuxClient`).
     static func run(_ path: String, _ arguments: [String], errors: Bool = false, timeout limit: TimeInterval = Tool.timeout,
-                    input: Data? = nil) -> (status: Int32, output: String)? {
+                    input: Data? = nil, environment: [String: String]? = nil) -> (status: Int32, output: String)? {
         // On its own account, never Smolcorp's: a hire can replace tmux, kitten or wezterm (`Disclaimed`).
         guard let process = try? Disclaimed.process(URL(fileURLWithPath: path), arguments) else { return nil }
+        if let environment {
+            process.environment = environment
+            process.standardInput = FileHandle.nullDevice
+        }
         let output = Pipe()
         process.standardOutput = output
         process.standardError = errors ? output : FileHandle.nullDevice
@@ -158,9 +164,16 @@ enum Firing {
 /// tmux, in whichever terminal it runs: its server owns the pane, so keys
 /// and text reach the agent without its window, with the Mac locked or the
 /// screen saver on. Addressed as tmux:%3@<socket>.
+///
+/// Every call goes through `TmuxClient`, told its server (SA-M9). A desk's pane is driven only with `desk`, what the
+/// core recorded of that desk and gave with the action: a desk whose server the core checked, by the bundled tmux
+/// alone, told that server's pid, with `-f /dev/null`; a desk from before the sandbox, "unchecked". With no `desk`, a
+/// socket shaped as a desk's gets nothing run at all (`HireTmux.isDeskSocket`); a tmux of your own, "unchecked".
 struct Tmux: TerminalDriver {
     var abilities: TerminalAbilities { [.keys, .text, .focus, .fire, .scroll] }
     var keysNeedAccessibility: Bool { false }
+    /// The desk whose own server this pane is on, as the core gave it; nil for a tmux of your own.
+    var desk: TmuxDesk?
 
     /// Where tmux is looked for, in order: the one that came with the app (Contents/Resources/bin, where the Go core
     /// looks beside itself, so both engines pick the same tmux), then the usual places.
@@ -173,17 +186,29 @@ struct Tmux: TerminalDriver {
     /// first of the usual places that can be run (a link is how Homebrew puts tmux there, so only the bundle is held
     /// to the stricter rule, as the Go core holds it).
     static func find(resources: URL? = Bundle.main.resourceURL) -> String? {
-        let all = places(resources: resources)
-        if let bundled = resources.map({ $0.appendingPathComponent("bin/tmux").path }), Tool.isTrusted(bundled) { return bundled }
-        return Tool.find(Array(all.dropFirst(resources == nil ? 0 : 1)))
+        if let bundled = resourcesTmux(resources: resources) { return bundled }
+        return Tool.find(Array(places(resources: resources).dropFirst(resources == nil ? 0 : 1)))
     }
 
     /// Settable for tests, which give a stand-in.
     static var path = find()
 
+    /// The tmux that came with the app, when it's a file nobody else could have swapped, or nil: the only one a desk's
+    /// checked server is driven with (never Homebrew's). Settable for tests, which give a stand-in.
+    static var bundled = resourcesTmux()
+
+    static func resourcesTmux(resources: URL? = Bundle.main.resourceURL) -> String? {
+        resources.map { $0.appendingPathComponent("bin/tmux").path }.flatMap { Tool.isTrusted($0) ? $0 : nil }
+    }
+
     private func run(_ tab: TabAddress, _ arguments: [String], input: Data? = nil) -> (status: Int32, output: String)? {
-        guard let path = Tmux.path else { return nil }
-        return Tool.run(path, (tab.socket.isEmpty ? [] : ["-S", tab.socket]) + arguments, input: input)
+        let target = tab.socket.isEmpty ? [] : ["-S", tab.socket]
+        guard let desk else {
+            guard !HireTmux.isDeskSocket(tab.socket), let path = Tmux.path else { return nil }
+            return TmuxClient.run(path, server: TmuxClient.unchecked, target + arguments, input: input)
+        }
+        guard !tab.socket.isEmpty, let program = desk.server == TmuxClient.unchecked ? Tmux.path : Tmux.bundled else { return nil }
+        return TmuxClient.run(program, server: desk.server, ["-f", "/dev/null"] + target + arguments, input: input)
     }
 
     private func ran(_ tab: TabAddress, _ arguments: [String], input: Data? = nil) -> Bool { run(tab, arguments, input: input)?.status == 0 }
@@ -275,17 +300,17 @@ struct Tmux: TerminalDriver {
                     guard inTime(), !Terminal.focus(tty: client) else { return }
                     Terminals.queue(kind: "iterm").async { if inTime() { _ = ITerm().focus(tty: client) } }
                 }
-            } else if HireTmux.owns(tab.socket) {
-                // A hire's own server with no window showing it: "open" shows it again.
+            } else if let desk {
+                // A desk's own server with no window showing it: "open" shows it again, through `smolcorp attach`, in
+                // the folder the core recorded, never the one its pane says (N1).
                 let config = Config.shared
                 let terminal = Openers.isInstalled(config.hireTerminal) ? config.hireTerminal : "terminal"
-                let folder = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_current_path}"]).flatMap { $0.status == 0 ? $0.output : nil }
                 let socket = tab.socket
                 // One window, however many taps arrive while it opens.
                 guard Tmux.reopening.insert(socket) else { return true }
                 Terminals.queue(opening: terminal).async {
                     defer { Tmux.reopening.remove(socket) }
-                    if let window = Openers.reattach(socket: socket, in: folder ?? NSHomeDirectory(), terminal: terminal) {
+                    if let window = Openers.reattach(desk, socket: socket, terminal: terminal) {
                         Tmux.reopened?(socket, window)
                     }
                 }
@@ -315,9 +340,16 @@ struct Tmux: TerminalDriver {
     /// A pane that runs anything else in front, as a dev server or an editor
     /// started there after the agent crashed, is left as it is, and so is one
     /// that can't be looked at.
+    /// A desk's pane by the process its start made there, as the core recorded it, and that process's own tty, read from
+    /// the kernel: never what the desk's server says of its pane (N1). A pane that runs another process now, a pid used
+    /// again, or a desk with none recorded, is left.
     func fire(_ tab: TabAddress, agent: Agent) -> Terminal.Fired {
         guard let open = isOpen(tab) else { return .notStopped }
         guard open else { return .gone }
+        if let desk {
+            guard desk.pane > 1, desk.paneStarted != 0, let tty = Processes.terminal(of: desk.pane, startedAt: desk.paneStarted) else { return .notStopped }
+            return Firing.fire(tty: tty, root: desk.pane, agent: agent) { ran(tab, ["kill-pane", "-t", tab.id]) }
+        }
         guard let info = run(tab, ["display-message", "-p", "-t", tab.id, "#{pane_tty} #{pane_pid}"]), info.status == 0 else { return .notStopped }
         let parts = info.output.split(separator: " ")
         guard parts.count == 2, let pane = pid_t(parts[1]) else { return .notStopped }
@@ -827,9 +859,10 @@ struct Kitty: TerminalDriver {
 }
 
 /// Where hires open: a new window of the terminal chosen in setup, in the
-/// hire folder, running the agent or its role's start script. With "Start
-/// hires inside tmux", the agent runs in a tmux session of its own, which
-/// that window shows, so its keys and mic work whatever the terminal.
+/// hire folder, running a script the core wrote (its desk's `smolcorp attach`,
+/// or its agent), or a desk's `smolcorp attach` shown again (`reattach`).
+/// Each window's line is `exec`'d, so the tab ends with what it runs and no
+/// shell is left in it for a desk to type into or read from.
 enum Openers {
     struct Choice {
         let id: String, name: String, bundle: String
@@ -854,51 +887,46 @@ enum Openers {
         let window: String?
     }
 
-    /// Opens the hire's window and gives its tab as the deck will know it,
-    /// or nil if it didn't open. A Ghostty terminal's tab is given as
-    /// ghostty-id:<terminal>, its tty being known only once its session
-    /// reports. In tmux without `window` (agent windows in the background),
-    /// no window opens: "Open a window" on its desk shows one. Off the main thread.
-    static func open(_ command: String, in folder: String, terminal: String, inTmux: Bool, window showing: Bool = true, hireID: String) -> Opened? {
-        guard inTmux, let tmux = Tmux.path, let desk = HireTmux(hireID: hireID) else {
-            return window(command, in: folder, terminal: terminal).map { Opened(tab: HireWindows.tab(ofRecord: $0), window: $0) }
-        }
-        // The agent's own tmux server and session, through your login shell, so
-        // it finds what your PATH finds; then a window showing it, unless it runs in the background.
-        let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
-        guard let made = desk.start(in: folder, shell: shell, running: command) else { return nil }
-        var opened: String?
-        if showing {
-            guard let attach = script(desk.attachLine(tmuxPath: tmux)), let shown = window(attach, in: folder, terminal: terminal) else {
-                // Not hired: its server goes, and nothing else's.
-                if desk.isAlive() == true { _ = desk.kill() }
-                return nil
-            }
-            opened = shown
-        }
-        return Opened(tab: "tmux:\(made.pane)@\(made.socket)", window: opened)
+    /// Opens a window of `terminal` in `folder` on `command` (a script the core wrote) and gives its tab as the deck
+    /// will know it, or nil if it didn't open. A Ghostty terminal's tab is given as ghostty-id:<terminal>, its tty being
+    /// known only once its session reports. The window closes once what it runs has ended (`Closing`). Off the main
+    /// thread.
+    static func open(_ command: String, in folder: String, terminal: String) -> Opened? {
+        guard let opened = window(command, in: folder, terminal: terminal) else { return nil }
+        Closing.whenDone(opened, queue: Terminals.queue(opening: terminal))
+        return Opened(tab: HireWindows.tab(ofRecord: opened), window: opened)
     }
 
-    /// Shows a running tmux hire again in a new window of `terminal`, after its
-    /// window was closed. The hire was never stopped; this only attaches.
-    /// Gives the window it opened, by its terminal's id; nil for a socket that
-    /// isn't one of ours, or a hire no longer there.
+    /// Shows a running desk again in a new window of `terminal`, after its window was closed: `smolcorp attach` with
+    /// `exec`, in the folder the core recorded (SA-M9), so the guarded tmux attaches as the core decides, in the desk's
+    /// sandbox where it has one. The desk was never stopped; this only attaches. Gives the window it opened, by its
+    /// terminal's id, which closes once the attach has ended (`Closing`, N3).
     @discardableResult
-    static func reattach(socket: String, in folder: String, terminal: String) -> String? {
-        guard HireTmux.owns(socket), let tmux = Tmux.path, let desk = HireTmux(socketName: URL(fileURLWithPath: socket).lastPathComponent),
-              desk.isAlive() == true, let attach = script(desk.attachLine(tmuxPath: tmux)) else { return nil }
-        return window(attach, in: folder, terminal: terminal)
+    static func reattach(_ desk: TmuxDesk, socket: String, terminal: String) -> String? {
+        var folder: ObjCBool = false
+        let place = !desk.folder.isEmpty && FileManager.default.fileExists(atPath: desk.folder, isDirectory: &folder) && folder.boolValue
+            ? desk.folder : NSHomeDirectory()
+        guard let attach = script(attachLine(desk.id, socket: socket)), let opened = window(attach, in: place, terminal: terminal) else { return nil }
+        Closing.whenDone(opened, queue: Terminals.queue(opening: terminal))
+        return opened
+    }
+
+    /// What a window runs to show desk `id`: the app's own `smolcorp attach`, with `exec`; a test copy's names the
+    /// copy's port and folder first, as the core's window scripts do (desktop/hire_unix.go `windowScriptLines`). A plain
+    /// hire's own server (`TmuxDesk.plain`, SA-M10) has no row for `smolcorp attach <id>` to find: it's shown by its
+    /// session and the socket its pane is on, as the core's own window for it is (desktop/attachlines.go
+    /// `plainAttachLine`), and `smolcorp attach` checks those words itself.
+    static func attachLine(_ id: String, socket: String = "", smolcorp: String = Paths.bundledCLI.path, testPort: UInt16? = TestCopy.port,
+                           testSupport: String = Paths.support.path) -> String {
+        let copy = testPort.map { "export SMOLCORP_PORT=\(quoted(String($0)))\nexport SMOLCORP_TEST_SUPPORT_DIR=\(quoted(testSupport))\n" } ?? ""
+        let desk = id.hasPrefix(TmuxDesk.plain) ? "--session \(quoted(HireTmux.session)) --socket \(quoted(socket))" : quoted(id)
+        return copy + "exec \(quoted(smolcorp)) attach \(desk)"
     }
 
     /// Shows `line` (a shell line, as `TeamGrid.attachLine`) in a new window of `terminal`.
     static func show(line: String, terminal: String) -> Bool {
         guard let attach = script(line) else { return false }
         return window(attach, in: NSHomeDirectory(), terminal: terminal) != nil
-    }
-
-    /// tmux's arguments for a hire's session, `command` run by your login shell, which prints its pane and socket.
-    static func session(_ name: String, in folder: String, shell: String, running command: String) -> [String] {
-        ["new-session", "-d", "-P", "-F", "#{pane_id} #{socket_path}", "-s", name, "-c", folder, shell, "-lic", quoted(command)]
     }
 
     static func window(_ command: String, in folder: String, terminal: String) -> String? {
@@ -908,7 +936,7 @@ enum Openers {
                 tell application "iTerm"
                     activate
                     set w to (create window with default profile)
-                    tell current session of w to write text "cd " & quoted form of (item 1 of argv) & " && " & quoted form of (item 2 of argv)
+                    tell current session of w to write text "cd " & quoted form of (item 1 of argv) & " && exec " & quoted form of (item 2 of argv)
                     return "iterm:" & (unique ID of current session of w)
                 end tell
                 """, arguments: [folder, command], timeout: Terminal.openTimeout).flatMap { $0.hasPrefix("iterm:") ? $0 : nil }
@@ -916,7 +944,7 @@ enum Openers {
             return Terminal.run("""
                 tell application "Ghostty"
                     activate
-                    set w to new window with configuration {initial working directory:(item 1 of argv), initial input:(quoted form of (item 2 of argv)) & linefeed}
+                    set w to new window with configuration {initial working directory:(item 1 of argv), initial input:"exec " & (quoted form of (item 2 of argv)) & linefeed}
                     return "ghostty-id:" & (id of focused terminal of selected tab of w)
                 end tell
                 """, arguments: [folder, command], timeout: Terminal.openTimeout).flatMap { $0.hasPrefix("ghostty-id:") ? $0 : nil }
@@ -937,6 +965,51 @@ enum Openers {
 
     /// `text` as one word to a shell, whatever it holds: a hire's path has a space, in Application Support.
     static func quoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+}
+
+/// A window Smolcorp opened on a script, closed once the tab's own process has ended (SA-M9, N3, AQ19): the script
+/// ends in `exec` (a desk's `smolcorp attach`, or the agent of a hire without tmux), so nothing is left in that tab,
+/// and the window goes too, by the record its terminal gave, as switching hires to the background closes one
+/// (`HireWindows.Terminals`: only once nothing runs on its tty, a Terminal window only by its id, and only with that
+/// one tab). One whose process ended within `shortest` of opening is left, so what a refused attach said stays on
+/// screen to be read; with no shell in it, nothing can be typed there. Ghostty can't say its tty, so its window is
+/// left to Ghostty, which closes it when its process ends.
+enum Closing {
+    static let shortest: TimeInterval = 5
+
+    /// Watches `window` in the background and closes it on `queue` once its tab's own process (`root`, the one whose
+    /// parent isn't on its tty: Terminal's and iTerm2's `login`) has ended. Its tty: the record's, or its terminal's
+    /// answer. Nothing is watched or closed when either can't be had within a few seconds.
+    static func whenDone(_ window: String, queue: DispatchQueue, closer: HireWindows.Closer = HireWindows.Terminals(),
+                         shortest: TimeInterval = shortest, root: @escaping (String) -> pid_t? = { Firing.root(on: $0) }) {
+        let opened = Date()
+        queue.async {
+            let parsed = HireWindows.Terminals.parse(window)
+            var tty = parsed?.kind == "terminal" ? parsed?.id : nil
+            if tty == nil, parsed?.kind == "iterm", case .open(let shown) = closer.look(window) { tty = shown }
+            guard let tty else { return }
+            DispatchQueue.global(qos: .utility).async {
+                var pid: pid_t?
+                for _ in 0..<20 where pid == nil {
+                    pid = root(tty)
+                    if pid == nil { Thread.sleep(forTimeInterval: 0.25) }
+                }
+                guard let pid else { return }
+                // Looked at once a second: ESRCH once it has gone. EPERM is a process of another user's still there
+                // (Terminal's `login` runs as root), which a watch on its exit might not be allowed.
+                let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+                timer.schedule(deadline: .now(), repeating: 1, leeway: .milliseconds(250))
+                timer.setEventHandler {
+                    guard kill(pid, 0) != 0, errno == ESRCH else { return }
+                    // The handler held the timer until now.
+                    timer.cancel()
+                    timer.setEventHandler(handler: nil)
+                    if Date().timeIntervalSince(opened) >= shortest { queue.async { _ = closer.close(window, tty: tty) } }
+                }
+                timer.resume()
+            }
+        }
+    }
 }
 
 /// Things being opened, by name, from any queue: a second ask while one is

@@ -280,13 +280,14 @@ enum Terminal {
     /// Opens a new window in `folder`, running `command`, and gives its
     /// tab's tty and the window's id, or nil if it didn't open. Both go
     /// through `quoted form of`, so each is taken as it is: the command is
-    /// one of the agents' own names, or the path of a hire's start-up script.
+    /// the path of a script Smolcorp wrote, which the tab's shell becomes
+    /// (`exec`), so no shell is left in the tab once it ends (SA-M9).
     /// The id is only asked for: without it, the window still opened.
     static func open(_ command: String, in folder: String) -> (tty: String, window: String?)? {
         let opened = run("""
             tell application "Terminal"
                 activate
-                set opened to do script "cd " & quoted form of (item 1 of argv) & " && " & quoted form of (item 2 of argv)
+                set opened to do script "cd " & quoted form of (item 1 of argv) & " && exec " & quoted form of (item 2 of argv)
                 set found to tty of opened
                 try
                     repeat with w in windows

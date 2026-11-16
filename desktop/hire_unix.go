@@ -181,14 +181,18 @@ func plainHireTmuxID() string { return "plain-" + strings.ToLower(newID())[:12] 
 // openHireInTmux is openHire in tmux: command in a session on its own server, shown in a window of terminal when
 // there is one.
 func openHireInTmux(command []string, folder string, terminal hireOpener, hasTerminal bool) error {
-	tmux := plainHireTmux(plainHireTmuxID())
+	id := plainHireTmuxID()
+	tmux := plainHireTmux(id)
 	if tmux == nil {
 		return errUnsupported
 	}
-	_, socket, _, err := tmux.start(folder, command)
+	_, socket, pid, err := tmux.start(folder, command)
 	if err != nil {
 		return err
 	}
+	// The core's own record of the server it made, as its start said it: what the Mac app is told with a focus or close
+	// on its pane (deskOfPane), as it has no registry row.
+	notePlainTmux(socket, plainTmux{id: id, pane: pid, paneStarted: paneStartedAt(pid), folder: folder})
 	if !hasTerminal {
 		// Over SSH, say: the log names its socket, for `tmux -S <socket> attach`.
 		log.Printf("tmux: a hire's session is on its own server, %s.", socket)
@@ -197,6 +201,7 @@ func openHireInTmux(command []string, folder string, terminal hireOpener, hasTer
 	// Its window runs `smolcorp attach` with exec, on the socket of its own server (SA-M8).
 	if err := openWindow(terminal, folder, plainAttachLine(commandLineProgram(), hireSession, socket)); err != nil {
 		tmux.endServer() // its own server: nothing else is on it
+		forgetPlainTmux(socket)
 		return err
 	}
 	return nil
