@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Sealed records (SANDBOX-PLAN §3.2, SK1). Every file that says who is let in, or what they may do, is a sealed
@@ -447,6 +448,8 @@ func sayRecordOnce(text string) {
 // check nothing counts anyway. Only the core's own start counts: a file read again later in the run (loadConfig
 // for the roles) changes nothing the core holds.
 func recordDropped(name, text string) {
+	// At the update to 1.26, kept for Setup's line about it (upgrade.go).
+	updateFellBack(name, text)
 	if text != "" {
 		sayRecordOnce(text)
 	}
@@ -742,10 +745,16 @@ func changeKeysOnce() {
 	if err == nil {
 		return
 	}
+	// An office from an earlier Smolcorp, looked at before anything goes: Setup says what the update kept and reset
+	// (upgrade.go).
+	note := noteUpdate(supportDir, time.Now())
+	updating.Lock()
+	updating.note = note
+	updating.Unlock()
 	for _, name := range []string{"token", phoneSealName, "hook-key", "hook-header", keptGMTokenName} {
 		_ = os.Remove(filepath.Join(supportDir, name))
 	}
-	_ = writePrivate(marker, []byte("Every key Smolcorp keeps was changed once here, by 1.26. Delete this file to change them all again.\n"))
+	_ = writeKeysChanged(marker, note)
 }
 
 // recordsRotated is whether this start changed every key (changeKeysOnce): the loaders drop the keys they find.
@@ -836,6 +845,8 @@ func (d *Deck) settleRecords() {
 	if owed {
 		rotateRecords()
 	}
+	// What fell back at the update to 1.26, kept with its note (upgrade.go).
+	settleUpdateNote()
 }
 
 // resetRecords is Setup's reset (records.go's resetRecords), with the keys started over (RT126SK1 B5): no phone,

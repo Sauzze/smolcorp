@@ -147,7 +147,7 @@ type Config struct {
 	PhoneMicAutoSend bool `json:"phoneMicSkipsConfirm"`
 	// Typing over Wi-Fi: whether the phone's text is taken over plain http on the Wi-Fi too, where anyone on
 	// it could read what's typed (SECWIFI). Off for a new setup; Tailscale and this computer don't need it.
-	// A file from before the switch keeps what it had: on with the phone's text, once set up.
+	// Off too for a file from before the switch: only the owner turns it on, in Setup.
 	PhoneTextWiFi bool `json:"phoneTextOverWiFi"`
 	// Floors from other Macs (peers_mac.go): whether another Mac may pair with this one, or this one join another,
 	// and a Mac paired use its routes. Off unless you turn it on, from the setup page alone.
@@ -257,10 +257,9 @@ func readConfig(vouch bool) *Config {
 				_ = json.Unmarshal(fields["gmByHand"], &byHand)
 				config.GuideDone = config.HasCompletedSetup || config.HireFolder != "" || config.ManagerEnabled || byHand
 			}
-			// Typing over Wi-Fi: a setup from before the switch went on typing over the Wi-Fi, and keeps it.
-			if _, ok := fields["phoneTextOverWiFi"]; !ok {
-				config.PhoneTextWiFi = config.HasCompletedSetup && config.PhoneMicEnabled
-			}
+			// Typing over Wi-Fi: a file without it, 1.24's on every system, reads it off, as a new setup has it. The
+			// update never turns it on by itself (UPGRADE1): Setup offers it instead (upgrade.go).
+
 			// A file from before the two choices: asked already, as the Mac app reads it.
 			if _, ok := fields["choicesAsked"]; !ok {
 				config.ChoicesAsked = true

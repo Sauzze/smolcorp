@@ -286,8 +286,8 @@ func TestTheQRCarriesTheKeyOnlyInItsFragment(t *testing.T) {
 	}
 }
 
-// Typing over Wi-Fi is off for a new setup: the phone's keys work over the Wi-Fi, its text doesn't. A setup
-// from before the switch keeps typing; only the page turns it on.
+// Typing over Wi-Fi is off for a new setup: the phone's keys work over the Wi-Fi, its text doesn't. Only the
+// page turns it on.
 func TestTypingOverWiFiIsOffByDefault(t *testing.T) {
 	d := newTestDeck(t)
 	key := pair(t, d)
@@ -334,12 +334,16 @@ func TestTypingOverWiFiIsOffByDefault(t *testing.T) {
 	}
 }
 
-func TestASetupFromBeforeTheSwitchKeepsTyping(t *testing.T) {
+// A file from before the switch, 1.24's on either engine, reads it off: the update never turns it on by itself
+// (UPGRADE1), even where the Mac's 1.24.2 typed over the Wi-Fi with the phone's text on.
+func TestAFileFromBeforeTheSwitchHasTypingOverWiFiOff(t *testing.T) {
 	for _, c := range []struct {
 		file string
 		want bool
 	}{
-		{`{"hasCompletedSetup": true}`, true},
+		{`{"hasCompletedSetup": true}`, false},
+		{`{"hasCompletedSetup": true, "phoneMicEnabled": true}`, false},
+		{`{"hasCompletedSetup": true, "listen": "all"}`, false},
 		{`{"hasCompletedSetup": true, "phoneMicEnabled": false}`, false},
 		{`{"hasCompletedSetup": false}`, false},
 		{`{"hasCompletedSetup": true, "phoneTextOverWiFi": false}`, false},

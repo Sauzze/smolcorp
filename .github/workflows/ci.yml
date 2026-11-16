@@ -679,3 +679,85 @@ jobs:
           # SIERRA to keep or narrow the IOKit list.
           grep -E "COST: |IOKIT: " "$RUNNER_TEMP/mac-sandbox.txt" >> "$GITHUB_STEP_SUMMARY" || true
           [ "$status" -eq 0 ] && [ "$missing" -eq 0 ]
+
+  # UPGRADE1 (a release gate): this build installed over a working 1.24 on Linux and Windows, from the project's own
+  # release downloads, each checked against its SHA-256 in scripts/upgrade/SHA256SUMS before anything of it runs.
+  # scripts/upgrade starts that 1.24 headless (`smolcorp serve`) in a home of its own, gives it a stand-in office
+  # through 1.24's own Setup (a phone paired through its pairing flow, the look, floors, a pin, a webhook) and files
+  # (a team of hires on a Claude account who may write to each other, the General Manager, a guard with a group off),
+  # fake keys only; quits it, puts this build's program in its place, starts it headless, and checks that the team,
+  # its accounts, the guard, the office and the settings carried, nothing is looser, every key changed, and that
+  # `smolcorp setup --check` says in Setup's words what was kept, what reset and which hires from 1.24 to hire again.
+  # Two offices each: one opened up (every interface, hiring, the manager, the webhook on, deploy's guard off) and one
+  # at its strictest, where any change 1.26 makes to a security setting is a loosening. In both, Typing over Wi-Fi
+  # must stay off: 1.24 had no switch for it.
+  upgrade:
+    name: Upgrade from ${{ matrix.from }} (${{ matrix.seed }} office), on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        from: [v1.24.2, v1.24.1]
+        seed: [open, strict]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install ${{ matrix.from }}, give it an office, install this build over it, and check
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux) asset=Smolcorp-Linux-x86_64.tar.gz; program=smolcorp ;;
+            Windows) asset=Smolcorp-Windows-x86_64.zip; program=smolcorp-cli.exe ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/download" "$RUNNER_TEMP/new" "$RUNNER_TEMP/upgrade"
+          # The project's own release, whoever runs this (a fork has none of its own).
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/download/$asset" \
+            "https://github.com/Sauzze/smolcorp/releases/download/${{ matrix.from }}/$asset"
+          go build -ldflags "-X main.version=1.26.0-upgrade-ci" -o "$RUNNER_TEMP/new/$program" ./cmd/smolcorp
+          go run ./scripts/upgrade -version "${{ matrix.from }}" -archive "$RUNNER_TEMP/download/$asset" \
+            -new "$RUNNER_TEMP/new/$program" -work "$RUNNER_TEMP/upgrade" -seed "${{ matrix.seed }}"
+
+  # The Mac's upgrade from 1.24.2, whose office the Swift engine kept: no runner can start that app and set up its
+  # office without someone at the screen (a person grants it the keyboard, and it opens windows), and a release build
+  # of 1.26 reads its record key from the login keychain, which only a test copy is kept from. So the Mac's rows run
+  # in-process, by name: the Swift engine's own files (dates as numbers, the accounts, a GM started by hand, two Macs
+  # paired) under a stand-in Mac app with a stand-in Keychain, sealed as found, nothing looser, Setup's words.
+  upgrade-mac:
+    name: Upgrade from v1.24.2, the Mac's rows
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: The Mac's upgrade rows ran and passed
+        shell: bash
+        run: |
+          names=(
+            TestTheUpdateFrom1242OnAMacSealsTheOfficeAndSaysWhatReset
+            TestAnUpdateWhoseRecordsDidntFitSaysWhatFellBack
+            TestNothingIsLooserAfterTheUpdateFrom1242
+            TestTheUpdateFrom1242KeepsTheOfficeAndSaysWhatReset
+            TestANewFolderSaysNothingOfAnUpdate
+            TestTheUpgradeJobLooksForSetupsOwnWords
+            TestAHireFromBeforeWithAHookKeyOfItsOwnIsntNamed
+            TestAFileFromBeforeTheSwitchHasTypingOverWiFiOff
+          )
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          go test -count=1 -v -run "^($(IFS='|'; echo "${names[*]}"))\$" ./desktop/ 2>&1 | tee "$RUNNER_TEMP/upgrade-mac.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in "${names[@]}"; do
+            if ! grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/upgrade-mac.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          [ "$status" -eq 0 ] && [ "$missing" -eq 0 ]

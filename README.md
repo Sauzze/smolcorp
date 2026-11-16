@@ -102,6 +102,8 @@ install, building it yourself, and what each setup step does are in
   is, and setup from a script
 - [Keys, records and the guard](docs/keys-and-guard.md): what keeps
   Smolcorp's keys from the agents it starts, and what it can't stop
+- [Updating to 1.26](docs/upgrade-1.26.md): what carries over from 1.24,
+  what resets, and what to do
 - [Windows and Linux](docs/windows-linux.md): what differs, who can reach
   Smolcorp, building it yourself
 - [Portable office, summaries and other tools](docs/extras.md)

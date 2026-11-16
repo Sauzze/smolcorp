@@ -1,0 +1,10 @@
+# The 1.24 downloads CI's upgrade job installs before this build (scripts/upgrade), as GitHub's release
+# pages list them and each release's notes print them. A download whose SHA-256 isn't here stops the job.
+04f2b57bf4007b121f0fce57982d870ad858780a674367fdebd66b5c58b4420a  v1.24.2/Smolcorp-Linux-arm64.tar.gz
+e90d69254db867d30a37cd5c8a1bc2b9fb620f621d8b9146c4c3c2fb9d39c96b  v1.24.2/Smolcorp-Linux-x86_64.tar.gz
+2791721d5dfbc05cab3b9e911b07ee29e09d2fb252f7ff8ecc5ac58ebbd7999c  v1.24.2/Smolcorp-Windows-arm64.zip
+f9abb0f5b884e6045e371ad7d6532bdce1a436cbcbb71555a107937e7c4999a5  v1.24.2/Smolcorp-Windows-x86_64.zip
+39d8c7710108456fe9c70753e15ded90fa8bf7839047cc9c97b7aeed112f2ce7  v1.24.1/Smolcorp-Linux-arm64.tar.gz
+19d2313c038becca9e4f617202272298e2254789494425b5f4a6bd9628769f82  v1.24.1/Smolcorp-Linux-x86_64.tar.gz
+59400cc63a3575962bccd612ec335a67623b7db4b162e3fe58846ccad0eab85c  v1.24.1/Smolcorp-Windows-arm64.zip
+98948fe060bd36a0fce3af871f679553d6fa78c67525f3b1ee05b9accfecbccc  v1.24.1/Smolcorp-Windows-x86_64.zip

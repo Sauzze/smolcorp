@@ -77,8 +77,9 @@ change the page itself, which only Tailscale prevents.
 **Typing over Wi-Fi** is off for a new setup: the deck's keys work over the
 Wi-Fi, but text typed or dictated from the phone goes only over Tailscale.
 Turn it on under **Paired phones** in setup if you need it, and off again if
-you don't. A setup from before this switch keeps typing over Wi-Fi as it did,
-and setup shows the warning beside the switch.
+you don't; setup shows the warning beside the switch. It's off after the
+update to 1.26 too, even on a Mac where 1.24 typed over the Wi-Fi: turn it on
+again if you want it.
 
 A phone paired before 1.25 sent its key unencrypted over the Wi-Fi, and a
 page saved then (its address ends in `?t=` and a long key) still does, so its

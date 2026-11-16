@@ -2933,7 +2933,7 @@
     box.append(...rows);
   }
 
-  /** Typing over Wi-Fi: off for a new setup, on for one from before that typed over the Wi-Fi. */
+  /** Typing over Wi-Fi: off for a new setup and after the update from 1.24; only this switch turns it on. */
   function renderWifiTyping() {
     const on = state.wifiTyping === true;
     mark('step-wifityping', on);

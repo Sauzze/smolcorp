@@ -80,6 +80,8 @@ you alone: a program of yours that reads it can do whatever that phone can.
 
 ## Updating to 1.26: every key changes once
 
+What carries over, what resets and what to do: [Updating to 1.26](upgrade-1.26.md).
+
 - **Pair each phone again, and each paired Mac.** The keys they held open
   nothing any more, and a phone from before isn't offered back.
 - **Hires get new keys** when they next start, and the General Manager when
