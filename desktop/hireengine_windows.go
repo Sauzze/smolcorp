@@ -56,3 +56,9 @@ func ownsHireSocket(socket string, testPort int) bool { return false }
 
 // deskSocketID: no desk runs on a tmux server of its own here, in its sandbox or not.
 func deskSocketID(socket string, testPort int) string { return "" }
+
+// tmuxFor: no desk runs in tmux here, so a tmux tab is never one's.
+func tmuxFor(socket string) (program, guard string) { return tmuxProgramFor(socket), tmuxUnchecked }
+
+// markRespawnedDesks: no desk runs in tmux here.
+func (d *Deck) markRespawnedDesks() {}

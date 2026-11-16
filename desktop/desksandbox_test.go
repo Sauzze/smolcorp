@@ -127,7 +127,7 @@ func TestASandboxedDeskStartsOnlyThroughItsStartRunner(t *testing.T) {
 	var asked [][]string
 	server, said := 4321, ""
 	var refusal error
-	h.starts = func(args []string) (string, int, error) {
+	h.startOnly = func(args []string) (string, int, error) {
 		asked = append(asked, args)
 		return said, server, refusal
 	}
@@ -162,7 +162,7 @@ func TestASandboxedDeskStartsOnlyThroughItsStartRunner(t *testing.T) {
 	}
 	bundled := fakeTmuxScript(t, "bundled")
 	bundledTmux = func() string { return bundled }
-	if h, err := newDeskTmux("ab12", 0, nil); err != nil || h.program != physical(bundled) || h.starts != nil {
+	if h, err := newDeskTmux("ab12", 0, nil); err != nil || h.program != physical(bundled) || h.startOnly != nil {
 		t.Errorf("the bundled tmux: %+v %v", h, err)
 	}
 }
@@ -181,33 +181,42 @@ func fakeTmuxScript(t *testing.T, name string) string {
 
 // The release gate's rule for these starts (RT126SAL5): the guard variable is the core's at every call, never one it
 // inherited. The start of a desk outside the sandbox gives "off" for that call alone; a sandboxed desk's calls give
-// the pid its row records; any other call gives none.
+// the pid its row records; a desk's outside the sandbox give "unchecked" (SA-M7); a call with none isn't run.
 func TestTheCoreGivesTheTmuxGuardItselfNeverItsOwn(t *testing.T) {
 	shortSupport(t)
 	deskSockets(t)
 	t.Setenv("SMOLCORP_TMUX_SERVER", "4242")
 	fake := fakeTmuxScript(t, "bin")
-	if out, _, _ := realTmux(fake)(nil); out != "unset" {
-		t.Errorf("a call gave the core's own guard: %q", out)
+	if out, _, ran := oneShotTmux(fake, func() string { return "" })(nil); ran || out != "" {
+		t.Errorf("a call with no guard of the core's was run: %q", out)
 	}
-	if out, _, _ := guardedTmux(fake, func() string { return "77" })(nil); out != "77" {
+	if out, _, _ := oneShotTmux(fake, func() string { return "77" })(nil); out != "77" {
 		t.Errorf("the guard given: %q", out)
 	}
 	plain := hireTmuxUsing(filepath.Join(hireSocketFolder(), "smolcorp-ab12"), 0, nil, func(string) string { return fake })
-	if plain == nil || plain.starts == nil {
+	if plain == nil || plain.startOnly == nil {
 		t.Fatal("no start-only runner for a desk outside the sandbox")
 	}
-	if out, _, _ := plain.starts(nil); out != "off" {
-		t.Errorf("its start: %q", out)
+	if out, _, err := plain.startOnly(plain.command(tmuxServerStart("new-session", "-d")...)); err != nil || out != "off" {
+		t.Errorf("its start: %q %v", out, err)
 	}
-	if out, _, _ := plain.run(nil); out != "unset" {
+	// Any other call through it is refused, with nothing run (RT126SAM7R2 B1′): the stand-in would print "off".
+	for _, args := range [][]string{nil, plain.command("new-window", "-d", "-c", "/w"),
+		plain.command(tmuxServerStart("new-session", "-d", ";", "kill-server")...),
+		plain.command(tmuxServerStart("new-session", "-d", "true;", "kill-server")...),
+		append([]string{"-S", "/elsewhere"}, tmuxServerStart("new-session", "-d")...)} {
+		if out, _, err := plain.startOnly(args); !errors.Is(err, errTmuxDidntStart) || out != "" {
+			t.Errorf("a call that isn't its start, %q: %q %v", args, out, err)
+		}
+	}
+	if out, _, _ := plain.run(nil); out != tmuxUnchecked {
 		t.Errorf("its other calls: %q", out)
 	}
 	// A sandboxed desk is driven by its recorded tmux, told its recorded server, and by no other.
 	socket := deskSocketPath("ab12", 0)
 	writeRegistryHires(t, Hire{ID: "ab12", State: "working", TmuxSocket: socket, TmuxProgram: fake, TmuxServer: 99})
 	desk := hireTmuxAt(socket, 0, nil)
-	if desk == nil || !desk.sandboxed || desk.starts != nil {
+	if desk == nil || !desk.sandboxed || desk.startOnly != nil {
 		t.Fatalf("%+v", desk)
 	}
 	if out, _, _ := desk.run(nil); out != "99" {

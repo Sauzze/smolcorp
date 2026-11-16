@@ -142,7 +142,7 @@ func TestARefusedSandboxedStartEndsTheServerItChecked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.starts = func([]string) (string, int, error) { return "not a pane", 4321, nil }
+	h.startOnly = func([]string) (string, int, error) { return "not a pane", 4321, nil }
 	if _, _, _, err := h.start("/w", []string{"/app/smolcorp", "desk-start"}); !errors.Is(err, errTmuxDidntStart) {
 		t.Fatalf("%v", err)
 	}
@@ -174,7 +174,7 @@ func TestASandboxedHandBackStopsAndResumesTheDeskInItsSandbox(t *testing.T) {
 	// Hand back's resume: in its sandbox, through its start-only runner alone, nothing asked of tmux before it.
 	before := len(r.tmux.asked)
 	resumed, err := d.t3ResumeInTmux(row, t3TakeOverSession, nil)
-	if err != nil || resumed.Socket != deskSocketPath(hire.ID, 0) || resumed.Server != 5151 {
+	if err != nil || resumed.Socket != deskSocketPath(hire.ID, 0) || resumed.Server != 5151 || resumed.Pane <= 1 { // its pane's process too (SA-M7)
 		t.Fatalf("%+v %v", resumed, err)
 	}
 	if *starts != 2 || len(r.tmux.asked) != before {
@@ -350,8 +350,12 @@ func TestTheLaunchersTmuxNeverGetsTheCoresInheritedGuard(t *testing.T) {
 	saved := tmuxPath
 	t.Cleanup(func() { tmuxPath = saved })
 	tmuxPath = func() string { return fake }
-	if out, err := runTmux("new-session"); err != nil || out != "unset" {
-		t.Errorf("the launcher's tmux got %q (%v)", out, err)
+	// Its session's start is a server start: the guard off for it alone (SA-M7). Any other call is told "unchecked".
+	if out, err := runTmux("new-session"); err != nil || out != "off" {
+		t.Errorf("the launcher's tmux start got %q (%v)", out, err)
+	}
+	if out, err := runTmux("kill-session", "-t", "smolcorp-ab12cd34"); err != nil || out != tmuxUnchecked {
+		t.Errorf("the launcher's tmux call got %q (%v)", out, err)
 	}
 	if slices.ContainsFunc(hireEnvironment(), func(v string) bool { return strings.HasPrefix(strings.ToUpper(v), "SMOLCORP_TMUX_SERVER=") }) {
 		t.Error("a hire's environment carries the core's guard variable")

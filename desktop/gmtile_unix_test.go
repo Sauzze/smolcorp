@@ -10,7 +10,8 @@ import (
 // The team grid's tmux calls: one session, a pane to a hire, each a read-only attach to that hire's own server.
 func TestTheTeamGridIsAReadOnlyPaneToAHire(t *testing.T) {
 	calls := teamGridCommands("/tmp/tmux-501/smolcorp-team", []string{"one", "two"})
-	if len(calls) != 5 || !slices.Equal(calls[0], []string{"-S", "/tmp/tmux-501/smolcorp-team", "new-session", "-d", "-s", "team", "-x", "240", "-y", "60", "one"}) ||
+	if len(calls) != 5 || !slices.Equal(calls[0], []string{"-S", "/tmp/tmux-501/smolcorp-team", "start-server", ";", "set-environment", "-gu", "SMOLCORP_TMUX_SERVER", ";",
+		"new-session", "-d", "-P", "-F", "#{pid}", "-s", "team", "-x", "240", "-y", "60", "one"}) ||
 		!slices.Equal(calls[2], []string{"-S", "/tmp/tmux-501/smolcorp-team", "split-window", "-t", "=team:", "two"}) {
 		t.Errorf("calls %q", calls)
 	}

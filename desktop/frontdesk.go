@@ -50,6 +50,13 @@ type Hire struct {
 	// TmuxServer is the pid of a sandboxed desk's tmux server, as the core checked it at its start (SA-M6, SANDBOX-PLAN
 	// §A5.2 step 9): the only server its guarded tmux may talk to. Written only then.
 	TmuxServer int `json:"tmuxServer,omitempty"`
+	// TmuxPane is the pid of the process its tmux started for the desk's start (its helper, which becomes its agent), as
+	// that start said it, and TmuxPaneStarted when that process started (processStartedAt). Unguarded says why the desk
+	// no longer counts as guarded: its pane was found running another process (SA-M7, RT126SG2R2 N1, N2). Each written
+	// only when known.
+	TmuxPane        int    `json:"tmuxPane,omitempty"`
+	TmuxPaneStarted int64  `json:"tmuxPaneStarted,omitempty"`
+	Unguarded       string `json:"unguarded,omitempty"`
 	// ViaLauncher: the hire engine made it in a window run by the launcher, which is known by this hire's id.
 	ViaLauncher bool    `json:"viaLauncher,omitempty"`
 	Account     string  `json:"account"`

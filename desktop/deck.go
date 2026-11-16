@@ -315,6 +315,7 @@ func NewDeck() *Deck {
 	d.rounds.every(pruneInterval, func() {
 		d.pruneClosedTabs()
 		d.pruneGoneAgents()
+		d.markRespawnedDesks() // a desk's pane running another process than its start made (SA-M7)
 	})
 	d.rounds.every(handOnInterval, func() {
 		d.mu.Lock()

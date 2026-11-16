@@ -4,9 +4,11 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -117,3 +119,49 @@ func hireAgentMissing(program string) string {
 
 // prepareHireWindow: a window here is the terminal's own to open.
 func prepareHireWindow(*exec.Cmd, string) {}
+
+// windowScriptLines are a window's few lines: remove the script, point the
+// `smolcorp` command at a test copy (its port and folder; the terminal's
+// environment is its own, not this program's), then run command, each word
+// quoted so it's only ever itself.
+func windowScriptLines(command []string, testPort int, testSupport string) (string, error) {
+	if len(command) == 0 {
+		return "", errors.New("nothing to run")
+	}
+	quoted := make([]string, len(command))
+	for i, word := range command {
+		quoted[i] = shellQuoted(word)
+	}
+	lines := "#!/bin/sh\nrm -f -- \"$0\"\n"
+	if testPort != 0 {
+		lines += "export SMOLCORP_PORT=" + shellQuoted(strconv.Itoa(testPort)) + "\n" +
+			"export SMOLCORP_TEST_SUPPORT_DIR=" + shellQuoted(testSupport) + "\n"
+	}
+	return lines + "exec " + strings.Join(quoted, " ") + "\n", nil
+}
+
+// writeWindowScript writes a window's script into folder (made 0700 if need
+// be), only yours to read or run, as the bridge's open requires.
+func writeWindowScript(folder string, command []string, testPort int, testSupport string) (string, error) {
+	lines, err := windowScriptLines(command, testPort, testSupport)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		return "", err
+	}
+	file, err := os.CreateTemp(folder, "window-*.sh")
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	if err := file.Chmod(0o700); err != nil {
+		os.Remove(file.Name())
+		return "", err
+	}
+	if _, err := file.WriteString(lines); err != nil {
+		os.Remove(file.Name())
+		return "", err
+	}
+	return file.Name(), nil
+}

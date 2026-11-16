@@ -54,3 +54,13 @@ func processName(pid int) string {
 	}
 	return string(name)
 }
+
+// processStartedAt is when process pid started, as the kernel keeps it (microseconds since 1970), or 0 when it can't
+// be read. With the pid, it tells a process from a later one that was given the same pid (RT126SG2R2 N1).
+func processStartedAt(pid int) int64 {
+	p, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil || int(p.Proc.P_pid) != pid {
+		return 0
+	}
+	return p.Proc.P_starttime.Sec*1_000_000 + int64(p.Proc.P_starttime.Usec)
+}

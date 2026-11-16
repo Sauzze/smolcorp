@@ -392,7 +392,8 @@ func TestARealSessionOnItsOwnSocket(t *testing.T) {
 	}
 }
 
-// The tmux server's environment is a hire's: nothing of where Smolcorp started, and never the GM's token.
+// The tmux server's environment is a hire's (its start call's): nothing of where Smolcorp started, and never the GM's
+// token. Every other call's is tmuxClient's alone (tmuxclient_test.go).
 func TestTmuxIsGivenAHiresEnvironment(t *testing.T) {
 	isolate(t)
 	dir := t.TempDir()
@@ -405,7 +406,7 @@ func TestTmuxIsGivenAHiresEnvironment(t *testing.T) {
 		t.Setenv(name, "fake-gm-token-1")
 	}
 	t.Setenv("HIRE_KEEPS_THIS", "yes")
-	if _, status, ran := realTmux(fake)([]string{"-V"}); !ran || status != 0 {
+	if _, status, ran := tmuxStartCall(fake)([]string{"-V"}); !ran || status != 0 {
 		t.Fatalf("fake tmux ran %v status %d", ran, status)
 	}
 	got, err := os.ReadFile(dump)

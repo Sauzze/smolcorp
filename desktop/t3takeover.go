@@ -425,6 +425,8 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 				// A new server, started by the tmux this system picks now (a sandboxed desk's, the bundled one, with its
 				// server's pid as the core checked it: SA-M6): its row says so.
 				r.TmuxSocket, r.TmuxProgram, r.TmuxServer = resumed.Socket, resumed.Program, resumed.Server
+				// Its new pane's process, the one this start made: what a respawn is told from (SA-M7).
+				r.TmuxPane, r.TmuxPaneStarted, r.Unguarded = resumed.Pane, resumed.PaneStarted, ""
 			}
 		})
 	}) {
@@ -441,10 +443,13 @@ func t3BeingTakenOver(h Hire) string {
 }
 
 // t3Resumed is where Hand back's resume runs (t3ResumeInTmux): its socket as tmux spells it, the tmux that started
-// it, and a sandboxed desk's server pid as the core checked it (SA-M6).
+// it, a sandboxed desk's server pid as the core checked it (SA-M6), and its pane's process (SA-M7).
 type t3Resumed struct {
 	Socket, Program string
 	Server          int
+	// Pane is the pid of the process tmux started for it, and PaneStarted when that started (processStartedAt).
+	Pane        int
+	PaneStarted int64
 }
 
 // t3ResumedUnsaved is what Hand back says when the hire was resumed but the registry still has it as handed over.
@@ -651,6 +656,7 @@ func (d *Deck) handBackFromT3(id string) (int, any) {
 			if deskSocketID(r.TmuxSocket, testCopyPort()) == "" { // a sandboxed desk keeps its bundled tmux (SA-M6)
 				r.TmuxProgram = recordableTmux(tmuxPath())
 			}
+			r.TmuxPane, r.TmuxPaneStarted = 0, 0 // that start's pane wasn't kept: none from before is compared with it
 		}) != nil {
 			err = t3Refused(http.StatusInternalServerError, "The registry couldn't be written, so "+calledHire(hire)+" still shows as handed over.")
 		}

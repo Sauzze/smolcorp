@@ -69,9 +69,9 @@ func (o engineOptions) sandboxDesk(tmux *hireTmux, d deskAt) error {
 		return err
 	}
 	if o.Sandbox != nil {
-		tmux.starts = o.Sandbox(desk)
+		tmux.startOnly = onlyStarts(tmux.socket, o.Sandbox(desk))
 	} else {
-		tmux.starts = desk.starter(tmux.program, o.CLI)
+		tmux.startOnly = onlyStarts(tmux.socket, desk.starter(tmux.program, o.CLI))
 	}
 	return nil
 }
@@ -338,13 +338,17 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		undoMade()
 		return Hire{}, goneWhileStarting(hire, "its tmux session was ended")
 	}
-	if socket != hire.TmuxSocket || tmux.server != 0 {
+	// Its pane's process, as its start said it, and when that process started: what a respawned pane, or a pid used
+	// again, is told from (SA-M7, RT126SG2R2 N1, N2).
+	hire.TmuxPane, hire.TmuxPaneStarted = started, paneStartedAt(started)
+	if socket != hire.TmuxSocket || tmux.server != 0 || hire.TmuxPane != 0 {
 		// As tmux spells it (it may say /private/var for /var): the same file, which isHireSocket allows. A sandboxed
 		// desk's server pid, as the core checked it (§A5.2 step 9), goes with it: its guarded tmux talks to that one.
 		hire.TmuxSocket, hire.TmuxServer = socket, tmux.server
 		if err := updateRegistry(func(f *registryFile) {
 			if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == id }); i >= 0 {
 				f.hires[i].TmuxSocket, f.hires[i].TmuxServer = socket, tmux.server
+				f.hires[i].TmuxPane, f.hires[i].TmuxPaneStarted = hire.TmuxPane, hire.TmuxPaneStarted
 			}
 		}); err != nil {
 			tmux.end()

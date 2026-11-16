@@ -167,5 +167,5 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 	if program == "" && !tmux.sandboxed {
 		program = recordableTmux(tmuxPath()) // a stand-in runner's: the tmux this system picks now, as before
 	}
-	return t3Resumed{Socket: socket, Program: program, Server: tmux.server}, nil
+	return t3Resumed{Socket: socket, Program: program, Server: tmux.server, Pane: started, PaneStarted: paneStartedAt(started)}, nil
 }

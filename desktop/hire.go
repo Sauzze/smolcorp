@@ -352,11 +352,24 @@ var canOpenWindows = hasDesktop
 // tests.
 var startHire = startAndWait
 
-// runTmux runs tmux and gives what it printed: a variable, for the tests.
+// runTmux runs tmux on the default server for a plain hire and gives what it printed: a variable, for the tests. Its
+// session's start (new-session) is a server start (tmuxStartCall: the guard off for it alone, taken out of the server's
+// environment if this call starts it); any other call is a one-shot client's (tmuxClient), with no pid to check on
+// that server. The server reads the owner's start file there: it may be the owner's own (RT126SG2R2 N3).
 var runTmux = func(args ...string) (string, error) {
-	cmd, cancel := terminalCommand(tmuxPath(), args...)
+	program := tmuxPath()
+	if len(args) > 0 && args[0] == "new-session" {
+		out, status, ran := tmuxStartCall(program)(tmuxServerStart(args...))
+		if !ran || status != 0 {
+			return "", fmt.Errorf("tmux didn't start the session (status %d)", status)
+		}
+		return strings.TrimSpace(out), nil
+	}
+	cmd, cancel, err := tmuxClient(terminalTimeout, program, tmuxUnchecked, args...)
+	if err != nil {
+		return "", err
+	}
 	defer cancel()
-	cmd.Env = hireEnvironment()
 	output, err := cmd.Output()
 	return strings.TrimSpace(string(output)), err
 }
@@ -995,7 +1008,8 @@ func openHire(command []string, folder string, terminal hireOpener, hasTerminal,
 		return errUnsupported
 	}
 	if err := openWindow(terminal, folder, []string{tmuxPath(), "-S", socket, "attach", "-t", name}); err != nil {
-		_, _ = runTmux("kill-session", "-t", name)
+		// On the socket the session was made on: a one-shot client has none of the owner's TMUX_TMPDIR to find it by.
+		_, _ = runTmux("-S", socket, "kill-session", "-t", name)
 		return err
 	}
 	return nil

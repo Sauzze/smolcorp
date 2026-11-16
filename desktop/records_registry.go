@@ -143,8 +143,8 @@ func withoutGrants(f registryFile) registryFile {
 }
 
 // registryTightens is whether the registry going from old to now takes authority away (§3.2, RT126SK1 B3): a send
-// key renewed or removed, a contact removed, a hire gone or let go, or a hire's role or scope changed. Those are
-// written under a new record key, so a copy from before no longer fits.
+// key renewed or removed, a contact removed, a hire gone or let go, a hire's role or scope changed, or a desk marked
+// unguarded (SA-M7). Those are written under a new record key, so a copy from before no longer fits.
 func registryTightens(old, now registryFile) bool {
 	for id, hash := range old.keys {
 		if now.keys[id] != hash {
@@ -167,7 +167,7 @@ func registryTightens(old, now registryFile) bool {
 			return true
 		}
 		n := now.hires[i]
-		if n.Role != h.Role || n.Scope != h.Scope || n.ScopeRoles != h.ScopeRoles || isOpen(h) && !isOpen(n) {
+		if n.Role != h.Role || n.Scope != h.Scope || n.ScopeRoles != h.ScopeRoles || isOpen(h) && !isOpen(n) || h.Unguarded == "" && n.Unguarded != "" {
 			return true
 		}
 	}

@@ -168,3 +168,6 @@ func processName(pid int) string {
 	}
 	return ""
 }
+
+// processStartedAt: no desk runs in tmux here.
+func processStartedAt(int) int64 { return 0 }

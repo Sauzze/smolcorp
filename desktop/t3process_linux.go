@@ -57,3 +57,23 @@ func processName(pid int) string {
 	}
 	return strings.TrimSpace(string(comm))
 }
+
+// processStartedAt is when process pid started, as the kernel keeps it (clock ticks after boot, /proc/<pid>/stat's
+// 22nd field), or 0 when it can't be read. With the pid, it tells a process from a later one that was given the same
+// pid (RT126SG2R2 N1).
+func processStartedAt(pid int) int64 {
+	stat, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	end := strings.LastIndexByte(string(stat), ')') // the name, in brackets, may hold anything
+	if err != nil || end < 0 {
+		return 0
+	}
+	fields := strings.Fields(string(stat[end+1:])) // from the 3rd field on
+	if len(fields) < 20 {
+		return 0
+	}
+	started, err := strconv.ParseInt(fields[19], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return started
+}
