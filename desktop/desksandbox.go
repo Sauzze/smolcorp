@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -223,7 +224,11 @@ func deskStoppedNow(h Hire) bool {
 // deskPlaces is what the core knows of where desk d works, as the sandbox's Places: every path resolved, as the
 // kernel checks it.
 func deskPlaces(d deskAt) (sandbox.Places, error) {
-	pl := sandbox.Places{Subject: sandbox.Hire, Home: physical(homeDir), Support: physical(supportDir), OwnID: d.ID,
+	own, err := deskOwnID(runtime.GOOS, d.ID)
+	if err != nil {
+		return sandbox.Places{}, err
+	}
+	pl := sandbox.Places{Subject: sandbox.Hire, Home: physical(homeDir), Support: physical(supportDir), OwnID: own,
 		Root: physical(d.Root), SocketParent: physical(deskSocketParent()), OwnSockets: physical(filepath.Dir(d.Socket))}
 	if d.GM {
 		pl.Subject = sandbox.GM
@@ -271,6 +276,28 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 	defer cancel()
 	pl.GitHooks, pl.GitNamed, err = sandbox.ReadGitConfig(ctx, git, nil, pl)
 	return pl, err
+}
+
+// deskOwnID is the id desk id's sandbox knows it by (Places.OwnID): its own folder hires/<id>, and on Linux its kept
+// copy and its branch folder refs/heads/hire/<id>, the only one its view lets it write. There it is the slug hireBranch
+// names its branch by, the GM's as well as a hire's (RMSYLCHAIN F4), or the desk commits nowhere. The core's ids are
+// their own slug; a desk whose id isn't has no sandbox on Linux, rather than one whose folders don't match.
+func deskOwnID(goos, id string) (string, error) {
+	if goos != "linux" || hireSlug(id) == id {
+		return id, nil
+	}
+	return "", errors.New("desk " + strconv.Quote(id) + "'s id isn't the slug its branch is named by (" + hireSlug(id) + ")")
+}
+
+// deskKeptFolder is the kept copy a desk's guard is told of (--held), for a desk the engine starts in its sandbox on
+// goos (sandboxed): a Linux desk's start keeps a copy of the places no mount holds in its view (sandbox.SaveKept, from
+// PrepareBwrap), and its guard checks them against it before and after each call (L1GUARD1, the release gate's item
+// 4b). "" for a desk that keeps none: on a Mac, or a desk not started in its sandbox.
+func deskKeptFolder(goos string, sandboxed bool, id string) string {
+	if goos != "linux" || !sandboxed {
+		return ""
+	}
+	return sandbox.KeptFolder(physical(supportDir), hireSlug(id))
 }
 
 // deskGitPlaces fills the repo d works in: its shared .git, its own registration in it and the others', and the

@@ -46,7 +46,8 @@ var spawnExemptFunctions = map[string]string{
 		"iTerm or Ghostty) or a desk's tmux, itself started through disclaim.Cmd, so the agent is charged to that terminal or tmux, never to the core",
 	"internal/sandbox/enter_unix.go enter": "smolcorp sandbox enter becoming the desk's start in place, inside the desk's sandbox, once its checks " +
 		"passed: an exec in place starts no process, and `enter` itself is started through disclaim.Cmd, by sandbox-exec in " +
-		"internal/sandbox/run_darwin.go MacCommand (SA-M3; pinned below)",
+		"internal/sandbox/run_darwin.go MacCommand (SA-M3; pinned below), and on Linux by bwrap in run_linux.go LinuxCommand (SA-L2; " +
+		"pinned in TestTheLinuxRunnerStartsBwrapThroughDisclaimToo)",
 	"internal/sandbox/apparmor.go labelOf": "Smolcorp's copy of bubblewrap running a no-op to read the AppArmor label of " +
 		"what it runs (L1APPARMOR1's start check): Linux only, where nothing is charged to Smolcorp.app. CheckBwrap reaches " +
 		"it only once the packaged bwrap and the copy are root's and AppArmor's profiles are loaded, never on a Mac, and " +
@@ -375,6 +376,55 @@ func TestEveryProgramStartsDisclaimedOnAMac(t *testing.T) {
 		if !seen["wrapped "+site] {
 			t.Errorf("%s isn't handed to disclaim.Cmd (or given disclaim.Words's)", site)
 		}
+	}
+}
+
+// SA-L2: the read above is a Mac build's, which never sees Linux's runner. Each file of internal/sandbox that only a
+// Linux build compiles is read here by the same rule: Linux's runner starts bwrap through disclaim.Cmd (which starts it
+// as it is off a Mac), so `enter`'s exemption above holds there too, and nothing else of the sandbox's starts a
+// program unseen.
+func TestTheLinuxRunnerStartsBwrapThroughDisclaimToo(t *testing.T) {
+	mac, linux := build.Default, build.Default
+	mac.GOOS, mac.GOARCH, mac.CgoEnabled = "darwin", "arm64", true
+	linux.GOOS, linux.GOARCH, linux.CgoEnabled = "linux", "amd64", false
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir("../internal/sandbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen, read := map[string]bool{}, 0
+	for _, entry := range entries {
+		base := entry.Name()
+		if !strings.HasSuffix(base, ".go") || strings.HasSuffix(base, "_test.go") {
+			continue
+		}
+		onLinux, err := linux.MatchFile("../internal/sandbox", base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if onMac, err := mac.MatchFile("../internal/sandbox", base); err != nil || !onLinux || onMac {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filepath.Join("../internal/sandbox", base), nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		read++
+		name := "internal/sandbox/" + base
+		for _, site := range spawnSites(fset, name, file) {
+			if site.wrapped {
+				seen["wrapped "+name+" "+site.call] = true
+			}
+			if problem := spawnViolation(name, site); problem != "" {
+				t.Error(problem)
+			}
+		}
+	}
+	if read < 3 {
+		t.Fatalf("only %d Linux-only files read: the walk is looking in the wrong place", read)
+	}
+	if !seen["wrapped internal/sandbox/run_linux.go exec.Command"] {
+		t.Error("internal/sandbox/run_linux.go's start of bwrap isn't handed to disclaim.Cmd")
 	}
 }
 

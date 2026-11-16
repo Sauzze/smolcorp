@@ -43,20 +43,13 @@ import (
 // SandboxExecPath is the only sandbox-exec the core runs: Apple's, on the system volume.
 const SandboxExecPath = "/usr/bin/sandbox-exec"
 
-// What the owner sees, on the card and in Setup's Sandbox row (§A5.2's table).
-const (
-	// SandboxExecRefusal: sandbox-exec is missing or not Apple's alone, or the profile can't be used.
-	SandboxExecRefusal = "Smolcorp couldn't put this hire in its sandbox on this Mac, so it didn't start it. Update Smolcorp, or turn the sandbox off in Settings."
-	// NotOurServerRefusal: something was at the desk's socket already, or the server there isn't the one started.
-	NotOurServerRefusal = "Something else was already using this hire's place, so Smolcorp didn't start it. Quit other copies of Smolcorp and try again."
-)
+// SandboxExecRefusal is what the owner sees, on the card and in Setup's Sandbox row (§A5.2's table), when
+// sandbox-exec is missing or not Apple's alone, or the profile can't be used. NotOurServerRefusal is runner.go's.
+const SandboxExecRefusal = "Smolcorp couldn't put this hire in its sandbox on this Mac, so it didn't start it. Update Smolcorp, or turn the sandbox off in Settings."
 
-// Errors the runner gives.
-var (
-	ErrNoSandboxExec = errors.New("sandbox: /usr/bin/sandbox-exec is missing, or it or a folder above it isn't root's alone")
-	ErrStartNotWhole = errors.New("sandbox: a desk's start needs whole paths: the profile, Smolcorp and the program")
-	ErrNotOurServer  = errors.New("sandbox: the server at the desk's socket isn't in this start's sandbox")
-)
+// ErrNoSandboxExec is the runner's when sandbox-exec isn't fit to run (CheckSandboxExec); its other errors are
+// runner.go's.
+var ErrNoSandboxExec = errors.New("sandbox: /usr/bin/sandbox-exec is missing, or it or a folder above it isn't root's alone")
 
 // pinnedStat is what CheckSandboxExec asks of a path, never following a link: a stand-in in the tests.
 var pinnedStat = func(path string) (fs.FileMode, uint32, error) {

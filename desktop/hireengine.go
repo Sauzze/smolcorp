@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -172,7 +173,7 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	// A Claude Code desk gets its own Claude folder (SA-X8), made below, and its plans kept outside it.
 	claude := agentOrClaude(r.Role.Agent) == Claude
 	settings, err := writeHireSettings(hireSettingsOptions{HireID: id, Auto: engineAutoMode, Profile: profile, CLI: o.CLI, Support: supportDir,
-		ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec, OwnClaude: claude})
+		ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec, OwnClaude: claude, Kept: deskKeptFolder(runtime.GOOS, tmux.sandboxed, id)})
 	if err != nil {
 		undo()
 		return Hire{}, err

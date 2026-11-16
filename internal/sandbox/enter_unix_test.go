@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"os"
@@ -390,6 +391,9 @@ type fakeSystem struct {
 	descriptorsFn  func() ([]int, error)
 	closeAtExecFn  func(fd int) error
 	closesAtExecFn func(fd int) (bool, error)
+	ioctlFn        func(fd int, request uint64) error
+	listenFn       func(name string) (io.Closer, error)
+	landlockFn     func() error
 }
 
 func (f fakeSystem) lstat(path string) (fs.FileInfo, error) { return f.lstatFn(path) }
@@ -400,6 +404,9 @@ func (f fakeSystem) fsType(path string) string              { return f.fsTypeFn(
 func (f fakeSystem) descriptors() ([]int, error)            { return f.descriptorsFn() }
 func (f fakeSystem) closeAtExec(fd int) error               { return f.closeAtExecFn(fd) }
 func (f fakeSystem) closesAtExec(fd int) (bool, error)      { return f.closesAtExecFn(fd) }
+func (f fakeSystem) ioctl(fd int, request uint64) error     { return f.ioctlFn(fd, request) }
+func (f fakeSystem) listen(name string) (io.Closer, error)  { return f.listenFn(name) }
+func (f fakeSystem) landlock() error                        { return f.landlockFn() }
 
 // otherDevice is info as seen on another device: the private view's tmpfs.
 type otherDevice struct {
@@ -439,8 +446,8 @@ func holding(goos string, s *Start, d standInDesk) fakeSystem {
 			return nil
 		},
 		removeFn: func(string) error { return nil },
-		connectFn: func(string) error {
-			if goos == "darwin" {
+		connectFn: func(path string) error {
+			if goos == "darwin" || strings.HasPrefix(path, "@") { // an abstract name: only the Landlock row tries one
 				return syscall.EPERM
 			}
 			return syscall.ENOENT
@@ -449,6 +456,15 @@ func holding(goos string, s *Start, d standInDesk) fakeSystem {
 		descriptorsFn:  func() ([]int, error) { return []int{0, 1, 2, 3, 7}, nil },
 		closeAtExecFn:  func(int) error { return nil },
 		closesAtExecFn: func(int) (bool, error) { return true, nil },
+		// Linux's filter and Landlock's scope, holding.
+		ioctlFn: func(fd int, request uint64) error {
+			if uint32(request) == requestTIOCSTI || uint32(request) == requestTIOCLINUX {
+				return syscall.EPERM
+			}
+			return syscall.EBADF
+		},
+		listenFn:   func(string) (io.Closer, error) { return io.NopCloser(nil), nil },
+		landlockFn: func() error { return nil },
 	}
 }
 

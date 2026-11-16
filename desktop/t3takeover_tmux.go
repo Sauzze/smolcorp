@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 )
 
@@ -115,7 +116,7 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 	// ~/.claude, with Claude Code's own plans folder. One that resumes a desk in its own Claude folder (SA-X8) must set
 	// OwnClaude and DeskClaude and make its plans folder, as the engine does (RT126SAX8R2).
 	settings, err := writeHireSettings(hireSettingsOptions{HireID: h.ID, Auto: engineAutoMode, Profile: guardHire, CLI: o.CLI,
-		Support: supportDir, ReportPort: testPort, Profiles: profiles, Run: o.Guard, IsExec: o.IsExec})
+		Support: supportDir, ReportPort: testPort, Profiles: profiles, Run: o.Guard, IsExec: o.IsExec, Kept: deskKeptFolder(runtime.GOOS, tmux.sandboxed, h.ID)})
 	if err != nil {
 		return t3Resumed{}, errors.New("its settings, its fence, couldn't be made: " + err.Error())
 	}

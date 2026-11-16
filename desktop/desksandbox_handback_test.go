@@ -183,6 +183,12 @@ func TestASandboxedHandBackStopsAndResumesTheDeskInItsSandbox(t *testing.T) {
 	if _, ok := deskSandboxOf(hire.ID); !ok {
 		t.Error("the resumed desk's sandbox isn't kept for its stop")
 	}
+	// Its guard is told its kept copy as the engine's start told it (the release gate's item 4b): on Linux only.
+	pre, post := guardWordsIn(t, filepath.Join(hireFolder(supportDir, hire.ID), hireSettingsFile))
+	if kept := keptForThisSystem(hire.ID); (kept != "") != slices.Contains(pre, "--held") ||
+		(kept != "") != slices.Contains(post["PostToolUse"], kept) || (kept != "") != slices.Contains(post["PostToolUseFailure"], kept) {
+		t.Errorf("Hand back's guard words: before %q, after %q; kept copy %q", pre, post, kept)
+	}
 
 	// A desk whose session ended by itself has nothing to stop, and its folder goes too: the next resume makes it new.
 	r.tmux.up = false

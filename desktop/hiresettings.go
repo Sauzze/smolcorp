@@ -185,10 +185,20 @@ func smolcorpHook(tool string, arguments []string, timeout int) map[string]any {
 
 // guardHook is the PreToolUse hook: `guard`, its profile, the core's copy of the
 // groups (held) and the rules file, which only adds to them; with the settings file
-// (file, "" for none), its name and the blank its seal is put in (settingsfile.go).
-func guardHook(tool, rules, held string, profile guardProfile, file string) map[string]any {
+// (file, "" for none), its name and the blank its seal is put in (settingsfile.go); with
+// a Linux desk's kept copy (kept, "" for none), its folder (keptWords).
+func guardHook(tool, rules, held string, profile guardProfile, file, kept string) map[string]any {
 	arguments := append(append([]string{"guard"}, profile.arguments()...), "--groups", held, "--rules", rules)
-	return smolcorpHook(tool, append(arguments, settingsWords(file)...), 10)
+	return smolcorpHook(tool, append(append(arguments, settingsWords(file)...), keptWords(kept)...), 10)
+}
+
+// keptWords are the guard's words naming the folder of a Linux desk's kept copy (--held: L1GUARD1, the release gate's
+// item 4b), none for a desk that keeps none.
+func keptWords(kept string) []string {
+	if kept == "" {
+		return nil
+	}
+	return []string{"--held", kept}
 }
 
 // settingsWords are the guard's words naming the settings file and its seal, none without a file.
@@ -523,6 +533,9 @@ type hireSettingsOptions struct {
 	// File is where the settings are written (writeHireSettings), named in the guard's words with its seal; ""
 	// for settings never written there (T3 Code's fence, the fixtures).
 	File string
+	// Kept is the folder of the copy a Linux desk's start keeps of the places no mount holds in its view
+	// (deskKeptFolder), named in the guard's words before and after each call; "" for a desk that keeps none.
+	Kept string
 }
 
 // hireSettingsText is hire HireID's settings as their file holds them (writeHireSettings): refused if the guard
@@ -593,11 +606,17 @@ func hireSettingsObject(o hireSettingsOptions) (map[string]any, error) {
 	if shell == "" {
 		shell = pinnedShell(runtime.GOOS, os.Getenv("SHELL"), isExecutableFile)
 	}
-	value := hireSettingsValue(deny, guardHook(o.CLI, rules, held, profile, o.File), configHook(o.CLI), shell, o.Auto, reporting, profile)
-	// The guard checks the settings file after each call too, failed ones included.
+	// A desk with a kept copy is checked against it after each call too, and the guard then needs the settings file
+	// named (SETTINGSFILE1): one without would have no after-call check at all.
+	if o.Kept != "" && o.File == "" {
+		return nil, &hireRefusal{Status: 500, Message: "This desk's guard couldn't be told what to check after each call, so Smolcorp won't start it unguarded."}
+	}
+	value := hireSettingsValue(deny, guardHook(o.CLI, rules, held, profile, o.File, o.Kept), configHook(o.CLI), shell, o.Auto, reporting, profile)
+	// The guard checks the settings file after each call too, failed ones included, and a Linux desk's kept places.
 	if o.File != "" {
 		hooks := value["hooks"].(map[string]any)
-		after := map[string]any{"matcher": "*", "hooks": []any{smolcorpHook(o.CLI, append([]string{"guard", "--after"}, settingsWords(o.File)...), 10)}}
+		words := append(append([]string{"guard", "--after"}, settingsWords(o.File)...), keptWords(o.Kept)...)
+		after := map[string]any{"matcher": "*", "hooks": []any{smolcorpHook(o.CLI, words, 10)}}
 		for _, event := range []string{"PostToolUse", "PostToolUseFailure"} {
 			existing, _ := hooks[event].([]any)
 			hooks[event] = append([]any{after}, existing...)

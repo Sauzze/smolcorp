@@ -301,6 +301,8 @@ var tmuxExecAllowed = map[string]string{
 	"internal/sandbox/enter_unix.go enter syscall.Exec(e.program)": "a sandboxed desk's start (its guard off for that start alone) or attach (told the checked server, SA-M8): smolcorp sandbox enter becomes the bundled tmux",
 	// Not a tmux: the reading says so by its function's name (it resumes a desk in its tmux); it runs the guard tool.
 	"t3takeover_tmux.go t3ResumeInTmux writeHireSettings(hireSettingsOptions{…})": "not a tmux: smolcorp's own guard tool",
+	// Not a tmux: its words name tmux only by reading tmux.sandboxed, for the desk's kept folder (SA-L2); it runs the guard tool.
+	"hireengine.go runManagedHire writeHireSettings(hireSettingsOptions{…})": "not a tmux: smolcorp's own guard tool",
 }
 
 // execStarters are the standard library's ways to start a program, by package path, each with the argument that is the

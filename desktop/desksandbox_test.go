@@ -298,9 +298,43 @@ func TestEveryEngineDeskStartsInItsSandboxAndItsServerIsRecorded(t *testing.T) {
 		t.Error("its sandbox isn't kept for its stop")
 	}
 	// The GM is a desk in its sandbox too, as the GM.
-	if _, err := runManagedHire(r.request(gmRole), r.o); err != nil || r.desks[1].places.Subject != sandbox.GM {
+	gm, err := runManagedHire(r.request(gmRole), r.o)
+	if err != nil || r.desks[1].places.Subject != sandbox.GM {
 		t.Errorf("the GM: %v", err)
 	}
+	// The release gate's item 4b and F4 (SA-L2): on Linux each desk's guard is told its kept copy before and after each
+	// call, and its view knows it by the id its branch is named by, the GM's too; on a Mac, no copy.
+	for i, desk := range []Hire{hire, gm} {
+		before, after := guardWordsIn(t, filepath.Join(hireFolder(supportDir, desk.ID), hireSettingsFile))
+		kept := keptForThisSystem(desk.ID)
+		held := slices.Index(before, "--held")
+		if kept == "" && held >= 0 || kept != "" && (held < 0 || before[held+1] != kept) {
+			t.Errorf("%s: the guard's words before a call: %q, want the kept copy %q", desk.ID, before, kept)
+		}
+		for _, event := range []string{"PostToolUse", "PostToolUseFailure"} {
+			words := after[event]
+			if len(words) < 6 || words[2] != "--settings" || words[4] != "--sum" ||
+				kept != "" && !slices.Equal(words[6:], []string{"--held", kept}) || kept == "" && len(words) != 6 {
+				t.Errorf("%s: the guard's words after a call (%s): %q, want the kept copy %q", desk.ID, event, words, kept)
+			}
+		}
+		own := r.desks[i].places.OwnID
+		if row := registryRow(t, desk.ID); row.Branch != "" && !strings.HasPrefix(row.Branch, sandbox.HireBranch(own, "")) {
+			t.Errorf("%s: its branch %q isn't in its view's branch folder (%q)", desk.ID, row.Branch, own)
+		}
+	}
+}
+
+// registryRow is the registry's row for id.
+func registryRow(t *testing.T, id string) Hire {
+	t.Helper()
+	for _, row := range registered(t) {
+		if row.ID == id {
+			return row
+		}
+	}
+	t.Fatalf("no row for %s", id)
+	return Hire{}
 }
 
 func TestASandboxedStartRefusedTakesEverythingBack(t *testing.T) {

@@ -36,6 +36,10 @@ import (
 // the core expects, so a row missing, added, reordered or failed, another start's nonce, or anything after the end, is
 // refused like no report at all. Starting `enter` inside the desk's sandbox, and checking the server is ours after it
 // (§A5.2 steps 8 and 9), are each system's runner's (SA-M3, SA-L2) and the start wiring's (SA-M6).
+//
+// On Linux two rows more (SA-L2, §A5.2 step 6): the seccomp filter its bwrap loaded refuses TIOCSTI and TIOCLINUX
+// (every Linux start: LinuxCommand refuses one without it), and Landlock's abstract-socket scope, which `enter` applies
+// itself on the thread that becomes the desk's program, holds (where the kernel has it: LandlockScope).
 
 const (
 	// nonceVar is where the core puts the start's nonce for `enter`, which takes it out before the exec.
@@ -59,8 +63,13 @@ const (
 	rowNoConnect = "no-connect" // the stand-in other server can't be reached
 	rowRead      = "read"       // its brief reads
 	rowWrite     = "write"      // its status writes
+	rowSeccomp   = "seccomp"    // Linux: the filter refuses TIOCSTI and TIOCLINUX, and no more
+	rowLandlock  = "landlock"   // Linux: Landlock's abstract-socket scope applied, and holding
 	rowFDs       = "fds"        // nothing above 2 reaches the program
 )
+
+// bareRow says which rows are tried on no path: on `enter`'s words they are a flag alone, and the core may leave them out.
+func bareRow(kind string) bool { return kind == rowSeccomp || kind == rowLandlock }
 
 // row is one check: its kind and the path it's tried on ("" for the descriptors).
 type checkRow struct{ kind, path string }
@@ -187,6 +196,10 @@ type Checks struct {
 	Other string
 	// Read are files the desk must read (its brief); Write, files it must open for writing (its status).
 	Read, Write []string
+	// Seccomp: the start's bwrap loads DeskFilter, which `enter` shows refuses TIOCSTI and TIOCLINUX (every Linux
+	// start). Landlock: `enter` applies Landlock's abstract-socket scope and shows it holds (a Linux start whose kernel
+	// has it: LandlockScope).
+	Seccomp, Landlock bool
 }
 
 // Start is the core's side of one desk's start through `enter`.
@@ -199,6 +212,10 @@ type Start struct {
 	other  net.Listener
 	// read is the core's end of the handshake; write is `enter`'s, which the core closes once `enter` has started.
 	read, write *os.File
+	// On Linux (LinuxCommand): bwrap's ends of the filter and its info, which the core closes once bwrap has started,
+	// and the core's end of the info, which Namespaces reads.
+	given []*os.File
+	info  *os.File
 }
 
 // NewStart makes a start's canary, nonce, other server and handshake. Close it when the start is over, whichever
@@ -228,6 +245,14 @@ func NewStart(c Checks) (*Start, error) {
 	}{{rowNoWrite, c.NoWrite}, {rowNoConnect, []string{c.Other}}, {rowRead, c.Read}, {rowWrite, c.Write}} {
 		for _, at := range list.paths {
 			s.rows = append(s.rows, checkRow{list.kind, at})
+		}
+	}
+	for _, bare := range []struct {
+		on   bool
+		kind string
+	}{{c.Seccomp, rowSeccomp}, {c.Landlock, rowLandlock}} {
+		if bare.on {
+			s.rows = append(s.rows, checkRow{kind: bare.kind})
 		}
 	}
 	s.rows = append(s.rows, checkRow{kind: rowFDs})
@@ -266,7 +291,10 @@ func (s *Start) Words(program string, args ...string) []string {
 	words = append(words, "--handshake", strconv.Itoa(handshakeFD),
 		"--canary-id", strconv.FormatUint(s.Canary.Dev, 10)+":"+strconv.FormatUint(s.Canary.Ino, 10))
 	for _, r := range s.rows {
-		if r.kind != rowFDs {
+		switch {
+		case bareRow(r.kind):
+			words = append(words, "--"+r.kind)
+		case r.kind != rowFDs:
 			words = append(words, "--"+r.kind, r.path)
 		}
 	}
@@ -328,13 +356,26 @@ func whyNot(got, want []byte) string {
 	return "the report goes on after its end"
 }
 
-// Close ends the start's other server and the core's ends of the handshake. The canary stays.
+// Close ends the start's other server and the core's ends of the handshake (and of bwrap's filter and info). The canary
+// stays.
 func (s *Start) Close() {
 	s.other.Close()
 	s.read.Close()
 	if s.write != nil {
 		s.write.Close()
 	}
+	s.closeGiven()
+	if s.info != nil {
+		s.info.Close()
+	}
+}
+
+// closeGiven closes the core's copies of what it gave bwrap besides the handshake: bwrap holds its own once started.
+func (s *Start) closeGiven() {
+	for _, f := range s.given {
+		f.Close()
+	}
+	s.given = nil
 }
 
 // entering is `enter`'s words, read.
@@ -354,6 +395,15 @@ func parseEnter(args []string) (entering, error) {
 	kinds := map[string]bool{rowCanary: true, rowNoWrite: true, rowNoConnect: true, rowRead: true, rowWrite: true}
 	seen := map[string]bool{}
 	for len(args) > 0 && args[0] != "--" {
+		if name := strings.TrimPrefix(args[0], "--"); bareRow(name) && name != args[0] {
+			if seen[name] || len(e.rows) == 0 {
+				return e, fmt.Errorf("sandbox enter: --%s is out of place, or twice", name)
+			}
+			e.rows = append(e.rows, checkRow{kind: name})
+			seen[name] = true
+			args = args[1:]
+			continue
+		}
 		if len(args) < 2 || !strings.HasPrefix(args[0], "--") {
 			return e, fmt.Errorf("sandbox enter: %q has no value", args[0])
 		}

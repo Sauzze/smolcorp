@@ -3,6 +3,8 @@
 package sandbox
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"io"
 	"io/fs"
@@ -44,6 +46,12 @@ type system interface {
 	descriptors() ([]int, error)
 	closeAtExec(fd int) error
 	closesAtExec(fd int) (bool, error)
+	// ioctl makes an ioctl call with request on fd and gives its error (Linux; ENOSYS elsewhere).
+	ioctl(fd int, request uint64) error
+	// listen listens on a unix socket at name ("@…": an abstract one); landlock applies Landlock's abstract-socket
+	// scope to the calling thread (Linux; ENOSYS elsewhere).
+	listen(name string) (io.Closer, error)
+	landlock() error
 }
 
 type realSystem struct{}
@@ -64,6 +72,8 @@ func (realSystem) open(path string, flag int) error {
 	}
 	return nil
 }
+
+func (realSystem) listen(name string) (io.Closer, error) { return net.Listen("unix", name) }
 
 func (realSystem) connect(path string) error {
 	c, err := net.Dial("unix", path)
@@ -180,6 +190,34 @@ func check(goos string, sys system, e entering, r checkRow) string {
 				return failed("made, then not removed: " + errnoWord(err))
 			}
 		}
+	case rowSeccomp:
+		// The filter bwrap loaded refuses both requests before the kernel looks at the descriptor: on none at all (-1)
+		// each gives EPERM, not EBADF, high bits or not. Another request still gives EBADF: it refuses no more.
+		for _, request := range []uint64{requestTIOCSTI, requestTIOCLINUX, 1<<32 | requestTIOCSTI} {
+			if err := sys.ioctl(-1, request); !errors.Is(err, syscall.EPERM) {
+				return failed("ioctl 0x" + strconv.FormatUint(request, 16) + ": " + gave(err) + ", not EPERM")
+			}
+		}
+		if err := sys.ioctl(-1, requestTCGETS); !errors.Is(err, syscall.EBADF) {
+			return failed("another ioctl: " + gave(err) + ", not EBADF")
+		}
+	case rowLandlock:
+		// A socket made before the scope, so outside it, at a fresh abstract name: once the scope is on, connecting to
+		// it gives EPERM. Without the scope it would connect. Either way it is closed again.
+		word := make([]byte, 8)
+		rand.Read(word)
+		name := "@smolcorp-enter-" + hex.EncodeToString(word)
+		l, err := sys.listen(name)
+		if err != nil {
+			return failed("no socket to try it on: " + errnoWord(err))
+		}
+		defer l.Close()
+		if err := sys.landlock(); err != nil {
+			return failed("not applied: " + errnoWord(err))
+		}
+		if err := sys.connect(name); !errors.Is(err, syscall.EPERM) {
+			return failed("an abstract socket outside it: " + gave(err) + ", not EPERM")
+		}
 	case rowFDs:
 		// Every descriptor above 2 closes at the exec. The handshake is closed before it, after the report.
 		fds, err := sys.descriptors()
@@ -207,6 +245,14 @@ func check(goos string, sys system, e entering, r checkRow) string {
 	return passed
 }
 
+// gave is a call's outcome in a word: "no error", or the errno's name.
+func gave(err error) string {
+	if err == nil {
+		return "no error"
+	}
+	return errnoWord(err)
+}
+
 // said is an open's outcome in a word: "opened", or the errno's name.
 func said(err error) string {
 	if err == nil {
@@ -231,6 +277,8 @@ func enter(args []string, stderr io.Writer) int {
 	if err != nil {
 		return refuseHere(stderr, err.Error())
 	}
+	// Landlock's scope (its row) is the calling thread's: the rows and the exec run on this one alone, never unlocked.
+	runtime.LockOSThread()
 	nonce := os.Getenv(nonceVar)
 	os.Unsetenv(nonceVar)
 	// The handshake first closes at the exec, whatever happens next.
