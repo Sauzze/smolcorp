@@ -52,9 +52,9 @@ type system interface {
 	// scope to the calling thread (Linux; ENOSYS elsewhere).
 	listen(name string) (io.Closer, error)
 	landlock() error
-	// forward starts the forwarder to the proxy's socket, listening at addr, and gives where it listens (Linux;
-	// ENOSYS elsewhere).
-	forward(socket, addr string) (string, error)
+	// forward starts the forwarder to the proxy's socket, listening at addr, and at app for the app's port when app
+	// isn't "", and gives where it listens at addr once it listens at both (Linux; ENOSYS elsewhere).
+	forward(socket, addr, app string) (string, error)
 }
 
 type realSystem struct{}
@@ -223,8 +223,12 @@ func check(goos string, sys system, e entering, r checkRow) string {
 		}
 	case rowProxy:
 		// The way out: the forwarder listens on the view's own loopback, and what answers through it is the core's
-		// proxy, which refuses the computer's own address.
-		at, err := sys.forward(r.path, "127.0.0.1:"+strconv.Itoa(ForwardPort))
+		// proxy, which refuses the computer's own address. The app's port, when the core gives it, is the forwarder's too.
+		app := ""
+		if e.appPort != 0 {
+			app = "127.0.0.1:" + strconv.Itoa(e.appPort)
+		}
+		at, err := sys.forward(r.path, "127.0.0.1:"+strconv.Itoa(ForwardPort), app)
 		if err != nil {
 			return failed("the forwarder didn't start: " + errnoWord(err))
 		}
@@ -329,7 +333,8 @@ func enter(args []string, stderr io.Writer) int {
 	}
 	env = append(env, tmuxGuardVar+"="+guard)
 	if slices.ContainsFunc(e.rows, func(r checkRow) bool { return r.kind == rowProxy }) {
-		env = ProxyEnv(env, ForwardPort) // its way out, checked by its row
+		self, _ := os.Executable()             // Smolcorp's own program, as the view shows it: git's ssh runs it
+		env = ProxyEnv(env, ForwardPort, self) // its way out, checked by its row
 	}
 	err = syscall.Exec(e.program, e.args, env)
 	// The core read a passing report; with no server after it, its server check refuses the start (§A5.2 step 9).

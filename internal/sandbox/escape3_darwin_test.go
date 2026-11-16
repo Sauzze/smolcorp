@@ -674,6 +674,9 @@ var startSites = map[string]string{
 	"bwrap_linux_test.go TestTheViewHoldsBranchesAndGitConfigReplacedOutside":       "git (exec.LookPath) on the test's repo, and bwrap (BwrapPath) with the test binary, Linux only",
 	"mask_linux_test.go TestTheMaskStartsOnBwrap":                                   "bwrap (BwrapPath) with the test binary, Linux only",
 	"mask_linux_test.go TestNoSessionBusNorSystemdUserInsideTheView":                "busCommands' words (systemd-run, busctl, gdbus) outside, then bwrap (BwrapPath) with the test binary, Linux only",
+
+	// MSYSTACK4's: SA-L7, built before this guard.
+	"forward_linux_test.go TestAnAbstractSocketIsNeverReached": "the test binary (os.Executable) as its abstractprobe, outside and then inside bwrap (BwrapPath) with its own network, Linux only",
 }
 
 // guardFinding is one thing the guard holds against a test file: at a line, in a declaration, what. start is a start

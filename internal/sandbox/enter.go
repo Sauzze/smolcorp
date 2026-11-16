@@ -43,7 +43,9 @@ import (
 //
 // A Linux desk's start has one row more after those (SA-L6, proxy.go): its way out. `enter` starts the forwarder on
 // the view's own loopback (from the thread Landlock's scope holds, so inside it), checks that it answers as the core's
-// proxy and refuses the computer's own address, and gives the desk HTTP(S)_PROXY and NO_PROXY for it (ProxyEnv).
+// proxy and refuses the computer's own address, and gives the desk HTTP(S)_PROXY, NO_PROXY and git's ssh for it
+// (ProxyEnv). With the app's port (SA-L7), the forwarder listens on it too, in the view, and hands it on to the app
+// through the proxy (ForwardTo); the row passes only when both listen.
 
 const (
 	// nonceVar is where the core puts the start's nonce for `enter`, which takes it out before the exec.
@@ -208,6 +210,9 @@ type Checks struct {
 	// Proxy is the core's proxy socket for the desk, as its view shows it (ProxySocket): `enter` starts the forwarder
 	// to it and checks the way out (a Linux start; "" for none). The core listens there before the start.
 	Proxy string
+	// AppPort is the app's own port, which the forwarder also listens on in the view, for the app (with Proxy only;
+	// 0 for none).
+	AppPort int
 }
 
 // Start is the core's side of one desk's start through `enter`.
@@ -217,7 +222,9 @@ type Start struct {
 	// attach is the desk's server pid for an attach (NewAttach): `enter` tells the guarded client that pid. 0 for a start.
 	attach int
 	rows   []checkRow
-	other  net.Listener
+	// appPort is the app's port the proxy row's forwarder listens on too, or 0.
+	appPort int
+	other   net.Listener
 	// read is the core's end of the handshake; write is `enter`'s, which the core closes once `enter` has started.
 	read, write *os.File
 	// On Linux (LinuxCommand): bwrap's ends of the filter and its info, which the core closes once bwrap has started,
@@ -237,11 +244,14 @@ func NewStart(c Checks) (*Start, error) {
 			return nil, fmt.Errorf("sandbox: the fence %s isn't there to check: %w", fence, err)
 		}
 	}
+	if c.AppPort != 0 && (c.Proxy == "" || c.AppPort < 0 || c.AppPort > 65535 || c.AppPort == ForwardPort) {
+		return nil, fmt.Errorf("sandbox: the app's port %d is forwarded inside only with a way out, and not on the forwarder's own", c.AppPort)
+	}
 	word := make([]byte, 16)
 	if _, err := rand.Read(word); err != nil {
 		return nil, err
 	}
-	s := &Start{nonce: hex.EncodeToString(word)}
+	s := &Start{nonce: hex.EncodeToString(word), appPort: c.AppPort}
 	var err error
 	if s.Canary, err = NewCanary(c.Support); err != nil {
 		return nil, err
@@ -308,6 +318,9 @@ func (s *Start) Words(program string, args ...string) []string {
 		case r.kind != rowFDs:
 			words = append(words, "--"+r.kind, r.path)
 		}
+	}
+	if s.appPort != 0 {
+		words = append(words, "--app-port", strconv.Itoa(s.appPort))
 	}
 	return append(append(words, "--", program), args...)
 }
@@ -395,6 +408,7 @@ type entering struct {
 	attach    int // an attach's server pid (--attach), 0 for a start
 	dev, ino  uint64
 	rows      []checkRow
+	appPort   int // the app's port, forwarded inside by the proxy row's forwarder, or 0
 	program   string
 	args      []string
 }
@@ -441,6 +455,12 @@ func parseEnter(args []string) (entering, error) {
 			if !ok || errDev != nil || errIno != nil {
 				return e, fmt.Errorf("sandbox enter: the canary's id %q isn't device:inode", value)
 			}
+		case name == "app-port" && e.appPort == 0:
+			port, err := strconv.Atoi(value)
+			if err != nil || port <= 0 || port > 65535 || port == ForwardPort {
+				return e, fmt.Errorf("sandbox enter: the app's port %q isn't one", value)
+			}
+			e.appPort = port
 		case kinds[name], name == rowProxy && !seen[rowProxy]: // the proxy row: once at most, a Linux start's
 			if (name == rowCanary) != (len(e.rows) == 0) || !filepath.IsAbs(value) {
 				return e, fmt.Errorf("sandbox enter: --%s %q is out of place, or not a whole path", name, value)
@@ -458,6 +478,9 @@ func parseEnter(args []string) (entering, error) {
 		if !seen[kind] {
 			return e, fmt.Errorf("sandbox enter: no --%s row: a check left out isn't a check", kind)
 		}
+	}
+	if e.appPort != 0 && !seen[rowProxy] {
+		return e, errors.New("sandbox enter: the app's port is forwarded by the proxy row's forwarder, and there is none")
 	}
 	if e.handshake == 0 || e.ino == 0 {
 		return e, errors.New("sandbox enter: no handshake, or no canary id")

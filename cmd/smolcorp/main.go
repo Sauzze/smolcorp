@@ -63,7 +63,11 @@ func main() {
 		// start if they can't (desktop/memory.go).
 		os.Exit(runApp())
 	}
-	switch args[0] {
+	command := args[0]
+	if len(args) > 1 && command == "sandbox" && args[1] == "connect" {
+		command, args = "sandbox connect", args[1:]
+	}
+	switch command {
 	case "serve":
 		os.Exit(runServer())
 	case "run":
@@ -76,6 +80,11 @@ func main() {
 	case "attach":
 		// Every window, and every pane of the team grid, Smolcorp opens on a desk runs this with exec (desktop/attach.go).
 		os.Exit(desktop.RunAttach(args[1:]))
+	case "sandbox connect":
+		// Not in the usage: a Linux desk's git runs it as ssh's ProxyCommand (GIT_SSH_COMMAND), inside the desk's
+		// sandbox, to reach a host through the core's proxy (internal/sandbox/proxy.go). Its bytes are ssh's: stdin and
+		// stdout carry the connection.
+		os.Exit(sandbox.RunConnect(args[1:], os.Stdin, os.Stdout, os.Stderr))
 	case "sandbox":
 		// Not in the usage: Smolcorp starts `sandbox enter` inside a desk's sandbox, before anything of the desk's,
 		// to check the sandbox holds and tell the core so (internal/sandbox/enter.go). On Linux, `sandbox check` and

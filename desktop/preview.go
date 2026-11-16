@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 // The TV's preview address per desk (1.26 V1): the app a desk is building, as an address on this computer that the
@@ -374,11 +376,12 @@ func (t *launcherTab) connected(from, to string) {
 // process is the launcher's own process, the one holding its connection to this app, as the system's tables say
 // (connectionOwner), never as the launcher says: an agent with the hook key could connect as a launcher and name any
 // process. It is found once, as a connection keeps its process; while the launcher is connected, its tab is here,
-// so the process can't have ended and its pid been given to another. 0 when it can't be found.
+// so the process can't have ended and its pid been given to another. 0 when it can't be found, and for a connection a
+// Linux desk's way out made (SA-L7): the system's tables name the core as its process, never the desk's.
 func (t *launcherTab) process() int {
 	t.conn.Lock()
 	defer t.conn.Unlock()
-	if t.pid == 0 && t.connFrom != "" {
+	if t.pid == 0 && t.connFrom != "" && !sandbox.ThroughADesksWayOut(t.connFrom) {
 		from, err := net.ResolveTCPAddr("tcp", t.connFrom)
 		to, terr := net.ResolveTCPAddr("tcp", t.connTo)
 		if err == nil && terr == nil && from.IP != nil && to.IP != nil {

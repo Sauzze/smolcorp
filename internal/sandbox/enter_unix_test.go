@@ -394,8 +394,8 @@ type fakeSystem struct {
 	ioctlFn        func(fd int, request uint64) error
 	listenFn       func(name string) (io.Closer, error)
 	landlockFn     func() error
-	// forwardFn starts the proxy row's forwarder (SA-L6); nil, there is none (ENOSYS).
-	forwardFn func(socket, addr string) (string, error)
+	// forwardFn starts the proxy row's forwarder (SA-L6), with the app's address (SA-L7); nil, there is none (ENOSYS).
+	forwardFn func(socket, addr, app string) (string, error)
 }
 
 func (f fakeSystem) lstat(path string) (fs.FileInfo, error) { return f.lstatFn(path) }
@@ -409,11 +409,11 @@ func (f fakeSystem) closesAtExec(fd int) (bool, error)      { return f.closesAtE
 func (f fakeSystem) ioctl(fd int, request uint64) error     { return f.ioctlFn(fd, request) }
 func (f fakeSystem) listen(name string) (io.Closer, error)  { return f.listenFn(name) }
 func (f fakeSystem) landlock() error                        { return f.landlockFn() }
-func (f fakeSystem) forward(socket, addr string) (string, error) {
+func (f fakeSystem) forward(socket, addr, app string) (string, error) {
 	if f.forwardFn == nil {
 		return "", syscall.ENOSYS
 	}
-	return f.forwardFn(socket, addr)
+	return f.forwardFn(socket, addr, app)
 }
 
 // otherDevice is info as seen on another device: the private view's tmpfs.

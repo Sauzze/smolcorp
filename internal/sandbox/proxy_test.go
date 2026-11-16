@@ -186,8 +186,9 @@ func TestTheProxyRefusesTheComputersOwnAddresses(t *testing.T) {
 		"169.254.170.2:80", "169.254.1.1:" + owner, "[fd00:ec2::254]:80", "[fd00:ec2::253]:53", "100.100.100.200:80",
 		"168.63.129.16:80", "[fe80::1%25eth0]:22", "[fe80::1]:" + owner, "[::ffff:169.254.169.254]:80",
 		"[::ffff:100.100.100.100]:80", "[64:ff9b::a9fe:a9fe]:80", "[64:ff9b::6464:6464]:53",
-		"[64:ff9b::7f00:1]:" + strconv.Itoa(appPort), // loopback under NAT64's prefix, even at the app's port
-		"[64:ff9b::c000:263]:" + owner,               // the computer's own LAN address (192.0.2.99) under NAT64's prefix
+		"[64:ff9b::7f00:1]:" + strconv.Itoa(appPort),   // loopback under NAT64's prefix, even at the app's port
+		"[64:ff9b::c000:263]:" + owner,                 // the computer's own LAN address (192.0.2.99) under NAT64's prefix
+		"[fd20:ce::254]:80", "[fd00:c1::a9fe:a9fe]:80", // Google Cloud's and Oracle Cloud's metadata services on IPv6
 	}
 	resolve := func(_ context.Context, host string) ([]netip.Addr, error) {
 		switch host {
@@ -247,7 +248,7 @@ func TestTheComputersOwnServicesOffItsInterfacesAreRefusedAndNoMore(t *testing.T
 	for _, to := range []string{
 		"100.100.100.100:80", "[fd7a:115c:a1e0::53]:53", "169.254.169.254:80", "169.254.0.1:22", "169.254.255.255:22",
 		"[fe80::1]:22", "[febf:ffff::1]:22", "[fd00:ec2::254]:80", "[fd00:ec2::123]:123", "100.100.100.200:80",
-		"168.63.129.16:80", "[::ffff:a9fe:a9fe]:80", "[64:ff9b::a9fe:a9fe]:80",
+		"168.63.129.16:80", "[::ffff:a9fe:a9fe]:80", "[64:ff9b::a9fe:a9fe]:80", "[fd20:ce::254]:80", "[fd00:c1::a9fe:a9fe]:80",
 	} {
 		if why := ownAddress(netip.MustParseAddrPort(to), nil, 0); !strings.Contains(why, "own service off its interfaces") {
 			t.Errorf("%s: %q, not this computer's own service off its interfaces", to, why)
@@ -257,6 +258,7 @@ func TestTheComputersOwnServicesOffItsInterfacesAreRefusedAndNoMore(t *testing.T
 		"100.100.100.99:80", "100.100.100.101:80", "100.100.100.199:80", "100.101.102.104:443", "[fd7a:115c:a1e0::54]:53",
 		"[fd7a:115c:a1e0::1235]:443", "169.253.255.255:80", "169.255.0.1:80", "[fec0::1]:22", "[fe7f:ffff::1]:22",
 		"[fd00:ec3::254]:80", "168.63.129.17:80", "192.0.2.10:443", "[64:ff9b::c000:20a]:443", "[2001:db8::1]:443",
+		"[fd20:ce::253]:80", "[fd20:ce:0:1::254]:80", "[fd00:c1::a9fe:a9ff]:80", "[fd00:c1:0:1::a9fe:a9fe]:80", // a VPC's own, beside them
 	} {
 		if why := ownAddress(netip.MustParseAddrPort(to), nil, 0); why != "" {
 			t.Errorf("%s: refused (%s), but it isn't this computer's", to, why)
@@ -579,13 +581,16 @@ func TestTheLinuxPolicyOpensTheDesksOwnProxySocketAlone(t *testing.T) {
 }
 
 // The desk's environment points every proxy variable at the forwarder, and nothing of the owner's own proxy is left:
-// it would be on the view's loopback, where nothing listens.
+// it would be on the view's loopback, where nothing listens. git's ssh is Smolcorp's (SA-L7), and the owner's own way
+// of running it for git is taken out with it.
 func TestTheDesksEnvironmentPointsAtTheForwarder(t *testing.T) {
 	env := ProxyEnv([]string{"PATH=/usr/bin", "HTTP_PROXY=http://127.0.0.1:3128", "all_proxy=socks5://127.0.0.1:1080",
-		"ALL_PROXY=socks5h://127.0.0.1:1080", "no_proxy=*", "NODE_USE_ENV_PROXY=0", "HOME=/home/ada"}, 47128)
+		"ALL_PROXY=socks5h://127.0.0.1:1080", "no_proxy=*", "NODE_USE_ENV_PROXY=0", "GIT_SSH_COMMAND=ssh -i ~/.ssh/work",
+		"GIT_SSH_VARIANT=plink", "HOME=/home/ada"}, 47128, "/usr/bin/smolcorp")
 	want := []string{"PATH=/usr/bin", "HOME=/home/ada", "HTTP_PROXY=http://127.0.0.1:47128", "HTTPS_PROXY=http://127.0.0.1:47128",
 		"http_proxy=http://127.0.0.1:47128", "https_proxy=http://127.0.0.1:47128", "NO_PROXY=localhost,127.0.0.1,::1",
-		"no_proxy=localhost,127.0.0.1,::1", "NODE_USE_ENV_PROXY=1"}
+		"no_proxy=localhost,127.0.0.1,::1", "NODE_USE_ENV_PROXY=1",
+		"GIT_SSH_COMMAND=ssh -o 'ProxyCommand='\\''/usr/bin/smolcorp'\\'' sandbox connect %h %p' -o ControlPath=none"}
 	if !slices.Equal(env, want) {
 		t.Errorf("the desk's environment:\n got %q\nwant %q", env, want)
 	}
@@ -651,12 +656,12 @@ func TestTheProxyRow(t *testing.T) {
 	}
 	sys := holding("linux", s, d)
 	var asked []string
-	sys.forwardFn = func(at, addr string) (string, error) {
-		asked = append(asked, at, addr)
+	sys.forwardFn = func(at, addr, app string) (string, error) {
+		asked = append(asked, at, addr, app)
 		return forwarder(t, at), nil
 	}
 	results, held := runRows("linux", sys, e)
-	if !held || !slices.Equal(asked, []string{socket, "127.0.0.1:" + strconv.Itoa(ForwardPort)}) {
+	if !held || !slices.Equal(asked, []string{socket, "127.0.0.1:" + strconv.Itoa(ForwardPort), ""}) {
 		t.Fatalf("through the core's proxy: held %v, %q, forwarder asked %q", held, results, asked)
 	}
 	give(t, s, report(s.nonce, e.rows, results))
@@ -668,11 +673,11 @@ func TestTheProxyRow(t *testing.T) {
 	t.Cleanup(open.Close)
 	for _, c := range []struct {
 		name    string
-		forward func(string, string) (string, error)
+		forward func(string, string, string) (string, error)
 	}{
 		{"no forwarder here", nil},
-		{"the forwarder didn't listen", func(string, string) (string, error) { return "", syscall.EADDRINUSE }},
-		{"an open way out", func(string, string) (string, error) { return strings.TrimPrefix(open.URL, "http://"), nil }},
+		{"the forwarder didn't listen", func(string, string, string) (string, error) { return "", syscall.EADDRINUSE }},
+		{"an open way out", func(string, string, string) (string, error) { return strings.TrimPrefix(open.URL, "http://"), nil }},
 	} {
 		s := mustStart(t, checks)
 		e, _ := parseEnter(s.Words("/bin/echo")[2:])

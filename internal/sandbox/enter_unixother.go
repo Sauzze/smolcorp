@@ -12,4 +12,4 @@ func (realSystem) ioctl(int, uint64) error { return syscall.ENOSYS }
 func (realSystem) landlock() error         { return syscall.ENOSYS }
 
 // forward: the forwarder is Linux's alone, where a desk has a network of its own (forward_linux.go).
-func (realSystem) forward(string, string) (string, error) { return "", syscall.ENOSYS }
+func (realSystem) forward(string, string, string) (string, error) { return "", syscall.ENOSYS }

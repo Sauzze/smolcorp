@@ -40,9 +40,20 @@ import (
 //     neither a session bus nor any other local service is reached through it. The address checked is the address
 //     dialled: a name that resolves to a refused address is refused, however often its answer changes.
 //
-// Left to SA-L7: SSH through CONNECT (`smolcorp sandbox connect`, GIT_SSH_COMMAND) and the app's port forwarded inside
-// on its own number. The core's side of each desk's start (the proxy listening before the view is made, closed when the
-// desk ends) is the start wiring's, SA-L4.
+// The network through the core, II (SA-L7):
+//   - SSH goes through a CONNECT too: the desk's GIT_SSH_COMMAND (ProxyEnv) gives ssh a ProxyCommand,
+//     `smolcorp sandbox connect %h %p` (RunConnect), which asks the proxy through the forwarder for host:port and carries
+//     ssh's bytes on its standard input and output. `ssh localhost` and Docker's TCP are refused by the proxy as any
+//     other of the computer's own addresses; a name that isn't a host's (an abstract socket's "@…") isn't even asked;
+//   - the app's own port is forwarded inside, on its own number (ForwardTo): the forwarder also listens on
+//     127.0.0.1:<the app's port> in the view, and each connection there is a CONNECT to the app's port through the
+//     proxy, so a desk's hooks and the GM's API reach the app at the address they always have;
+//   - a connection the proxy makes to the app's port is marked by the address the app sees it come from
+//     (ThroughADesksWayOut): to the app it would otherwise look like a program of the owner's on loopback, and the
+//     system's tables would name the core as the program holding it (RT126SAL6 N1).
+//
+// The core's side of each desk's start (the proxy listening before the view is made, closed when the desk ends) is the
+// start wiring's, SA-L4.
 
 // ProxySocketName is the proxy's socket in the desk's own folder.
 const ProxySocketName = "proxy.sock"
@@ -290,6 +301,9 @@ func (p *Proxy) reach(ctx context.Context, host string, port uint16) (net.Conn, 
 			continue
 		}
 		conn, err := p.dialAt(ctx, to)
+		if err == nil && a.Unmap().IsLoopback() {
+			return markAtTheApp(conn), nil // the one loopback place ownAddress lets through: the app's port
+		}
 		if err == nil {
 			return conn, nil
 		}
@@ -302,6 +316,45 @@ func (p *Proxy) reach(ctx context.Context, host string, port uint16) (net.Conn, 
 		refused = &refusedAddress{host, "a name with no address"}
 	}
 	return nil, refused
+}
+
+// atTheApp are the core's ends of the connections desks' proxies hold to the app's own port, by their address
+// ("127.0.0.1:54321"): the one the app sees each come from.
+var atTheApp sync.Map
+
+// ThroughADesksWayOut is whether a connection to the app from remote (its RemoteAddr) is one a desk's proxy made, for
+// the desk, while it is open. The app tells it from a program of the owner's by it: the system's tables name the core
+// as its process, never the desk's.
+func ThroughADesksWayOut(remote string) bool {
+	_, ok := atTheApp.Load(remote)
+	return ok
+}
+
+// appConn is a connection to the app's port, marked until it closes.
+type appConn struct {
+	net.Conn
+	key  string
+	once sync.Once
+}
+
+func markAtTheApp(conn net.Conn) net.Conn {
+	c := &appConn{Conn: conn, key: conn.LocalAddr().String()}
+	atTheApp.Store(c.key, c)
+	return c
+}
+
+// Close ends the connection, then its mark: never another's that took the same address since.
+func (c *appConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(func() { atTheApp.CompareAndDelete(c.key, c) })
+	return err
+}
+
+func (c *appConn) CloseWrite() error {
+	if cw, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return c.Close()
 }
 
 // offInterface is one of this computer's own places that no interface of its holds (offInterfaces).
@@ -319,14 +372,17 @@ type offInterface struct {
 //   - Tailscale's own address on each device ("quad100"), where the local tailscaled answers: its DNS, and the
 //     device's own Tailscale web interface;
 //   - the cloud services at a fixed address of their own outside the link-local networks: AWS's on IPv6 (the
-//     metadata service at fd00:ec2::254, its DNS and time service beside it), Alibaba Cloud's metadata service, and
-//     Azure's platform address, which only that VM reaches.
+//     metadata service at fd00:ec2::254, its DNS and time service beside it), Google Cloud's and Oracle Cloud's
+//     metadata services on IPv6 (fd20:ce::254, fd00:c1::a9fe:a9fe; each by its one address: the networks around them
+//     can be a VPC's own), Alibaba Cloud's metadata service, and Azure's platform address, which only that VM reaches.
 var offInterfaces = []offInterface{
 	{netip.MustParsePrefix("169.254.0.0/16"), "link-local: a cloud VM's metadata service, or a link peer only this computer reaches"},
 	{netip.MustParsePrefix("fe80::/10"), "link-local: a link peer only this computer reaches"},
 	{netip.MustParsePrefix("100.100.100.100/32"), "Tailscale's own address on this computer, answered by its tailscaled"},
 	{netip.MustParsePrefix("fd7a:115c:a1e0::53/128"), "Tailscale's own address on this computer, answered by its tailscaled"},
 	{netip.MustParsePrefix("fd00:ec2::/32"), "a cloud VM's metadata service (AWS's, on IPv6)"},
+	{netip.MustParsePrefix("fd20:ce::254/128"), "a cloud VM's metadata service (Google Cloud's, on IPv6)"},
+	{netip.MustParsePrefix("fd00:c1::a9fe:a9fe/128"), "a cloud VM's metadata service (Oracle Cloud's, on IPv6)"},
 	{netip.MustParsePrefix("100.100.100.200/32"), "a cloud VM's metadata service (Alibaba Cloud's)"},
 	{netip.MustParsePrefix("168.63.129.16/32"), "a cloud VM's platform address (Azure's)"},
 }
@@ -475,23 +531,136 @@ func Forward(l net.Listener, socket string) error {
 	}
 }
 
+// ForwardTo is the forwarder's work for the app's own port inside the view: each connection l accepts is a CONNECT to
+// target (the app's port on loopback) through the proxy's socket at socket, then its bytes both ways, until l is
+// closed. A connection the proxy doesn't take is closed.
+func ForwardTo(l net.Listener, socket, target string) error {
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			return err
+		}
+		go func() {
+			defer conn.Close()
+			far, in, err := openTunnel("unix", socket, target)
+			if err != nil {
+				return
+			}
+			defer far.Close()
+			splice(far, in, conn)
+		}()
+	}
+}
+
+// openTunnel asks the proxy at network and addr for a CONNECT to target, and gives the tunnel once the proxy has
+// opened it, with what the far end has already sent read into in (an SSH server speaks first). Anything but 200 is
+// the proxy's own words, as an error.
+func openTunnel(network, addr, target string) (net.Conn, *bufio.Reader, error) {
+	far, err := net.DialTimeout(network, addr, 5*time.Second)
+	if err != nil {
+		return nil, nil, fmt.Errorf("the way out doesn't answer: %w", err)
+	}
+	far.SetDeadline(time.Now().Add(proxyDialWait + 5*time.Second))
+	in := bufio.NewReader(far)
+	_, err = io.WriteString(far, "CONNECT "+target+" HTTP/1.1\r\nHost: "+target+"\r\n\r\n")
+	var resp *http.Response
+	if err == nil {
+		resp, err = http.ReadResponse(in, &http.Request{Method: http.MethodConnect})
+	}
+	if err != nil {
+		far.Close()
+		return nil, nil, fmt.Errorf("the way out didn't answer: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		words, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		far.Close()
+		return nil, nil, fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(words)))
+	}
+	far.SetDeadline(time.Time{})
+	return far, in, nil
+}
+
+// connectThrough is `smolcorp sandbox connect <host> <port>` (RunConnect) through the forwarder at addr: a CONNECT to
+// host:port, then ssh's bytes, from stdin to the far end and back to stdout, until the far end is done. A host that
+// isn't a name or an address (an abstract socket's "@…", a path) isn't asked for; a refusal is said on stderr.
+func connectThrough(addr string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) != 2 {
+		fmt.Fprintln(stderr, "smolcorp sandbox connect <host> <port>: ssh's ProxyCommand in a desk's sandbox (GIT_SSH_COMMAND)")
+		return 2
+	}
+	port, err := strconv.ParseUint(args[1], 10, 16)
+	if err != nil || port == 0 || !hostWord(args[0]) {
+		fmt.Fprintf(stderr, "smolcorp sandbox connect: %q %q isn't a host's name or address and a port\n", args[0], args[1])
+		return 2
+	}
+	far, in, err := openTunnel("tcp", addr, net.JoinHostPort(args[0], args[1]))
+	if err != nil {
+		fmt.Fprintf(stderr, "smolcorp sandbox connect: %s port %s: %v\n", args[0], args[1], err)
+		return 1
+	}
+	defer far.Close()
+	go func() {
+		io.Copy(far, stdin)
+		closeWrite(far)
+	}()
+	io.Copy(stdout, in)
+	return 0
+}
+
+// hostWord is whether host is a host's name (letters, digits, '.', '-', '_') or an IP address.
+func hostWord(host string) bool {
+	if _, err := netip.ParseAddr(host); err == nil {
+		return true
+	}
+	if host == "" || len(host) > 253 || host[0] == '-' || host[0] == '.' {
+		return false
+	}
+	for _, r := range host {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 // proxyVars are the names ProxyEnv sets, and takes out of the desk's environment first, in either case: an owner's
-// own proxy, on the computer's loopback, isn't the desk's.
-var proxyVars = []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy", "NODE_USE_ENV_PROXY"}
+// own proxy, on the computer's loopback, isn't the desk's, nor is an owner's own way of running ssh for git.
+var proxyVars = []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+	"NODE_USE_ENV_PROXY", "GIT_SSH_COMMAND", "GIT_SSH_VARIANT"}
 
 // ProxyEnv is env with the desk's way out: HTTP_PROXY and HTTPS_PROXY (and their lower-case spellings, which curl and
-// git read) at the forwarder on 127.0.0.1:port; NO_PROXY for the view's own loopback, so a desk's own servers are
-// reached directly; and Node's NODE_USE_ENV_PROXY, so Node 24's built-in fetch takes the proxy (§A4.3). Every
-// earlier value of these is taken out, ALL_PROXY's too.
-func ProxyEnv(env []string, port int) []string {
+// git read) at the forwarder on 127.0.0.1:port; NO_PROXY for the view's own loopback, so a desk's own servers (and the
+// app's port, forwarded there) are reached directly; Node's NODE_USE_ENV_PROXY, so Node 24's built-in fetch takes the
+// proxy (§A4.3); and GIT_SSH_COMMAND, so git's ssh goes through the proxy too, by Smolcorp's own program at self, as
+// the view shows it (sshCommand; none when self is ""). Every earlier value of these is taken out, ALL_PROXY's too.
+func ProxyEnv(env []string, port int, self string) []string {
 	env = slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
 		return slices.Contains(proxyVars, name)
 	})
 	at := "http://127.0.0.1:" + strconv.Itoa(port)
-	return append(env, "HTTP_PROXY="+at, "HTTPS_PROXY="+at, "http_proxy="+at, "https_proxy="+at,
+	env = append(env, "HTTP_PROXY="+at, "HTTPS_PROXY="+at, "http_proxy="+at, "https_proxy="+at,
 		"NO_PROXY=localhost,127.0.0.1,::1", "no_proxy=localhost,127.0.0.1,::1", "NODE_USE_ENV_PROXY=1")
+	if ssh := sshCommand(self); ssh != "" {
+		env = append(env, "GIT_SSH_COMMAND="+ssh)
+	}
+	return env
 }
+
+// sshCommand is git's ssh for a desk: ssh with Smolcorp's `sandbox connect %h %p` as its ProxyCommand, by the program
+// at self, and no shared connection (ControlPath none: an owner's ControlMaster socket isn't the desk's). git runs it
+// with a shell, and ssh its ProxyCommand with another, after its own %-tokens: self is quoted for both, its '%' kept.
+// A command line on the command line comes before any of the owner's ssh config. "" for a self it can't say.
+func sshCommand(self string) string {
+	if !filepath.IsAbs(self) || strings.ContainsFunc(self, func(r rune) bool { return r < ' ' || r == 0x7f }) {
+		return ""
+	}
+	proxy := shellQuote(strings.ReplaceAll(self, "%", "%%")) + " sandbox connect %h %p"
+	return "ssh -o " + shellQuote("ProxyCommand="+proxy) + " -o ControlPath=none"
+}
+
+// shellQuote is s as one word to a POSIX shell.
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // wayOutHolds is the proxy row's check, from inside the view (enter_unix.go): the forwarder at addr answers, as the
 // core's proxy, and refuses the computer's own address (a CONNECT to its loopback's port 1, never the app's). Anything
