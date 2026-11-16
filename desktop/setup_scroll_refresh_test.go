@@ -6,10 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -85,36 +81,15 @@ window.smolcorpSetupRefresh = 200;
 		}
 		(&router{deck: d}).ServeHTTP(w, r)
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close) // after the browser is killed: cleanups run last first
 
 	// Opened as the menu opens it: a link with a token that works once.
 	d.mu.Lock()
 	token := d.access.NewSetupToken()
 	d.mu.Unlock()
-	dir := t.TempDir()
-	// Never a window, the Keychain or any other system dialog (_rules.md): headless, a mock keychain, a profile of its own.
-	args := []string{"--headless=new", "--use-mock-keychain", "--password-store=basic", "--disable-features=DialMediaRouteProvider",
-		"--no-first-run", "--no-default-browser-check", "--user-data-dir=" + filepath.Join(dir, "profile"), "--window-size=1100,700"}
-	if runtime.GOOS == "linux" {
-		// A CI runner may not give Chrome its sandbox; the page is the test's own, on 127.0.0.1.
-		args = append(args, "--no-sandbox")
-	}
-	browser := exec.Command(chrome, append(args, server.URL+"/setup#o="+token)...)
-	browser.Env = append(os.Environ(), "HOME="+dir)
-	var said bytes.Buffer
-	browser.Stdout, browser.Stderr = &said, &said
-	if err := browser.Start(); err != nil {
-		t.Fatalf("starting %s: %v", chrome, err)
-	}
-	ended := make(chan error, 1)
-	go func() { ended <- browser.Wait() }()
-	stopped := false
-	defer func() {
-		if !stopped {
-			browser.Process.Kill()
-			<-ended
-		}
-	}()
+	// Through the helper (T126CHROMEKILL1): never a window or a system dialog, and killed with all it started however the
+	// test ends.
+	browser := startHeadlessChrome(t, chrome, "--window-size=1100,700", server.URL+"/setup#o="+token)
 
 	var got struct {
 		Error          string
@@ -127,11 +102,10 @@ window.smolcorpSetupRefresh = 200;
 		if err := json.Unmarshal(body, &got); err != nil {
 			t.Fatalf("the page's readings: %v %s", err, body)
 		}
-	case err := <-ended:
-		stopped = true
-		t.Fatalf("Chrome ended first (%v): %s", err, said.String())
+	case <-browser.ended:
+		t.Fatalf("Chrome ended first (%s): %s", browser.why, browser.said())
 	case <-time.After(60 * time.Second):
-		t.Fatalf("no readings from the page in a minute: %s", said.String())
+		t.Fatalf("no readings from the page in a minute: %s", browser.said())
 	}
 	if got.Error != "" {
 		t.Fatal(got.Error)
@@ -146,28 +120,4 @@ window.smolcorpSetupRefresh = 200;
 			break
 		}
 	}
-}
-
-// headlessChrome is a Chrome or Chromium to run headless: SMOLCORP_TEST_CHROME, or one where it's usually installed.
-func headlessChrome() string {
-	if named := os.Getenv("SMOLCORP_TEST_CHROME"); named != "" {
-		return named
-	}
-	for _, name := range []string{"google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"} {
-		if found, err := exec.LookPath(name); err == nil {
-			return found
-		}
-	}
-	paths := []string{"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium"}
-	for _, folder := range []string{"ProgramFiles", "ProgramFiles(x86)", "LocalAppData"} {
-		if at := os.Getenv(folder); at != "" {
-			paths = append(paths, filepath.Join(at, "Google", "Chrome", "Application", "chrome.exe"))
-		}
-	}
-	for _, path := range paths {
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			return path
-		}
-	}
-	return ""
 }
