@@ -610,6 +610,9 @@ func build(pl Places) (*Policy, error) {
 	if goos == "linux" {
 		b.add(Rule{Row: "its kept copy: its guard reads it", Path: join(own, keptName), Below: true, Read: Allow, Write: Deny, Opens: opens})
 		b.add(Rule{Row: "its guard's notes of what stopped it", Path: join(own, keptStopName), Read: Allow, Write: Allow, Opens: opens})
+		// Its way out (SA-L6, proxy.go): the core's proxy for this desk alone, connect only, as the desk-start socket.
+		// The view brings it back, and the socket mask lists it, by this row; other desks' are under the cover.
+		b.add(Rule{Row: "its way out: the core's proxy", Path: join(own, ProxySocketName), Connect: Allow, Opens: opens})
 	}
 	if pl.DeskStart != "" {
 		at := key(goos, pl.DeskStart)

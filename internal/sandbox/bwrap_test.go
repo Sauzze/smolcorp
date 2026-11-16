@@ -270,8 +270,11 @@ func linuxComputer() fakeFS {
 		lSupport+"/hires/h1/claude/settings.json", lSupport+"/hires/h1/claude/.claude.json",
 		lSupport+"/hires/h1/claude/CLAUDE.md", lSupport+"/hires/h1/claude/projects/",
 		lSupport+"/hires/h2/BRIEF.md", lSupport+"/hires/gm1/BRIEF.md", lSupport+"/hires/gm1/STATUS.md",
+		// SA-L6: each desk's way out, the core's proxy listening in its own folder: its own comes back, connect only.
+		lSupport+"/hires/h1/proxy.sock@", lSupport+"/hires/h2/proxy.sock@", lSupport+"/hires/gm1/proxy.sock@",
 		// A test copy's support folder.
 		lCopy+"/phones.json", lCopy+"/hire-guard.json", lCopy+"/desk-start@", lCopy+"/hires/h1/BRIEF.md", lCopy+"/hires/h1/STATUS.md",
+		lCopy+"/hires/h1/proxy.sock@",
 		// The owner's plants, sign-ins and agents.
 		lHome+"/.bashrc", lHome+"/.profile", lHome+"/.gitconfig", lHome+"/.gitconfig-work", lHome+"/.tmux.conf",
 		lHome+"/.Xauthority", lHome+"/.claude.json", lHome+"/.claude.json.backup", lHome+"/.githooks/pre-commit",
@@ -568,7 +571,8 @@ var viewDiffs = []viewDiff{
 		return v == Deny && op == Read && (p == own || path.Dir(p) == own && !onTheComputer(p))
 	}},
 	{"loose: a socket brought back has no data to read; it can't be written, moved or removed", func(s setup, p string, op Op, v Verdict) bool {
-		return v == Deny && op == Read && p == s.pl.DeskStart
+		// The desk-start socket, and the desk's own way out (SA-L6), each connect only.
+		return v == Deny && op == Read && (p == s.pl.DeskStart || p == s.pl.Support+"/hires/"+s.pl.OwnID+"/"+ProxySocketName)
 	}},
 	{"loose: a link in its own socket folder (no links there: the core's to check, never following one)", func(s setup, p string, op Op, v Verdict) bool {
 		return v == Deny && op == Link && path.Dir(p) == s.pl.OwnSockets
@@ -618,7 +622,7 @@ func maskedSockets(s setup) []string {
 	masked := []string{"/run/dbus/system_bus_socket", "/run/docker.sock", "/run/avahi-daemon/socket", lHome + "/stand-in.sock",
 		lHome + "/.local/state/app/ipc.sock", lRun + "/bus", lRun + "/systemd/private", "/run/user/1001/bus"}
 	if s.pl.Support != lCopy {
-		masked = append(masked, lCopy+"/desk-start")
+		masked = append(masked, lCopy+"/desk-start", lCopy+"/hires/h1/proxy.sock")
 	}
 	return masked
 }

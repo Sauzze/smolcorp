@@ -75,6 +75,7 @@
 --ro-bind /home/ada/.config/sauzzedeck-pro/hires/h1/claude /home/ada/.config/sauzzedeck-pro/hires/h1/claude
 --ro-bind /home/ada/.config/sauzzedeck-pro/hires/h1/held /home/ada/.config/sauzzedeck-pro/hires/h1/held
 --bind /home/ada/.config/sauzzedeck-pro/hires/h1/kept-stop.json /home/ada/.config/sauzzedeck-pro/hires/h1/kept-stop.json
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/h1/proxy.sock /home/ada/.config/sauzzedeck-pro/hires/h1/proxy.sock
 --ro-bind /home/ada/.config/sauzzedeck-pro/hires/h1/settings.json /home/ada/.config/sauzzedeck-pro/hires/h1/settings.json
 --bind /home/ada/Projects/app/.git/logs/refs /home/ada/Projects/app/.git/logs/refs
 --ro-bind /home/ada/Projects/app/.git/objects/info /home/ada/Projects/app/.git/objects/info
@@ -90,6 +91,7 @@
 --ro-bind /home/ada/Projects/app/.git/worktrees/h1/gitdir /home/ada/Projects/app/.git/worktrees/h1/gitdir
 --ro-bind /home/ada/Projects/app/.git/worktrees/h1/remotes /home/ada/Projects/app/.git/worktrees/h1/remotes
 --bind /home/ada/Projects/app/.git/refs/heads/hire/h1 /home/ada/Projects/app/.git/refs/heads/hire/h1
+--ro-bind /dev/null /home/ada/Projects/smolcorp/.dev/support/hires/h1/proxy.sock
 --bind /home/ada/Projects/app/.git/logs/refs/heads/hire/h1 /home/ada/Projects/app/.git/logs/refs/heads/hire/h1
 --remount-ro /run
 --remount-ro /home/ada

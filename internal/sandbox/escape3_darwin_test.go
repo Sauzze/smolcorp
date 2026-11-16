@@ -615,6 +615,9 @@ var guardAllowed = map[string]string{
 	"escape2_darwin_test.go normalWork":                                          "the owner's installed Google Chrome (or SMOLCORP_TEST_CHROME), its program run directly in the desk, never through LaunchServices, headless with a mock keychain and basic password store (_rules.md); it skips where there is none. A signed app the rules allow headless (RT126MACLAUNCH1)",
 	"escape2_darwin_test.go TestOnAMacOpenInADeskLaunchesNothing":                "open -g -j -n in a desk on Missing.app, checked missing before and after: the rules' probe of open on a missing path only, which leaves LaunchServices and Gatekeeper nothing to reach",
 	"escape2_darwin_test.go TestOnAMacAStandInWithAccessibilityCantUseItInADesk": "the hire's copy of the app, its open and its program: all after the row's SMOLCORP_STUDIO_ROWS=1 skip, which studioGated holds",
+
+	// MSYSTACK4's: SA-L6, built before this guard.
+	"proxy_test.go TestTheProxyRow": "\"an open way out\" in a row's name, words for a person: its rows run on a fake system (holding), and Words(\"/bin/echo\") is a start's words, parsed and never run",
 }
 
 // studioGated are the declarations on guardAllowed whose reason is the Studio's gate: each spelling in them must come

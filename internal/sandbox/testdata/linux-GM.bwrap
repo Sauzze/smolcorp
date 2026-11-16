@@ -64,13 +64,17 @@
 --ro-bind /home/ada/Projects/app-gm/.git /home/ada/Projects/app-gm/.git
 --ro-bind /run/user/1000/gnupg/S.gpg-agent /run/user/1000/gnupg/S.gpg-agent
 --ro-bind /run/user/1000/keyring/ssh /run/user/1000/keyring/ssh
---ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1 /home/ada/.config/sauzzedeck-pro/hires/gm1
+--tmpfs /home/ada/.config/sauzzedeck-pro/hires/gm1
 --ro-bind /dev/null /home/ada/.local/state/app/ipc.sock
 --bind /home/ada/Projects/app/.git/logs /home/ada/Projects/app/.git/logs
 --bind /home/ada/Projects/app/.git/objects /home/ada/Projects/app/.git/objects
 --bind /home/ada/Projects/app/.git/refs /home/ada/Projects/app/.git/refs
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1/BRIEF.md /home/ada/.config/sauzzedeck-pro/hires/gm1/BRIEF.md
 --bind /home/ada/.config/sauzzedeck-pro/hires/gm1/STATUS.md /home/ada/.config/sauzzedeck-pro/hires/gm1/STATUS.md
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1/claude /home/ada/.config/sauzzedeck-pro/hires/gm1/claude
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1/held /home/ada/.config/sauzzedeck-pro/hires/gm1/held
 --bind /home/ada/.config/sauzzedeck-pro/hires/gm1/kept-stop.json /home/ada/.config/sauzzedeck-pro/hires/gm1/kept-stop.json
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1/proxy.sock /home/ada/.config/sauzzedeck-pro/hires/gm1/proxy.sock
 --bind /home/ada/Projects/app/.git/logs/refs /home/ada/Projects/app/.git/logs/refs
 --ro-bind /home/ada/Projects/app/.git/objects/info /home/ada/Projects/app/.git/objects/info
 --ro-bind /home/ada/Projects/app/.git/refs/heads /home/ada/Projects/app/.git/refs/heads
@@ -83,6 +87,7 @@
 --ro-bind /home/ada/Projects/app/.git/worktrees/gm/gitdir /home/ada/Projects/app/.git/worktrees/gm/gitdir
 --ro-bind /home/ada/Projects/app/.git/worktrees/gm/remotes /home/ada/Projects/app/.git/worktrees/gm/remotes
 --bind /home/ada/Projects/app/.git/refs/heads/hire/gm1 /home/ada/Projects/app/.git/refs/heads/hire/gm1
+--ro-bind /dev/null /home/ada/Projects/smolcorp/.dev/support/hires/h1/proxy.sock
 --bind /home/ada/Projects/app/.git/logs/refs/heads/hire/gm1 /home/ada/Projects/app/.git/logs/refs/heads/hire/gm1
 --remount-ro /run
 --remount-ro /home/ada
@@ -91,5 +96,6 @@
 --remount-ro /home/ada/.config
 --remount-ro /home/ada/.gemini
 --remount-ro /home/ada/.ssh
+--remount-ro /home/ada/.config/sauzzedeck-pro/hires/gm1
 --chdir /home/ada/Projects/app-gm
 --

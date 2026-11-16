@@ -524,6 +524,9 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		reportScriptName: notSecret,
 		// SA-M6: each sandboxed desk's profile, written at its start (sandbox.PrepareProfile): read only to the desk, no secret.
 		"hires/<id>/sandbox.sb": notSecret,
+		// SA-L6: a Linux desk's way out, the core's proxy listening in its own folder (sandbox.ProxySocket), connect
+		// only to that desk ("its way out"). A socket: it holds nothing. Never made on a Mac.
+		"hires/<id>/" + sandbox.ProxySocketName: notSecret,
 	}
 	d, mac, phoneKey, _ := macDeck(t)
 	sendKey := withAHire(t)

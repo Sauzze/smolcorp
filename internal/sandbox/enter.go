@@ -40,6 +40,10 @@ import (
 // On Linux two rows more (SA-L2, §A5.2 step 6): the seccomp filter its bwrap loaded refuses TIOCSTI and TIOCLINUX
 // (every Linux start: LinuxCommand refuses one without it), and Landlock's abstract-socket scope, which `enter` applies
 // itself on the thread that becomes the desk's program, holds (where the kernel has it: LandlockScope).
+//
+// A Linux desk's start has one row more after those (SA-L6, proxy.go): its way out. `enter` starts the forwarder on
+// the view's own loopback (from the thread Landlock's scope holds, so inside it), checks that it answers as the core's
+// proxy and refuses the computer's own address, and gives the desk HTTP(S)_PROXY and NO_PROXY for it (ProxyEnv).
 
 const (
 	// nonceVar is where the core puts the start's nonce for `enter`, which takes it out before the exec.
@@ -65,6 +69,7 @@ const (
 	rowWrite     = "write"      // its status writes
 	rowSeccomp   = "seccomp"    // Linux: the filter refuses TIOCSTI and TIOCLINUX, and no more
 	rowLandlock  = "landlock"   // Linux: Landlock's abstract-socket scope applied, and holding
+	rowProxy     = "proxy"      // Linux: its way out through the core's proxy starts, and refuses the computer's own address
 	rowFDs       = "fds"        // nothing above 2 reaches the program
 )
 
@@ -200,6 +205,9 @@ type Checks struct {
 	// start). Landlock: `enter` applies Landlock's abstract-socket scope and shows it holds (a Linux start whose kernel
 	// has it: LandlockScope).
 	Seccomp, Landlock bool
+	// Proxy is the core's proxy socket for the desk, as its view shows it (ProxySocket): `enter` starts the forwarder
+	// to it and checks the way out (a Linux start; "" for none). The core listens there before the start.
+	Proxy string
 }
 
 // Start is the core's side of one desk's start through `enter`.
@@ -254,6 +262,9 @@ func NewStart(c Checks) (*Start, error) {
 		if bare.on {
 			s.rows = append(s.rows, checkRow{kind: bare.kind})
 		}
+	}
+	if c.Proxy != "" {
+		s.rows = append(s.rows, checkRow{rowProxy, c.Proxy})
 	}
 	s.rows = append(s.rows, checkRow{kind: rowFDs})
 	if s.other, err = net.Listen("unix", c.Other); err != nil {
@@ -430,7 +441,7 @@ func parseEnter(args []string) (entering, error) {
 			if !ok || errDev != nil || errIno != nil {
 				return e, fmt.Errorf("sandbox enter: the canary's id %q isn't device:inode", value)
 			}
-		case kinds[name]:
+		case kinds[name], name == rowProxy && !seen[rowProxy]: // the proxy row: once at most, a Linux start's
 			if (name == rowCanary) != (len(e.rows) == 0) || !filepath.IsAbs(value) {
 				return e, fmt.Errorf("sandbox enter: --%s %q is out of place, or not a whole path", name, value)
 			}
@@ -456,11 +467,14 @@ func parseEnter(args []string) (entering, error) {
 	return e, nil
 }
 
-// Run is `smolcorp sandbox …`. Not in the usage: Smolcorp starts `enter`, inside a desk's sandbox; the Linux
-// installer runs `check` and `command` (runCheck).
+// Run is `smolcorp sandbox …`. Not in the usage: Smolcorp starts `enter`, inside a desk's sandbox, and `enter` the
+// forwarder (forward_linux.go); the Linux installer runs `check` and `command` (runCheck).
 func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 1 && (args[0] == "check" || args[0] == "command") {
 		return runCheck(args[0], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "forward" {
+		return runForward(args[1:], stderr)
 	}
 	if len(args) == 0 || args[0] != "enter" {
 		fmt.Fprintln(stderr, "smolcorp sandbox enter: Smolcorp runs this itself, inside a desk's sandbox")
