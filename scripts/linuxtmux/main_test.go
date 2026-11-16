@@ -334,6 +334,110 @@ func TestTheInstallerPutsTheTmuxWhereTheCoreLooks(t *testing.T) {
 	}
 }
 
+// The installer's sandbox step (L1APPARMOR1, RT126L1APPARMOR1 F2), on a stand-in smolcorp that logs each call: it
+// runs exactly the text `smolcorp sandbox command` prints (here a harmless marker writer, no sudo), and only when
+// `sandbox check` says so (exit 1, its words printed); it checks again after; a command that fails, or a check that
+// still fails, says hires won't start; a missing bubblewrap package (exit 3) gets its words and no command; and the
+// install goes on to exit 0 in every case.
+func TestTheInstallerRunsSmolcorpsSandboxCommandOnlyWhenTheCheckSays(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("install.sh is Linux's")
+	}
+	for _, row := range []struct {
+		name   string
+		checks string // the check's exit codes, one per call, the last repeated
+		fails  bool   // the command fails
+		calls  string
+		ran    bool
+		say    []string
+		unsaid []string
+	}{
+		{"set up by the command", "1 0", false, "sandbox check|sandbox command|sandbox check|setup --open", true,
+			[]string{"STAND-IN WHY AND COMMAND", "The installer runs it for you now."}, []string{"hires won't start"}},
+		{"the command declined", "1", true, "sandbox check|sandbox command|setup --open", true,
+			[]string{"STAND-IN WHY AND COMMAND", "hires won't start until it does: run the line above"}, nil},
+		{"still refused after", "1", false, "sandbox check|sandbox command|sandbox check|setup --open", true,
+			[]string{"hires won't start until it does"}, nil},
+		{"no bubblewrap package", "3", false, "sandbox check|setup --open", false,
+			[]string{"STAND-IN INSTALL BUBBLEWRAP Then run ./install.sh again."}, []string{"runs it for you", "hires won't start"}},
+		{"already in place", "0", false, "sandbox check|setup --open", false, nil,
+			[]string{"STAND-IN", "runs it for you", "hires won't start"}},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			home, folder, state := t.TempDir(), t.TempDir(), t.TempDir()
+			for _, name := range []string{"install.sh", "smolcorp.png"} {
+				writeText(t, filepath.Join(folder, name), readText(t, filepath.Join(root, "packaging/linux", name)))
+			}
+			writeText(t, filepath.Join(folder, "THIRD-PARTY-NOTICES-tmux.txt"), "notices\n")
+			writeExec(t, filepath.Join(folder, "tmux"), "#!/bin/sh\necho 'tmux 3.8'\n")
+			fail := ""
+			if row.fails {
+				fail = "; exit 1"
+			}
+			// The check's nth call exits with the nth code (the last one after); the command prints a line that
+			// writes the marker, with quotes and spaces the installer must pass on as they are.
+			writeExec(t, filepath.Join(folder, "smolcorp"), `#!/bin/sh
+state='`+state+`'
+echo "$*" >> "$state/calls"
+case "$1 $2" in
+"sandbox check")
+  n=$(grep -c '^sandbox check' "$state/calls")
+  code=$(echo '`+row.checks+`' | tr ' ' '\n' | sed -n "${n}p")
+  [ -n "$code" ] || code=$(echo '`+row.checks+`' | tr ' ' '\n' | tail -n 1)
+  [ "$code" = 1 ] && echo "STAND-IN WHY AND COMMAND"
+  [ "$code" = 3 ] && echo "STAND-IN INSTALL BUBBLEWRAP"
+  exit "$code" ;;
+"sandbox command")
+  printf '%s\n' "printf '%s\\n' \"ran, exactly\" >> '$state/marker'`+fail+`" ;;
+esac
+exit 0
+`)
+			cmd := exec.Command("/bin/sh", "install.sh")
+			cmd.Dir = folder
+			cmd.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin", "SHELL=/bin/sh", "XDG_DATA_HOME=" + filepath.Join(home, "data")}
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("install.sh: %v\n%s", err, out)
+			}
+			calls := strings.Join(strings.Fields(strings.ReplaceAll(readText(t, filepath.Join(state, "calls")), " ", "_")), "|")
+			if want := strings.ReplaceAll(row.calls, " ", "_"); calls != want {
+				t.Errorf("the installer called %s, want %s\n%s", calls, want, out)
+			}
+			marker, _ := os.ReadFile(filepath.Join(state, "marker"))
+			if row.ran && string(marker) != "ran, exactly\n" || !row.ran && marker != nil {
+				t.Errorf("the command's text ran: %q, want it run once, as printed: %v", marker, row.ran)
+			}
+			for _, want := range row.say {
+				if !strings.Contains(string(out), want) {
+					t.Errorf("no %q in:\n%s", want, out)
+				}
+			}
+			for _, unwanted := range row.unsaid {
+				if strings.Contains(string(out), unwanted) {
+					t.Errorf("%q in:\n%s", unwanted, out)
+				}
+			}
+		})
+	}
+}
+
+// RT126L1APPARMOR1R2 B3, for the installer (moved here from internal/sandbox, whose test runs where the repo isn't:
+// FXL1APPARMOR1VM2 B2): its comments say a program of the owner's can load its own code into Smolcorp's bubblewrap
+// (LD_PRELOAD) and use its capabilities, not round 2's "a program that runs the copy gets no capabilities".
+func TestTheInstallerSaysWhatTheSandboxGrants(t *testing.T) {
+	var comments []string
+	for _, line := range strings.Split(readText(t, filepath.Join(root, "packaging/linux/install.sh")), "\n") {
+		if line = strings.TrimSpace(line); strings.HasPrefix(line, "#") {
+			comments = append(comments, strings.TrimPrefix(line, "#"))
+		}
+	}
+	text := strings.Join(strings.Fields(strings.Join(comments, " ")), " ")
+	if strings.Contains(text, "a program that runs the copy gets a namespace with no capabilities") ||
+		!strings.Contains(text, "LD_PRELOAD") {
+		t.Error("install.sh doesn't say a program of the owner's can use the copy's own capabilities")
+	}
+}
+
 func readText(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)

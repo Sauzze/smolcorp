@@ -6,3 +6,6 @@ import "io/fs"
 
 // fileOwner is -1 where files have no uid: CheckBwrap fails there, as it must.
 func fileOwner(fs.FileInfo) int64 { return -1 }
+
+// fileGroup is -1 there too.
+func fileGroup(fs.FileInfo) int64 { return -1 }

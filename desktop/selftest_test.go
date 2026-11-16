@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 func TestHooksReportHereOnlyWhenEveryAgentNamesThisCopy(t *testing.T) {
@@ -229,7 +232,50 @@ func wantChecks() []string {
 	if firewallCheck(listenAll) != nil {
 		ids = append(ids, "firewall")
 	}
-	return append(ids, "phone", "login", "limits")
+	ids = append(ids, "phone", "login")
+	if setupSystem == "linux" {
+		ids = append(ids, "sandbox")
+	}
+	return append(ids, "limits")
+}
+
+// Linux's line for the hires' sandbox (L1APPARMOR1) is the start's own check: ticked when it passes; in the way when
+// it doesn't, so the checklist isn't ready, with why and the one command, whole. Not on a Mac or Windows.
+func TestTheChecklistShowsTheSandboxsOneCommandOnLinux(t *testing.T) {
+	saved, savedCheck := setupSystem, checkSandbox
+	t.Cleanup(func() { setupSystem, checkSandbox = saved, savedCheck })
+	setupSystem = "linux"
+	checkSandbox = func() error { return fmt.Errorf("%w: smolcorp-bwrap isn't loaded", sandbox.ErrNoProfile) }
+	d := newTestDeck(t)
+	var line *check
+	checks := d.selfTest()
+	for i := range checks {
+		if checks[i].ID == "sandbox" {
+			line = &checks[i]
+		}
+	}
+	if line == nil || line.Status != checkFix || line.Fix != "" || ready(checks) ||
+		!strings.Contains(line.Detail, "Run this once in a terminal (it asks for your password): "+sandbox.SandboxCommand()) ||
+		!strings.Contains(line.Detail, "AppArmor limits user namespaces") {
+		t.Fatalf("no profile: %+v", line)
+	}
+	if checks[len(checks)-1].ID != "limits" || checks[len(checks)-2].ID != "sandbox" {
+		t.Errorf("the sandbox line isn't just before limits: %v", checks)
+	}
+	if got := sandboxCheck(fmt.Errorf("%w: gone", sandbox.ErrNoBwrap)); got.Status != checkFix || got.Detail != sandbox.BwrapRefusal {
+		t.Errorf("no bubblewrap: %+v", got)
+	}
+	if got := sandboxCheck(nil); got.Status != checkOK || got.Title != "Hires start in their own sandbox" {
+		t.Errorf("in place: %+v", got)
+	}
+	for _, goos := range []string{"darwin", "windows"} {
+		setupSystem = goos
+		for _, c := range d.selfTest() {
+			if c.ID == "sandbox" {
+				t.Errorf("a sandbox line on %s", goos)
+			}
+		}
+	}
 }
 
 func TestSetupFromATerminalReadsTheChecklistWithTheCheckOnlyKey(t *testing.T) {

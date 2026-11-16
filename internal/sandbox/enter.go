@@ -376,8 +376,12 @@ func parseEnter(args []string) (entering, error) {
 	return e, nil
 }
 
-// Run is `smolcorp sandbox …`. Not in the usage: Smolcorp starts it, inside a desk's sandbox.
-func Run(args []string, stderr io.Writer) int {
+// Run is `smolcorp sandbox …`. Not in the usage: Smolcorp starts `enter`, inside a desk's sandbox; the Linux
+// installer runs `check` and `command` (runCheck).
+func Run(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && (args[0] == "check" || args[0] == "command") {
+		return runCheck(args[0], stdout, stderr)
+	}
 	if len(args) == 0 || args[0] != "enter" {
 		fmt.Fprintln(stderr, "smolcorp sandbox enter: Smolcorp runs this itself, inside a desk's sandbox")
 		return 2

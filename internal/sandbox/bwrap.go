@@ -16,8 +16,8 @@ import (
 	"syscall"
 )
 
-// Linux's view (SA-L1, SANDBOX-PLAN §A3.2, §A4.1 and §A5.2 step 1): a desk's Policy written as the words the system's
-// /usr/bin/bwrap starts the desk with. bwrap gives the desk a pid namespace with its own /proc, so it sees and signals
+// Linux's view (SA-L1, SANDBOX-PLAN §A3.2, §A4.1 and §A5.2 step 1): a desk's Policy written as the words Smolcorp's
+// BwrapPath starts the desk with. bwrap gives the desk a pid namespace with its own /proc, so it sees and signals
 // only its own processes, and a mount namespace: the computer as it is (`--bind / /`, the normal work a Mac's profile
 // writes as `(allow default)`), its own /dev (no other terminal's pty, no device), a private /tmp, an empty tmpfs over
 // the folders the core covers ($XDG_RUNTIME_DIR, /run/screen: View.Covered) with the agents brought back
@@ -91,9 +91,9 @@ import (
 // Left to the pieces after this one: seccomp (SA-L2), the sockets listening elsewhere (SA-L3's mask), the network
 // namespace (SA-L6), and `--new-session` stays off (§A3.2).
 
-// BwrapPath is the only bubblewrap the core runs: the system's package, never one on PATH or shipped with Smolcorp
-// (Ubuntu's AppArmor rule lets only the packaged one make namespaces).
-const BwrapPath = "/usr/bin/bwrap"
+// BwrapPath is the only bubblewrap the core runs: Smolcorp's own copy of the system's package, in folders root has
+// alone, which its AppArmor profile names (apparmor.go, L1APPARMOR1); never one on PATH.
+const BwrapPath = "/usr/local/lib/smolcorp/bwrap"
 
 // BwrapRefusal is what the owner sees when CheckBwrap fails (§A5.2).
 const BwrapRefusal = "Install bubblewrap (the `bubblewrap` package) to start hires on this computer."
@@ -101,7 +101,7 @@ const BwrapRefusal = "Install bubblewrap (the `bubblewrap` package) to start hir
 // Errors the view gives.
 var (
 	ErrNotLinux = errors.New("sandbox: a bwrap view is for a Linux Policy")
-	ErrNoBwrap  = errors.New("sandbox: /usr/bin/bwrap is missing, or it or a folder above it isn't root's alone")
+	ErrNoBwrap  = errors.New("sandbox: " + PackagedBwrap + " is missing, or it or a folder above it isn't root's alone")
 	ErrHeldLink = errors.New("sandbox: a place the view must hold is a link")
 	ErrUnheld   = errors.New("sandbox: a place the Policy denies is missing where the desk's work makes new names")
 	ErrNotOwn   = errors.New("sandbox: a place the start makes or binds for the desk isn't one it owns")
@@ -308,19 +308,37 @@ func readPlain(at string) ([]byte, error) {
 	return data, err
 }
 
-// CheckBwrap is §A5.2 step 1 on Linux: BwrapPath is a program, and it and every folder above it are root's, not
-// links, and not writable by the group or others. Anything else is ErrNoBwrap, and the start is refused with
-// BwrapRefusal.
-func CheckBwrap() error { return checkBwrap(osView{}) }
+// CheckBwrap is §A5.2 step 1 on Linux: PackagedBwrap and BwrapPath are programs, and each and every folder above it
+// are root's, not links, and not writable by the group or others; BwrapPath is 0750 in the owner's group and the
+// packaged one byte for byte; and where AppArmor limits user namespaces, its two profiles are loaded and enforcing,
+// and what BwrapPath runs is under both (apparmor.go). Anything else refuses the start, with RefusalFor's words:
+// there is no start without the sandbox.
+func CheckBwrap() error { return checkAll(osView{}, osRoot) }
+
+func checkAll(sys viewFS, root fs.FS) error {
+	if err := checkBwrap(sys); err != nil {
+		return err
+	}
+	return checkOwnBwrap(sys, root)
+}
 
 func checkBwrap(sys viewFS) error {
-	for at := BwrapPath; ; at = path.Dir(at) {
+	if err := rootsAlone(sys, PackagedBwrap); err != nil {
+		return fmt.Errorf("%w: %v", ErrNoBwrap, err)
+	}
+	return nil
+}
+
+// rootsAlone is nil when program is a file, and it and every folder above it are root's, not links, and not writable
+// by the group or others. Its error is a *notRootsAlone.
+func rootsAlone(sys viewFS, program string) error {
+	for at := program; ; at = path.Dir(at) {
 		st, err := sys.stat(at, false)
 		if err != nil {
-			return fmt.Errorf("%w: %s: %v", ErrNoBwrap, at, err)
+			return &notRootsAlone{at, fmt.Sprintf("%s: %v", at, err)}
 		}
-		if st.mode&fs.ModeSymlink != 0 || st.uid != 0 || st.mode.Perm()&0o022 != 0 || at == BwrapPath && !st.mode.IsRegular() {
-			return fmt.Errorf("%w: %s (%v, owner %d)", ErrNoBwrap, at, st.mode, st.uid)
+		if st.mode&fs.ModeSymlink != 0 || st.uid != 0 || st.mode.Perm()&0o022 != 0 || at == program && !st.mode.IsRegular() {
+			return &notRootsAlone{at, fmt.Sprintf("%s (%v, owner %d)", at, st.mode, st.uid)}
 		}
 		if at == "/" {
 			return nil
@@ -328,9 +346,18 @@ func checkBwrap(sys viewFS) error {
 	}
 }
 
+// notRootsAlone is the first place, from the program up, that is missing or isn't root's alone. A missing folder
+// above it is never first: the program is missing then too.
+type notRootsAlone struct {
+	at  string
+	why string
+}
+
+func (e *notRootsAlone) Error() string { return e.why }
+
 // viewFS is how the view looks at the computer: os's in use, a made-up one in the tests.
 type viewFS interface {
-	// stat is path's mode and its owner's uid (-1 when the system doesn't say): a link's own unless follow.
+	// stat is path's mode and its owner's uid and gid (-1 when the system doesn't say): a link's own unless follow.
 	stat(path string, follow bool) (viewStat, error)
 	// names are a folder's entries.
 	names(folder string) ([]string, error)
@@ -341,6 +368,7 @@ type viewFS interface {
 type viewStat struct {
 	mode fs.FileMode
 	uid  int64
+	gid  int64
 }
 
 type osView struct{}
@@ -354,7 +382,7 @@ func (osView) stat(p string, follow bool) (viewStat, error) {
 	if err != nil {
 		return viewStat{}, err
 	}
-	return viewStat{mode: fi.Mode(), uid: fileOwner(fi)}, nil
+	return viewStat{mode: fi.Mode(), uid: fileOwner(fi), gid: fileGroup(fi)}, nil
 }
 
 func (osView) names(folder string) ([]string, error) {

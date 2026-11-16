@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 // The self-test: setup's "Start here" checklist, and what `smolcorp setup`
@@ -78,8 +80,26 @@ func (d *Deck) selfTest() []check {
 			checks = append(checks, *firewall)
 		}
 	}
-	checks = append(checks, phoneCheck(phones, waiting), loginCheck(isOpenAtLogin(), hasTray()), limitsCheck())
-	return checks
+	checks = append(checks, phoneCheck(phones, waiting), loginCheck(isOpenAtLogin(), hasTray()))
+	if setupSystem == "linux" {
+		checks = append(checks, sandboxCheck(checkSandbox()))
+	}
+	return append(checks, limitsCheck())
+}
+
+// checkSandbox is the start's own check of Smolcorp's bubblewrap and its AppArmor profile; the tests change it.
+var checkSandbox = sandbox.CheckBwrap
+
+// sandboxCheck is Linux's line for the hires' sandbox (L1APPARMOR1): ticked when the start's check passes, and in
+// the way when it doesn't, with why and the one command to run, since no hire starts without its sandbox.
+func sandboxCheck(err error) check {
+	c := check{ID: "sandbox", Title: "Hires start in their own sandbox"}
+	if err == nil {
+		c.Status, c.Detail = checkOK, "Smolcorp's own copy of bubblewrap is in place, and allowed to make the sandbox."
+		return c
+	}
+	c.Status, c.Detail = checkFix, sandbox.RefusalFor(err)
+	return c
 }
 
 // limitsCheck is what Smolcorp can't keep from a program of yours on this computer, said where you set it up

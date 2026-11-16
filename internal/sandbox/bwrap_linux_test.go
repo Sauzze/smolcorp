@@ -128,6 +128,32 @@ func TestTheLinuxViewStandIn(t *testing.T) {
 				got[name] = "fail"
 			}
 			continue
+		// SIERRA (FXL1APPARMOR1R2), a hire stays blocked: what runs in the view runs a plain program (the positive
+		// control: with RT126L1APPARMOR1R2 B2's px, every exec here was refused), holds no capability, has
+		// no_new_privs, and can make no user namespace, by itself or through Smolcorp's bwrap again.
+		case strings.HasPrefix(name, "exec:"):
+			err = exec.Command(at).Run()
+		case strings.HasPrefix(name, "userns: a nested one"):
+			cmd := exec.Command(at)
+			cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWUSER}
+			err = cmd.Run()
+		case strings.HasPrefix(name, "userns: Smolcorp's bwrap again"):
+			out, bwrapErr := exec.Command(at, "--unshare-user", "--ro-bind", "/", "/", "true").CombinedOutput()
+			t.Logf("%s: %v\n%s", name, bwrapErr, out)
+			got[name] = map[bool]string{true: "ok", false: "fail"}[bwrapErr == nil]
+			continue
+		case strings.HasPrefix(name, "status:"): // at is a line of /proc/self/status, each such line as it must read
+			var data []byte
+			if data, err = os.ReadFile("/proc/self/status"); err == nil {
+				for _, want := range strings.Split(at, "\n") {
+					key, _, _ := strings.Cut(want, ":")
+					for _, line := range strings.Split(string(data), "\n") {
+						if strings.HasPrefix(line, key+":") && strings.Join(strings.Fields(line), " ") != want {
+							err = errors.New(line)
+						}
+					}
+				}
+			}
 		case strings.HasPrefix(name, "pid namespace"):
 			var link string
 			if link, err = os.Readlink("/proc/self/ns/pid"); err == nil && link == at {
@@ -152,6 +178,55 @@ func errName(err error) string {
 	return err.Error()
 }
 
+// L1APPARMOR1's row for VM run 2: Smolcorp's own bwrap, put in place by its one command, makes a user, pid, mount and
+// network namespace in one start: the uid map and the loopback that VM run 1 refused. And RT126L1APPARMOR1 B1's two
+// facts, what any program the copy starts gets: where the restriction is on, what runs inside is under both
+// profiles, stacked (smolcorp-bwrap//&smolcorp-bwrap-child), and wherever it is, it holds no capability and can't
+// make a user namespace of its own (unshare -Ur fails). With SMOLCORP_LINUXCAPS_REQUIRED=1 a bwrap or profile not in
+// place fails.
+func TestSmolcorpsBwrapMakesEveryNamespace(t *testing.T) {
+	required := os.Getenv("SMOLCORP_LINUXCAPS_REQUIRED") == "1"
+	if err := CheckBwrap(); err != nil {
+		if required {
+			t.Fatalf("Smolcorp's bwrap isn't in place (run: smolcorp sandbox command): %v", err)
+		}
+		t.Skip("Smolcorp's bwrap isn't in place here: ", err)
+	}
+	inside := func(command ...string) (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		words := append([]string{"--unshare-user", "--unshare-pid", "--unshare-net", "--ro-bind", "/", "/", "--dev", "/dev",
+			"--proc", "/proc", "--"}, command...)
+		out, err := exec.CommandContext(ctx, BwrapPath, words...).CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	label, err := inside("cat", "/proc/self/attr/current")
+	if err != nil {
+		t.Fatalf("Smolcorp's bwrap didn't make the namespaces: %v\n%s", err, label)
+	}
+	t.Logf("inside, AppArmor's label: %s", label)
+	stacked := stackedUnderBoth(label)
+	if on, _ := os.ReadFile("/" + restrictFile); strings.TrimSpace(string(on)) == "1" && !stacked {
+		t.Errorf("the restriction is on, and what runs inside isn't under %s and %s, enforcing: %q", AppArmorName, AppArmorChild, label)
+	}
+	status, err := inside("grep", "^CapEff:", "/proc/self/status")
+	if err != nil || strings.Trim(strings.TrimPrefix(status, "CapEff:"), " \t0") != "" {
+		t.Errorf("what runs inside holds capabilities: %v %q", err, status)
+	}
+	unshare, err := exec.LookPath("unshare")
+	if err != nil {
+		if required {
+			t.Fatal("no unshare here to try a nested user namespace: ", err)
+		}
+		t.Skip("no unshare here: ", err)
+	}
+	out, err := inside(unshare, "-Ur", "true")
+	t.Logf("a nested user namespace from inside: %v %s", err, out)
+	if stacked && err == nil {
+		t.Errorf("what runs inside, under %s, made a user namespace of its own", AppArmorChild)
+	}
+}
+
 func TestTheLinuxViewStartsOnBwrap(t *testing.T) {
 	if _, err := os.Stat(BwrapPath); err != nil {
 		if os.Getenv("SMOLCORP_LINUXCAPS_REQUIRED") == "1" {
@@ -160,7 +235,7 @@ func TestTheLinuxViewStartsOnBwrap(t *testing.T) {
 		t.Skip("no bwrap here (the linuxcaps CI job installs it): ", err)
 	}
 	if err := CheckBwrap(); err != nil {
-		t.Fatalf("the packaged bwrap fails the pin check: %v", err)
+		t.Fatalf("Smolcorp's bwrap fails the start's check (smolcorp sandbox command puts it in place): %v", err)
 	}
 	base := t.TempDir()
 	if runner := os.Getenv("RUNNER_TEMP"); runner != "" {
@@ -251,6 +326,16 @@ func TestTheLinuxViewStartsOnBwrap(t *testing.T) {
 		"rename its registration's branches": "EBUSY", "renameover its registration's remotes": "EBUSY",
 		"rmdir its registration's branches": "EBUSY", "chmod its registration's branches": "EROFS",
 		"mkdir the shared .git's branches": "EROFS", "mkdir the shared .git's remotes": "EROFS",
+		"exec: a plain program": "ok", "status: no capability held": "ok", "status: no_new_privs": "ok",
+	}
+	// Where the restriction is on, the hire is under smolcorp-bwrap-child, which denies any user namespace.
+	if on, _ := os.ReadFile("/" + restrictFile); strings.TrimSpace(string(on)) == "1" {
+		want["userns: a nested one"] = "EACCES or EPERM"
+		want["userns: Smolcorp's bwrap again"] = "fail"
+	}
+	truePath, err := exec.LookPath("true")
+	if err != nil {
+		t.Fatal(err)
 	}
 	rows := map[string]string{
 		"read the canary": support + "/sandbox-canary-1", "read phones.json": support + "/phones.json",
@@ -273,6 +358,9 @@ func TestTheLinuxViewStartsOnBwrap(t *testing.T) {
 		"rename its registration's branches": reg + "/branches", "renameover its registration's remotes": reg + "/remotes",
 		"rmdir its registration's branches": reg + "/branches", "chmod its registration's branches": reg + "/branches",
 		"mkdir the shared .git's branches": repo + "/.git/branches", "mkdir the shared .git's remotes": repo + "/.git/remotes",
+		"exec: a plain program": truePath, "userns: a nested one": truePath, "userns: Smolcorp's bwrap again": BwrapPath,
+		"status: no capability held": "CapPrm: 0000000000000000\nCapEff: 0000000000000000\nCapAmb: 0000000000000000",
+		"status: no_new_privs":       "NoNewPrivs: 1",
 	}
 	try, err := json.Marshal(viewTry{SupportDev: uint64(st.Dev), Support: support, Rows: rows})
 	if err != nil {
@@ -326,7 +414,7 @@ func TestTheViewHidesAKeyReplacedOutside(t *testing.T) {
 		t.Skip("no bwrap here (the linuxcaps CI job installs it): ", err)
 	}
 	if err := CheckBwrap(); err != nil {
-		t.Fatalf("the packaged bwrap fails the pin check: %v", err)
+		t.Fatalf("Smolcorp's bwrap fails the start's check (smolcorp sandbox command puts it in place): %v", err)
 	}
 	self, err := os.Executable()
 	if err != nil {
@@ -453,7 +541,7 @@ func TestTheViewHoldsBranchesAndGitConfigReplacedOutside(t *testing.T) {
 		t.Skip("no bwrap here (the linuxcaps CI job installs it): ", err)
 	}
 	if err := CheckBwrap(); err != nil {
-		t.Fatalf("the packaged bwrap fails the pin check: %v", err)
+		t.Fatalf("Smolcorp's bwrap fails the start's check (smolcorp sandbox command puts it in place): %v", err)
 	}
 	gitPath, err := exec.LookPath("git")
 	if err != nil {

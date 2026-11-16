@@ -22,7 +22,7 @@ const deskStandInVariable = "SMOLCORP_DESK_STANDIN"
 func deskStandIn(args []string) int {
 	switch {
 	case args[0] == "sandbox":
-		return sandbox.Run(args[1:], os.Stderr)
+		return sandbox.Run(args[1:], os.Stdout, os.Stderr)
 	case args[0] == "serve" && len(args) == 2:
 		ln, err := net.Listen("unix", args[1])
 		if err != nil {

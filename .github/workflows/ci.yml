@@ -427,9 +427,16 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      # The distribution's own package: the plan uses the system's bwrap, never a copy of its own.
+      # The distribution's own package; the view runs Smolcorp's copy of it, which the product's one command puts in
+      # place with its AppArmor profile (L1APPARMOR1), as the installer does. The probes above still try the packaged
+      # one. No kernel setting is changed.
       - name: Install bubblewrap
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - name: Put Smolcorp's bubblewrap in place, with the product's own command
+        run: |
+          go build -o "$RUNNER_TEMP/smolcorp" ./cmd/smolcorp
+          sh -c "$("$RUNNER_TEMP/smolcorp" sandbox command)"
+          "$RUNNER_TEMP/smolcorp" sandbox check
       # Run by name, as the GM's launcher tests are above: each must say PASS, so a probe that's skipped (no bwrap)
       # or left out fails the step instead of passing unseen.
       - name: Record what the kernel, AppArmor and bwrap allow
@@ -445,9 +452,10 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           missing=0
-          # SA-L1's rows: a desk's view starts on the packaged bwrap and holds, a key replaced outside stays hidden, and
-          # branches and git config the owner replaces outside stay held (bwrap_linux_test.go).
-          for name in TestLinuxSandboxCapabilitiesAreRecorded TestTheProbeFilterUsesTheKernelsNumbers TestTheProbeFilterRefusesOnlyTheTwoIoctls TestTheLinuxViewStartsOnBwrap TestTheViewHidesAKeyReplacedOutside TestTheViewHoldsBranchesAndGitConfigReplacedOutside; do
+          # Smolcorp's bwrap makes every namespace (L1APPARMOR1). SA-L1's rows: a desk's view starts on it and holds, a
+          # key replaced outside stays hidden, and branches and git config the owner replaces outside stay held
+          # (bwrap_linux_test.go).
+          for name in TestLinuxSandboxCapabilitiesAreRecorded TestTheProbeFilterUsesTheKernelsNumbers TestTheProbeFilterRefusesOnlyTheTwoIoctls TestSmolcorpsBwrapMakesEveryNamespace TestTheLinuxViewStartsOnBwrap TestTheViewHidesAKeyReplacedOutside TestTheViewHoldsBranchesAndGitConfigReplacedOutside; do
             if ! grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/linuxcaps.txt"; then
               echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
               missing=1

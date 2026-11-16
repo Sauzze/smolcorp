@@ -1,9 +1,20 @@
 #!/bin/sh
-# Installs Smolcorp for you alone, with no root needed:
+# Installs Smolcorp for you alone:
 #
 #   ~/.local/bin/smolcorp                         the app and its commands
 #   ~/.local/lib/smolcorp/tmux                    the tmux it drives your desks with
 #   ~/.local/share/applications/smolcorp.desktop  its entry in your app menu
+#
+# and, the one step that asks for your password (sudo), once, the sandbox your
+# hires start in:
+#
+#   /usr/local/lib/smolcorp/bwrap                 Smolcorp's copy of your bubblewrap, which only
+#                                                 root and your account's group can run
+#   /etc/apparmor.d/smolcorp-bwrap                where AppArmor needs it: that copy may make user
+#                                                 namespaces, and what it runs gets no capabilities
+#                                                 and can make none of its own; a program of yours
+#                                                 that loads its own code into the copy (LD_PRELOAD)
+#                                                 can use the copy's capabilities in them
 #
 #   ./install.sh
 #
@@ -79,6 +90,29 @@ case ":$PATH:" in
       echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
     fi ;;
 esac
+
+# Hires start in a sandbox made by Smolcorp's own copy of bubblewrap: the one
+# step that needs root, done once, with your password. Smolcorp's own check
+# says whether it's needed and why, with exactly what it grants (who can run
+# the copy, that what the copy runs gets no capabilities and can make no user
+# namespaces, and that a program of yours can load its own code into the
+# copy, with LD_PRELOAD, and use the copy's own); the command it runs is
+# Smolcorp's own (smolcorp sandbox command), the same one Setup shows, printed
+# before it runs. Declined or failed, hires don't start until it's done;
+# nothing else here needs it.
+echo
+SANDBOX_OK=0
+WHY=$("$BIN/smolcorp" sandbox check 2>/dev/null) || SANDBOX_OK=$?
+if [ "$SANDBOX_OK" -eq 3 ]; then
+  echo "$WHY Then run ./install.sh again."
+elif [ "$SANDBOX_OK" -ne 0 ]; then
+  SANDBOX=$("$BIN/smolcorp" sandbox command)
+  echo "$WHY"
+  echo "The installer runs it for you now."
+  if ! sh -c "$SANDBOX" || ! "$BIN/smolcorp" sandbox check >/dev/null; then
+    echo "It didn't finish, so hires won't start until it does: run the line above in a terminal, or see Setup."
+  fi
+fi
 
 # Started from where it now lives, it connects your agents and says what's
 # left: pairing your phone, Tailscale. Run it again any time: smolcorp setup

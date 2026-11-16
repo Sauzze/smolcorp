@@ -37,6 +37,7 @@ type fakeEntry struct {
 	to   string
 	uid  int64
 	perm fs.FileMode
+	gid  int64
 }
 
 type fakeFS map[string]fakeEntry
@@ -51,7 +52,7 @@ func (f fakeFS) stat(p string, follow bool) (viewStat, error) {
 	}
 	perm := cmpOr(e.perm, 0o755)
 	mode := map[byte]fs.FileMode{'d': fs.ModeDir, 'f': 0, 's': fs.ModeSocket, 'l': fs.ModeSymlink}[e.kind] | perm
-	return viewStat{mode: mode, uid: e.uid}, nil
+	return viewStat{mode: mode, uid: e.uid, gid: e.gid}, nil
 }
 
 func cmpOr(a, b fs.FileMode) fs.FileMode {
@@ -727,10 +728,11 @@ func heldOnlyByItself(s setup, f fakeFS, mounts []mounted) (whys []string, needs
 	return whys, needs
 }
 
-// /usr/bin/bwrap is run only when it, and every folder above it, is root's alone, and not a link (§A5.2 step 1).
+// /usr/bin/bwrap, which Smolcorp's copy is checked against, counts only when it, and every folder above it, is
+// root's alone, and not a link (§A5.2 step 1).
 func TestBwrapIsRunOnlyWhenItAndItsFoldersAreRootsAlone(t *testing.T) {
 	good := func() fakeFS {
-		return fakeFS{"/": {kind: 'd'}, "/usr": {kind: 'd'}, "/usr/bin": {kind: 'd'}, BwrapPath: {kind: 'f'}}
+		return fakeFS{"/": {kind: 'd'}, "/usr": {kind: 'd'}, "/usr/bin": {kind: 'd'}, PackagedBwrap: {kind: 'f'}}
 	}
 	if err := checkBwrap(good()); err != nil {
 		t.Fatalf("the packaged bwrap is refused: %v", err)
@@ -739,18 +741,18 @@ func TestBwrapIsRunOnlyWhenItAndItsFoldersAreRootsAlone(t *testing.T) {
 		name   string
 		change func(fakeFS)
 	}{
-		{"missing", func(f fakeFS) { delete(f, BwrapPath) }},
-		{"the owner's", func(f fakeFS) { f[BwrapPath] = fakeEntry{kind: 'f', uid: 1000} }},
-		{"writable by its group", func(f fakeFS) { f[BwrapPath] = fakeEntry{kind: 'f', perm: 0o775} }},
+		{"missing", func(f fakeFS) { delete(f, PackagedBwrap) }},
+		{"the owner's", func(f fakeFS) { f[PackagedBwrap] = fakeEntry{kind: 'f', uid: 1000} }},
+		{"writable by its group", func(f fakeFS) { f[PackagedBwrap] = fakeEntry{kind: 'f', perm: 0o775} }},
 		{"a link to a copy", func(f fakeFS) {
-			f[BwrapPath] = fakeEntry{kind: 'l', to: "/opt/bwrap"}
+			f[PackagedBwrap] = fakeEntry{kind: 'l', to: "/opt/bwrap"}
 			f["/opt/bwrap"] = fakeEntry{kind: 'f'}
 		}},
-		{"a folder", func(f fakeFS) { f[BwrapPath] = fakeEntry{kind: 'd'} }},
+		{"a folder", func(f fakeFS) { f[PackagedBwrap] = fakeEntry{kind: 'd'} }},
 		{"in a folder the owner has", func(f fakeFS) { f["/usr/bin"] = fakeEntry{kind: 'd', uid: 1000} }},
 		{"in a folder anyone writes", func(f fakeFS) { f["/usr"] = fakeEntry{kind: 'd', perm: 0o777} }},
 		{"under a root anyone writes", func(f fakeFS) { f["/"] = fakeEntry{kind: 'd', perm: 0o757} }},
-		{"of an owner the system doesn't say", func(f fakeFS) { f[BwrapPath] = fakeEntry{kind: 'f', uid: -1} }},
+		{"of an owner the system doesn't say", func(f fakeFS) { f[PackagedBwrap] = fakeEntry{kind: 'f', uid: -1} }},
 	} {
 		f := good()
 		c.change(f)

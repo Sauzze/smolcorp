@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 	if os.Getenv(enterTestVar) == "1" && len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "sandbox":
-			os.Exit(Run(os.Args[2:], os.Stderr))
+			os.Exit(Run(os.Args[2:], os.Stdout, os.Stderr))
 		case "standin":
 			standIn(os.Args[2])
 			os.Exit(0)
@@ -752,7 +752,7 @@ func TestEnterWithNoSandboxIsRefusedAndRunsNothing(t *testing.T) {
 	if _, err := os.Lstat(d.checks.Write[0]); err == nil {
 		t.Error("a status file made by the check was left behind")
 	}
-	if Run([]string{"connect"}, &bytes.Buffer{}) != 2 || Run(nil, &bytes.Buffer{}) != 2 {
+	if Run([]string{"connect"}, &bytes.Buffer{}, &bytes.Buffer{}) != 2 || Run(nil, &bytes.Buffer{}, &bytes.Buffer{}) != 2 {
 		t.Error("smolcorp sandbox took a word it doesn't have")
 	}
 }

@@ -47,6 +47,10 @@ var spawnExemptFunctions = map[string]string{
 	"internal/sandbox/enter_unix.go enter": "smolcorp sandbox enter becoming the desk's start in place, inside the desk's sandbox, once its checks " +
 		"passed: an exec in place starts no process, and `enter` itself is started through disclaim.Cmd, by sandbox-exec in " +
 		"internal/sandbox/run_darwin.go MacCommand (SA-M3; pinned below)",
+	"internal/sandbox/apparmor.go labelOf": "Smolcorp's copy of bubblewrap running a no-op to read the AppArmor label of " +
+		"what it runs (L1APPARMOR1's start check): Linux only, where nothing is charged to Smolcorp.app. CheckBwrap reaches " +
+		"it only once the packaged bwrap and the copy are root's and AppArmor's profiles are loaded, never on a Mac, and " +
+		"`smolcorp sandbox check` and the self-test's line run it on Linux alone",
 	"internal/gm/login_unix.go execGM": "smolcorp gm login putting the General Manager in its own place (SK2, B3): an exec in place starts no " +
 		"process, so the GM inherits the charge of whatever ran the command (the owner's terminal, or a hire's), and it's never the core's: " +
 		"only the command line runs it",

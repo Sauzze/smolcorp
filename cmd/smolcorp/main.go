@@ -72,8 +72,10 @@ func main() {
 		os.Exit(desktop.RunDeskStart(args[1:]))
 	case "sandbox":
 		// Not in the usage: Smolcorp starts `sandbox enter` inside a desk's sandbox, before anything of the desk's,
-		// to check the sandbox holds and tell the core so (internal/sandbox/enter.go).
-		os.Exit(sandbox.Run(args[1:], os.Stderr))
+		// to check the sandbox holds and tell the core so (internal/sandbox/enter.go). On Linux, `sandbox check` and
+		// `sandbox command` are the installer's: whether hires can start in their sandbox, and the one command that
+		// sets it up (internal/sandbox/apparmor.go).
+		os.Exit(sandbox.Run(args[1:], os.Stdout, os.Stderr))
 	case "setup":
 		os.Exit(desktop.RunSetup(args[1:]))
 	case "demo":
