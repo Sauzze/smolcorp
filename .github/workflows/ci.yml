@@ -611,7 +611,8 @@ jobs:
     # escape2_darwin_test.go): a stand-in hire under the real /usr/bin/sandbox-exec and the real profile, made from a
     # stand-in desk's Policy and the lists. SMOLCORP_SANDBOX_REQUIRED=1 turns a skip into a failure, and each test must
     # say PASS by name. The guarded tmux is the one the tmux job built. The runner is thrown away after, so the rows
-    # that may not run on a Mac someone uses run here: the keychain row (it makes a keychain) and swift test (CLIP1).
+    # that may not run on a Mac someone uses run here: the keychain row (it makes a keychain), swift test (CLIP1) and
+    # xcodebuild through SA-T2's shim (it writes in the real home's Library).
     # The TCC rows need a person's Accessibility grant, which GitHub's runners can't give: the Mac Studio runner's.
     name: Mac sandbox, escape tables and normal work
     needs: tmux
@@ -640,6 +641,7 @@ jobs:
           SMOLCORP_SANDBOX_REQUIRED: "1"
           SMOLCORP_TEST_KEYCHAIN: "1"
           SMOLCORP_TEST_SWIFT_TEST: "1"
+          SMOLCORP_TEST_XCODEBUILD: "1"
         run: |
           # An artifact keeps no file modes.
           tmux_file="$(find "$PWD/build/ci-tmux" -type f -name tmux | head -n 1)"
@@ -661,6 +663,9 @@ jobs:
             TestOnAMacNormalWorkNeedsNoIOKitClass
             TestOnAMacClaudeCodesDeskFolderWorksAndItsMarketplaceRefreshIsRefused
             TestOnAMacOpenInADeskLaunchesNothing
+            TestOnAMacTheShimsRunFirstInADeskAndNoDeskChangesThem
+            TestOnAMacSwiftAndXcodebuildWorkInADeskThroughTheShims
+            TestOnAMacNoDeskPlantsWhatAnotherDesksShimRuns
           )
           # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
           set +e
@@ -670,6 +675,18 @@ jobs:
           missing=0
           for name in "${names[@]}"; do
             if ! grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/mac-sandbox.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          # Rows that skip where their tool may not run (a Mac someone uses): a SKIP inside a passing test would pass the
+          # names above, so here each must say PASS of its own.
+          subtests=(
+            "TestOnAMacSwiftAndXcodebuildWorkInADeskThroughTheShims/swift_build_and_test,_through_the_shim,_with_no_flag_typed"
+            "TestOnAMacSwiftAndXcodebuildWorkInADeskThroughTheShims/xcodebuild,_through_the_shim,_with_a_script_phase"
+          )
+          for name in "${subtests[@]}"; do
+            if ! grep -qF -- "--- PASS: $name (" "$RUNNER_TEMP/mac-sandbox.txt"; then
               echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
               missing=1
             fi

@@ -590,7 +590,7 @@ func TestAProgramThatCantBeToldWholeFailsTheStart(t *testing.T) {
 
 func TestEveryProgramOfTheRowIsOnTheListOncePerSystem(t *testing.T) {
 	for goos, want := range map[string][]string{
-		"darwin":  {"git", "gh", "tmux", "claude", "codex", "gemini", "opencode", "grok", "cursor-agent", "agent", "kitten", "wezterm"},
+		"darwin":  {"git", "gh", "tmux", "claude", "codex", "gemini", "opencode", "grok", "cursor-agent", "agent", "kitten", "wezterm", "swift", "xcodebuild"},
 		"linux":   {"git", "gh", "tmux", "pactl", "wpctl", "xdg-open", "claude", "codex", "gemini", "opencode", "grok", "cursor-agent", "agent"},
 		"windows": {"git", "gh", "claude", "codex", "gemini", "opencode", "grok", "cursor-agent", "agent"},
 	} {

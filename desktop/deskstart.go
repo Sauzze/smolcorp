@@ -301,7 +301,8 @@ func deskBaseEnvironment() []string {
 	return append(env, "PATH="+strings.Join(folders, string(os.PathListSeparator)))
 }
 
-// deskEnvironment is base with plan's changes made, in order, and the API key read when the plan says so.
+// deskEnvironment is base with plan's changes made, in order, and the API key read when the plan says so. On a Mac the
+// app's shims folder goes before PathFirst on PATH (shimsBeside).
 func deskEnvironment(base []string, plan deskPlan, key func() string) ([]string, error) {
 	env := slices.Clone(base)
 	drop := func(name string) {
@@ -314,9 +315,13 @@ func deskEnvironment(base []string, plan deskPlan, key func() string) ([]string,
 		}
 	}
 	if plan.PathFirst != "" {
+		first := plan.PathFirst
+		if shims := shimsBeside(plan.PathFirst); deskSandboxed && shims != "" {
+			first = shims + string(os.PathListSeparator) + first
+		}
 		for i, variable := range env {
 			if value, ok := strings.CutPrefix(variable, "PATH="); ok {
-				env[i] = "PATH=" + plan.PathFirst + string(os.PathListSeparator) + value
+				env[i] = "PATH=" + first + string(os.PathListSeparator) + value
 			}
 		}
 	}
@@ -332,6 +337,27 @@ func deskEnvironment(base []string, plan deskPlan, key func() string) ([]string,
 		env = append(env, "ANTHROPIC_API_KEY="+text)
 	}
 	return env, nil
+}
+
+// shimsBeside is the app's dev-tool shims folder (SA-T2, SANDBOX-PLAN §A4.3, AQ9) for cliDir, the folder of the app's
+// own smolcorp: <app>.app/Contents/Resources/shims when cliDir is that app's Contents/Resources/bin and the folder is
+// there, as a folder and not a link. On a Mac it goes first on every desk's PATH, before cliDir, so a desk's `swift`
+// and `xcodebuild` turn off the sandbox of their own that can't start inside the desk's (Resources/shims). Only an
+// app's: the Policy denies the app the core runs from whole to every desk (sandbox.ResolvePrograms), so no desk can
+// change what its PATH runs first. "" for a smolcorp that isn't in an app (a build of your own: its desks have their
+// brief's lines alone, briefSandboxTools), or an app with no shims (one built before them).
+func shimsBeside(cliDir string) string {
+	resources := filepath.Dir(cliDir)
+	contents := filepath.Dir(resources)
+	if filepath.Base(cliDir) != "bin" || filepath.Base(resources) != "Resources" || filepath.Base(contents) != "Contents" ||
+		!strings.HasSuffix(strings.ToLower(filepath.Dir(contents)), ".app") || !filepath.IsAbs(cliDir) {
+		return ""
+	}
+	shims := filepath.Join(resources, "shims")
+	if info, err := os.Lstat(shims); err != nil || !info.IsDir() {
+		return ""
+	}
+	return shims
 }
 
 // terminalVariables are what the helper keeps of its own environment: tmux's, saying which terminal it's in.

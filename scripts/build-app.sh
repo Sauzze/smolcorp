@@ -103,6 +103,20 @@ if ! cmp -s Resources/report.sh "$APP/Contents/Resources/report.sh" || ! bash -n
   echo "Stopped: $APP/Contents/Resources/report.sh isn't Resources/report.sh as it is, or doesn't parse."
   exit 1
 fi
+# The dev-tool shims (SANDBOX-PLAN §A4.3, AQ9): swift and xcodebuild, whose folder is first on every desk's PATH
+# (desktop/deskstart.go), turn off the sandbox of their own that can't start inside a desk's. As report.sh, they run
+# from here as shipped, sealed by the app's signature, and no desk can change them: the Policy denies the app whole.
+# Only these two: nothing else in Resources/shims ships.
+mkdir -p "$APP/Contents/Resources/shims"
+chmod 755 "$APP/Contents/Resources/shims"
+for shim in swift xcodebuild; do
+  cp "Resources/shims/$shim" "$APP/Contents/Resources/shims/$shim"
+  chmod 755 "$APP/Contents/Resources/shims/$shim"
+  if ! cmp -s "Resources/shims/$shim" "$APP/Contents/Resources/shims/$shim" || ! bash -n "$APP/Contents/Resources/shims/$shim"; then
+    echo "Stopped: $APP/Contents/Resources/shims/$shim isn't Resources/shims/$shim as it is, or doesn't parse."
+    exit 1
+  fi
+done
 # office.js is built from Resources/web/office (scripts/buildoffice), and
 # committed: checked here, never rebuilt, so a change made in office.js itself
 # isn't lost. The pages, office.js and the briefs are inside the `smolcorp`

@@ -19,6 +19,8 @@ import (
 // at the core's start, and what no desk may write for them: the Policy's InstallRoots. A desk that could write one would
 // have Smolcorp run its code as the owner, outside the sandbox: a program replaced, a library or module it loads planted
 // beside it, a link on the way to it pointed elsewhere, or a program of the same name put where a lookup takes it first.
+// On a Mac, swift and xcodebuild are held the same way: the app's shims, first on every desk's PATH, hand on to them,
+// so one a desk planted would run in every other desk that calls them, the GM's too (SA-T2).
 //
 // For each program, what is denied is:
 //   - every link on the way to it, where it is met, the ones in the middle too (a middle hop put back would lead
@@ -57,7 +59,7 @@ const maxProgramFiles = 2000
 // maxScript is how much of a script is read for its launcher's places: npm's and pnpm's are under 2 KiB.
 const maxScript = 64 << 10
 
-// ProgramName is a program Smolcorp runs for itself, by name.
+// ProgramName is a program Smolcorp runs for itself, by name, or one its shims hand on to for every desk.
 type ProgramName struct {
 	Name string
 	// Systems are the systems it is run on; none is every one.
@@ -103,6 +105,11 @@ var programNames = []ProgramName{
 	{Name: "agent", Why: "Cursor's agent by its other name, asked its --version (summary_providers.go)"},
 	{Name: "kitten", Systems: onMac, Places: []string{"/Applications/kitty.app/Contents/MacOS/kitten", "/opt/homebrew/bin/kitten", "/usr/local/bin/kitten"}, Why: "the Swift app's kitty tabs (TerminalDrivers.swift)"},
 	{Name: "wezterm", Systems: onMac, Places: []string{"/Applications/WezTerm.app/Contents/MacOS/wezterm", "/opt/homebrew/bin/wezterm", "/usr/local/bin/wezterm"}, Why: "the Swift app's WezTerm tabs (TerminalDrivers.swift)"},
+	// The tools the app's shims hand on to (SA-T2, Resources/shims): a shim on every desk's PATH runs the first one
+	// on the search after its own folder, in whichever desk calls it, the GM's too. Held as the core's own are, so no
+	// desk can plant one there for another desk's shim to run (RT126SAT2 B1).
+	{Name: "swift", Systems: onMac, Why: "every desk's swift, through the app's shim (Resources/shims, deskstart.go)"},
+	{Name: "xcodebuild", Systems: onMac, Why: "every desk's xcodebuild, through the app's shim (Resources/shims, deskstart.go)"},
 }
 
 // ProgramNames are the programs Smolcorp runs for itself on goos, one per name.

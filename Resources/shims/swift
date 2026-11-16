@@ -1,0 +1,51 @@
+#!/bin/bash
+# smolcorp-shim: hands on to the real tool, never to a shim.
+# swift, as a Mac desk Smolcorp started runs it (SANDBOX-PLAN §A4.3, AQ9; SA-T2). SwiftPM runs a package's manifest
+# and plugins in a sandbox of its own, and that sandbox can't start inside the desk's (P10). So `swift build`,
+# `swift test`, `swift run` and `swift package` get --disable-sandbox here, and anything else goes to swift as typed.
+#
+# This file ships in Smolcorp.app (Contents/Resources/shims, sealed by the app's signature), and its folder is first on
+# every Mac desk's PATH (desktop/deskstart.go). No desk can change it: the Policy denies the whole app to every desk
+# (internal/sandbox/programs.go). Nor what it hands on to: swift is held in every folder of the search as the core's
+# own programs are, so no desk can put one before the real one for another desk's call. A full path such as
+# /usr/bin/swift doesn't come through here, so the brief still says to add --disable-sandbox (desktop/briefs.go).
+
+# The swift this stands for: the first one on PATH after this file's own folder, wherever that folder appears again
+# (twice, or through a link). Relative folders are skipped: a lookup from the project would take the project's file.
+# Nothing here runs a program but the tool itself (bash's own words only): PATH may lack every folder of programs.
+self="${BASH_SOURCE[0]}"
+case "$self" in */*) dir="${self%/*}" ;; *) dir=. ;; esac
+here="$(cd "${dir:-/}" && pwd -P)" || exit 127
+real=""
+IFS=: read -r -a folders <<<"${PATH-}"
+for folder in ${folders[@]+"${folders[@]}"}; do
+  case "$folder" in /*) ;; *) continue ;; esac
+  candidate="$folder/swift"
+  [ -f "$candidate" ] && [ -x "$candidate" ] || continue
+  [ "$candidate" -ef "$self" ] && continue
+  [ "$(cd "$folder" 2>/dev/null && pwd -P)" = "$here" ] && continue
+  # Another Smolcorp's shim (a second app's folder): passed over too, or the two would hand to each other forever.
+  first="" second=""
+  { read -r first && read -r second; } <"$candidate" 2>/dev/null
+  [ "${second-}" = "# smolcorp-shim: hands on to the real tool, never to a shim." ] && continue
+  real="$candidate"
+  break
+done
+if [ -z "$real" ]; then
+  echo "swift: there's no swift on PATH besides Smolcorp's own (in $here)." >&2
+  exit 127
+fi
+
+case "${1-}" in
+  build | test | run | package)
+    # Already there, before a `--` (whatever follows it is the program's, for `swift run`): left as typed.
+    for arg in "$@"; do
+      [ "$arg" = "--" ] && break
+      [ "$arg" = "--disable-sandbox" ] && exec "$real" "$@"
+    done
+    command="$1"
+    shift
+    exec "$real" "$command" --disable-sandbox "$@"
+    ;;
+esac
+exec "$real" "$@"
