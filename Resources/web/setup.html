@@ -1229,6 +1229,56 @@
         </div>
       </div>
     </div>
+    <!-- The sandbox (SA-X14, SANDBOX-PLAN §A5.3): its switch, the desks without it, Remote Login and the database
+         opt-in on a Mac; on Linux and Windows, that there's none yet and what Smolcorp does instead. -->
+    <div class="group" id="sandbox-section">
+      <h2>Sandbox</h2>
+      <div class="box steps switches">
+        <div class="step" id="step-sandbox" data-search="Sandbox" data-keywords="sandbox wall keys restart desks unsandboxed protect" hidden>
+          <div class="mark">✓</div>
+          <div class="text">
+            <div class="title">Start desks in their sandbox</div>
+            <div class="detail" data-pending="Off: the desks you start now run without their sandbox, each tagged No sandbox, and can read Smolcorp's keys. The General Manager is told when it starts. Desks already running stay as they are." data-done="Each desk starts in a sandbox of its own: it can't read Smolcorp's keys, or change another desk's work or your own checkout. Turning this off changes no desk that's running."></div>
+            <p class="choice-line" id="sandbox-count" role="status"></p>
+            <div id="sandbox-desks"></div>
+            <p class="choice-line" id="sandbox-restart-line" hidden>A restart ends the desk's conversation and starts it fresh, in its sandbox, in the same worktree and on the same branch: its files and commits stay. Only an idle desk with nothing typed is restarted. Smolcorp never restarts a desk by itself.
+              <button class="btn" id="sandbox-restart-all">Restart all in the sandbox</button></p>
+            <p class="note" id="sandbox-problem" role="alert" hidden></p>
+          </div>
+          <button class="switch" id="sandbox" aria-label="Start desks in their sandbox"></button>
+        </div>
+        <div class="step" id="step-remote-login" data-search="Remote Login" data-keywords="remote login ssh keys port 22 sharing commits push sign" hidden>
+          <div class="text">
+            <div class="title">Remote Login and your SSH keys</div>
+            <p class="choice-line" id="remote-login-line"></p>
+          </div>
+        </div>
+        <div class="step" id="step-database" data-search="Local database" data-keywords="database postgres mysql mariadb password local supabase" hidden>
+          <div class="mark">✓</div>
+          <div class="text">
+            <div class="title">My local database asks for a password</div>
+            <div class="detail" data-pending="Off: desks can't reach a Postgres or MySQL on this Mac. Homebrew's and Postgres.app's let anyone on the Mac in without a password, and from there a desk could read Smolcorp's keys. Hosted databases work either way. Turn this on only if yours asks for a password: Smolcorp first tries to log in without one, and turns this on only if it can't." data-done="On: desks reach your local Postgres and MySQL. At each desk start, Smolcorp tries again to log in without a password, and if it gets in, keeps that desk away from them."></div>
+            <p class="note" id="database-problem" role="alert" hidden></p>
+          </div>
+          <button class="switch" id="database-optin" aria-label="My local database asks for a password"></button>
+        </div>
+        <div class="step" id="step-git-plants" data-search="Old git hooks and settings" data-keywords="git hooks config settings repository remove commit pull outside sandbox" hidden>
+          <div class="text">
+            <div class="title">Hooks and settings your git runs</div>
+            <p class="choice-line">A desk's start found these in a repository's .git. Git runs each one at your own commands, like a commit or a pull, outside any sandbox, and a desk that ran without its sandbox could have left one there. Smolcorp removes nothing by itself: remove what you didn't put there.</p>
+            <div id="git-plants"></div>
+            <p class="note" id="git-plant-problem" role="alert" hidden></p>
+          </div>
+        </div>
+        <div class="step" id="step-no-sandbox" data-search="No sandbox on this computer yet" data-keywords="sandbox wall keys protect guard fence" hidden>
+          <div class="text">
+            <div class="title">No sandbox on this computer yet</div>
+            <div class="detail">Desks here run as you, with no wall around them: a desk, or a program it starts, can read and change what you can. What Smolcorp does here instead: the fence and the guard refuse the commands you've barred and keep Claude Code out of your .env files and keys, and a desk can't loosen them while Smolcorp runs. Setup's key stays in Smolcorp's memory, and the setup link works once. Each desk has keys of its own, and Smolcorp keeps only their fingerprints. The General Manager's token is only in its own desk's environment, never in a file. See Keys, records and the guard in Smolcorp's docs.</div>
+            <div id="no-sandbox-desks"></div>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="group" id="gm-group">
       <h2>General Manager</h2>
       <div class="box steps switches">
@@ -2042,6 +2092,7 @@
     renderPhone();
     renderLogo();
     renderRoles();
+    renderSandbox();
     renderProfiles();
     renderLayout();
     renderFloors();
@@ -2314,6 +2365,156 @@
       : [Object.assign(document.createElement('p'), { className: 'hint',
         textContent: gm || byHand ? 'No one else is on the team yet.' : 'No one is hired yet.', style: 'padding:10px 14px;margin:0' })]));
     if (rest.length && state.t3CodeEnabled) t3State(false).then(paintT3);
+  }
+
+  /*
+   * The Sandbox row (GET /setup/sandbox, SA-X14): asked at most every 3 s, and at once after a change here. On a Mac,
+   * the switch, each desk without its sandbox with why, and "Restart in the sandbox" where it can be; Remote Login as
+   * the last desk start found it; the database opt-in. On Linux and Windows, that there's none yet, desk by desk.
+   */
+  let sandboxAsking = false;
+  let sandboxAskedAt = 0;
+  let sandboxState = null;
+  async function renderSandbox(now = false) {
+    if (sandboxAsking || (!now && Date.now() - sandboxAskedAt < 3000)) return;
+    sandboxAsking = true;
+    sandboxAskedAt = Date.now();
+    const res = await fetch('/setup/sandbox', { cache: 'no-store', headers: setupHeaders() }).catch(() => null);
+    sandboxAsking = false;
+    const s = res && res.ok ? await res.json().catch(() => null) : null;
+    if (!s) return;
+    sandboxState = s;
+    drawSandbox(s);
+  }
+
+  /** A desk named, with what's said of it; the button when it's offered. */
+  function sandboxDeskRow(name, said, button) {
+    const row = Object.assign(document.createElement('p'), { className: 'choice-line' });
+    row.append(Object.assign(document.createElement('b'), { textContent: name }), ` · ${said}`);
+    if (button) row.append(' ', button);
+    return row;
+  }
+
+  /** "Restart in the sandbox" asks once more on the button itself, as it ends the desk's conversation. */
+  function restartButton(desk) {
+    const button = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Restart in the sandbox' });
+    button.dataset.desk = desk.id;
+    button.onclick = async () => {
+      if (!button.dataset.sure) {
+        button.dataset.sure = '1';
+        button.textContent = 'Yes, restart it';
+        setTimeout(() => { if (button.dataset.sure && !button.disabled) { button.dataset.sure = ''; button.textContent = 'Restart in the sandbox'; } }, ROTATE_WAIT);
+        return;
+      }
+      button.disabled = true;
+      button.textContent = 'Restarting…';
+      const said = await restartDesk(desk);
+      tell('sandbox-problem', said);
+      renderSandbox(true);
+    };
+    return button;
+  }
+
+  /** One desk restarted in its sandbox: "" once it runs there, else what Smolcorp said. */
+  async function restartDesk(desk) {
+    const res = await fetch(`/setup/sandbox/restart?id=${encodeURIComponent(desk.id)}`, { method: 'POST', headers: setupHeaders() }).catch(() => null);
+    return res && res.ok ? '' : refusal(res, `${desk.name} couldn't be restarted.`);
+  }
+
+  /** An old git plant's "Remove", which asks once more on the button: Smolcorp takes out only what it listed. */
+  function gitPlantButton(plant) {
+    const button = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Remove' });
+    button.setAttribute('aria-label', `Remove ${plant.key || plant.file}`);
+    button.onclick = async () => {
+      if (!button.dataset.sure) {
+        button.dataset.sure = '1';
+        button.textContent = 'Yes, remove it';
+        setTimeout(() => { if (button.dataset.sure && !button.disabled) { button.dataset.sure = ''; button.textContent = 'Remove'; } }, ROTATE_WAIT);
+        return;
+      }
+      button.disabled = true;
+      const res = await fetch(`/setup/sandbox/gitplant?id=${encodeURIComponent(plant.id)}`, { method: 'POST', headers: setupHeaders() }).catch(() => null);
+      tell('git-plant-problem', res && res.ok ? '' : await refusal(res, "That couldn't be removed."));
+      renderSandbox(true);
+    };
+    return button;
+  }
+
+  function drawSandbox(s) {
+    const here = !!s.here;
+    $('step-sandbox').hidden = $('step-remote-login').hidden = $('step-database').hidden = !here;
+    const plants = s.gitPlants || [];
+    $('step-git-plants').hidden = !here || !plants.length;
+    const plantList = $('git-plants');
+    // A setting by its name and value, a hook or a remote file by its path; each with why git runs it.
+    if (!plantList.querySelector('button[data-sure="1"], button:disabled') && changed(plantList, plants)) {
+      plantList.replaceChildren(...plants.map((p) => sandboxDeskRow(p.key ? `${p.key} = ${p.value}` : p.file,
+        `${p.key ? `${p.file} · ` : ''}${p.why}${p.removable ? '' : ' Smolcorp can’t remove this one: look at it yourself.'}`,
+        p.removable ? gitPlantButton(p) : null)));
+    }
+    $('step-no-sandbox').hidden = here;
+    const desks = s.desks || [];
+    if (!here) {
+      // Every desk on this computer says it, plainly (AQ5 as the owner took it for 1.26: no Windows sandbox).
+      const list = $('no-sandbox-desks');
+      if (changed(list, desks)) list.replaceChildren(...desks.map((d) => sandboxDeskRow(d.name, d.tag)));
+      hideEmptyGroups();
+      return;
+    }
+    mark('step-sandbox', !!s.on);
+    $('sandbox').classList.toggle('on', !!s.on);
+    $('sandbox').onclick = async () => {
+      const res = await fetch(`/setup/sandbox?on=${s.on ? 0 : 1}`, { method: 'POST', headers: setupHeaders() }).catch(() => null);
+      tell('sandbox-problem', res && res.ok ? '' : await refusal(res, "That couldn't be changed."));
+      renderSandbox(true);
+    };
+    const n = s.unsandboxed || 0;
+    const shown = desks.filter((d) => !d.sandboxed || d.apply);
+    $('sandbox-count').textContent = n ? `The sandbox doesn't protect Smolcorp's keys while ${n === 1 ? '1 desk runs' : `${n} desks run`} without it:`
+      : shown.length ? 'Every desk runs in its sandbox. These started before a change on this Mac:'
+      : desks.length ? 'Every desk runs in its sandbox.' : '';
+    const list = $('sandbox-desks');
+    const restartable = shown.filter((d) => d.restart);
+    // Not redrawn under a button that's asking, or while one is being pressed.
+    if (!list.querySelector('button[data-sure="1"], button:disabled') && changed(list, [shown, s.gmByHand])) {
+      const rows = shown.map((d) => sandboxDeskRow(d.name, d.apply || d.tag || '', d.restart ? restartButton(d) : null));
+      for (let i = 0; i < shown.length; i++) {
+        if (!shown[i].restart && shown[i].restartWhy) rows[i].append(Object.assign(document.createElement('small'), { className: 'hint', textContent: ` ${shown[i].restartWhy}` }));
+      }
+      if (s.gmByHand) rows.push(sandboxDeskRow('Your General Manager started by hand', 'It runs without the sandbox. Quit it when you don’t need it.'));
+      list.replaceChildren(...rows);
+    }
+    $('sandbox-restart-line').hidden = !restartable.length;
+    $('sandbox-restart-all').hidden = restartable.length < 2;
+    $('sandbox-restart-all').onclick = async () => {
+      const button = $('sandbox-restart-all');
+      button.disabled = true;
+      const said = [];
+      for (const d of restartable) {
+        button.textContent = `Restarting ${d.name}…`;
+        const why = await restartDesk(d);
+        if (why) said.push(why);
+      }
+      button.disabled = false;
+      button.textContent = 'Restart all in the sandbox';
+      tell('sandbox-problem', said.join(' '));
+      renderSandbox(true);
+    };
+    $('remote-login-line').textContent = s.remoteLogin === 'on'
+      ? 'Remote Login is on (System Settings → General → Sharing), so desks can’t use your SSH keys or their agents: commits you sign and pushes over SSH fail in a desk. Turn Remote Login off if you don’t use it. A desk started while it was off says Restart to apply once it’s on.'
+      : s.remoteLogin === 'off' ? 'Remote Login is off, so desks can use your SSH keys to sign commits and push. If you turn it on, the desks running then say Restart to apply.'
+      : 'Smolcorp checks whether Remote Login is on at each desk start: with it on, desks can’t use your SSH keys.';
+    mark('step-database', !!s.databaseOptIn);
+    $('database-optin').classList.toggle('on', !!s.databaseOptIn);
+    $('database-optin').onclick = async () => {
+      const button = $('database-optin');
+      button.disabled = true;
+      const res = await fetch(`/setup/sandbox/database?on=${s.databaseOptIn ? 0 : 1}`, { method: 'POST', headers: setupHeaders() }).catch(() => null);
+      button.disabled = false;
+      tell('database-problem', res && res.ok ? '' : await refusal(res, "That couldn't be changed."));
+      renderSandbox(true);
+    };
+    hideEmptyGroups();
   }
 
   // How long "Yes, make a new token" waits for its click, and longer while the pointer is on it.
@@ -7747,6 +7948,9 @@
       // Pairing is done on this page, with a code: its line takes you there.
       if (c.id === 'phone' && c.status !== 'ok') {
         row.append(startButton('Pair a phone', () => { go('phone', $('pair')); $('new-code').click(); }));
+      } else if (c.id === 'sandbox' && c.status === 'todo') {
+        // Its desks, and their Restart, are on Hires and roles (SA-X14).
+        row.append(startButton('Show the desks', () => go('team', $('sandbox-section'))));
       } else if (c.fix && c.label) {
         row.append(startButton(c.label, () => startFix(c.fix), c.status === 'fix'));
       }

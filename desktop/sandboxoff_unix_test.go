@@ -32,7 +32,7 @@ func TestAnEngineHireStartsWithEveryOwnSandboxOff(t *testing.T) {
 		t.Errorf("the hire's start doesn't switch the auto-update off:\n%s", script)
 	}
 	data, err := os.ReadFile(filepath.Join(hireFolder(supportDir, hire.ID), "BRIEF.md"))
-	if err != nil || !strings.HasSuffix(string(data), strings.TrimPrefix(briefSandboxTools(runtime.GOOS), "\n")) {
+	if err != nil || !strings.HasSuffix(string(data), strings.TrimPrefix(briefSandboxTools(runtime.GOOS, desksSandboxedHere), "\n")) {
 		t.Errorf("the hire's brief: %v\n%s", err, data)
 	}
 }

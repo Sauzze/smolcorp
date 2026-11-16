@@ -666,8 +666,13 @@ func deskChecksForgotten(id string) {
 // last check no longer allows. The desk keeps running as it is: the owner restarts it (Smolcorp never stops a desk
 // itself).
 func restartToApply(optIn bool) map[string]string {
+	// One caller dials at a time: the one that finds the answer stale marks it fresh before it dials, so callers at
+	// the same moment use the last answer (RT126SAX14 nit 4).
 	checked.Lock()
 	stale := time.Since(checked.remoteLoginAt) >= checked.remoteLoginNew
+	if stale {
+		checked.remoteLoginAt = time.Now()
+	}
 	checked.Unlock()
 	if stale {
 		answers := remoteLoginAnswers(ownAddressesReached())
@@ -675,6 +680,12 @@ func restartToApply(optIn bool) map[string]string {
 		checked.remoteLogin, checked.remoteLoginAt = answers, time.Now()
 		checked.Unlock()
 	}
+	return restartToApplyKnown(optIn)
+}
+
+// restartToApplyKnown is restartToApply's tags from what was last found, with nothing dialed: Start here's, which a
+// tool and the check-only key ask too (RT126SAX14 nit 4).
+func restartToApplyKnown(optIn bool) map[string]string {
 	checked.Lock()
 	defer checked.Unlock()
 	sshWords := "Restart to apply: an SSH server answers on this computer now, and this desk started before it did, so it can still use your SSH keys."

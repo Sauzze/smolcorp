@@ -47,8 +47,8 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 	}
 	firing.Lock()
 	if firing.ids[h.ID] {
-		firing.Unlock()
-		return refuse(calledHire(h) + " is being fired already.")
+		defer firing.Unlock()
+		return refuse(beingFiredAlready(h))
 	}
 	if firing.takingOver[h.ID] {
 		firing.Unlock()

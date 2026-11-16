@@ -1263,10 +1263,22 @@ func TestT3TakeOverAndAFireOfOneHireNeverRunAtOnce(t *testing.T) {
 		got := serve(t, d, t3PageCall("POST", "/setup/t3code/takeover", `{"id":"`+k.hire.ID+`"}`))
 		return got.Code, got.Body.String()
 	}
+	// SA-X14's restart in the sandbox holds the hire as a fire does, and Take over says it's a restart (RT126SAX14 S1).
+	firing.Lock()
+	firing.ids[k.hire.ID], firing.restarting[k.hire.ID] = true, true
+	firing.Unlock()
+	status, body := takeOver()
+	firing.Lock()
+	delete(firing.ids, k.hire.ID)
+	delete(firing.restarting, k.hire.ID)
+	firing.Unlock()
+	if status != http.StatusConflict || body != "Ada is being restarted in its sandbox right now, so it wasn't taken over." || len(k.log) != 0 {
+		t.Errorf("while it's restarted: %d %s %q", status, body, k.log)
+	}
 	firing.Lock()
 	firing.ids[k.hire.ID] = true
 	firing.Unlock()
-	status, body := takeOver()
+	status, body = takeOver()
 	firing.Lock()
 	delete(firing.ids, k.hire.ID)
 	firing.Unlock()

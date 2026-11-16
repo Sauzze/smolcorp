@@ -114,7 +114,8 @@ func TestEveryWrittenBriefSaysHowToTurnAToolsOwnSandboxOff(t *testing.T) {
 		{ID: "mine", Name: "Mine", Agent: "codex", Brief: &picked},
 		{ID: "unended", Name: "Unended", Agent: "claude", Brief: &unended},
 	}
-	tools := briefSandboxTools(runtime.GOOS)
+	playSandboxedHere(t, true) // as on a Mac, or on Linux once SA-L4 starts desks in theirs
+	tools := briefSandboxTools(runtime.GOOS, true)
 	lines := []string{"`--no-sandbox`"}
 	if runtime.GOOS == "darwin" {
 		lines = append(lines, "`--disable-sandbox`", "`/usr/bin/swift`", "`ENABLE_USER_SCRIPT_SANDBOXING=NO`")
@@ -157,12 +158,16 @@ func TestEveryWrittenBriefSaysHowToTurnAToolsOwnSandboxOff(t *testing.T) {
 	}
 }
 
-// Swift's and Xcode's own sandboxes are the Mac's: a Mac's briefs name them, a Linux or Windows computer's don't. The
-// headless browser's line is in every system's.
+// Swift's and Xcode's own sandboxes are the Mac's: a Mac's briefs name them, a Linux computer's (once its desks start
+// in their sandbox) doesn't. The headless browser's line is in every sandboxed system's. Where desks start in no
+// sandbox (Linux until SA-L4, Windows in 1.26), there is no section at all (RT126SAX14 B1).
 func TestOnlyAMacsBriefNamesSwiftAndXcode(t *testing.T) {
 	macOnly := []string{"`--disable-sandbox`", "`/usr/bin/swift`", "`ENABLE_USER_SCRIPT_SANDBOXING=NO`", "Xcode"}
 	for _, goos := range []string{"darwin", "linux", "windows"} {
-		text := briefSandboxTools(goos)
+		if text := briefSandboxTools(goos, false); text != "" {
+			t.Errorf("%s, no sandbox: %q", goos, text)
+		}
+		text := briefSandboxTools(goos, true)
 		if !strings.HasPrefix(text, "\n## Tools with a sandbox of their own\n") || !strings.HasSuffix(text, "start it with `--no-sandbox`. Playwright already does.\n") {
 			t.Errorf("%s: %q", goos, text)
 		}

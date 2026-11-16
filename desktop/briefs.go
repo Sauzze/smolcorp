@@ -588,8 +588,13 @@ const (
 // one you edited or a file you picked): developer tools whose own sandbox can't start inside Smolcorp's, and the
 // switch that turns theirs off (SANDBOX-PLAN §A4.3, AQ9). A full path such as /usr/bin/swift is named too: no
 // wrapper on the desk's PATH would catch it. Swift's and Xcode's sandboxes are the Mac's, so only a Mac's briefs name
-// them. Setup's preview shows the brief as its template makes it, without these lines.
-func briefSandboxTools(goos string) string {
+// them. Setup's preview shows the brief as its template makes it, without these lines. Where no desk starts in a
+// sandbox (sandboxed false: Linux until SA-L4, and Windows, which has none in 1.26), there is none: no section,
+// nothing that says a desk runs inside Smolcorp's sandbox, and no tool's own sandbox turned off (RT126SAX14 B1).
+func briefSandboxTools(goos string, sandboxed bool) string {
+	if !sandboxed {
+		return ""
+	}
 	text := "\n## Tools with a sandbox of their own\n" +
 		"A tool's own sandbox can't start inside Smolcorp's, so turn it off when you run one of these:\n"
 	if goos == "darwin" {
@@ -956,7 +961,7 @@ func makeBrief(r briefRequest) (*briefMade, error) {
 		text, err = r.role.renderBrief(template, briefContext{folder: r.folder, pinned: r.pinned, answers: r.answers, date: r.date,
 			briefFile: names.brief, statusFile: names.status, reportFile: names.report, task: r.task})
 		if err == nil && r.write {
-			text += briefSandboxTools(runtime.GOOS) // after resolveBrief's one line end, so a blank line comes before it
+			text += briefSandboxTools(runtime.GOOS, desksSandboxedHere) // after resolveBrief's one line end, so a blank line comes before it
 		}
 		return text, err
 	}

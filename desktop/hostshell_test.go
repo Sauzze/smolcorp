@@ -264,7 +264,7 @@ func TestTheSelfTestHasTheMacsLinesUnderTheMacApp(t *testing.T) {
 		ids = append(ids, check.ID)
 	}
 	at := slices.Index(ids, "hooks")
-	if at < 0 || !slices.Equal(ids[at:], []string{"hooks", "accessibility", "network", "phone", "login"}) {
+	if at < 0 || !slices.Equal(ids[at:], []string{"hooks", "accessibility", "network", "phone", "login", "sandbox"}) {
 		t.Fatalf("the checks: %v", ids)
 	}
 	// The install line is the app's own, first, as the Swift engine's self-test has it (A13).

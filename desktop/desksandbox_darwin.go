@@ -119,11 +119,12 @@ func (r deskStartRun) start(s *deskSandbox, program, smolcorp string, args []str
 // deskServices is what a desk at pl may reach beyond its files (SA-M2), from the lists (SA-X2): its own socket; the
 // system's sockets and the agents' (the GPG agent's places too: whether the owner's git signs with gpg isn't
 // asked); the Mach services and IOKit classes on the lists; the local ports denied (the
-// databases' too: AQ21's opt-in is SA-M12's).
+// databases' too, unless AQ21's opt-in passed SA-M12's check at this desk's start).
 func deskServices(pl sandbox.Places, own string) sandbox.Services {
-	svc := sandbox.Services{OwnSocket: own, DeniedPorts: sandbox.DeniedPorts(false)}
+	database := deskCheckedOf(pl.OwnID).Database
+	svc := sandbox.Services{OwnSocket: own, DeniedPorts: sandbox.DeniedPorts(database)}
 	for _, s := range sandbox.Sockets("darwin") {
-		paths := sandbox.SocketPaths([]sandbox.Socket{s}, pl.Home, os.Getenv, true, false)
+		paths := sandbox.SocketPaths([]sandbox.Socket{s}, pl.Home, os.Getenv, true, database)
 		if strings.Contains(s.Name, "agent") {
 			svc.Agents = append(svc.Agents, paths...)
 		} else {

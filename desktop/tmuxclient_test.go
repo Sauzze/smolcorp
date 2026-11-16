@@ -168,6 +168,7 @@ var tmuxExecSites = map[string]string{
 	"hirelauncher.go runLauncherHire writeHireSettings(hireSettingsOptions{…})":   "smolcorp's own guard tool",
 	"t3deskdeck.go t3FenceSettings hireSettingsObject(hireSettingsOptions{…})":    "smolcorp's own guard tool",
 	"t3takeover_tmux.go t3ResumeInTmux writeHireSettings(hireSettingsOptions{…})": "smolcorp's own guard tool",
+	"sandboxrestart.go restartDesk writeHireSettings(hireSettingsOptions{…})":     "smolcorp's own guard tool (SA-X14's restart in the sandbox)",
 	"t3code.go t3Detect .Run(program)":                                            "T3 Code's command line",
 	"t3code.go t3Open .Run(program)":                                              "T3 Code's command line",
 	"t3code.go t3Open .Run(program) #2":                                           "T3 Code's command line",
@@ -304,6 +305,8 @@ var tmuxExecAllowed = map[string]string{
 	"t3takeover_tmux.go t3ResumeInTmux writeHireSettings(hireSettingsOptions{…})": "not a tmux: smolcorp's own guard tool",
 	// Not a tmux: its words name tmux only by reading tmux.sandboxed, for the desk's kept folder (SA-L2); it runs the guard tool.
 	"hireengine.go runManagedHire writeHireSettings(hireSettingsOptions{…})": "not a tmux: smolcorp's own guard tool",
+	// Not a tmux: the same read of tmux.sandboxed, for the restarted desk's kept folder (RT126SAL2 S1); it runs the guard tool.
+	"sandboxrestart.go restartDesk writeHireSettings(hireSettingsOptions{…})": "not a tmux: smolcorp's own guard tool",
 }
 
 // execStarters are the standard library's ways to start a program, by package path, each with the argument that is the

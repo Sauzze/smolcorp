@@ -74,8 +74,8 @@ func (d *Deck) fireOwnWindowHire(h Hire, tab string, agent Agent, force, keep bo
 	}
 	firing.Lock()
 	if firing.ids[h.ID] {
-		firing.Unlock()
-		return refuse(http.StatusConflict, calledHire(h)+" is being fired already.")
+		defer firing.Unlock()
+		return refuse(http.StatusConflict, beingFiredAlready(h))
 	}
 	firing.ids[h.ID] = true
 	firing.Unlock()

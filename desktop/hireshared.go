@@ -260,11 +260,23 @@ func calledHire(h Hire) string {
 
 // firing is the hires being fired right now, so two fires of one can't both go ahead; and the hires being taken
 // over in T3 Code right now (t3takeover.go), so a fire and a Take over of one never run at once (RM5c2 N1).
+// restarting are the hires being restarted in their sandbox (sandboxrestart.go, SA-X14): each is in ids too, so
+// every fire and Take over refuses it, and is told it's a restart, not a fire.
 var firing = struct {
 	sync.Mutex
 	ids        map[string]bool
 	takingOver map[string]bool
-}{ids: map[string]bool{}, takingOver: map[string]bool{}}
+	restarting map[string]bool
+}{ids: map[string]bool{}, takingOver: map[string]bool{}, restarting: map[string]bool{}}
+
+// beingFiredAlready is a fire's refusal while h is held (firing.ids[h.ID]), by another fire or by a restart in its
+// sandbox. Said with firing held.
+func beingFiredAlready(h Hire) string {
+	if firing.restarting[h.ID] {
+		return calledHire(h) + " is being restarted in its sandbox right now, so it wasn't fired: try again once that's done."
+	}
+	return calledHire(h) + " is being fired already."
+}
 
 // windowRefusal is why a window showing screen (captured with its escapes;
 // readable false: it couldn't be looked at) may not be ended, or "". A question or a menu, or a window that

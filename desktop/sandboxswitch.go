@@ -26,14 +26,15 @@ func inSandbox(h Hire) bool { return h.Sandboxed && h.Engine != t3Engine && h.T3
 // sandboxTag is what desk h is tagged with, in words for the owner: "" for a desk in its sandbox.
 func sandboxTag(h Hire) string {
 	switch {
+	case !desksSandboxedHere:
+		// First: on a system whose desks start in none, no desk's tag may hint that the others have one (RT126SAX14 B1).
+		return noSandboxOnThisComputer(runtime.GOOS)
 	case inSandbox(h):
 		return ""
 	case h.T3Session != "":
 		return "No sandbox: taken over in T3 Code."
 	case h.Engine == t3Engine:
 		return "No sandbox: it runs in T3 Code."
-	case !desksSandboxedHere:
-		return noSandboxOnThisComputer(runtime.GOOS)
 	}
 	return "No sandbox: it started without one, before this version or while the sandbox was off. Restart it with the sandbox on to put it in one."
 }
@@ -42,15 +43,10 @@ func sandboxTag(h Hire) string {
 // sandbox with it.
 var desksSandboxedHere = deskSandboxed
 
-// noSandboxOnThisComputer is the tag of every desk on a system whose desks start in no sandbox. Windows has none in
-// 1.26 (the owner, 15 Nov: no Windows sandbox in this release), so nothing says one is coming there; Linux's comes
-// with SA-L4.
-func noSandboxOnThisComputer(goos string) string {
-	if goos == "windows" {
-		return "No sandbox on this computer."
-	}
-	return "No sandbox on this computer yet."
-}
+// noSandboxOnThisComputer is the tag of every desk on a system whose desks start in no sandbox: Linux until SA-L4,
+// and Windows, which has none in 1.26 (the owner, 15 Nov). The same plain words on both (SA-X14, SA-W4's wording):
+// nothing says or hints that a sandbox holds a desk there.
+func noSandboxOnThisComputer(string) string { return "No sandbox on this computer yet." }
 
 // deskEnd is one end of words sent from desk to desk: what it is called, and whether it runs in its sandbox.
 // eitherSide is the GM's token while it may be held on both sides of the sandbox at once (gmEnd): words go
@@ -200,15 +196,18 @@ func (rt *router) sandboxRoute(w http.ResponseWriter, r *request) {
 // noSandboxToSwitch is POST /setup/sandbox's answer on a system whose desks start in no sandbox.
 const noSandboxToSwitch = "Desks on this computer don't start in a sandbox, so there's no sandbox to turn on or off."
 
-// sandboxState is GET /setup/sandbox's answer.
+// sandboxState is GET /setup/sandbox's answer, with Setup's row's own (sandboxRow, SA-X14).
 func (d *Deck) sandboxState() map[string]any {
 	desks := []map[string]any{}
-	for _, h := range readRegistry(registryPath(), false).hires {
+	hires := readRegistry(registryPath(), false).hires
+	for _, h := range hires {
 		if isOpen(h) {
 			desks = append(desks, map[string]any{"id": h.ID, "name": calledHire(h), "sandboxed": inSandbox(h), "tag": sandboxTag(h)})
 		}
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	return map[string]any{"on": desksSandboxedHere && !d.config.SandboxOff, "here": desksSandboxedHere, "gmByHand": d.startedByHand(), "desks": desks}
+	state := map[string]any{"on": desksSandboxedHere && !d.config.SandboxOff, "here": desksSandboxedHere, "gmByHand": d.startedByHand(), "desks": desks}
+	d.mu.Unlock()
+	d.sandboxRow(state, hires)
+	return state
 }

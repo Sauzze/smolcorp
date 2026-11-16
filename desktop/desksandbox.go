@@ -53,6 +53,8 @@ type deskAt struct {
 	// Programs are the programs its start runs besides those the core finds (deskFinding): a plain hire's agent, as
 	// its launcher resolved it (SA-M10), so its install root is the desk's to read and never to write.
 	Programs []sandbox.Program
+	// DatabaseOptIn is AQ21's opt-in as the owner set it (sandboxchecks.go): its start checks the databases only then.
+	DatabaseOptIn bool
 }
 
 // startedInSandbox is whether tmux's start was a desk's in its sandbox, with the server the core checked at it
@@ -80,6 +82,10 @@ func makeDeskSandbox(d deskAt) (*deskSandbox, error) {
 		log.Printf("sandbox: desk %s's places: %v", d.ID, err)
 		return nil, &errSandboxNotMade{sandboxNotMade}
 	}
+	// SA-M12's checks, at each start: whether Remote Login answers (its SSH keys denied then), and, with AQ21's
+	// opt-in on, whether every local database refuses a password-less login (deskServices reads it). Setup's Sandbox
+	// row shows both (SA-X14).
+	pl.RemoteLogin = deskStartChecks(d.ID, d.DatabaseOptIn).RemoteLogin
 	pol, err := sandbox.New(pl)
 	if err != nil {
 		log.Printf("sandbox: desk %s's policy: %v", d.ID, err)
@@ -95,7 +101,7 @@ func makeDeskSandbox(d deskAt) (*deskSandbox, error) {
 	}
 	if pl.GitDir != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-		keepOldGitPlants(d.ID, findOldGitPlants(ctx, pl.GitDir))
+		keepOldGitPlants(d.ID, pl.GitDir, findOldGitPlants(ctx, pl.GitDir))
 		cancel()
 	}
 	s := &deskSandbox{at: d, places: pl, policy: pol}
@@ -106,24 +112,12 @@ func makeDeskSandbox(d deskAt) (*deskSandbox, error) {
 	return s, nil
 }
 
-// keptSandboxes are the sandboxes of the desks this core started, by id, for their stop; oldGitPlants the old git
-// plants each one's start found (X12), for Setup (X14). Gone when the core is.
-var (
-	keptSandboxes = struct {
-		sync.Mutex
-		of map[string]*deskSandbox
-	}{of: map[string]*deskSandbox{}}
-	oldGitPlants = struct {
-		sync.Mutex
-		of map[string][]oldGitPlant
-	}{of: map[string][]oldGitPlant{}}
-)
-
-func keepOldGitPlants(id string, plants []oldGitPlant) {
-	oldGitPlants.Lock()
-	oldGitPlants.of[id] = plants
-	oldGitPlants.Unlock()
-}
+// keptSandboxes are the sandboxes of the desks this core started, by id, for their stop. The old git plants each
+// one's start found (X12) are kept for Setup's Sandbox row (oldGitPlants, sandboxrow.go). Gone when the core is.
+var keptSandboxes = struct {
+	sync.Mutex
+	of map[string]*deskSandbox
+}{of: map[string]*deskSandbox{}}
 
 // deskSandboxOf is desk id's sandbox as its start made it, kept by this core until the desk's stop. It doesn't say
 // whether the desk runs (a desk started before the core's restart has none kept): deskStoppedNow does.
@@ -156,6 +150,7 @@ func deskStopped(h Hire, o engineOptions) {
 		deskStopListing(s)
 	}
 	removeDeskSocketFolder(h.TmuxSocket)
+	deskChecksForgotten(h.ID)
 }
 
 // deskStopListing is where a desk's stop lists what it may have planted, from its sandbox: CLAUDEPLANT1's merge puts
@@ -180,6 +175,9 @@ func rowDeskSandbox(id string, o engineOptions) *deskSandbox {
 		log.Printf("sandbox: desk %s's places at its stop: %v", id, err)
 		return nil
 	}
+	// As its start found it. Not known (Smolcorp started again since): off, which denies nothing more, so the stop's
+	// listing of what it could write looks at no less (RT126SAX14 nit 5: "on" would narrow the listing).
+	pl.RemoteLogin = deskCheckedOf(id).RemoteLogin
 	pol, err := sandbox.New(pl)
 	if err != nil {
 		log.Printf("sandbox: desk %s's policy at its stop: %v", id, err)
@@ -191,7 +189,8 @@ func rowDeskSandbox(id string, o engineOptions) *deskSandbox {
 // deskAtOf is what desk h's start knows of it, from its row, as the engine's start had it: its worktree (else its
 // folder), the checkout that is a worktree of, the hires' folder, its socket, the Claude accounts its fence denies.
 func deskAtOf(h Hire, socket string, accounts []claudeProfile, o engineOptions) deskAt {
-	d := deskAt{ID: h.ID, GM: h.Role == gmRole, Root: h.Folder, Socket: socket, Accounts: accounts, Brief: h.Brief, Git: o.Git}
+	d := deskAt{ID: h.ID, GM: h.Role == gmRole, Root: h.Folder, Socket: socket, Accounts: accounts, Brief: h.Brief, Git: o.Git,
+		DatabaseOptIn: o.DatabaseOptIn}
 	if h.Worktree != "" && h.Repo != "" {
 		d.Root, d.Checkout = h.Worktree, h.Repo
 	}

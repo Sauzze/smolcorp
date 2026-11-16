@@ -86,6 +86,7 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 	d.mu.Lock()
 	o := d.engine.withDefaults()
 	o.SandboxOff = d.config.SandboxOff // resumed as a start now would be (AQ1)
+	o.DatabaseOptIn = d.config.LocalDatabaseAsksPassword
 	roles := slices.Clone(d.config.Roles)
 	d.mu.Unlock()
 	// A Claude Code that can't make a stopped guard refuse gets no desk (SANDBOX-PLAN §3.4).

@@ -96,6 +96,9 @@ var routeTable = []routeRow{
 	{"*", "/bots/*", []string{"page", "tool"}},
 	{"GET", "/setup/sandbox", []string{"page"}},
 	{"POST", "/setup/sandbox", []string{"page"}},
+	{"POST", "/setup/sandbox/database", []string{"page"}},
+	{"POST", "/setup/sandbox/restart", []string{"page"}},
+	{"POST", "/setup/sandbox/gitplant", []string{"page"}},
 }
 
 // goOnlyRoutes are setup routes only this app serves (INVENTORY.md's "Served by the Go app only"), so they aren't

@@ -63,9 +63,12 @@ func sandboxSwitch(t *testing.T, d *Deck, on string) (int, map[string]any) {
 // playSandboxedHere plays a system whose desks start in their sandbox (a Mac), or one whose desks start in none
 // (Linux and Windows in 1.26), for the switch and the tags, on whatever system the test runs.
 func playSandboxedHere(t *testing.T, here bool) {
-	saved := desksSandboxedHere
-	t.Cleanup(func() { desksSandboxedHere = saved })
+	saved, savedCheck := desksSandboxedHere, checkSandbox
+	t.Cleanup(func() { desksSandboxedHere, checkSandbox = saved, savedCheck })
 	desksSandboxedHere = here
+	// Smolcorp's bubblewrap in place, so a Linux run's sandbox line is the row's alone (MSYSTACK4: sandboxLine takes
+	// L1APPARMOR1's fix only when that check fails, as TestTheChecklistShowsTheSandboxsOneCommandOnLinux shows).
+	checkSandbox = func() error { return nil }
 }
 
 func sandboxOff(d *Deck) bool {
@@ -369,7 +372,7 @@ func TestOffAMacTheSwitchClaimsNoSandboxAndTurnsNothing(t *testing.T) {
 	if desks, _ := answer["desks"].([]any); len(desks) != 1 || desks[0].(map[string]any)["tag"] != noSandboxOnThisComputer(runtime.GOOS) {
 		t.Errorf("the desks: %v", answer["desks"])
 	}
-	if got := noSandboxOnThisComputer("windows"); got != "No sandbox on this computer." {
+	if got := noSandboxOnThisComputer("windows"); got != "No sandbox on this computer yet." { // SA-X14: SA-W4's words
 		t.Errorf("Windows: %q", got)
 	}
 	if got := noSandboxOnThisComputer("linux"); got != "No sandbox on this computer yet." {

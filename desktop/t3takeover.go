@@ -580,7 +580,7 @@ func (d *Deck) takeOverIntoT3(id string) (int, any) {
 		// The hire held from fires until Take over is done: a fire under way refuses it, and a fire from now on is
 		// refused, then reads the registry again and finds it taken over (RM5c2 N1).
 		firing.Lock()
-		beingFired := firing.ids[id]
+		beingFired, restarting := firing.ids[id], firing.restarting[id]
 		if !beingFired {
 			firing.takingOver[id] = true
 		}
@@ -597,6 +597,8 @@ func (d *Deck) takeOverIntoT3(id string) (int, any) {
 		hire, found = registryHire(id)
 		switch {
 		case !found:
+		case restarting:
+			err = t3Refused(http.StatusConflict, calledHire(hire)+" is being restarted in its sandbox right now, so it wasn't taken over.")
 		case beingFired:
 			err = t3Refused(http.StatusConflict, calledHire(hire)+" is being fired right now, so it wasn't taken over.")
 		default:

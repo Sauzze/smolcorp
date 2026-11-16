@@ -2352,6 +2352,14 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// The sandbox's switch and each desk's tag (sandboxswitch.go): the page's alone (routes.json, AQ1).
 	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/setup/sandbox":
 		rt.sandboxRoute(w, r)
+	// Setup's Sandbox row (sandboxrow.go): AQ21's opt-in, "Restart in the sandbox" and an old git plant's "Remove",
+	// the page's alone too.
+	case r.Method == http.MethodPost && path == "/setup/sandbox/database":
+		rt.sandboxDatabaseRoute(w, r)
+	case r.Method == http.MethodPost && path == "/setup/sandbox/restart":
+		rt.sandboxRestartRoute(w, r)
+	case r.Method == http.MethodPost && path == "/setup/sandbox/gitplant":
+		rt.sandboxGitPlantRoute(w, r)
 
 	// Mail (routes.json): send is for gm, page and hire; the outbox is read by gm, page and tool, and a tool is not given the texts.
 	case r.Method == http.MethodPost && path == "/setup/gm/send":

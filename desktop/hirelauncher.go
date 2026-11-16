@@ -531,8 +531,8 @@ func (d *Deck) fireLauncherHire(h Hire, o launcherEngineOptions, force bool) (ke
 	}
 	firing.Lock()
 	if firing.ids[h.ID] {
-		firing.Unlock()
-		return refuse(calledHire(h) + " is being fired already.")
+		defer firing.Unlock()
+		return refuse(beingFiredAlready(h))
 	}
 	firing.ids[h.ID] = true
 	firing.Unlock()

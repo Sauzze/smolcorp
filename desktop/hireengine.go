@@ -45,6 +45,8 @@ type engineOptions struct {
 	// SandboxOff: the owner turned the sandbox off in Settings (AQ1, sandboxswitch.go), as the deck's config held it
 	// when this start was asked for. A desk then starts as before, and its row says it isn't in a sandbox.
 	SandboxOff bool
+	// DatabaseOptIn: AQ21's opt-in, as the deck's config held it when this start was asked for (sandboxchecks.go).
+	DatabaseOptIn bool
 }
 
 // sandboxing is whether the engine starts this desk in its sandbox: on a Mac with the real tmux (deskSandboxed), or
@@ -244,6 +246,9 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 			start.GMCLI = o.CLI
 		}
 		start.Message += "\n\n" + gmIntroduction(place.Folder, start.GMPlugin != "" && start.GMCLI == "")
+		if deskSandboxed && o.SandboxOff {
+			start.Message += " " + gmSandboxOffLine // told it starts outside its sandbox (§A5.2, AQ1)
+		}
 	}
 	if r.StartTyped != nil {
 		r.StartTyped(start.Message)
@@ -298,7 +303,8 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 			undoPlaced()
 		}
 	}
-	desk := deskAt{ID: id, GM: r.Role.ID == gmRole, Root: place.Folder, Socket: tmux.socket, Accounts: r.Profiles, Brief: brief, Git: o.Git}
+	desk := deskAt{ID: id, GM: r.Role.ID == gmRole, Root: place.Folder, Socket: tmux.socket, Accounts: r.Profiles, Brief: brief, Git: o.Git,
+		DatabaseOptIn: o.DatabaseOptIn}
 	if place.Worktree != "" {
 		desk.Root, desk.Checkout = place.Worktree, place.Repo
 	}
@@ -433,6 +439,7 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 	role, how := d.config.Roles[i], hiredIntoGeneralFolder
 	options, testPort := d.engine, testCopyPort()
 	options.SandboxOff = d.config.SandboxOff // the owner's switch, as held now (AQ1)
+	options.DatabaseOptIn = d.config.LocalDatabaseAsksPassword
 	options.Worktrees = d.worktreesFolder(options.Worktrees)
 	if options.HeardFrom == nil {
 		options.HeardFrom = d.hireHeardFrom

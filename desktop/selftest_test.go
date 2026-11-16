@@ -232,15 +232,12 @@ func wantChecks() []string {
 	if firewallCheck(listenAll) != nil {
 		ids = append(ids, "firewall")
 	}
-	ids = append(ids, "phone", "login")
-	if setupSystem == "linux" {
-		ids = append(ids, "sandbox")
-	}
-	return append(ids, "limits")
+	return append(ids, "phone", "login", "sandbox", "limits") // the sandbox's line before the limits (SA-X14)
 }
 
 // Linux's line for the hires' sandbox (L1APPARMOR1) is the start's own check: ticked when it passes; in the way when
-// it doesn't, so the checklist isn't ready, with why and the one command, whole. Not on a Mac or Windows.
+// it doesn't, so the checklist isn't ready, with why and the one command, whole. Not on a Mac or Windows, whose
+// sandbox line is Setup's Sandbox row's alone (SA-X14; MSYSTACK4: one line per system, sandboxLine).
 func TestTheChecklistShowsTheSandboxsOneCommandOnLinux(t *testing.T) {
 	saved, savedCheck := setupSystem, checkSandbox
 	t.Cleanup(func() { setupSystem, checkSandbox = saved, savedCheck })
@@ -268,13 +265,34 @@ func TestTheChecklistShowsTheSandboxsOneCommandOnLinux(t *testing.T) {
 	if got := sandboxCheck(nil); got.Status != checkOK || got.Title != "Hires start in their own sandbox" {
 		t.Errorf("in place: %+v", got)
 	}
+	// One line, the Sandbox row's: Smolcorp's bubblewrap check, failing here, is never Linux's line on a Mac or Windows.
 	for _, goos := range []string{"darwin", "windows"} {
 		setupSystem = goos
+		lines := 0
 		for _, c := range d.selfTest() {
 			if c.ID == "sandbox" {
-				t.Errorf("a sandbox line on %s", goos)
+				if lines++; c.Status == checkFix || c.Title == "Hires start in their own sandbox" || strings.Contains(c.Detail, "AppArmor") {
+					t.Errorf("Linux's bubblewrap line on %s: %+v", goos, c)
+				}
 			}
 		}
+		if lines != 1 {
+			t.Errorf("%d sandbox lines on %s, want the one", lines, goos)
+		}
+	}
+	// On Linux with the check passing: the Sandbox row's words, as no desk starts in a sandbox there yet (SA-L4), one line.
+	setupSystem, checkSandbox = "linux", func() error { return nil }
+	playSandboxedHere(t, false)
+	lines := 0
+	for _, c := range d.selfTest() {
+		if c.ID == "sandbox" {
+			if lines++; c.Status != checkInfo || c.Title != "No sandbox on this computer yet" || c.Detail != noSandboxHere {
+				t.Errorf("Linux, its bubblewrap in place: %+v", c)
+			}
+		}
+	}
+	if lines != 1 {
+		t.Errorf("%d sandbox lines on Linux, want the one", lines)
 	}
 }
 

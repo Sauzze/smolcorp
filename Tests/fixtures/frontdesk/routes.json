@@ -787,6 +787,33 @@
       "method" : "POST",
       "path" : "\/setup\/sandbox",
       "why" : "the sandbox's switch: only you turn it off, never the GM, a tool, an MCP key or a hire (AQ1)"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/sandbox\/database",
+      "why" : "you say your local database asks for a password: only you, once Smolcorp's own login without one fails (AQ21)"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/sandbox\/restart",
+      "why" : "restart a desk in its sandbox: only you, never the GM, a tool, an MCP key or a hire (AQ17)"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/sandbox\/gitplant",
+      "why" : "remove an old hook or setting from a repository's .git: only you, never the GM, a tool, an MCP key or a hire (NB2)"
     }
   ],
   "unlisted" : {
