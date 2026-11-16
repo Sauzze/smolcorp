@@ -26,6 +26,8 @@ func deskStandIn(args []string) int {
 	switch {
 	case args[0] == "sandbox":
 		return sandbox.Run(args[1:], os.Stdout, os.Stderr)
+	case args[0] == "hook":
+		return RunHook(args[1:]) // a plain hire's hook, inside its sandbox (launchersandbox_darwin_test.go)
 	case args[0] == "serve" && len(args) == 2:
 		ln, err := net.Listen("unix", args[1])
 		if err != nil {

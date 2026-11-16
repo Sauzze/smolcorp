@@ -22,6 +22,8 @@ type hiring struct {
 	windows [][]string
 	dirs    []string
 	tmux    [][]string
+	// The sockets of the plain hires' own tmux servers, one per hire (stubPlainHireTmux).
+	sockets []string
 	fail    error
 	// The agents looked for where hires run, and why one isn't there, if it isn't.
 	lookedFor []string
@@ -31,15 +33,14 @@ type hiring struct {
 func fakeHiring(t *testing.T, tmux string) *hiring {
 	t.Helper()
 	h := &hiring{}
-	saved := []any{installedOpeners, tmuxPath, canOpenWindows, startHire, runTmux, agentMissing, hooksNotConnected}
+	saved := []any{installedOpeners, tmuxPath, canOpenWindows, startHire, agentMissing, hooksNotConnected}
 	t.Cleanup(func() {
 		installedOpeners = saved[0].(func() []hireOpener)
 		tmuxPath = saved[1].(func() string)
 		canOpenWindows = saved[2].(func() bool)
 		startHire = saved[3].(func(*exec.Cmd) error)
-		runTmux = saved[4].(func(...string) (string, error))
-		agentMissing = saved[5].(func(string) string)
-		hooksNotConnected = saved[6].(func(Agent) string)
+		agentMissing = saved[4].(func(string) string)
+		hooksNotConnected = saved[5].(func(Agent) string)
 	})
 	hooksNotConnected = func(Agent) string { return "" } // connected, unless a test says not
 	opener := func(id string) hireOpener {
@@ -55,10 +56,7 @@ func fakeHiring(t *testing.T, tmux string) *hiring {
 		h.dirs = append(h.dirs, cmd.Dir)
 		return h.fail
 	}
-	runTmux = func(args ...string) (string, error) {
-		h.tmux = append(h.tmux, args)
-		return "%7 /tmp/tmux-1000/default", h.fail
-	}
+	stubPlainHireTmux(t, h)
 	agentMissing = func(program string) string {
 		h.lookedFor = append(h.lookedFor, program)
 		return h.missing
@@ -199,32 +197,6 @@ func TestAHireSitsAtTheDeskItWasHiredAt(t *testing.T) {
 	// A token is good once.
 	if desk, _, _ := d.hiredDesk(token); desk != -1 {
 		t.Errorf("a hire's token was taken twice")
-	}
-}
-
-func TestAHireCanRunInTmux(t *testing.T) {
-	d, h, folder := hiringDeck(t, "/usr/bin/tmux")
-	d.config.HireInTmux = true
-	if status, message := d.Perform("hire", "", url.Values{}); status != http.StatusNoContent {
-		t.Fatalf("hire in tmux: %d %s", status, message)
-	}
-	if len(h.tmux) != 1 || h.tmux[0][0] != "new-session" || !slices.Contains(h.tmux[0], folder) {
-		t.Fatalf("tmux was asked %q, want a session of its own in the folder", h.tmux)
-	}
-	// The launcher, as tmux runs several words: no shell (RT126SG2 B3).
-	if at := slices.Index(h.tmux[0], folder); len(h.tmux[0]) < at+3 || !filepath.IsAbs(h.tmux[0][at+1]) || h.tmux[0][at+2] != "run" {
-		t.Errorf("tmux runs %q, want the launcher with no shell", h.tmux[0])
-	}
-	session := h.tmux[0][slices.Index(h.tmux[0], "-s")+1]
-	// Its window runs `smolcorp attach` on the session and the socket it was made on (SA-M8).
-	if want := plainAttachLine(commandLineProgram(), session, "/tmp/tmux-1000/default"); len(h.windows) != 1 || !slices.Equal(h.windows[0][3:], want) {
-		t.Errorf("the window runs %q, want it to show the session", h.windows)
-	}
-	// With no desktop, as over SSH, the session alone: tmux attach shows it.
-	canOpenWindows = func() bool { return false }
-	d.lastHire = time.Time{}
-	if status, _ := d.Perform("hire", "", url.Values{}); status != http.StatusNoContent || len(h.tmux) != 2 || len(h.windows) != 1 {
-		t.Errorf("a hire with no desktop: %d, tmux %d, windows %d", status, len(h.tmux), len(h.windows))
 	}
 }
 

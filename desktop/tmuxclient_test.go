@@ -80,7 +80,6 @@ var tmuxPickedIn = map[string]string{
 	"hire.go tmuxProgramFor":            "a picker",
 	"hiretmux.go tmuxFor":               "a picker, and the guard for it",
 	"hireengine_windows.go tmuxFor":     "a picker: no tmux runs on Windows",
-	"hire.go runTmux":                   "runs it through tmuxStartCall or tmuxClient",
 	"hiretmux.go newHireTmux":           "runs it through oneShotTmux and tmuxStartCall (hireTmuxUsing)",
 	"hiretmux.go newDeskTmux":           "runs it through oneShotTmux; its start through the desk's sandbox",
 	"hiretmux.go hireTmuxAt":            "runs it through oneShotTmux and tmuxStartCall (hireTmuxUsing)",
@@ -128,7 +127,6 @@ var tmuxPickedIn = map[string]string{
 var tmuxExecSites = map[string]string{
 	// The two ways a tmux runs, and the starts.
 	"gmtile_unix.go showTeamGrid tmuxStartCall(tmux)":       "tmux, the team grid's server",
-	"hire.go runTmux tmuxStartCall(program)":                "tmux, a plain hire's session on the default server",
 	"hiretmux.go hireTmuxUsing tmuxStartCall(program)":      "tmux, a desk's start on a computer with no sandbox yet",
 	"tmuxclient.go tmuxClient exec.CommandContext(program)": "tmux, a one-shot client: guarded, a clean environment, stdin /dev/null",
 	"tmuxclient.go tmuxStartCall exec.CommandContext(path)": "tmux, a start outside any sandbox, its guard off for that call alone",
@@ -236,6 +234,9 @@ var tmuxExecSites = map[string]string{
 	"opencode.go loginShellPath lookupCommand(shell)":                      "the owner's login shell, for its PATH",
 	"opencode.go lookupCommand exec.CommandContext(shell)":                 "a login shell, with nothing of Smolcorp's in its environment",
 	"opencode.go openCodeMajor versionCommand(program)":                    "opencode, for its --version",
+	"agentownsandbox.go agentVersionOf versionCommand(program)":            "a plain hire's agent, for its --version (SA-M10)",
+	"agentownsandbox.go ownSandboxOffFor agentVersionOf(program)":          "a plain hire's agent, for its --version (SA-M10)",
+	"launcher.go launch ownSandboxOffFor(program)":                         "a plain hire's agent, for its --version (SA-M10)",
 	"opencode_other.go versionCommand exec.CommandContext(program)":        "a program's --version",
 	"opencode_other.go scriptCommand exec.CommandContext(program)":         "a program its caller found (opencode, T3 Code)",
 	"opencode_windows.go versionCommand scriptCommand(program)":            "a program's --version, through scriptCommand",
@@ -2100,17 +2101,19 @@ func TestARespawnedPaneIsSaidOnceWhileItsMarkCantBeSaved(t *testing.T) {
 	}
 }
 
-// A plain hire's session whose window didn't open is ended on the socket it was made on (RT126SAM7 nit 1): a one-shot
-// client has none of the owner's TMUX_TMPDIR to find it by.
+// A plain hire's session whose window didn't open is ended with its server, on the socket it was made on, its own
+// (SA-M10; RT126SAM7 nit 1): never the owner's default server, and never by a session's name.
 func TestAPlainHiresSessionIsEndedOnTheSocketItWasMadeOn(t *testing.T) {
-	program, log, _, _ := tmuxGateRig(t)
+	_, log, _, _ := tmuxGateRig(t)
 	noWindow := hireOpener{open: func(string, []string) (string, error) { return "", errors.New("no window") }}
 	if err := openHire([]string{"/bin/echo", "hi"}, t.TempDir(), noWindow, true, true); err == nil {
 		t.Fatal("a window opened")
 	}
 	runs := tmuxGateRuns(t, log, 0)
-	if len(runs) != 2 || !strings.Contains(runs[0].args, "new-session") ||
-		!strings.HasPrefix(runs[1].args, "-f /dev/null -S "+filepath.Join(filepath.Dir(program), "default")+" kill-session -t smolcorp-") {
+	own := "-S " + filepath.Join(hireSocketFolder(), hireSocketPrefix+"plain-")
+	if len(runs) != 2 || !strings.HasPrefix(runs[0].args, "-f /dev/null "+own) || !strings.Contains(runs[0].args, "new-session") ||
+		!strings.HasPrefix(runs[1].args, "-f /dev/null "+own) || !strings.HasSuffix(runs[1].args, " kill-server") ||
+		strings.Count(runs[0].args, own) != 1 || runs[0].args[:strings.Index(runs[0].args, " start-server")] != runs[1].args[:strings.Index(runs[1].args, " kill-server")] {
 		t.Fatalf("runs %+v", runs)
 	}
 }

@@ -92,16 +92,25 @@ func RunHook(args []string) int {
 		return 0
 	}
 	event = trimmedEvent(event)
-	key, err := hookKeyFor(os.Getenv, os.ReadFile)
-	if err != nil {
-		return 0
+	// A sandboxed plain hire's hook has no key: its launcher's relay sends the event on (hookrelay.go).
+	client, address := &http.Client{Timeout: hookTimeout}, fmt.Sprintf("http://127.0.0.1:%d/hook", port)
+	key := ""
+	if relay := hookRelayFor(os.Getenv); relay != "" {
+		client, address = hookRelayClient(relay), "http://relay"+hookRelayPath
+	} else {
+		var err error
+		if key, err = hookKeyFor(os.Getenv, os.ReadFile); err != nil {
+			return 0
+		}
 	}
-	request, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/hook", port), bytes.NewReader(event))
+	request, err := http.NewRequest(http.MethodPost, address, bytes.NewReader(event))
 	if err != nil {
 		return 0
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set(hookKeyHeader, key)
+	if key != "" {
+		request.Header.Set(hookKeyHeader, key)
+	}
 	request.Header.Set("X-AgentDeck-Agent", agent)
 	request.Header.Set("X-AgentDeck-At", strconv.FormatInt(time.Now().UnixMilli(), 10))
 	tab, tty, send := hookTab(Agent(agent), event)
@@ -127,7 +136,6 @@ func RunHook(args []string) int {
 	if billing := hookBilling(os.Getenv); billing != "" {
 		request.Header.Set("X-AgentDeck-Billing", billing)
 	}
-	client := http.Client{Timeout: hookTimeout}
 	if response, err := client.Do(request); err == nil {
 		response.Body.Close()
 	}

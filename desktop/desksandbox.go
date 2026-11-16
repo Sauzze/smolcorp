@@ -49,6 +49,9 @@ type deskAt struct {
 	// Brief is its brief, "" for none: its check reads it.
 	Brief string
 	Git   gitRunner
+	// Programs are the programs its start runs besides those the core finds (deskFinding): a plain hire's agent, as
+	// its launcher resolved it (SA-M10), so its install root is the desk's to read and never to write.
+	Programs []sandbox.Program
 }
 
 // startedInSandbox is whether tmux's start was a desk's in its sandbox, with the server the core checked at it
@@ -252,7 +255,9 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 	if err := deskGitPlaces(d, &pl); err != nil {
 		return pl, err
 	}
-	programs, err := sandbox.ResolvePrograms(deskFinding())
+	finding := deskFinding()
+	finding.Also = append(finding.Also, d.Programs...)
+	programs, err := sandbox.ResolvePrograms(finding)
 	if err != nil {
 		return pl, err
 	}

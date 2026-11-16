@@ -17,7 +17,9 @@ import (
 func TestAPlainClaudeHiresLauncherStartsItOnItsOwnAccount(t *testing.T) {
 	d, h, work := plainHireDeck(t)
 	bin, marker := t.TempDir(), filepath.Join(t.TempDir(), "config-dir")
-	writeFile(t, filepath.Join(bin, "claude"), "#!/bin/sh\nprintf '%s' \"${CLAUDE_CONFIG_DIR-(unset)}\" > '"+marker+"'\n")
+	// It says its version (a Mac starts it in its sandbox, its own switched off for that version: SA-M10).
+	writeFile(t, filepath.Join(bin, "claude"), "#!/bin/sh\n[ \"$1\" = --version ] && { echo '2.1.400 (Claude Code)'; exit 0; }\n"+
+		"printf '%s' \"${CLAUDE_CONFIG_DIR-(unset)}\" > '"+marker+"'\n")
 	if err := os.Chmod(filepath.Join(bin, "claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +32,8 @@ func TestAPlainClaudeHiresLauncherStartsItOnItsOwnAccount(t *testing.T) {
 		args := plainClaudeHire(t, d, h, c.account)
 		cmd := exec.Command(os.Args[0], "-test.run=^$")
 		cmd.Env = append(os.Environ(), launcherStandInVariable+"="+string(must(json.Marshal(args))),
-			"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "CLAUDE_CONFIG_DIR="+other)
+			"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "CLAUDE_CONFIG_DIR="+other,
+			deskStandInVariable+"=1", testDeskSocketsVariable+"="+shortDeskSockets(t))
 		cmd.Dir = t.TempDir()
 		output, err := cmd.CombinedOutput()
 		if err != nil {
@@ -47,4 +50,15 @@ func TestAPlainClaudeHiresLauncherStartsItOnItsOwnAccount(t *testing.T) {
 			t.Errorf("%s: the launcher said %q", c.row, output)
 		}
 	}
+}
+
+// shortDeskSockets is a socket folder short enough for a desk's socket, removed after the test.
+func shortDeskSockets(t *testing.T) string {
+	t.Helper()
+	base, err := os.MkdirTemp("", "lp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(base) })
+	return filepath.Join(physical(base), "p")
 }

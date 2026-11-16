@@ -22,7 +22,8 @@ func TestSmolcorpAttachTakesItsFormsAndNothingElse(t *testing.T) {
 		"ab12":             {desk: "ab12"},
 		"--read-only ab12": {desk: "ab12", readOnly: true},
 		"--team-grid 5252": {grid: 5252},
-		"--session smolcorp-0a1b2c3d --socket /tmp/tmux-501/default": {session: "smolcorp-0a1b2c3d", socket: "/tmp/tmux-501/default"},
+		"--session smolcorp-0a1b2c3d --socket /tmp/tmux-501/default":        {session: "smolcorp-0a1b2c3d", socket: "/tmp/tmux-501/default"},
+		"--session hire --socket /tmp/tmux-501/smolcorp-plain-0a1b2c3d4e5f": {session: "hire", socket: "/tmp/tmux-501/smolcorp-plain-0a1b2c3d4e5f"},
 	}
 	for words, want := range good {
 		if got, err := parseAttach(strings.Fields(words)); err != nil || got != want {
@@ -31,6 +32,7 @@ func TestSmolcorpAttachTakesItsFormsAndNothingElse(t *testing.T) {
 	}
 	for _, words := range []string{"", "ab12 cd34", "--read-only", "-r ab12", "--team-grid 1", "--team-grid 052", "--team-grid x",
 		"--session smolcorp-0a1b2c3d --socket tmux/default", "--session other --socket /tmp/tmux-501/default",
+		"--session hire2 --socket /tmp/tmux-501/default", "--session xhire --socket /tmp/tmux-501/default",
 		"--session smolcorp-0a1b2c3d --socket /tmp/../etc/default", "--socket /s --session smolcorp-0a1b2c3d", "--read-only --team-grid"} {
 		if got, err := parseAttach(strings.Fields(words)); err == nil {
 			t.Errorf("%q was taken: %+v", words, got)
@@ -91,7 +93,8 @@ func TestAnAttachOutsideTheSandboxRunsOnlyThroughTheHelper(t *testing.T) {
 		"old":              {guard: tmuxUnchecked, args: "-f /dev/null -S " + old.TmuxSocket + " attach-session -t =hire"},
 		"--read-only cd34": {guard: tmuxUnchecked, args: "-f /dev/null -S " + old.TmuxSocket + " attach-session -r -t =hire"},
 		"--session smolcorp-0a1b2c3d --socket /t/default": {guard: tmuxUnchecked, args: "-f /dev/null -S /t/default attach-session -t =smolcorp-0a1b2c3d"},
-		"--team-grid 5252": {guard: "5252", args: "-f /dev/null -S " + teamGridSocket(0) + " attach-session -r -t =team"},
+		"--session hire --socket /t/plain":                {guard: tmuxUnchecked, args: "-f /dev/null -S /t/plain attach-session -t =hire"},
+		"--team-grid 5252":                                {guard: "5252", args: "-f /dev/null -S " + teamGridSocket(0) + " attach-session -r -t =team"},
 	} {
 		status, said, runs := attach(strings.Fields(words)...)
 		if status != 0 || len(runs) != 1 || runs[0].guard != want.guard || runs[0].args != want.args || runs[0].stdin != "stream" ||

@@ -51,3 +51,6 @@ func prepareHireWindow(cmd *exec.Cmd, opener string) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_CONSOLE}
 	}
 }
+
+// openHireInTmux: no tmux here (hasTmuxHires), so no hire is opened in it.
+func openHireInTmux([]string, string, hireOpener, bool) error { return errUnsupported }

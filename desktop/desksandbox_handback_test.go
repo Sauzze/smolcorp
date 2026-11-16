@@ -342,20 +342,26 @@ func TestADeskIsKnownStoppedOnlyWhenItsCheckedServerIsGoneAndItsSocketIsSilent(t
 	}
 }
 
-// RT126SAM6 G1: the launcher's and plain hires' tmux (runTmux) and windows never get the core's inherited guard.
+// RT126SAM6 G1: the launcher's and plain hires' tmux (each plain hire's own server, SA-M10) and windows never get the
+// core's inherited guard.
 func TestTheLaunchersTmuxNeverGetsTheCoresInheritedGuard(t *testing.T) {
 	shortSupport(t)
 	t.Setenv("SMOLCORP_TMUX_SERVER", "inherited")
 	fake := fakeTmuxScript(t, "launcher")
-	saved := tmuxPath
-	t.Cleanup(func() { tmuxPath = saved })
+	saved, savedFolder := tmuxPath, hireSocketFolder
+	t.Cleanup(func() { tmuxPath, hireSocketFolder = saved, savedFolder })
 	tmuxPath = func() string { return fake }
+	hireSocketFolder = func() string { return filepath.Join(supportDir, "t") }
+	tmux := plainHireTmux(plainHireTmuxID())
+	if tmux == nil || tmux.startOnly == nil {
+		t.Fatal("no server of its own for a plain hire")
+	}
 	// Its session's start is a server start: the guard off for it alone (SA-M7). Any other call is told "unchecked".
-	if out, err := runTmux("new-session"); err != nil || out != "off" {
+	if out, _, err := tmux.startOnly(tmux.command(tmuxServerStart("new-session", "-d")...)); err != nil || out != "off" {
 		t.Errorf("the launcher's tmux start got %q (%v)", out, err)
 	}
-	if out, err := runTmux("kill-session", "-t", "smolcorp-ab12cd34"); err != nil || out != tmuxUnchecked {
-		t.Errorf("the launcher's tmux call got %q (%v)", out, err)
+	if out, _, _ := tmux.run(tmux.command("kill-server")); out != tmuxUnchecked {
+		t.Errorf("the launcher's tmux call got %q", out)
 	}
 	if slices.ContainsFunc(hireEnvironment(), func(v string) bool { return strings.HasPrefix(strings.ToUpper(v), "SMOLCORP_TMUX_SERVER=") }) {
 		t.Error("a hire's environment carries the core's guard variable")

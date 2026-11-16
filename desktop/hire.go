@@ -352,28 +352,6 @@ var canOpenWindows = hasDesktop
 // tests.
 var startHire = startAndWait
 
-// runTmux runs tmux on the default server for a plain hire and gives what it printed: a variable, for the tests. Its
-// session's start (new-session) is a server start (tmuxStartCall: the guard off for it alone, taken out of the server's
-// environment if this call starts it); any other call is a one-shot client's (tmuxClient), with no pid to check on
-// that server. The server reads the owner's start file there: it may be the owner's own (RT126SG2R2 N3).
-var runTmux = func(args ...string) (string, error) {
-	program := tmuxPath()
-	if len(args) > 0 && args[0] == "new-session" {
-		out, status, ran := tmuxStartCall(program)(tmuxServerStart(args...))
-		if !ran || status != 0 {
-			return "", fmt.Errorf("tmux didn't start the session (status %d)", status)
-		}
-		return strings.TrimSpace(out), nil
-	}
-	cmd, cancel, err := tmuxClient(terminalTimeout, program, tmuxUnchecked, args...)
-	if err != nil {
-		return "", err
-	}
-	defer cancel()
-	output, err := cmd.Output()
-	return strings.TrimSpace(string(output)), err
-}
-
 // hireWays is where hires can open: the terminals installed, and whether
 // tmux is there. With no desktop, no terminal can open a window.
 func hireWays() (terminals []hireOpener, tmux bool) {
@@ -986,7 +964,7 @@ func whereAppFinds(program string) string {
 }
 
 // openHire opens command in folder: in a window of terminal, or in a tmux
-// session of its own, shown in a window of terminal when there is one.
+// session on a server of its own (plainHireTmux), shown in a window of terminal when there is one.
 // command is the launcher (`smolcorp launch`), started as it is, never
 // through a login shell of Smolcorp's: the launcher finds the agent and
 // checks it (RT126SG2 B3, SANDBOX-PLAN §4 g6, g7).
@@ -994,32 +972,7 @@ func openHire(command []string, folder string, terminal hireOpener, hasTerminal,
 	if !inTmux {
 		return openWindow(terminal, folder, command)
 	}
-	name := "smolcorp-" + strings.ToLower(newID()[:8])
-	made, err := runTmux(tmuxSessionArguments(name, folder, command)...)
-	if err != nil {
-		return err
-	}
-	if !hasTerminal {
-		return nil // over SSH, say: `tmux attach` shows it
-	}
-	_, socket, _ := strings.Cut(made, " ")
-	if socket == "" {
-		_, _ = runTmux("kill-session", "-t", name)
-		return errUnsupported
-	}
-	// Its window runs `smolcorp attach` with exec, on the socket the session was made on (SA-M8).
-	if err := openWindow(terminal, folder, plainAttachLine(commandLineProgram(), name, socket)); err != nil {
-		// On the socket the session was made on: a one-shot client has none of the owner's TMUX_TMPDIR to find it by.
-		_, _ = runTmux("-S", socket, "kill-session", "-t", name)
-		return err
-	}
-	return nil
-}
-
-// tmuxSessionArguments are tmux's arguments for a hire's session, running
-// command, which print its pane and socket.
-func tmuxSessionArguments(name, folder string, command []string) []string {
-	return append([]string{"new-session", "-d", "-P", "-F", "#{pane_id} #{socket_path}", "-s", name, "-c", folder}, command...)
+	return openHireInTmux(command, folder, terminal, hasTerminal)
 }
 
 // openWindow starts terminal, showing command in folder.

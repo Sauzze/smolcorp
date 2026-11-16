@@ -251,5 +251,8 @@ func launcherStandIn(encoded string) int {
 		}
 		configFile, hookKeyFile = files.Config, files.HookKey
 	}
+	if code := launcherStandInPlaces(); code != 0 {
+		return code
+	}
 	return RunLauncher(args)
 }

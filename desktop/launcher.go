@@ -257,6 +257,26 @@ func launch(run *launcherRun) int {
 		return 2
 	}
 
+	// A plain hire's agent starts in a sandbox of its own where this system has one (a Mac's), its own sandbox switched
+	// off (launchersandbox_darwin.go, agentownsandbox.go): one that can't be is refused, never started outside it.
+	id := newID()
+	var walled *launcherSandbox
+	var ownOff map[string]string
+	if launcherSandboxes && run.hire != "" && run.hireID == "" {
+		words, set, refusal := ownSandboxOffFor(agentNamed(args[0]), program)
+		if refusal != "" {
+			fmt.Fprintln(os.Stderr, "smolcorp: "+refusal)
+			return 126
+		}
+		programArgs, ownOff = append(words, programArgs...), set
+		if walled, err = newLauncherSandbox(folder, run.role == gmRole, id, agentNamed(args[0]), program); err != nil {
+			fmt.Fprintln(os.Stderr, "smolcorp: "+err.Error())
+			return 1
+		}
+		defer walled.close()
+		walled.closeOnHangup()
+	}
+
 	terminal, err := pty.New()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: no pseudo-terminal: %v\n", err)
@@ -264,7 +284,6 @@ func launch(run *launcherRun) int {
 	}
 	defer terminal.Close()
 
-	id := newID()
 	// Not through disclaim.Words: smolcorp run runs only in a hire's terminal window or a desk's tmux (itself
 	// started through disclaim.Cmd), so the agent is charged to that terminal or tmux, never to Smolcorp.app. This
 	// function is exempt as a whole for it (spawnsites_test.go): a new start added in here would pass unseen.
@@ -288,10 +307,18 @@ func launch(run *launcherRun) int {
 		cmd.Env = plainGMEnv(cmd.Env, gmToken, runtime.GOOS == "windows")
 	}
 	cmd.Dir = folder
+	var agent agentStart = ptyAgent{cmd}
+	if walled != nil {
+		cmd.Env = walled.environment(cmd.Env, ownOff)
+		if agent, err = walled.command(cmd, terminal); err != nil {
+			fmt.Fprintln(os.Stderr, "smolcorp: "+err.Error())
+			return 1
+		}
+	}
 	rows, cols, sized := consoleSize()
 	screen := newLauncherScreen(rows, cols, sized)
 	matchSize(terminal, screen)
-	if err := cmd.Start(); err != nil {
+	if err := agent.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 		return 127
 	}
@@ -310,9 +337,9 @@ func launch(run *launcherRun) int {
 	go func() { _, _ = io.Copy(input, os.Stdin) }()
 	go func() { _, _ = io.Copy(os.Stdout, io.TeeReader(terminal, io.MultiWriter(cursor, screen))) }()
 	go followSize(terminal, screen)
-	go serveDeck(id, agentNamed(args[0]), folder, run.role, run.hire, input, cursor, screen, func() { stopProcess(cmd.Process) })
+	go serveDeck(id, agentNamed(args[0]), folder, run.role, run.hire, input, cursor, screen, func() { stopProcess(agent.process()) })
 
-	if err := cmd.Wait(); err != nil {
+	if err := agent.Wait(); err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
 			return exit.ExitCode()
@@ -321,6 +348,19 @@ func launch(run *launcherRun) int {
 	}
 	return 0
 }
+
+// agentStart is the agent's process as the launcher starts it: in its pseudo-terminal (ptyAgent), or in its sandbox
+// there (launcherSandbox.command).
+type agentStart interface {
+	Start() error
+	Wait() error
+	process() *os.Process
+}
+
+// ptyAgent is the agent started in its pseudo-terminal as it is.
+type ptyAgent struct{ *pty.Cmd }
+
+func (a ptyAgent) process() *os.Process { return a.Process }
 
 // plainHireEnv is a plain hire's environment (hire.go: a pinned desk, another agent, no role), for Claude Code: on
 // the account the office hired it on, never the one the terminal's shell names (PLAINENV1). folder is that account's,

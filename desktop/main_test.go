@@ -30,6 +30,11 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(runWithTempSupport(func() int { return memoryStandIn(part) }))
 	}
+	// `smolcorp sandbox enter` and `smolcorp hook` inside a plain hire's sandbox, started by the real launcher below
+	// (launchersandbox_darwin_test.go): the launcher's own variable reaches them too, so they're told apart first.
+	if os.Getenv(deskStandInVariable) != "" && len(os.Args) > 1 && (os.Args[1] == "sandbox" || os.Args[1] == "hook") {
+		os.Exit(deskStandIn(os.Args[1:]))
+	}
 	// `smolcorp run` itself, the real launcher, in a process of its own (plainenv_test.go).
 	if args := os.Getenv(launcherStandInVariable); args != "" {
 		os.Exit(runWithTempSupport(func() int {

@@ -5,6 +5,7 @@ package desktop
 import (
 	"context"
 	"errors"
+	"log"
 	"os"
 	"os/exec"
 	"runtime"
@@ -164,4 +165,39 @@ func writeWindowScript(folder string, command []string, testPort int, testSuppor
 		return "", err
 	}
 	return file.Name(), nil
+}
+
+// plainHireTmux is a plain hire's own tmux server (SA-M10), on a socket named for id in tmux's own folder, as a desk's
+// outside the sandbox is (newHireTmux): never the owner's default server, whose start file, other sessions and clients
+// are the owner's (RT126SG2R2 N3). Its start runs with the guard off for that call alone and reads no start file; every
+// other call is a one-shot client's (tmuxClient), with no pid to check on that server. nil when there's no tmux or no
+// safe folder for its socket. A variable, for the tests, which give it a stand-in runner.
+var plainHireTmux = func(id string) *hireTmux { return newHireTmux(id, testCopyPort(), nil) }
+
+// plainHireTmuxID is a new plain hire's server's id: "plain-" and twelve letters or digits, which no engine hire's id
+// (twelve alone) can be.
+func plainHireTmuxID() string { return "plain-" + strings.ToLower(newID())[:12] }
+
+// openHireInTmux is openHire in tmux: command in a session on its own server, shown in a window of terminal when
+// there is one.
+func openHireInTmux(command []string, folder string, terminal hireOpener, hasTerminal bool) error {
+	tmux := plainHireTmux(plainHireTmuxID())
+	if tmux == nil {
+		return errUnsupported
+	}
+	_, socket, _, err := tmux.start(folder, command)
+	if err != nil {
+		return err
+	}
+	if !hasTerminal {
+		// Over SSH, say: the log names its socket, for `tmux -S <socket> attach`.
+		log.Printf("tmux: a hire's session is on its own server, %s.", socket)
+		return nil
+	}
+	// Its window runs `smolcorp attach` with exec, on the socket of its own server (SA-M8).
+	if err := openWindow(terminal, folder, plainAttachLine(commandLineProgram(), hireSession, socket)); err != nil {
+		tmux.endServer() // its own server: nothing else is on it
+		return err
+	}
+	return nil
 }

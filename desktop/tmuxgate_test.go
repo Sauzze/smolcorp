@@ -17,7 +17,7 @@ import (
 // variable, as the guard does, and it writes one line per run (the variable, whether stdin was /dev/null, the names in
 // its environment, its words). The test drives the real core's every tmux site (a sandboxed desk's calls, an old desk's,
 // a new desk's start outside the sandbox, a tab's calls and its paste, the preview's look, the window closer, mail, the
-// respawn watch, a plain hire's session, the team grid) with that stand-in as both the bundled tmux and the one this
+// respawn watch, a plain hire's session on its own server, the team grid) with that stand-in as both the bundled tmux and the one this
 // system picks, and the recorder reports each run the guard stopped. With SMOLCORP_TMUXGATE_CONTROL=1 it then makes
 // one start without the variable through the same recorder, which must report it. It also holds the grep row's reading
 // of the core's code (tmuxclient_test.go), so a site it doesn't drive fails it too, and it drives a desk's start-only
@@ -158,15 +158,16 @@ func driveEveryTmuxSite(t *testing.T, sandboxed, old Hire) {
 	} else {
 		fresh.alive()
 	}
-	// A plain hire's session on the default server, and its end.
+	// A plain hire's session on a server of its own (SA-M10), and its end when its window doesn't open.
 	if err := openHire([]string{"/bin/echo", "hi"}, t.TempDir(), hireOpener{}, false, true); err != nil {
 		t.Errorf("a plain hire's session: %v", err)
 	}
-	_, _ = runTmux("kill-session", "-t", "smolcorp-0000")
+	noWindow := hireOpener{open: func(string, []string) (string, error) { return "", errUnsupported }}
+	_ = openHire([]string{"/bin/echo", "hi"}, t.TempDir(), noWindow, true, true)
 	// `smolcorp attach` outside a sandbox (SA-M8): an old desk's, a plain hire's, the team grid's; a sandboxed desk's is
 	// refused here (no profile: nothing runs), and is attach_darwin_test.go's inside its sandbox.
-	for _, words := range [][]string{{old.ID}, {"--read-only", old.ID}, {"--session", "smolcorp-0a1b2c3d", "--socket", filepath.Join(t.TempDir(), "default")},
-		{"--team-grid", "5252"}, {sandboxed.ID}} {
+	for _, words := range [][]string{{old.ID}, {"--read-only", old.ID}, {"--session", hireSession, "--socket", filepath.Join(t.TempDir(), "default")},
+		{"--session", "smolcorp-0a1b2c3d", "--socket", filepath.Join(t.TempDir(), "default")}, {"--team-grid", "5252"}, {sandboxed.ID}} {
 		runAttach(words, nil, io.Discard, io.Discard)
 	}
 	// The team grid, under a Mac app that opens no window.

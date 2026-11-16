@@ -25,7 +25,7 @@ import (
 //     `smolcorp sandbox enter --attach <pid>` and that attach's own canary and rows), told the server the core checked
 //     at the desk's start, so a server that isn't that one, or asks the client to read, write or run anything, is
 //     refused (T4-T6), and typing into the terminal (TIOCSTI) stays inside;
-//   - any other (a desk from before the sandbox, a plain hire's session on the default server, the team grid): its tmux
+//   - any other (a desk from before the sandbox, a plain hire's session on its own server, the team grid): its tmux
 //     through tmuxClient, the one helper, told its server (a pid the core checked, or "unchecked"), with a clean
 //     environment but for the terminal's TERM, and the terminal as its stdin.
 // A hand-typed `smolcorp attach <desk>` does the same, by the desk's id or its name.
@@ -42,8 +42,9 @@ type attachRequest struct {
 	grid            int
 }
 
-// plainHireSession is a plain hire's session's name (openHire).
-var plainHireSession = regexp.MustCompile(`^smolcorp-[0-9a-z]{8}$`)
+// plainHireSession is a plain hire's session's name (openHire): hireSession, on a server of its own (SA-M10), or the
+// name one had on the default server before.
+var plainHireSession = regexp.MustCompile(`^(` + hireSession + `|smolcorp-[0-9a-z]{8})$`)
 
 // parseAttach reads `smolcorp attach`'s words: [--read-only] <desk>; --session <name> --socket <path>, a plain hire's;
 // or --team-grid <pid>. The last two are the lines Smolcorp writes itself.

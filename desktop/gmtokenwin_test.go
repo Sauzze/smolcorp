@@ -229,7 +229,10 @@ func standInClaude(t *testing.T) string {
 			"\"%SMOLCORP_TEST_BINARY%\" -test.run=TestStandInClaudeForTheGMToken -- %*\r\n")
 		return bin
 	}
-	writeFile(t, filepath.Join(bin, "claude"), "#!/bin/sh\nunset "+launcherStandInVariable+"\n"+
+	// It says its version (a Mac starts it in its sandbox, its own switched off for that version: SA-M10), and runs as
+	// itself, not as the launcher or the sandbox it was started through.
+	writeFile(t, filepath.Join(bin, "claude"), "#!/bin/sh\n[ \"$1\" = --version ] && { echo '2.1.400 (Claude Code)'; exit 0; }\n"+
+		"unset "+launcherStandInVariable+" "+deskStandInVariable+"\n"+
 		"exec \"$SMOLCORP_TEST_BINARY\" -test.run=TestStandInClaudeForTheGMToken -- \"$@\"\n")
 	if err := os.Chmod(filepath.Join(bin, "claude"), 0o755); err != nil {
 		t.Fatal(err)
@@ -273,6 +276,7 @@ func TestAGMHiredFromSetupThePlainWayStartsWithItsTokenAndSeesTheTeam(t *testing
 			standInClaudeVariable+"="+file, "SMOLCORP_HIRE_KEY=",
 			// What the window might have inherited: never the GM's.
 			gmTokenEnvironment+"=fake-inherited-gm-token")
+		cmd.Env = append(cmd.Env, launcherSandboxStandIn(t)...)
 		cmd.Dir = folder
 		out, _ := cmd.CombinedOutput()
 		got, err := os.ReadFile(file)
