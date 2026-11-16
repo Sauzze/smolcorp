@@ -25,6 +25,9 @@ import (
 // hireStartPath is where a launcher asks for its start environment.
 const hireStartPath = "/launcher/start"
 
+// gmTokenEnvironment is the variable the General Manager's token is in, on its agent's process alone.
+const gmTokenEnvironment = "SMOLCORP_GM_TOKEN"
+
 // hireStartEnv is what the launcher sets on the agent, and nowhere else.
 type hireStartEnv struct {
 	// Set are variables to set (the hire's send key, its ports, the GM's token, a named account).
@@ -80,13 +83,15 @@ func startEnvironment(base []string, env hireStartEnv, caseless bool) []string {
 
 // takeStartEnv gives the start environment of the engine hire hireID to the
 // launcher that proves it with token, once: the token must be a hire's, made
-// for exactly that hire, fresh, and not used. status says why not.
+// for exactly that hire, fresh, and not used. status says why not. A General
+// Manager hired the plain way (hire.go) is asked for with no id, and its
+// environment is its token alone (GMTOKENWIN1); no other plain hire has one.
 func (d *Deck) takeStartEnv(token, hireID string) (env *hireStartEnv, status int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	pending, ok := d.hires[token]
 	switch {
-	case !ok || !hireToken.MatchString(token) || pending.hireID == "":
+	case !ok || !hireToken.MatchString(token) || pending.hireID == "" && !pending.plainGM:
 		return nil, http.StatusForbidden
 	case pending.hireID != hireID:
 		return nil, http.StatusForbidden
@@ -95,7 +100,7 @@ func (d *Deck) takeStartEnv(token, hireID string) (env *hireStartEnv, status int
 		return nil, http.StatusGone
 	case pending.env == nil:
 		return nil, http.StatusGone // used already
-	case !hireRowOpen(hireID):
+	case pending.hireID != "" && !hireRowOpen(hireID):
 		// Marked gone before its window asked: nothing starts behind a gone row (gonedesk.go, RT126GMEDIT1 B1).
 		delete(d.hires, token)
 		return nil, http.StatusConflict
@@ -121,7 +126,8 @@ func (d *Deck) startEnvRoute(w http.ResponseWriter, query url.Values) {
 		why = startRefusedGone
 	}
 	// Its settings file, as Smolcorp sealed it (settingsfile.go): a changed one starts nothing, and the start is spent.
-	if env != nil && (sealedSettings{Path: env.Settings, Sum: env.SettingsSum}).refusal() != nil {
+	// A plain GM's (no id) has none: its start is its token alone, and its launcher takes nothing else from it.
+	if env != nil && query.Get("id") != "" && (sealedSettings{Path: env.Settings, Sum: env.SettingsSum}).refusal() != nil {
 		env, status, why = nil, http.StatusConflict, startRefusedSettings
 	}
 	if env == nil {

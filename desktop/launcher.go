@@ -172,6 +172,21 @@ func launch(run *launcherRun) int {
 		}
 		startEnv = &got
 	}
+	// A General Manager hired the plain way (hire.go) gets its token from the app the same way, and nothing else
+	// with it: a GM can't work without it, so one that can't be had starts nothing (GMTOKENWIN1). Never through the
+	// window's environment: a terminal may start its window with an environment of its own.
+	gmToken := ""
+	if run.hireID == "" && run.hire != "" && run.role == gmRole {
+		key, _ := os.ReadFile(hookKeyFile)
+		got, err := fetchHireStartEnv(hireStartClient(), fmt.Sprintf("http://127.0.0.1:%d", Port), string(key), run.hire, "")
+		if gmToken = got.Set[gmTokenEnvironment]; err == nil && gmToken == "" {
+			err = errors.New("Smolcorp gave no token")
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "smolcorp: couldn't get the General Manager's token, so nothing was started: %v\n", err)
+			return 1
+		}
+	}
 	if run.role != "" {
 		how := startedHere
 		if run.hire != "" {
@@ -267,6 +282,11 @@ func launch(run *launcherRun) int {
 	} else if run.hire != "" && agentNamed(args[0]) == Claude {
 		cmd.Env = plainHireEnv(cmd.Env, run.claudeConfig, runtime.GOOS == "windows")
 	}
+	if run.hire != "" && startEnv == nil {
+		// A plain hire's own token, on the GM's process alone; any other plain hire never acts as the GM, whatever
+		// its window inherited (an engine hire's start says the same: hirelauncher.go).
+		cmd.Env = plainGMEnv(cmd.Env, gmToken, runtime.GOOS == "windows")
+	}
 	cmd.Dir = folder
 	rows, cols, sized := consoleSize()
 	screen := newLauncherScreen(rows, cols, sized)
@@ -310,6 +330,17 @@ func plainHireEnv(env []string, folder string, caseless bool) []string {
 	change := hireStartEnv{Unset: []string{"CLAUDE_CONFIG_DIR"}}
 	if folder != "" {
 		change = hireStartEnv{Set: map[string]string{"CLAUDE_CONFIG_DIR": folder}}
+	}
+	return startEnvironment(env, change, caseless)
+}
+
+// plainGMEnv is a plain hire's environment with token, the General Manager's, set on it, or with any GM token it
+// inherited taken out when token is "": of the hires the office makes the plain way, the GM alone gets one
+// (GMTOKENWIN1). Names are compared as the OS does.
+func plainGMEnv(env []string, token string, caseless bool) []string {
+	change := hireStartEnv{Unset: []string{gmTokenEnvironment}}
+	if token != "" {
+		change = hireStartEnv{Set: map[string]string{gmTokenEnvironment: token}}
 	}
 	return startEnvironment(env, change, caseless)
 }

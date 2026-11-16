@@ -61,6 +61,8 @@ type pendingHire struct {
 	// then carries; and what its launcher may ask for once, before the agent starts.
 	hireID string
 	env    *hireStartEnv
+	// A General Manager hired the plain way: env is its token alone, for its launcher, asked for with no id.
+	plainGM bool
 }
 
 // hireToken is the only shape of token a launcher may hand back: newID's.
@@ -855,25 +857,51 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 	// `tmux attach` would show it, and it has no "Open a window": it opens in
 	// its window as before (T796).
 	plainInTmux := tmux && (d.config.HireInTmux || !hasTerminal)
-	// Opened outside the lock: the terminal may take a moment to start.
-	d.mu.Unlock()
-	err := openHire(command, folder, terminal, hasTerminal, plainInTmux)
-	d.mu.Lock()
-	if err != nil {
-		// Nobody was hired, so the next try needn't wait.
-		d.lastHire = time.Time{}
-		name := terminal.name
-		if plainInTmux {
-			name = "tmux"
+	// A General Manager hired this way (Windows without managed windows, a computer without tmux) gets its token as
+	// the engine's GM does (hirelauncher.go): made new at its hire, and handed to its launcher alone, over loopback,
+	// before the agent starts (hirestartenv.go). Never on its command line, in a file, or through its window's
+	// environment, which never carries it (hireEnvironment) and which a terminal may start afresh (GMTOKENWIN1).
+	gmToken := ""
+	var start *hireStartEnv
+	if roleID == gmRole {
+		d.mu.Unlock()
+		gmToken = d.newGMToken() // without the lock: it writes to the secret store
+		d.mu.Lock()
+		if gmToken == "" {
+			d.lastHire = time.Time{}
+			if recordsHeldOnly() {
+				// Its token can't be kept while the records' key can't be read (gmTokenKeeper.writeNow).
+				return http.StatusConflict, recordsHeldAnswer
+			}
+			return http.StatusInternalServerError, "Couldn't make the General Manager's token."
 		}
-		return http.StatusInternalServerError, name + " didn't open"
+		start = &hireStartEnv{Set: map[string]string{gmTokenEnvironment: gmToken}}
 	}
 	for kept, pending := range d.hires {
 		if time.Since(pending.at) > hiredTabWait {
 			delete(d.hires, kept)
 		}
 	}
-	d.hires[token] = &pendingHire{desk: held, floor: floor, at: time.Now()}
+	// Kept before its window opens, so a launcher quick to ask for its start finds it.
+	d.hires[token] = &pendingHire{desk: held, floor: floor, at: time.Now(), env: start, plainGM: start != nil}
+	// Opened outside the lock: the terminal may take a moment to start.
+	d.mu.Unlock()
+	err := openHire(command, folder, terminal, hasTerminal, plainInTmux)
+	d.mu.Lock()
+	if err != nil {
+		// Nobody was hired, so the next try needn't wait, and its token goes, the GM's with it if it's still the GM's.
+		d.lastHire = time.Time{}
+		delete(d.hires, token)
+		if gmToken != "" && constantTimeEqual(d.gmToken, gmToken) {
+			d.gmToken = "" // d.mu is held: clearGMToken would take it again
+			d.gmTokenChanged()
+		}
+		name := terminal.name
+		if plainInTmux {
+			name = "tmux"
+		}
+		return http.StatusInternalServerError, name + " didn't open"
+	}
 	// The folder it starts in, first among setup's recent ones (the Mac's Deck.open, Config.noteHire).
 	d.config.noteHireFolder(folder)
 	d.config.save()

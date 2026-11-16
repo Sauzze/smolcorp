@@ -233,11 +233,23 @@ func TestASessionOnAnUnconfirmedClaudeFolderSaysWhyItHasNoConversation(t *testin
 // the real launcher, in a process of its own, with a support folder of its own (no hook key: it never reaches an app).
 const launcherStandInVariable = "SMOLCORP_LAUNCHER_STANDIN"
 
+// launcherStandInOfficeVariable, when set, holds as JSON the config file and hook key file the stand-in reads in place
+// of its own, {"config": …, "hookKey": …}: an office's, so it reaches that office's app, as a hire's launcher reaches
+// Smolcorp (gmtokenwin_test.go).
+const launcherStandInOfficeVariable = "SMOLCORP_LAUNCHER_STANDIN_OFFICE"
+
 // launcherStandIn is the stand-in's run: RunLauncher with the arguments in the variable.
 func launcherStandIn(encoded string) int {
 	var args []string
 	if json.Unmarshal([]byte(encoded), &args) != nil {
 		return 3
+	}
+	if office := os.Getenv(launcherStandInOfficeVariable); office != "" {
+		var files struct{ Config, HookKey string }
+		if json.Unmarshal([]byte(office), &files) != nil || files.Config == "" || files.HookKey == "" {
+			return 3
+		}
+		configFile, hookKeyFile = files.Config, files.HookKey
 	}
 	return RunLauncher(args)
 }
