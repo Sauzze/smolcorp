@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/Sauzze/smolcorp/internal/claudeenv"
 	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
@@ -234,9 +235,10 @@ var summaryRemoved = []string{
 	"TMUX", "TMUX_PANE", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON",
 }
 
-// summaryEnvironment is a summary's process's environment, from base (Smolcorp's).
+// summaryEnvironment is a summary's process's environment, from base (Smolcorp's), without a Claude Code session's
+// markers (claudeenv, ENVSCRUB1): a sign-in and the sign-in checks start from it too.
 func summaryEnvironment(base []string) []string {
-	env := slices.DeleteFunc(slices.Clone(base), func(variable string) bool {
+	env := slices.DeleteFunc(claudeenv.Scrub(base), func(variable string) bool {
 		name, _, _ := strings.Cut(variable, "=")
 		name = strings.ToUpper(name)
 		return slices.Contains(summaryRemoved, name) || strings.HasPrefix(name, "ANTHROPIC_DEFAULT_") || name == summaryRunVariable

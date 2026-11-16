@@ -3,11 +3,13 @@ package desktop
 import (
 	"bytes"
 	"context"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"time"
 
+	"github.com/Sauzze/smolcorp/internal/claudeenv"
 	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
@@ -34,6 +36,7 @@ func installedClaudeVersion() (string, bool) {
 	defer cancel()
 	var out bytes.Buffer
 	command := disclaim.Cmd(exec.CommandContext(ctx, program, "--version"))
+	command.Env = claudeenv.Scrub(os.Environ()) // every start of claude, even one that only answers (RT126ENVSCRUB1 N1)
 	command.Stdout = &out
 	if command.Run() != nil {
 		return "", false

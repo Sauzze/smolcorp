@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Sauzze/smolcorp/internal/claudeenv"
 	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
@@ -101,6 +102,7 @@ func defaultT3Machine() t3Machine {
 			return
 		}
 		cmd := disclaim.Cmd(exec.Command(launcher))
+		cmd.Env = t3Environment()
 		detach(cmd)
 		if cmd.Start() == nil {
 			go func() { _ = cmd.Wait() }()
@@ -420,6 +422,7 @@ func feedT3(program string, args []string, input []byte, timeout time.Duration) 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := scriptCommand(ctx, program, args)
+	cmd.Env = t3Environment()
 	if input != nil {
 		cmd.Stdin = bytes.NewReader(input)
 	}
@@ -441,6 +444,10 @@ func feedT3(program string, args []string, input []byte, timeout time.Duration) 
 	}
 	return ran
 }
+
+// t3Environment is what t3 and T3 Code's app are started with: this app's environment, without a Claude Code
+// session's markers (claudeenv, ENVSCRUB1). T3 Code starts its threads' Claude Code itself, and t3 may start the app.
+func t3Environment() []string { return claudeenv.Scrub(os.Environ()) }
 
 // limited keeps the first t3KeptOutput bytes written to it.
 type limited struct{ b *strings.Builder }

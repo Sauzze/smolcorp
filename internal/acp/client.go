@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Sauzze/smolcorp/internal/claudeenv"
 	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
@@ -185,13 +186,16 @@ func Start(command Command, h Handler, opt Options) (*Client, error) {
 		inW.Close()
 		return nil, err
 	}
+	// The caller's environment, less a Claude Code session's markers (claudeenv, ENVSCRUB1): an ACP agent may be
+	// Claude Code, or start it. The same on either way it starts.
+	env := claudeenv.Scrub(command.Env)
 	var cmd *exec.Cmd
 	if command.Runner != nil {
 		defer command.Runner.Close()
-		cmd, err = command.Runner.Command(command.Path, command.Args, command.Env)
+		cmd, err = command.Runner.Command(command.Path, command.Args, env)
 	} else {
 		cmd = disclaim.Cmd(exec.Command(command.Path, command.Args...))
-		cmd.Env = command.Env
+		cmd.Env = env
 	}
 	if err == nil {
 		cmd.Dir = command.Dir

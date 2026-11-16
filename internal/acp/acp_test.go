@@ -29,6 +29,10 @@ const childPidEnv = "SMOLCORP_ACP_CHILDPID"
 // config folders at a fresh temporary folder, as the other packages do.
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(standInEnv); mode != "" {
+		// The environment it was started with, for ENVSCRUB1's row (envscrub_test.go).
+		if written := os.Getenv(standInEnvOut); written != "" {
+			_ = os.WriteFile(written, []byte(strings.Join(os.Environ(), "\n")), 0o600)
+		}
 		standIn(mode)
 		os.Exit(0)
 	}

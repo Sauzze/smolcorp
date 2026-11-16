@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Sauzze/smolcorp/internal/claudeenv"
 	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
@@ -1009,6 +1010,8 @@ func showWindow(terminal hireOpener, folder string, command []string) (string, e
 // `smolcorp` finds the office without them. A test copy's keep them, as a
 // Mac test copy's do, so its hires never reach the real office. Nor the bundled tmux's guard variable,
 // SMOLCORP_TMUX_SERVER: the core gives it to each tmux call itself, never one it inherited (RT126SAL5, RT126SAM6 G1).
+// Nor a Claude Code session's markers, from a Smolcorp opened inside one (claudeenv, ENVSCRUB1): only those, never
+// a SMOLCORP_* variable.
 func hireEnvironment() []string { return hireEnvironmentOf(os.Environ()) }
 
 // hireEnvironmentOf is env without what hireEnvironment leaves out.
@@ -1018,7 +1021,7 @@ func hireEnvironmentOf(env []string) []string {
 	if testCopyPort() == 0 {
 		dropped = append(dropped, "SMOLCORP_PORT", testSupportVariable)
 	}
-	return slices.DeleteFunc(slices.Clone(env), func(variable string) bool {
+	return slices.DeleteFunc(claudeenv.Scrub(env), func(variable string) bool {
 		name, _, _ := strings.Cut(variable, "=")
 		return slices.Contains(dropped, strings.ToUpper(name))
 	})
@@ -1060,7 +1063,7 @@ func (d *Deck) hireState(apiKey apiKeyOffer) map[string]any {
 		choices = append(choices, map[string]any{"id": terminal.id, "name": terminal.name})
 	}
 	chosen, _ := hireTerminal(d.config.HireTerminal, terminals)
-	return map[string]any{
+	state := map[string]any{
 		"enabled": d.config.HiringEnabled, "folder": d.config.HireFolder, "agent": d.config.HireAgent,
 		"canHire": len(terminals) > 0 || tmux, "canChoose": d.canChooseFolder(),
 		"terminal": chosen.id, "terminals": choices,
@@ -1076,6 +1079,12 @@ func (d *Deck) hireState(apiKey apiKeyOffer) map[string]any {
 		// (gonedesk.go).
 		"goneDesks": goneDesksStanding(),
 	}
+	// Smolcorp started inside a Claude Code session, whose markers no desk gets (claudesession.go). Written only then:
+	// the Mac's state has no such key, so outside a session this one answers as the Mac does (the contract).
+	if line := claudeSessionState(); line != nil {
+		state["claudeSession"] = line
+	}
+	return state
 }
 
 // hiredRoleAt is the role of the engine's hire whose tmux server is socket, or

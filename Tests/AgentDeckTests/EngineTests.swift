@@ -84,6 +84,20 @@ final class EngineTests: XCTestCase {
                        "nothing else of a terminal Smolcorp was opened from: not its tokens")
     }
 
+    /// ENVSCRUB1: a Smolcorp opened inside a Claude Code session tells its core the names of the session's
+    /// variables, never their values, and nothing else of them; one opened outside tells it nothing.
+    func testTheCoreIsToldOnlyTheNamesOfTheClaudeVariablesItWasOpenedWith() throws {
+        let core = try core("exit 0")
+        let environment = core.environment(base: ["PATH": "/usr/bin", "CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "cli",
+                                                  "CLAUDE_CODE_CHILD_SESSION": "fake-child", "CLAUDE_CODE_OAUTH_TOKEN": "fake-oauth",
+                                                  "CLAUDE_CONFIG_DIR": "/fake/claude"])
+        XCTAssertEqual(environment[GoCore.claudeNamesVariable], "CLAUDECODE,CLAUDE_CODE_CHILD_SESSION,CLAUDE_CODE_ENTRYPOINT,CLAUDE_CODE_OAUTH_TOKEN")
+        XCTAssertFalse(environment.values.contains { $0.contains("fake-") }, "a name only, never a value")
+        XCTAssertNil(environment["CLAUDECODE"])
+        XCTAssertNil(environment["CLAUDE_CONFIG_DIR"])
+        XCTAssertNil(core.environment(base: ["PATH": "/usr/bin", "CLAUDE_CONFIG_DIR": "/fake/claude"])[GoCore.claudeNamesVariable])
+    }
+
     /// The core listens on this Mac only in a test copy (desktop/listen.go), unless the copy was
     /// opened with SMOLCORP_TEST_LISTEN=lan, which it's given then, and only then.
     func testTheCoreIsLetOntoTheLANOnlyWhenTheCopyWas() throws {

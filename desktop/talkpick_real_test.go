@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/claudeenv"
 )
 
 // The real-menu check (P3), run by hand only:
@@ -97,12 +99,13 @@ func TestRealClaudeMenusTakeTheDigit(t *testing.T) {
 	}
 	run := func(args ...string) string {
 		cmd := exec.Command(tmux, append([]string{"-S", socket}, args...)...)
-		// Not this session's: no Claude Code of ours, no tmux of ours; and your home, not the tests'.
+		// Not this session's: no Claude Code of ours (the scrub's markers, claudeenv, and here even the owner's
+		// CLAUDE_CODE_* settings), no tmux of ours; and your home, not the tests'.
 		cmd.Env = []string{"HOME=" + home}
 		for _, v := range os.Environ() {
 			name, _, _ := strings.Cut(v, "=")
-			if !slices.Contains([]string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA", "TMUX", "TMUX_PANE", "CLAUDECODE", "CLAUDE_PID",
-				"CLAUDE_EFFORT"}, name) && !strings.HasPrefix(name, "CLAUDE_CODE_") {
+			if !slices.Contains([]string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA", "TMUX", "TMUX_PANE"}, name) &&
+				!claudeenv.Marker(name) && !strings.HasPrefix(name, "CLAUDE_CODE_") {
 				cmd.Env = append(cmd.Env, v)
 			}
 		}

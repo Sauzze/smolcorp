@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Sauzze/smolcorp/internal/claudeenv"
 	"github.com/aymanbagabas/go-pty"
 	"golang.org/x/term"
 )
@@ -289,18 +290,7 @@ func launch(run *launcherRun) int {
 	// function is exempt as a whole for it (spawnsites_test.go): a new start added in here would pass unseen.
 	cmd := terminal.Command(program, programArgs...)
 	useCmdLine(cmd, program, programArgs)
-	cmd.Env = append(os.Environ(), "SMOLCORP_SESSION="+id)
-	if run.hire != "" {
-		// A hire's window may have run your shell's start files before this (the terminal's own shell): what they
-		// set to wrap or switch off its hooks isn't passed on (§4 g10).
-		cmd.Env = slices.DeleteFunc(cmd.Env, func(variable string) bool { name, _, _ := strings.Cut(variable, "="); return wrapsHooks(name) })
-	}
-	if startEnv != nil {
-		// On the agent's process alone.
-		cmd.Env = startEnvironment(cmd.Env, *startEnv, runtime.GOOS == "windows")
-	} else if run.hire != "" && agentNamed(args[0]) == Claude {
-		cmd.Env = plainHireEnv(cmd.Env, run.claudeConfig, runtime.GOOS == "windows")
-	}
+	cmd.Env = agentEnvironment(os.Environ(), id, run.hire != "", agentNamed(args[0]) == Claude, run.claudeConfig, startEnv, runtime.GOOS == "windows")
 	if run.hire != "" && startEnv == nil {
 		// A plain hire's own token, on the GM's process alone; any other plain hire never acts as the GM, whatever
 		// its window inherited (an engine hire's start says the same: hirelauncher.go).
@@ -361,6 +351,26 @@ type agentStart interface {
 type ptyAgent struct{ *pty.Cmd }
 
 func (a ptyAgent) process() *os.Process { return a.Process }
+
+// agentEnvironment is what smolcorp run starts its agent with: base, its own environment, never with the markers of
+// a Claude Code session its terminal was opened in (claudeenv, ENVSCRUB1), and its session's id. A hire's
+// (hire), without what wraps hooks, then its start's own variables (startEnv, on the agent's process alone), or a plain
+// Claude hire's account. caseless: names compared as Windows does.
+func agentEnvironment(base []string, id string, hire, claude bool, claudeConfig string, startEnv *hireStartEnv, caseless bool) []string {
+	env := append(claudeenv.Scrub(base), "SMOLCORP_SESSION="+id)
+	if hire {
+		// A hire's window may have run your shell's start files before this (the terminal's own shell): what they
+		// set to wrap or switch off its hooks isn't passed on (§4 g10).
+		env = slices.DeleteFunc(env, func(variable string) bool { name, _, _ := strings.Cut(variable, "="); return wrapsHooks(name) })
+	}
+	if startEnv != nil {
+		return startEnvironment(env, *startEnv, caseless)
+	}
+	if hire && claude {
+		return plainHireEnv(env, claudeConfig, caseless)
+	}
+	return env
+}
 
 // plainHireEnv is a plain hire's environment (hire.go: a pinned desk, another agent, no role), for Claude Code: on
 // the account the office hired it on, never the one the terminal's shell names (PLAINENV1). folder is that account's,

@@ -1024,6 +1024,9 @@ func TestAT3DeskIsCheckedByValueToo(t *testing.T) {
 // Every fixture asked of this app: what differs from the Mac must be a known gap, and every known gap must
 // still differ, so a gap closed by an M piece is taken out of the table (and INVENTORY.md) with it.
 func TestThisAppAnswersAsTheMacsContractSaysButForItsKnownGaps(t *testing.T) {
+	// As the Mac's answers were made: outside a Claude Code session, whose line setup's state adds only inside one
+	// (claudesession.go). Run from a session's terminal, the test asks the same as anywhere else (MSYSTACK2 F4).
+	openedOutsideClaudeCode(t)
 	found := contractGaps(t, readContract(t))
 	known := map[string]bool{}
 	for _, g := range knownGaps {

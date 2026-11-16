@@ -118,13 +118,27 @@ final class GoCore {
     /// a test copy's hires and `smolcorp gm` read, as the Swift engine gives them, and
     /// SMOLCORP_TEST_LISTEN=lan if the copy was opened with it (the core listens on this
     /// Mac only otherwise, as `TestCopy.listensOn`). Never the token.
+    /// With the names of `claudeNames` too, never their values: see there.
     func environment(base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var environment = base.filter { GoCore.inherited.contains($0.key) }
         environment["SMOLCORP_PORT"] = String(port)
         environment["SMOLCORP_TEST_SUPPORT_DIR"] = support.path
         if TestCopy.wantsLAN(base) { environment["SMOLCORP_TEST_LISTEN"] = "lan" }
+        let names = GoCore.claudeNames(base)
+        if !names.isEmpty { environment[GoCore.claudeNamesVariable] = names.joined(separator: ",") }
         return environment
     }
+
+    /// The names of the CLAUDECODE and CLAUDE_CODE_* variables this app was opened with, sorted: a Smolcorp
+    /// started from a terminal inside a Claude Code session has that session's. The core never gets them, as
+    /// nothing outside `inherited`; it's told their names alone, in `claudeNamesVariable`, and decides which
+    /// are a session's (internal/claudeenv), so Setup can say why its desks ignore them (desktop/claudesession.go).
+    static func claudeNames(_ base: [String: String]) -> [String] {
+        base.keys.filter { $0.uppercased() == "CLAUDECODE" || $0.uppercased().hasPrefix("CLAUDE_CODE_") }.sorted()
+    }
+
+    /// The core's `claudeSessionVariable` (desktop/claudesession.go).
+    static let claudeNamesVariable = "SMOLCORP_CLAUDE_NAMES"
 
     /// Starts the core and waits until it serves, or fails. Off the main queue.
     func start(waitingUpTo wait: TimeInterval = 20) throws {

@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/claudeenv"
 )
 
 // `smolcorp gm login` (1.26, SK2): a General Manager you start yourself in a terminal gets its token only when you
@@ -159,7 +161,8 @@ func runLogin(args []string, env Env, stdout, stderr io.Writer) int {
 		return finish(err, stderr)
 	}
 	fmt.Fprintf(stdout, "Allowed. Starting %s as your General Manager.\n", strings.Join(command, " "))
-	environment := append(withoutVar(os.Environ(), tokenEnv), tokenEnv+"="+token)
+	// Never the markers of a Claude Code session this terminal is in (claudeenv, ENVSCRUB1): the GM is a session of its own.
+	environment := append(withoutVar(claudeenv.Scrub(os.Environ()), tokenEnv), tokenEnv+"="+token)
 	if err := startGM(program, command, environment); err != nil {
 		return finish(&Error{Code: exitApp, Msg: fmt.Sprintf("couldn't start %s: %v", command[0], err)}, stderr)
 	}

@@ -1204,6 +1204,8 @@
             </div>
             <!-- A desk marked gone whose session still ran when Smolcorp started, a line each (gonedesk.go). -->
             <p class="note" id="gone-desks" role="alert" hidden></p>
+            <!-- Smolcorp started inside a Claude Code session, whose variables its desks never get (claudesession.go). -->
+            <p class="note" id="claude-session" hidden></p>
             <p class="note" id="hiring-problem" role="alert" hidden></p>
           </div>
           <button class="switch" id="hiring" aria-label="Let the office hire and fire"></button>
@@ -3173,6 +3175,10 @@
     const goneDesks = h.goneDesks || [];
     $('gone-desks').hidden = !goneDesks.length;
     $('gone-desks').textContent = goneDesks.join(' ');
+    // In Setup's language: the app gives the line in English and in French.
+    const claudeSession = h.claudeSession;
+    $('claude-session').hidden = !claudeSession;
+    $('claude-session').textContent = !claudeSession ? '' : document.documentElement.lang.startsWith('fr') ? claudeSession.fr : claudeSession.en;
     $('hire-tmux-label').title = state.launcher
       ? 'The agent runs in a tmux session of its own, which carries on when its window closes: tmux attach shows it again.'
       : "The agent runs in a tmux session of its own, so its keys and mic work from the phone in any terminal.";
