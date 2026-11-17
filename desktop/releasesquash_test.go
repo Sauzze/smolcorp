@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,7 @@ const (
 	stopSyso      = "Remove these .syso files first"
 	stopIgnoredGo = "Go compiles them"
 	stopWorktree  = "git here looks at another folder"
+	stopGoLine    = ", and go.mod asks for go "
 )
 
 // releaseRepo is a throwaway repo holding release-desktop.sh and the gate it sources (release-gate.sh), the stand-in
@@ -98,7 +100,7 @@ func newReleaseRepo(t *testing.T) *releaseRepo {
 		t.Fatal(err)
 	}
 	r.write("README", "main\n")
-	r.write("go.mod", "module example.invalid/release\n\ngo 1.21\n")
+	r.write("go.mod", realGoMod(t, ""))
 	r.write("web.go", "package smolcorp\n")
 	r.write("cmd/smolcorp/main.go", "package main\n")
 	r.write(tmuxTestFile, standInTmuxTest{}.source())
@@ -385,6 +387,30 @@ func TestReleaseDesktopChecksEveryShapeOfHEAD(t *testing.T) {
 			r.squashed()
 			r.write(".git/info/exclude", "*.syso\n")
 			r.write("cmd/smolcorp/rsrc_windows_amd64.syso", "not a resource\n")
+			return nil
+		}},
+
+		// go.mod's release line (FXCITRIAGE): the pinned go is its major.minor, at or past its patch. The go of
+		// another line stops the gate at its pins, whichever way it differs; go.mod's line without a patch lets any
+		// patch of it on.
+		{"go.mod a line older than the go (CI's 1.26 beside a Mac's 1.27)", stopGoLine, func(r *releaseRepo) []string {
+			v := realGoRelease(r.t)
+			r.squashedAfter(func() { r.write("go.mod", realGoMod(r.t, fmt.Sprintf("%d.%d.0", v.Major, v.Minor-1))) })
+			return nil
+		}},
+		{"go.mod a line newer than the go, a go of that line on PATH", stopGoLine, func(r *releaseRepo) []string {
+			r.squashedAfter(func() { r.write("go.mod", realGoMod(r.t, "1.99.0")) })
+			r.writeOtherGo(filepath.Join(r.bin, "go1.99.0"))
+			return []string{"GOTOOLCHAIN="}
+		}},
+		{"go.mod a later patch of the go's line", stopGoLine, func(r *releaseRepo) []string {
+			v := realGoRelease(r.t)
+			r.squashedAfter(func() { r.write("go.mod", realGoMod(r.t, fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch+1))) })
+			return nil
+		}},
+		{"go.mod the go's line with no patch", "", func(r *releaseRepo) []string {
+			v := realGoRelease(r.t)
+			r.squashedAfter(func() { r.write("go.mod", realGoMod(r.t, fmt.Sprintf("%d.%d", v.Major, v.Minor))) })
 			return nil
 		}},
 	})

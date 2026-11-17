@@ -3,9 +3,10 @@
 #
 #   ./install.sh
 #
-# Needs the Xcode Command Line Tools for the Swift compiler, and Go 1.26 or
-# later for the app's engine. Running it again updates an existing install;
-# your pairing and settings are kept.
+# Needs the Xcode Command Line Tools for the Swift compiler, and Go 1.27 (the
+# release line go.mod names, 1.27.2 or a later 1.27) for the app's engine.
+# Running it again updates an existing install; your pairing and settings are
+# kept.
 
 set -euo pipefail
 
@@ -26,7 +27,7 @@ fi
 
 # The app's engine is written in Go: without it the app would have nothing to run.
 if ! command -v go >/dev/null 2>&1; then
-  echo "Smolcorp needs Go 1.26 or later to build: its engine is written in Go."
+  echo "Smolcorp needs Go 1.27 to build (1.27.2 or a later 1.27): its engine is written in Go."
   echo "Install it (brew install go, or go.dev/dl), then run ./install.sh again."
   exit 1
 fi

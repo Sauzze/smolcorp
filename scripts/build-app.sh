@@ -7,7 +7,8 @@
 #
 # Used by install.sh and scripts/release.sh (which sources it in a subshell, after
 # its release gate). Needs the Xcode Command Line Tools,
-# and Go 1.26 or later: the app's engine is the `smolcorp` command inside it.
+# and Go 1.27, go.mod's release line (1.27.2 or a later 1.27): the app's engine
+# is the `smolcorp` command inside it.
 #
 # Every build has the hardened runtime, ad hoc or not: the app, the smolcorp
 # command, tmux and smolcorp-spawn. Without it, any program of yours could attach a debugger to
@@ -95,13 +96,18 @@ if [ "$RELEASE_BUILD" = 1 ]; then
 else
   # Without Go the app would have no engine to run, so nothing is built.
   if ! command -v go >/dev/null 2>&1; then
-    echo "Smolcorp needs Go 1.26 or later to build: its engine is written in Go. Install it (brew install go, or go.dev/dl), then run this again."
+    echo "Smolcorp needs Go to build: its engine is written in Go. Install the release go.mod names (brew install go, or go.dev/dl), then run this again."
     exit 1
   fi
   BUILD_ENV=(env)
   BUILD_GO=go
   BUILD_CC=cc
 fi
+# The go that builds is go.mod's release line (scripts/goversion: the same
+# major.minor as its go line, at or past its patch), as on CI and the Mac
+# Studio, so gofmt and the language read every file as they do there. Another
+# go stops here, before anything is built.
+"${BUILD_ENV[@]}" "$BUILD_GO" run ./scripts/goversion
 APP_NAME="Smolcorp"
 EXECUTABLE="AgentDeck" # the Swift package's product, named in Info.plist
 APP="build/$APP_NAME.app"

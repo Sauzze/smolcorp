@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/Sauzze/smolcorp/internal/goline"
 )
 
 // The guarded tmux exits unless the core gives it SMOLCORP_TMUX_SERVER, so release-desktop.sh builds nothing until
@@ -58,6 +60,38 @@ var realGo = func() func(t *testing.T) (string, string) {
 		return path, cache
 	}
 }()
+
+// realGoRelease is the release of the go the stand-in hands go version and env to, the one the script pins.
+func realGoRelease(t *testing.T) goline.Version {
+	t.Helper()
+	v, err := realGoReleaseOnce()
+	if err != nil {
+		t.Fatalf("the release of the go on PATH: %v", err)
+	}
+	return v
+}
+
+var realGoReleaseOnce = sync.OnceValues(func() (goline.Version, error) {
+	path, err := exec.LookPath("go")
+	if err != nil {
+		return goline.Version{}, err
+	}
+	out, err := exec.Command(path, "env", "GOVERSION").Output()
+	if err != nil {
+		return goline.Version{}, err
+	}
+	return goline.FromGo(strings.TrimSpace(string(out)))
+})
+
+// realGoMod is a throwaway release repo's go.mod, its go line release ("" for the pinned go's own, which the gate
+// asks for: FXCITRIAGE).
+func realGoMod(t *testing.T, release string) string {
+	t.Helper()
+	if release == "" {
+		release = realGoRelease(t).String()
+	}
+	return "module example.invalid/release\n\ngo " + release + "\n"
+}
 
 // standInTmuxTest is a stand-in for M7/L4's test. As written with no fields set it keeps their contract: the stand-in
 // core starts a stand-in tmux (which exits 98 without SMOLCORP_TMUX_SERVER, as the guard does) with that variable
@@ -406,18 +440,14 @@ func TestReleaseDesktopNeedsTheBundledTmuxTestPassing(t *testing.T) {
 		{"G7c: the test failing, go.mod's toolchain line naming a stand-in on PATH", stopTmuxTestFailed,
 			func(r *releaseRepo) {
 				r.write(tmuxTestFile, failing)
-				r.write("go.mod", "module example.invalid/release\n\ngo 1.21\n\ntoolchain go1.99.0\n")
+				r.write("go.mod", realGoMod(r.t, "")+"\ntoolchain go1.99.0\n")
 			},
 			func(r *releaseRepo) []string {
 				r.writeOtherGo(filepath.Join(r.bin, "go1.99.0"))
 				return []string{"GOTOOLCHAIN="}
 			}},
-		{"G7d: go.mod asking for a newer go than the one pinned", stopNotListed + "darwin/", func(r *releaseRepo) {
-			r.write("go.mod", "module example.invalid/release\n\ngo 1.99.0\n")
-		}, func(r *releaseRepo) []string {
-			r.writeOtherGo(filepath.Join(r.bin, "go1.99.0"))
-			return []string{"GOTOOLCHAIN="}
-		}},
+		// G7d, go.mod asking for a newer go than the one pinned, stops the gate at its pins now, before check-public.sh
+		// (FXCITRIAGE): TestReleaseDesktopChecksEveryShapeOfHEAD's go.mod rows.
 		{"G7e: the test failing, the caller's GOTOOLCHAIN naming a stand-in on PATH, +path", stopTmuxTestFailed,
 			func(r *releaseRepo) { r.write(tmuxTestFile, failing) },
 			func(r *releaseRepo) []string {

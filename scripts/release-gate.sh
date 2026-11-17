@@ -31,7 +31,11 @@
 #      (go_env, through pinned_env and pinned_go): GOFLAGS
 #      =-mod=readonly over any go env file or the toolchain's go.env, GOENV
 #      and GOWORK off, GOTOOLCHAIN=local, no CGO_* of the caller's, go's
-#      folders made fresh for the run and removed when it ends.
+#      folders made fresh for the run and removed when it ends. That go is
+#      go.mod's release line: the same major.minor as its go line, at or past
+#      its patch (FXCITRIAGE), checked once the files here are HEAD's tree
+#      (gate 3), so it reads the go.mod that goes out, and before
+#      check-public.sh and any build.
 #   2. one-commit: a release is one squashed commit of the final files,
 #      signed (the -S below; this gate doesn't check the signature), made
 #      straight onto main as GitHub has it (origin/main). The branches the
@@ -231,11 +235,21 @@ if [ "${release_gate_builds_go:-}" = 1 ]; then
 else
   echo "go's folders: removed as soon as the gate passes."
 fi
+# Every git this gate runs (git_here), and check-public.sh with its own git and
+# python3, run without the caller's choice of Xcode (DEVELOPER_DIR, SDKROOT,
+# TOOLCHAINS), as xcrun is asked above (FXGOPINR2): on a Mac, git and python3
+# in /usr/bin are xcrun's stand-ins, and a DEVELOPER_DIR naming a folder with
+# no Xcode in it makes them fail, so git would say nothing and the gate stop
+# for the wrong reason. They keep the rest of the caller's settings. Nothing
+# else changes: go and the C compiler get only go_env, and the script that
+# sourced this keeps the caller's Xcode for its own steps.
+without_xcode() { /usr/bin/env -u DEVELOPER_DIR -u SDKROOT -u TOOLCHAINS "$@"; }
+git_here() { without_xcode git "$@"; }
 # git looks at this folder, the one check-public.sh and the build read, and
 # at its own index: not at another one a caller's environment or the repo's
 # config (core.worktree) names.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
-top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+top="$(git_here rev-parse --show-toplevel 2>/dev/null || true)"
 if [ "$top" != "$(pwd -P)" ]; then
   echo "Stopped: git here looks at another folder (${top:-none}), not this one ($(pwd -P))."
   echo "Unset core.worktree (git config --unset core.worktree), then run this again."
@@ -247,14 +261,14 @@ fi
 # with no replace refs (refs/replace). Every git command below sees the real
 # objects too.
 export GIT_NO_REPLACE_OBJECTS=1
-head_header() { git cat-file commit HEAD 2>/dev/null | sed '/^$/,$d'; }
+head_header() { git_here cat-file commit HEAD 2>/dev/null | sed '/^$/,$d'; }
 head_parents() { head_header | sed -n 's/^parent //p'; }
 head_tree() { head_header | sed -n 's/^tree //p'; }
 
 # One commit straight onto origin/main, and nothing else (gate 2 at the top).
 # HEAD's parents, one per line: exactly origin/main means one parent, and the
 # right one.
-BASE="$(git rev-parse --verify --quiet 'refs/remotes/origin/main^{commit}' || true)"
+BASE="$(git_here rev-parse --verify --quiet 'refs/remotes/origin/main^{commit}' || true)"
 if [ -z "$BASE" ]; then
   echo "Stopped: origin/main isn't here, so the release commit can't be checked."
   echo "Run git fetch origin main, make the release commit (see the top of scripts/release-gate.sh), then this again."
@@ -283,27 +297,27 @@ fi
 # status that fails says nothing either.
 clean() {
   local changes
-  changes="$(git status --porcelain --untracked-files=all)" && [ -z "$changes" ]
+  changes="$(git_here status --porcelain --untracked-files=all)" && [ -z "$changes" ]
 }
 # A release is built from what's committed, and nothing else: no changes
 # waiting, and no stray files, ignored or not, beside the pages it seals in.
-if ! clean || [ -n "$(git ls-files --others --ignored --exclude-standard Resources/web)" ]; then
+if ! clean || [ -n "$(git_here ls-files --others --ignored --exclude-standard Resources/web)" ]; then
   echo "Commit or set aside these first: a release is built from what's committed."
-  git status --short --untracked-files=all || true
-  git ls-files --others --ignored --exclude-standard Resources/web
+  git_here status --short --untracked-files=all || true
+  git_here ls-files --others --ignored --exclude-standard Resources/web
   exit 1
 fi
 # Files git is told not to look at: git status and git write-tree pass over
 # their changes on disk, and check-public.sh reads the disk. git ls-files -v
 # tags every ordinary file H; assume-unchanged ones are lowercase, and
 # skip-worktree ones (which a sparse checkout makes) S.
-unseen() { git ls-files -v | grep -v '^H ' || true; }
-sparse() { [ "$(git config --bool core.sparseCheckout || true)" = true ]; }
+unseen() { git_here ls-files -v | grep -v '^H ' || true; }
+sparse() { [ "$(git_here config --bool core.sparseCheckout || true)" = true ]; }
 # So the files here are HEAD's tree, exactly (gate 3 at the top): the index makes
 # that tree, HEAD still has it, nothing differs from it, and git looks at
 # every file.
 heads_tree() {
-  [ "$(git write-tree)" = "$TREE" ] && [ "$(head_tree)" = "$TREE" ] && clean &&
+  [ "$(git_here write-tree)" = "$TREE" ] && [ "$(head_tree)" = "$TREE" ] && clean &&
     [ -z "$(unseen)" ] && ! sparse
 }
 if ! heads_tree; then
@@ -317,10 +331,39 @@ if ! heads_tree; then
   fi
   exit 1
 fi
+# The go pinned at the top is go.mod's release line (gate 1's last check): the
+# same major.minor as go.mod's go line, at or past its patch, as CI installs
+# and the Mac Studio checks with. A go of another line lays out and reads the
+# files otherwise (CI's gofmt failed on a file another go found clean,
+# FXCITRIAGE). It's checked here, once the files here are HEAD's tree: go.mod
+# on disk is then the one that goes out and the one go reads, even where a
+# checkout had left it out (a sparse one stops just above). No go has built or
+# run anything yet. internal/goline holds the rule for scripts/build-app.sh and
+# the tests; this is the gate's own copy of it, as the gate runs no go program
+# before it.
+go_mod_line="$(sed -n -E 's/^go[[:space:]]+([0-9]+\.[0-9]+(\.[0-9]+)?)[[:space:]]*$/\1/p' go.mod 2>/dev/null | head -n 1 || true)"
+if [ -z "$go_mod_line" ]; then
+  echo "Stopped: HEAD's go.mod has no go line (such as go 1.27.2), so there's no release line to check this go ($GO) against."
+  echo "Make the release commit with go.mod's go line in it, then run this again."
+  exit 1
+fi
+go_here="$(pinned_go env GOVERSION || true)"
+go_is_go_mods() {
+  local major minor patch
+  [[ $go_mod_line =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]] || return 1
+  major="${BASH_REMATCH[1]}" minor="${BASH_REMATCH[2]}" patch="${BASH_REMATCH[4]:-0}"
+  [[ $go_here =~ ^go([0-9]+)\.([0-9]+)(\.([0-9]+))? ]] || return 1
+  ((10#${BASH_REMATCH[1]} == 10#$major && 10#${BASH_REMATCH[2]} == 10#$minor && 10#${BASH_REMATCH[4]:-0} >= 10#$patch))
+}
+if ! go_is_go_mods; then
+  echo "Stopped: this go ($GO) is ${go_here:-of no version it says}, and go.mod asks for go $go_mod_line or a later patch of its line."
+  echo "Put a go of that line first on PATH (CI installs exactly go.mod's), then run this again."
+  exit 1
+fi
 # A .syso beside the code is linked into the Windows programs, and git ignores
 # them now (scripts/mkwinres writes one for each Windows build below, and this
 # script deletes it), so one left from elsewhere would slip in unseen.
-stray="$( (git ls-files --others --ignored --exclude-standard -- '*.syso'; git ls-files -- '*.syso') | grep -v -e '^build/' -e '^\.build/' || true)"
+stray="$( (git_here ls-files --others --ignored --exclude-standard -- '*.syso'; git_here ls-files -- '*.syso') | grep -v -e '^build/' -e '^\.build/' || true)"
 if [ -n "$stray" ]; then
   echo "Remove these .syso files first: they would be linked into the Windows programs."
   echo "$stray"
@@ -329,16 +372,16 @@ fi
 # Go code git ignores: go build compiles every .go file in each package
 # folder it builds, ignored or not, so one there would be built in unseen.
 # Ignored .go files elsewhere (a folder of notes, sandbox/) aren't built.
-go_dirs() { git -c core.quotePath=false ls-files -- "$@" | sed -e 's,/[^/]*$,,' -e t -e 's,.*,.,' | sort -u; }
+go_dirs() { git_here -c core.quotePath=false ls-files -- "$@" | sed -e 's,/[^/]*$,,' -e t -e 's,.*,.,' | sort -u; }
 ignored_go="$(awk 'FILENAME == ARGV[1] { pkg[$0]; next } { d = $0; if (!sub(/\/[^\/]*$/, "", d)) d = "." } d in pkg' \
-  <(go_dirs '*.go') <(git -c core.quotePath=false ls-files --others --ignored --exclude-standard -- '*.go' '*.s'))"
+  <(go_dirs '*.go') <(git_here -c core.quotePath=false ls-files --others --ignored --exclude-standard -- '*.go' '*.s'))"
 if [ -n "$ignored_go" ]; then
   echo "Remove these first: git ignores them, but Go compiles them into the programs."
   echo "$ignored_go"
   exit 1
 fi
 # Nothing of the maintainer's own goes out in a download.
-scripts/check-public.sh
+without_xcode scripts/check-public.sh
 # What it checked is still HEAD's tree: nothing changed while it ran.
 if ! heads_tree; then
   echo "Stopped: the files changed while scripts/check-public.sh ran, so it didn't check HEAD's tree ($TREE). Run this again."
@@ -363,7 +406,7 @@ TMUX_CONTROL_LINE="tmuxgate control: a start without SMOLCORP_TMUX_SERVER was le
 # object it can't open), so anything it writes to stderr counts as a failure
 # to read, whatever its exit.
 status=0
-grep_errors=$(git grep -q -E "^func $TMUX_TEST\\(" "$TREE" -- ":(glob)$TMUX_TEST_PACKAGE/*_test.go" 2>&1 >/dev/null) || status=$?
+grep_errors=$(git_here grep -q -E "^func $TMUX_TEST\\(" "$TREE" -- ":(glob)$TMUX_TEST_PACKAGE/*_test.go" 2>&1 >/dev/null) || status=$?
 if [ -n "$grep_errors" ] || { [ "$status" != 0 ] && [ "$status" != 1 ]; }; then
   echo "Stopped: git grep couldn't read HEAD's tree ($TREE) for $TMUX_TEST."
   [ -z "$grep_errors" ] || printf '%s\n' "$grep_errors" | sed 's/^/  /'
@@ -446,7 +489,8 @@ RELEASE_ROWS_RUN=^TestRelease
 RELEASE_ROWS_HEAVY=(TestReleaseDesktopBuildsOnlyFromOneCommitOntoMain TestReleaseDesktopChecksEveryShapeOfHEAD
   TestReleaseDesktopStopsWhenTheCheckedFilesArentHEADs TestReleaseDesktopStopsOnFilesThatDontGoOut
   TestReleaseDesktopReadsHEADAsAPushSendsIt TestReleaseDesktopStopsOnFilesGitDoesntLookAt
-  TestReleaseDesktopNeedsTheBundledTmuxTestPassing TestReleaseDesktopStopsUnlessTheForgedEventTableIsWhole)
+  TestReleaseDesktopNeedsTheBundledTmuxTestPassing TestReleaseDesktopStopsUnlessTheForgedEventTableIsWhole
+  TestReleaseGateRunsGitWithoutTheCallersXcode)
 echo "The release's own tests in ./$TMUX_TEST_PACKAGE ($RELEASE_ROWS):"
 status=0
 out="$(pinned_env "$RELEASE_ROWS" GOOS="$host_os" GOARCH="$host_arch" PATH="$(dirname "$GO"):$system_path" \

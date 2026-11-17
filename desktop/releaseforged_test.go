@@ -133,7 +133,7 @@ func forgedRepo(t *testing.T, target, toolchain string, bodies map[string]string
 	if err != nil {
 		t.Fatal(err)
 	}
-	mod := "module example.invalid/release\n\ngo 1.21\n"
+	mod := realGoMod(t, "")
 	if toolchain != "" {
 		mod += "\ntoolchain " + toolchain + "\n"
 	}

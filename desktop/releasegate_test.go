@@ -564,8 +564,9 @@ func TestReleaseGateBuildsTheMacAppWithItsPins(t *testing.T) {
 					}
 				}
 			}
-			if len(goArgs) != 3 || goArgs[0] != "run ./scripts/buildoffice -check" || ccRuns != 1 || tmuxRuns != 1 {
-				t.Errorf("want the gate's go to check the office, then build the engine twice, tmux's build once and the gate's C compiler once; got go %q, tmux %d times, cc %d times",
+			if len(goArgs) != 4 || goArgs[0] != "run ./scripts/goversion" || goArgs[1] != "run ./scripts/buildoffice -check" ||
+				ccRuns != 1 || tmuxRuns != 1 {
+				t.Errorf("want the gate's go to check its release line and the office, then build the engine twice, tmux's build once and the gate's C compiler once; got go %q, tmux %d times, cc %d times",
 					goArgs, tmuxRuns, ccRuns)
 			}
 			if run.done != len(run.calls) {
@@ -589,7 +590,7 @@ func TestReleaseGateBuildsTheMacAppWithItsPins(t *testing.T) {
 		}
 		_, removed := run.removed["-rf build/tmux"]
 		if run.status != 0 || strings.Contains(run.out, gateStandinPassed) || run.done != -1 || removed ||
-			!slices.Equal(who, []string{"path-go", "path-go", "path-go", "tmux-build", "path-cc"}) ||
+			!slices.Equal(who, []string{"path-go", "path-go", "path-go", "path-go", "tmux-build", "path-cc"}) ||
 			!leaked["path-go GOFLAGS"] || !leaked["path-go CGO_CFLAGS"] || !leaked["path-cc CPATH"] ||
 			!leaked["tmux-build CCC_OVERRIDE_OPTIONS"] || !leaked["tmux-build DEVELOPER_DIR"] {
 			t.Errorf("want the go and cc on PATH and tmux's kept build, with the caller's settings, and no gate; got status %d, ran %q, removed %v, settings %v:\n%s",
@@ -633,8 +634,8 @@ func TestReleaseGateBuildsTheMacAppWithItsPins(t *testing.T) {
 			t.Errorf("build-app.sh runs a go or C compiler by name, not through BUILD_ENV: %s", strings.TrimSpace(line))
 		}
 	}
-	if n := strings.Count(strings.Join(codeLines(string(script)), "\n"), `"${BUILD_ENV[@]}" `); n != 4 {
-		t.Errorf("build-app.sh has %d runs through BUILD_ENV, want 4 (the office check, the engine's builds, tmux's build, smolcorp-spawn)", n)
+	if n := strings.Count(strings.Join(codeLines(string(script)), "\n"), `"${BUILD_ENV[@]}" `); n != 5 {
+		t.Errorf("build-app.sh has %d runs through BUILD_ENV, want 5 (go's release line, the office check, the engine's builds, tmux's build, smolcorp-spawn)", n)
 	}
 }
 
