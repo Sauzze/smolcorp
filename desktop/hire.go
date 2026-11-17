@@ -525,6 +525,36 @@ type hireSpec struct {
 	// The scope of a GM held to one project, which the GM route checked folder against: its place is made only in
 	// that folder, still held where it is made (prepareHire). nil for none.
 	held *gmScope
+	// A start of your Claude Code held while Smolcorp was still checking its folder, made again once that's done
+	// (Deck.startOnceChecked): its gate waits as long as a listing may take, and it isn't held again.
+	checked bool
+}
+
+// claudeStartsHeld are the starts of your Claude Code waiting for the listings around their folder (Deck.startOnceChecked).
+// Tests wait for them.
+var claudeStartsHeld sync.WaitGroup
+
+// startOnceChecked makes the start s again, by itself, once the listings asked for in or around folder are done: a
+// start held only because Smolcorp was still checking needs no second request (SIERRA's first condition on
+// FXCLAUDESUMOPENR3 B). It goes through every check of a hire again, the gate too; one only a hire at that moment
+// holds back is tried again after the cooldown, three times at most. What it came to is logged.
+func (d *Deck) startOnceChecked(s hireSpec, folder string) {
+	s.seat, s.checked = nil, true
+	claudeStartsHeld.Add(1)
+	go func() {
+		defer claudeStartsHeld.Done()
+		waitClaudeListings(func(p claudePending) bool { return claudeNear(folder, p.Place) }, claudeListingWaitMost)
+		status, message := d.hireWith(s)
+		for try := 0; status == http.StatusTooManyRequests && try < 3; try++ {
+			time.Sleep(hireCooldown)
+			status, message = d.hireWith(s)
+		}
+		if status == http.StatusNoContent {
+			log.Printf("hire: your Claude Code in %s started, once Smolcorp had checked what hires left there.", folder)
+		} else {
+			log.Printf("hire: your Claude Code in %s didn't start once Smolcorp had checked what hires left there: %s", folder, message)
+		}
+	}()
 }
 
 // fenceRefusal is why a fenced hire of program can't be made, or "": a plain terminal has no guard.
@@ -843,10 +873,23 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 		command = append(command, program)
 	}
 	// Your own Claude Code isn't started where a hire left a .claude or an .mcp.json, listed now and held for you
-	// (CLAUDEPLANT1): a desk not fired yet, or the GM, may have made one since its last listing.
+	// (CLAUDEPLANT1): a desk not fired yet, or the GM, may have made one since its last listing. The listings are the
+	// worker's, waited for without the lock (d.hiring holds the desk meanwhile) for a few seconds: one not done by then
+	// is said, and this start goes ahead by itself once it's done (FXCLAUDESUMOPENR3 B).
 	if agentOrClaude(program) == Claude {
-		if why := claudeGate(folder, officeHires()); why != "" {
+		hires, wait := officeHires(), claudeCheckWait
+		if s.checked {
+			wait = claudeListingWaitMost
+		}
+		d.mu.Unlock()
+		why, checking := claudeGateWithin(folder, hires, wait)
+		d.mu.Lock()
+		if why != "" {
 			d.lastHire = time.Time{}
+			if checking && !s.checked {
+				d.startOnceChecked(s, folder)
+				why += " Your Claude Code then starts there by itself: there's nothing to do."
+			}
 			return http.StatusConflict, why
 		}
 	}

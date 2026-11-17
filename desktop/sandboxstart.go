@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"io/fs"
 	"maps"
@@ -16,6 +17,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Sauzze/smolcorp/internal/sandbox"
@@ -785,11 +787,18 @@ func listClaudePlantsOf(h Hire) []claudePlant {
 // (hireengine.go). Gone by then, its place is listed once more and it's put on record as listed, even with nothing
 // found: the gate doesn't list it again, so what you change there from now on is yours. A hire made gone any other
 // way (the GM's edit, T3 Code's let go, a fire whose window nobody closed) stays off the record: its desk may still be
-// at work, so every gate near it lists it again (RT126CLAUDEPLANT1R2 B4b).
+// at work, so every gate near it lists it again (RT126CLAUDEPLANT1R2 B4b). The listing is the worker's
+// (claudePending), asked for now and waited for, outside any lock: the fire goes on once it's done, as it did when
+// it was listed here.
 func claudeHireEnded(id string) {
-	if h, ok := registryHire(id); ok && !isOpen(h) {
-		listClaudePlantsOf(h)
-		markClaudeListed(h.ID)
+	h, ok := registryHire(id)
+	if !ok || isOpen(h) {
+		return
+	}
+	if asked := askClaudeListings([]Hire{h}, true, false); len(asked) > 0 {
+		waitClaudeListed(asked)
+	} else {
+		markClaudeListed(h.ID) // no place: nothing to list
 	}
 }
 
@@ -797,28 +806,71 @@ func claudeHireEnded(id string) {
 // the GM's edit made gone keeps running. Tests set it.
 var claudeSessionUp = func(h Hire) bool { return hireSessionUp(h, testCopyPort(), engineOptions{}) }
 
+// claudeOpening is told the name of each file the plant walk looked at, just before it opens it to sum it. Tests set
+// it, to change what's there in between, as a desk still at work could.
+var claudeOpening = func(name string) {}
+
 // holdClaudePlants lists, for desk, every plant in looks that isn't as it was in its baseline nor as you kept it,
 // holds each one and makes what it found the desk's baseline, on record (none while it found none: the record, a
 // file in the support folder, is written only when what it holds changes). With no baseline, a plant the same as
 // the one at its place in reference (the owner's checkout, a worktree's twin; not the place itself) isn't listed.
-// It says what it listed.
+// It says what it listed. It's one listing (claudeWalk): past what that may look at and read, each look it didn't
+// finish is listed and held as too much to check.
 func holdClaudePlants(desk string, looks []claudeLook, reference string) []claudePlant {
+	found := walkClaudePlants(looks, reference)
+	claudeHeld.Lock()
+	defer claudeHeld.Unlock()
+	loadClaudeHeldLocked()
+	listed, changed := recordClaudePlantsLocked(desk, found)
+	// More held is less your Claude Code may do: written under a new record key, so a copy from before doesn't fit.
+	if changed || len(listed) > 0 {
+		saveClaudeHeldLocked(len(listed) > 0)
+	}
+	return listed
+}
+
+// claudeFound is what one listing found, by path, and which of it is the same as in your checkout.
+type claudeFound struct {
+	plants    map[string]claudePlant
+	checkouts map[string]bool
+}
+
+// walkClaudePlants is holdClaudePlants's listing, without claudeHeld: one claudeWalk of looks, and of reference.
+func walkClaudePlants(looks []claudeLook, reference string) claudeFound {
+	w := newClaudeWalk()
 	found := map[string]claudePlant{}
 	for _, l := range looks {
-		walkClaude(l.path, l, l.depth, found)
+		if !w.over {
+			w.walkClaudeLook(l, found)
+		}
+		if w.over {
+			found[l.path] = claudePlant{File: l.path, Why: whyClaudeTooMuch, In: l.path, Within: l.path}
+		}
 	}
 	checkouts := map[string]bool{} // the plants the same as your checkout's
 	if len(looks) > 0 && reference != "" && physical(reference) != physical(looks[0].path) {
-		for at, p := range found {
-			if rel, err := filepath.Rel(looks[0].path, at); err == nil && filepath.IsLocal(rel) && !p.outside {
-				was := claudeEntry(filepath.Join(reference, rel), p.Why, "", reference)
+		refs := map[string]claudePlant{} // your checkout's, each summed once: a top's walk notes what's below it
+		for _, at := range slices.Sorted(maps.Keys(found)) {
+			p := found[at]
+			if rel, err := filepath.Rel(looks[0].path, at); err == nil && filepath.IsLocal(rel) && !p.outside && p.Sum != "" {
+				ref := filepath.Join(reference, rel)
+				was, ok := refs[ref]
+				if !ok {
+					was = w.entry(ref, p.Why, "", reference, refs)
+				}
+				was.Why = p.Why
 				checkouts[at] = p.same(was) && !was.outside
 			}
 		}
 	}
-	claudeHeld.Lock()
-	defer claudeHeld.Unlock()
-	loadClaudeHeldLocked()
+	return claudeFound{plants: found, checkouts: checkouts}
+}
+
+// recordClaudePlantsLocked holds, for desk, what a listing found that isn't as in its baseline nor as you kept it,
+// and makes what it found the desk's baseline (holdClaudePlants). It says what it listed, and whether the record
+// changed. The caller holds claudeHeld, and writes the record.
+func recordClaudePlantsLocked(desk string, f claudeFound) ([]claudePlant, bool) {
+	found, checkouts := f.plants, f.checkouts
 	baseline, known := claudeHeld.baselines[desk]
 	changed := len(found) != len(baseline)
 	for at, p := range found {
@@ -842,57 +894,388 @@ func holdClaudePlants(desk string, looks []claudeLook, reference string) []claud
 	for _, p := range listed {
 		claudeHeld.plants[p.ID] = p
 	}
-	// More held is less your Claude Code may do: written under a new record key, so a copy from before doesn't fit.
-	if changed || len(listed) > 0 {
-		saveClaudeHeldLocked(len(listed) > 0)
-	}
-	return listed
+	return listed, changed
 }
 
-// walkClaude notes every plant in folder, depth folders down, never following a link nor going into a .git: each
-// .claude, with everything in it, and each .mcp.json, any case, trailing dots and spaces dropped (Windows).
-func walkClaude(folder string, l claudeLook, depth int, found map[string]claudePlant) {
-	entries, err := os.ReadDir(folder)
-	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			found[folder] = claudePlant{File: folder, Why: whyUnread, In: folder}
-		}
-		return
-	}
-	for _, e := range entries {
-		at := filepath.Join(folder, e.Name())
-		switch name := strings.TrimRight(e.Name(), ". "); {
-		case strings.EqualFold(name, ".claude"):
-			addClaudeTree(at, l.path, found)
-		case strings.EqualFold(name, ".mcp.json"):
-			found[at] = claudeEntry(at, whyClaudeMCP, folder, l.path)
-		case !e.IsDir() || strings.EqualFold(e.Name(), ".git") || depth == 1 || l.skip != nil && l.skip(at):
-		default:
-			walkClaude(at, l, depth-1, found)
-		}
-	}
+// A desk decides what the plant walk finds (RT126CLAUDESUMOPEN B1, B2), and your Claude Code's start, a fire, and the
+// gate wait for it (claudePending: no longer under frontDeskMu or the Deck's lock). So one listing looks at no more
+// than:
+//   - claudeLookMost entries, each name in a folder it lists, and each name looked up to find where a link leads
+//     (resolve). A folder hire's place is its project folder, worktrees and all: a big one holds 233,000 to 464,000
+//     entries. Listed by name and kind (listKinds), a name costs a busy MacBook about 6 µs in a 78,000-entry worktree
+//     and 7 µs in a 464,000-entry folder (past what the Mac keeps in memory, kern.maxvnodes), where a look at each
+//     name cost 13 and 44 µs at the same moment (FXCLAUDESUMOPENR3);
+//   - claudeTreeMost of them in a .claude, or in what a link there leads to, and each .claude or .mcp.json in the
+//     place: each is opened, read into every sum above it and noted on record (about 20 µs each, so 0.2 s; a .claude
+//     holds tens to hundreds);
+//   - claudeSumBytesMost bytes summed, each byte counted once for each sum it goes into, an entry's own and each
+//     folder's above it in its .claude (about 3 GB/s, so 0.1 s);
+//   - nothing at claudePathMost bytes or longer, and claudeLinkHops links for each link.
+//
+// Past any, the listing stops:
+// what it was summing can't be summed, and each look it didn't finish is held as too much to check. Each folder below
+// a look's own is opened through the folder it was listed in, only as a folder and through no link (in the place,
+// openClaudeFolderIn; in a .claude, only while it's the one listed, openClaudeIn): one swapped for a link isn't
+// followed, and can't be summed. A file is read once a listing, into every sum it's part of. Tests set them.
+var (
+	claudeLookMost     = 1_000_000
+	claudeTreeMost     = 10_000
+	claudeSumBytesMost = int64(256 << 20)
+)
+
+// claudePathMost is the longest path, in bytes, the plant walk goes to: no entry at a path this long or longer is
+// opened, read or looked into, and it can't be summed (a folder past it in the place is noted as unread). The walk
+// before this one went by path, and the system stopped it there (a Mac's MAXPATHLEN, PATH_MAX elsewhere), so the sums
+// on record stay as they were. It also bounds how deep the walk goes, and so the fds it keeps open (one a folder
+// down) and the paths it makes (RT126CLAUDESUMOPENR2 N1).
+var claudePathMost = map[bool]int{true: 1024, false: 4096}[runtime.GOOS == "darwin"]
+
+// claudeLinkHops is the most links the walk goes through to find where one link leads (Linux goes through 40, a Mac
+// 32): past them, as past what the walk may still look at, the link can't be summed (RT126CLAUDESUMOPENR2 N2).
+const claudeLinkHops = 40
+
+// claudeSumMost is the most bytes of one file the plant walk reads. A bigger one can't be summed, so it never matches
+// and stays held: a fire and your Claude Code's start wait for the walk, and a desk mustn't make it read for long.
+const claudeSumMost = 32 << 20
+
+const whyClaudeTooMuch = "Too much in it for Smolcorp to check (files, or bytes to read); what wasn't checked isn't known."
+
+// errClaudeTooMuch is a sum the walk stopped making: the listing went past what it may look at or read.
+var errClaudeTooMuch = errors.New("too much to check")
+
+// claudeWalk is one listing: the entries it may still look at (tree of them in a .claude), the bytes it may still
+// sum, and whether it went past any (over).
+type claudeWalk struct {
+	entries, tree int
+	bytes         int64
+	over          bool
+	places        map[string]string // each place looked for within, with its links resolved (physical)
 }
 
-// addClaudeTree notes the .claude at at and, in a folder, everything in it but a CLAUDE.md, each a row of its own,
-// never following a link.
-func addClaudeTree(at, within string, found map[string]claudePlant) {
-	in := filepath.Dir(at)
-	p := claudeEntry(at, whyClaudeFolder, in, within)
-	if !p.Dir {
-		found[at] = claudeEntry(at, whyClaudeLink, in, within)
-		return
+func newClaudeWalk() *claudeWalk {
+	return &claudeWalk{entries: claudeLookMost, tree: claudeTreeMost, bytes: claudeSumBytesMost}
+}
+
+// spend takes entries (tree of them in a .claude) and bytes from what's left, and says whether the walk may go on.
+func (w *claudeWalk) spend(entries, tree int, bytes int64) bool {
+	if !w.over {
+		w.entries -= entries
+		w.tree -= tree
+		w.bytes -= bytes
+		w.over = w.entries < 0 || w.tree < 0 || w.bytes < 0
 	}
-	_ = filepath.WalkDir(at, func(name string, d fs.DirEntry, err error) error {
-		switch {
-		case err != nil:
-			found[name] = claudePlant{File: name, Why: whyUnread, In: in}
-		case name == at:
-			found[at] = p
-		case !strings.EqualFold(d.Name(), "CLAUDE.md") || !d.Type().IsRegular():
-			rel, _ := filepath.Rel(at, name)
-			found[name] = claudeEntry(name, claudeWhy(rel), in, within)
+	return !w.over
+}
+
+// physical is the place within with its links resolved, once a walk.
+func (w *claudeWalk) physical(within string) string {
+	if w.places == nil {
+		w.places = map[string]string{}
+	}
+	p, ok := w.places[within]
+	if !ok {
+		p = physical(within)
+		w.places[within] = p
+	}
+	return p
+}
+
+// resolve is where the link at leads, every link on the way resolved, as filepath.EvalSymlinks says (its walk,
+// path/filepath/symlink.go, Go 1.27), but spent from the walk: each name looked up costs one entry, so a lookup of a
+// path costs as many as it has names, and it goes through claudeLinkHops links at most. Past either, it's
+// errClaudeTooMuch. A link elsewhere names where it leads as the system has it (claudeLinkSpelled).
+func (w *claudeWalk) resolve(at string) (string, error) {
+	path, sep := at, string(os.PathSeparator)
+	volLen := len(filepath.VolumeName(path))
+	if volLen < len(path) && os.IsPathSeparator(path[volLen]) {
+		volLen++
+	}
+	vol := path[:volLen]
+	dest, hops := vol, 0
+	look := func() error { // dest is looked up: a name for each folder in it, and its own
+		if !w.spend(1+strings.Count(dest, sep), 0, 0) {
+			return errClaudeTooMuch
 		}
 		return nil
+	}
+	for start, end := volLen, volLen; start < len(path); start = end {
+		for start < len(path) && os.IsPathSeparator(path[start]) {
+			start++
+		}
+		end = start
+		for end < len(path) && !os.IsPathSeparator(path[end]) {
+			end++
+		}
+		windowsDot := runtime.GOOS == "windows" && path[len(filepath.VolumeName(path)):] == "."
+		if end == start {
+			break
+		} else if path[start:end] == "." && !windowsDot {
+			continue
+		} else if path[start:end] == ".." {
+			r := len(dest) - 1
+			for ; r >= volLen && !os.IsPathSeparator(dest[r]); r-- {
+			}
+			if r < volLen || dest[r+1:] == ".." {
+				if len(dest) > volLen {
+					dest += sep
+				}
+				dest += ".."
+			} else {
+				dest = dest[:r]
+			}
+			continue
+		}
+		if len(dest) > len(filepath.VolumeName(dest)) && !os.IsPathSeparator(dest[len(dest)-1]) {
+			dest += sep
+		}
+		dest += path[start:end]
+		if err := look(); err != nil {
+			return "", err
+		}
+		fi, err := os.Lstat(dest)
+		if err != nil {
+			return "", err
+		}
+		if fi.Mode()&fs.ModeSymlink == 0 {
+			if !fi.Mode().IsDir() && end < len(path) {
+				return "", syscall.ENOTDIR
+			}
+			continue
+		}
+		if hops++; hops > claudeLinkHops {
+			return "", fmt.Errorf("%s goes through more than %d links: %w", at, claudeLinkHops, errClaudeTooMuch)
+		}
+		if err := look(); err != nil {
+			return "", err
+		}
+		link, err := os.Readlink(dest)
+		if err != nil {
+			return "", err
+		}
+		if windowsDot && !filepath.IsAbs(link) {
+			break
+		}
+		path = link + path[end:]
+		if v := len(filepath.VolumeName(link)); v > 0 {
+			if v < len(link) && os.IsPathSeparator(link[v]) {
+				v++
+			}
+			vol, dest, end = link[:v], link[:v], v
+		} else if len(link) > 0 && os.IsPathSeparator(link[0]) {
+			vol, dest, end, volLen = link[:1], link[:1], 1, 1
+		} else {
+			r := len(dest) - 1
+			for ; r >= volLen && !os.IsPathSeparator(dest[r]); r-- {
+			}
+			if r < volLen {
+				dest = vol
+			} else {
+				dest = dest[:r]
+			}
+			end = 0
+		}
+	}
+	return claudeLinkSpelled(w, filepath.Clean(dest))
+}
+
+// claudeSum is a sum the walk is making, of an entry and everything below it, depth names down from the top of the
+// walk; err is why it can't be made.
+type claudeSum struct {
+	w     io.Writer
+	depth int
+	err   error
+}
+
+// failSums fails each sum not failed yet with err, if any.
+func failSums(sums []*claudeSum, err error) {
+	for _, s := range sums {
+		if err != nil && s.err == nil {
+			s.err = err
+		}
+	}
+}
+
+// write writes into each sum not failed what text gives for it, spending its bytes: past what the walk may sum, all
+// fail.
+func (w *claudeWalk) write(sums []*claudeSum, text func(*claudeSum) string) {
+	texts, total := make([]string, len(sums)), 0
+	for i, s := range sums {
+		if s.err == nil {
+			texts[i] = text(s)
+			total += len(texts[i])
+		}
+	}
+	if !w.spend(0, 0, int64(total)) {
+		failSums(sums, errClaudeTooMuch)
+		return
+	}
+	for i, s := range sums {
+		if s.err == nil {
+			io.WriteString(s.w, texts[i])
+		}
+	}
+}
+
+// claudeLooked is an entry the walk summed: at, rel names down from the top, looked at as info; sum is "" when it
+// can't be summed, unread a folder that couldn't be opened or listed, outside a link that leads out of where it was
+// looked for (or nowhere).
+type claudeLooked struct {
+	at      string
+	rel     []string
+	info    fs.FileInfo
+	sum     string
+	unread  bool
+	outside bool
+}
+
+// plant is e as a plant, why given, read by Claude Code started in in, looked for within.
+func (e claudeLooked) plant(why, in, within string) claudePlant {
+	return claudePlant{File: e.at, Why: why, In: in, Within: within, Sum: e.sum, Dir: e.info.IsDir(), info: e.info,
+		outside: e.outside}
+}
+
+// walkClaudeLook notes every plant in look l (walkClaude), from its folder, opened by its path as given.
+func (w *claudeWalk) walkClaudeLook(l claudeLook, found map[string]claudePlant) {
+	dir, err := openClaudeLook(l.path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		found[l.path] = claudePlant{File: l.path, Why: whyUnread, In: l.path}
+	default:
+		w.walkClaude(dir, l.path, l, l.depth, found)
+		dir.Close()
+	}
+}
+
+// list is what's in the open folder dir (in a .claude, tree), by name, each looked at through dir: no more than the
+// walk may still look at (past that it's over, and lists nothing).
+func (w *claudeWalk) list(dir *os.File, tree bool) ([]fs.FileInfo, error) {
+	var all []fs.FileInfo
+	for {
+		infos, err := dir.Readdir(1024)
+		inTree := 0
+		if tree {
+			inTree = len(infos)
+		}
+		if !w.spend(len(infos), inTree, 0) {
+			return nil, nil
+		}
+		all = append(all, infos...)
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, err
+		}
+	}
+	dir.Seek(0, io.SeekStart) // lets go of what the listing holds (on a Mac, a second fd): one fd a folder down
+	slices.SortFunc(all, func(a, b fs.FileInfo) int { return strings.Compare(a.Name(), b.Name()) })
+	return all, nil
+}
+
+// listKinds is what's in the open folder dir, by name and kind only: the kind its listing gives (getdirentries, with
+// no look at each name; where it gives none, a look through dir, fstatat), no more than the walk may still look at
+// (past that it's over, and lists nothing). The place walk lists so (FXCLAUDESUMOPENR3 A): a look at each name was
+// most of a listing's time.
+func (w *claudeWalk) listKinds(dir *os.File) ([]fs.DirEntry, error) {
+	var all []fs.DirEntry
+	for {
+		entries, err := dir.ReadDir(1024)
+		if !w.spend(len(entries), 0, 0) {
+			return nil, nil
+		}
+		all = append(all, entries...)
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, err
+		}
+	}
+	dir.Seek(0, io.SeekStart) // as list
+	slices.SortFunc(all, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+	return all, nil
+}
+
+// claudePlantName is whether name is a .claude or an .mcp.json, any case, trailing dots and spaces dropped (Windows).
+func claudePlantName(name string) bool {
+	name = strings.TrimRight(name, ". ")
+	return strings.EqualFold(name, ".claude") || strings.EqualFold(name, ".mcp.json")
+}
+
+// walkClaude notes every plant in folder, open as dir, depth folders down, never following a link nor going into a
+// .git: each .claude, with everything in it, and each .mcp.json (claudePlantName). The folder is listed by name and
+// kind only (listKinds), and each folder in it opened through it as a folder only (openClaudeFolderIn). Where there's
+// a .claude or an .mcp.json, the folder is listed again with a look at each name through dir (list), so each is looked
+// at in full, as before. A folder it can't open, or list, is noted as unread.
+func (w *claudeWalk) walkClaude(dir *os.File, folder string, l claudeLook, depth int, found map[string]claudePlant) {
+	entries, err := w.listKinds(dir)
+	if err != nil {
+		found[folder] = claudePlant{File: folder, Why: whyUnread, In: folder}
+		return
+	}
+	if slices.ContainsFunc(entries, func(e fs.DirEntry) bool { return claudePlantName(e.Name()) }) {
+		infos, err := w.list(dir, false)
+		if err != nil {
+			found[folder] = claudePlant{File: folder, Why: whyUnread, In: folder}
+			return
+		}
+		for _, info := range infos {
+			if w.over {
+				return
+			}
+			if !claudePlantName(info.Name()) {
+				continue
+			}
+			if !w.spend(0, 1, 0) { // each is opened, summed and noted on record, as an entry in a .claude is
+				return
+			}
+			at := filepath.Join(folder, info.Name())
+			if strings.EqualFold(strings.TrimRight(info.Name(), ". "), ".claude") {
+				w.addClaudeTree(dir, at, info, l.path, found)
+			} else {
+				w.sumTree(dir, at, info, l.path, false, func(e claudeLooked) { found[at] = e.plant(whyClaudeMCP, folder, l.path) })
+			}
+		}
+	}
+	for _, e := range entries {
+		if w.over {
+			return
+		}
+		at := filepath.Join(folder, e.Name())
+		switch {
+		case claudePlantName(e.Name()) || !e.IsDir() || strings.EqualFold(e.Name(), ".git") || depth == 1 || l.skip != nil && l.skip(at):
+		case len(at) >= claudePathMost:
+			found[at] = claudePlant{File: at, Why: whyUnread, In: at}
+		default:
+			sub, err := openClaudeFolderIn(dir, e)
+			switch {
+			case errors.Is(err, fs.ErrNotExist):
+			case err != nil:
+				found[at] = claudePlant{File: at, Why: whyUnread, In: at}
+			default:
+				w.walkClaude(sub, at, l, depth-1, found)
+				sub.Close()
+			}
+		}
+	}
+}
+
+// addClaudeTree notes the .claude at at, in the open folder dir, looked at as looked, and, in a folder, everything in
+// it but a CLAUDE.md, each a row of its own, never following a link.
+func (w *claudeWalk) addClaudeTree(dir *os.File, at string, looked fs.FileInfo, within string, found map[string]claudePlant) {
+	in := filepath.Dir(at)
+	if !looked.IsDir() {
+		w.sumTree(dir, at, looked, within, false, func(e claudeLooked) { found[at] = e.plant(whyClaudeLink, in, within) })
+		return
+	}
+	w.sumTree(dir, at, looked, within, true, func(e claudeLooked) {
+		switch {
+		case e.unread:
+			found[e.at] = claudePlant{File: e.at, Why: whyUnread, In: in}
+		case len(e.rel) == 0:
+			found[at] = e.plant(whyClaudeFolder, in, within)
+		case !strings.EqualFold(e.info.Name(), "CLAUDE.md") || !e.info.Mode().IsRegular():
+			found[e.at] = e.plant(claudeWhy(filepath.Join(e.rel...)), in, within)
+		}
 	})
 }
 
@@ -914,48 +1297,175 @@ func claudeWhy(rel string) string {
 // claudeEntry is the plant at at, why given, read by Claude Code started in in, with what it is now: a file by its
 // bytes, a folder by everything in it, a link by where it leads and, when that's within the place it was looked for
 // in, by what it leads to (a link the checkout has too can't hide a change made through it). One that can't be read
-// never matches.
+// never matches. It's a listing of its own (claudeWalk).
 func claudeEntry(at, why, in, within string) claudePlant {
+	return newClaudeWalk().entry(at, why, in, within, nil)
+}
+
+// entry is claudeEntry in walk w, at looked at by its path. Given record, every entry below at is noted there too,
+// by its path, summed in the same walk.
+func (w *claudeWalk) entry(at, why, in, within string, record map[string]claudePlant) claudePlant {
 	p := claudePlant{File: at, Why: why, In: in, Within: within}
-	info, err := os.Lstat(at)
-	if err != nil {
+	looked, err := os.Lstat(at)
+	if err != nil || w.over {
 		return p
 	}
-	p.info, p.Dir = info, info.IsDir()
-	h := sha256.New()
-	err = sumClaudeTree(h, at)
-	if err == nil && info.Mode()&fs.ModeSymlink != 0 {
-		if to, linkErr := filepath.EvalSymlinks(at); linkErr == nil && within != "" && inside(physical(within), to) {
-			err = sumClaudeTree(h, to)
-		} else {
-			p.outside = true
+	w.sumTree(nil, at, looked, within, record != nil, func(e claudeLooked) {
+		if record != nil {
+			record[e.at] = e.plant(why, in, within)
 		}
-	}
-	if err == nil {
-		p.Sum = hex.EncodeToString(h.Sum(nil))
-	}
+		if len(e.rel) == 0 {
+			p = e.plant(why, in, within)
+		}
+	})
 	return p
 }
 
 // sumClaudeTree writes into h everything at at and below it, never following a link: names, kinds, bytes and where
 // links lead.
 func sumClaudeTree(h io.Writer, at string) error {
-	return filepath.WalkDir(at, func(name string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	return newClaudeWalk().sumPath(h, at)
+}
+
+// sumPath is sumClaudeTree in walk w.
+func (w *claudeWalk) sumPath(h io.Writer, at string) error {
+	looked, err := os.Lstat(at)
+	if err != nil {
+		return err
+	}
+	s := &claudeSum{w: h}
+	w.sumEntry(nil, at, at, looked, nil, []*claudeSum{s}, "", false, nil)
+	return s.err
+}
+
+// sumTree sums the entry at at, in the open folder dir (or by its path, dir nil), looked at as looked, and everything
+// below it, in one walk, and tells each what the top is, and, with all, every entry below it, each before the folder
+// it's in. A link's own sum takes in what it leads to when that's within.
+func (w *claudeWalk) sumTree(dir *os.File, at string, looked fs.FileInfo, within string, all bool, each func(claudeLooked)) {
+	name := at
+	if dir != nil {
+		name = looked.Name()
+	}
+	w.sumEntry(dir, name, at, looked, nil, nil, within, all, each)
+}
+
+// sumEntry writes the entry name in dir (or at the path name, dir nil), at at, looked at as looked, rel names down
+// from the top, into each of sums, and its own sum when each is told of it: its name from each sum's top, its kind,
+// then where a link leads, a file's bytes, or each entry in a folder, by name (as filepath.WalkDir and a plain read
+// did: sums on record still match). What fails, or the walk going past what it may do, fails every sum it was in.
+func (w *claudeWalk) sumEntry(dir *os.File, name, at string, looked fs.FileInfo, rel []string, sums []*claudeSum,
+	within string, all bool, each func(claudeLooked)) {
+	var own *claudeSum
+	var ownSum hash.Hash
+	if each != nil && (all || len(rel) == 0) {
+		ownSum = sha256.New()
+		own = &claudeSum{w: ownSum, depth: len(rel)}
+		sums = append(sums[:len(sums):len(sums)], own)
+	}
+	kind := looked.Mode().Type()
+	w.write(sums, func(s *claudeSum) string {
+		from := "."
+		if len(rel) > s.depth {
+			from = filepath.Join(rel[s.depth:]...)
 		}
-		rel, _ := filepath.Rel(at, name)
-		fmt.Fprintf(h, "%s\x00%v\x00", rel, d.Type())
-		switch {
-		case d.Type()&fs.ModeSymlink != 0:
-			target, err := os.Readlink(name)
-			fmt.Fprintf(h, "%s\x00", target)
-			return err
-		case d.Type().IsRegular():
-			return copyFrom(h, name)
-		}
-		return nil
+		return from + "\x00" + kind.String() + "\x00"
 	})
+	e := claudeLooked{at: at, rel: rel, info: looked}
+	switch {
+	case len(at) >= claudePathMost:
+		e.unread = kind.IsDir()
+		failSums(sums, fmt.Errorf("%s is past the longest path the walk goes to", at))
+	case kind&fs.ModeSymlink != 0:
+		target, err := readlinkIn(dir, name)
+		w.write(sums, func(*claudeSum) string { return target + "\x00" })
+		failSums(sums, err)
+	case kind.IsRegular():
+		failSums(sums, w.copyLooked(dir, name, at, looked, sums))
+	case kind.IsDir():
+		err := w.sumFolder(dir, name, at, looked, rel, sums, within, all, each)
+		e.unread = err != nil
+		failSums(sums, err)
+	}
+	if w.over {
+		failSums(sums, errClaudeTooMuch)
+	}
+	if own == nil {
+		return
+	}
+	if own.err == nil && kind&fs.ModeSymlink != 0 {
+		switch to, err := w.resolve(at); {
+		case errors.Is(err, errClaudeTooMuch):
+			failSums([]*claudeSum{own}, err)
+		case err == nil && within != "" && inside(w.physical(within), to):
+			failSums([]*claudeSum{own}, w.sumPath(ownSum, to))
+		default:
+			e.outside = true
+		}
+	}
+	if own.err == nil {
+		e.sum = hex.EncodeToString(ownSum.Sum(nil))
+	}
+	each(e)
+}
+
+// sumFolder writes what's in the folder name in dir, looked at as looked, into sums (sumEntry): opened through dir,
+// as the folder listed (openClaudeIn), and listed through itself. A folder it can't open or list is an error.
+func (w *claudeWalk) sumFolder(dir *os.File, name, at string, looked fs.FileInfo, rel []string, sums []*claudeSum,
+	within string, all bool, each func(claudeLooked)) error {
+	f, err := openClaudeIn(dir, name, looked)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	infos, err := w.list(f, true)
+	if err != nil {
+		return err
+	}
+	for _, info := range infos {
+		if w.over {
+			break
+		}
+		w.sumEntry(f, info.Name(), filepath.Join(at, info.Name()), info, append(rel[:len(rel):len(rel)], info.Name()),
+			sums, within, all, each)
+	}
+	return nil
+}
+
+// copyLooked writes into each of sums not failed the plain file name in dir (or at the path name, dir nil), at at,
+// looked at as looked, so that a desk still at work can't make the walk wait or read without end (RT126RESOLVESWEEP
+// S6): it's opened through no link and without waiting on a pipe (openClaudeIn), only while it's still the plain file
+// the walk looked at, and read once, no further than its size then, at most claudeSumMost bytes. A file changed in
+// between can't be summed, nor one past what the walk may still sum.
+func (w *claudeWalk) copyLooked(dir *os.File, name, at string, looked fs.FileInfo, sums []*claudeSum) error {
+	if !looked.Mode().IsRegular() {
+		return fmt.Errorf("%s changed while it was looked at", at)
+	}
+	if looked.Size() > claudeSumMost {
+		return fmt.Errorf("%s is too big to read (%d bytes)", at, looked.Size())
+	}
+	var to []io.Writer
+	for _, s := range sums {
+		if s.err == nil {
+			to = append(to, s.w)
+		}
+	}
+	if len(to) == 0 {
+		return nil // every sum it's in has failed already
+	}
+	if !w.spend(0, 0, looked.Size()*int64(len(to))) {
+		return errClaudeTooMuch
+	}
+	claudeOpening(at)
+	f, err := openClaudeIn(dir, name, looked)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	n, err := io.Copy(io.MultiWriter(to...), io.LimitReader(f, looked.Size()+1))
+	if err == nil && n != looked.Size() {
+		err = fmt.Errorf("%s changed while it was read", at)
+	}
+	return err
 }
 
 // claudeNear is whether a and b are the same folder, or one is in the other: as written and with links resolved,
@@ -978,24 +1488,41 @@ func claudeNear(a, b string) bool {
 // in or around it: every open hire's, since it may have made one since its last listing (a desk not fired yet, the
 // GM); a gone one's not on record as listed (its session not known to have ended: the GM's edit, from before this
 // record, or after it was lost); and a gone one's whose tmux session is still up, which counts as open. The first
-// of hires counts for its ID.
+// of hires counts for its ID. The listings are the worker's (claudePending): it waits up to claudeCheckWait for them,
+// holding no lock, and past that says Smolcorp is still checking.
 func claudeGate(folder string, hires []Hire) string {
-	seen := map[string]bool{}
+	why, _ := claudeGateWithin(folder, hires, claudeCheckWait)
+	return why
+}
+
+// claudeGateWithin is claudeGate, waiting up to wait, and whether all it says is that Smolcorp is still checking.
+func claudeGateWithin(folder string, hires []Hire, wait time.Duration) (string, bool) {
+	seen, ask := map[string]bool{}, []Hire(nil)
 	for _, h := range hires {
 		if seen[h.ID] || h.place() == "" || !claudeNear(folder, h.place()) {
 			continue
 		}
 		seen[h.ID] = true
-		if isOpen(h) || !claudeListed(h.ID) || claudeSessionUp(h) {
-			listClaudePlantsOf(h)
+		if isOpen(h) || !claudeListedNow(h.ID) || claudeSessionUp(h) {
+			ask = append(ask, h)
 		}
 	}
-	return claudeHeldRefusal(folder)
+	askClaudeListings(ask, false, false)
+	return claudeHeldRefusalWithin(folder, wait)
 }
 
 // claudeHeldRefusal is why Smolcorp won't start your Claude Code in folder, or "": a plant held for you is still
-// there, in it, above it or below it.
+// there, in it, above it or below it, or a listing asked for there isn't done after claudeCheckWait.
 func claudeHeldRefusal(folder string) string {
+	why, _ := claudeHeldRefusalWithin(folder, claudeCheckWait)
+	return why
+}
+
+// claudeHeldRefusalWithin is claudeHeldRefusal, waiting up to wait for what's asked for in or around folder, and
+// whether all it says is that Smolcorp is still checking: a plant held is said first, as it won't clear by itself.
+func claudeHeldRefusalWithin(folder string, wait time.Duration) (string, bool) {
+	near := func(p claudePending) bool { return claudeNear(folder, p.Place) }
+	waitClaudeListings(near, wait)
 	claudeHeld.Lock()
 	defer claudeHeld.Unlock()
 	loadClaudeHeldLocked()
@@ -1009,12 +1536,28 @@ func claudeHeldRefusal(folder string) string {
 			held = append(held, p)
 		}
 	}
-	if len(held) == 0 {
-		return ""
+	if len(held) > 0 {
+		slices.SortFunc(held, func(a, b claudePlant) int { return strings.Compare(a.File, b.File) })
+		return "Smolcorp won't start your Claude Code in " + folder + ": a hire left " + held[0].File + " (" + held[0].Why +
+			") and it's held for you. Remove it in Setup, or keep it if it's yours, then try again.", false
 	}
-	slices.SortFunc(held, func(a, b claudePlant) int { return strings.Compare(a.File, b.File) })
-	return "Smolcorp won't start your Claude Code in " + folder + ": a hire left " + held[0].File + " (" + held[0].Why +
-		") and it's held for you. Remove it in Setup, or keep it if it's yours, then try again."
+	var checking []string
+	for _, p := range claudePendingLocked() {
+		if near(p) {
+			checking = append(checking, p.Place)
+		}
+	}
+	if len(checking) == 0 {
+		return "", false
+	}
+	slices.Sort(checking)
+	return claudeStillChecking(folder, checking[0]), true
+}
+
+// claudeStillChecking is what a gate says while a listing of place, in or around folder, isn't done.
+func claudeStillChecking(folder, place string) string {
+	return "Smolcorp is still checking what a hire left in " + place + ", so it won't start your Claude Code in " + folder +
+		" yet. That takes a few seconds and clears by itself."
 }
 
 // removeClaudePlant is your "Remove" for the plant held as id: taken away (a link, not what it leads to) if it's

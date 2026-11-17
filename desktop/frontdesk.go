@@ -230,18 +230,26 @@ func setAside(path string) registryFile {
 }
 
 func (f registryFile) save(path string) error {
+	_, err := f.saveAsking(path)
+	return err
+}
+
+// saveAsking is save, and the hires whose listing it asked for. A hire gone by any way (a fire, a failed start, the
+// GM's edit, T3 Code's) has what it left named .claude or .mcp.json in its place listed and held for you
+// (CLAUDEPLANT1): one listing for every path to a gone state. It's asked for here, on record, and listed by the
+// worker once frontDeskMu is let go (FXCLAUDESUMOPENR3 B, claudePending): its mark is written before the registry,
+// so the record key the registry's write moves to (a hire made gone takes authority away, registryTightens) seals
+// it, and a copy of the record from before it no longer fits.
+func (f registryFile) saveAsking(path string) ([]string, error) {
 	before, _ := heldRegistryFor(path)
-	if err := f.write(path); err != nil {
-		return err
-	}
-	// A hire gone by any way (a fire, a failed start, the GM's edit, T3 Code's) has what it left named .claude or
-	// .mcp.json in its place listed and held for you (CLAUDEPLANT1): one listing for every path to a gone state.
+	var gone []Hire
 	for _, h := range f.hires {
 		if !isOpen(h) && slices.ContainsFunc(before.hires, func(was Hire) bool { return was.ID == h.ID && isOpen(was) }) {
-			listClaudePlantsOf(h)
+			gone = append(gone, h)
 		}
 	}
-	return nil
+	asked := askClaudeListings(gone, false, true)
+	return asked, f.write(path)
 }
 
 // write writes f as the registry at path, and holds it.

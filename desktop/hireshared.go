@@ -149,13 +149,18 @@ func takenPorts() []string {
 	return taken
 }
 
-// updateRegistry changes the registry under its lock.
+// updateRegistry changes the registry under its lock. What a hire it made gone left in its place is listed once the
+// lock is let go, and waited for: a fire goes on once it's held for you (registryFile.saveAsking).
 func updateRegistry(change func(*registryFile)) error {
-	frontDeskMu.Lock()
-	defer frontDeskMu.Unlock()
-	file := readRegistry(registryPath(), true)
-	change(&file)
-	return file.save(registryPath())
+	asked, err := func() ([]string, error) {
+		frontDeskMu.Lock()
+		defer frontDeskMu.Unlock()
+		file := readRegistry(registryPath(), true)
+		change(&file)
+		return file.saveAsking(registryPath())
+	}()
+	waitClaudeListed(asked)
+	return err
 }
 
 // hireIsOpen is whether hire id is in the registry, neither fired nor failed.

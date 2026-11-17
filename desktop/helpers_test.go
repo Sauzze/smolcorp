@@ -28,6 +28,8 @@ func isolate(t *testing.T) string {
 		sessionsFile = saved[7]
 	})
 	supportDir = t.TempDir()
+	// A hire's listing still under way (claudePending) writes in this folder: it's waited for before the folder goes.
+	t.Cleanup(func() { claudeWorkers.Wait() })
 	// The photos folder can't be listed (photo.go): listed again so the test's folder can be removed.
 	support := supportDir
 	t.Cleanup(func() { _ = unlistPhotos(filepath.Join(support, photosFolder), false) })
