@@ -113,11 +113,11 @@ func TestAPatternIsReadAsItsSkeleton(t *testing.T) {
 		want string // the names, space-separated
 	}{
 		{"setup-k[!x-[:x:]y", "setup-key"}, {"setup-k[!]y", "setup-key"}, {"[[:alpha:]x]etup-ke[y]", "setup-key"},
-		{"*key*", "setup-key push-key-kept window-key"}, {"s*", ""}, {"*", ""}, {"*.json", ""}, {"set*", "setup-key settings.local.json"},
+		{"*key*", "setup-key push-key-kept hold-key window-key"}, {"s*", ""}, {"*", ""}, {"*.json", ""}, {"set*", "setup-key settings.local.json"},
 		{".c*", ".claude .claude/settings.json .claude/settings.local.json"}, {"*", ""}, {"?claude", ""},
 		{"[.]claude", ""}, {"(.|x)claude", ".claude"}, {".#claude", ".claude"}, {"build/*.[oa]", ""},
 		{".c?aude/settings.json", ".claude/settings.json"}, {"*/settings.json", ""}, {".*/settings.json", ".claude/settings.json"},
-		{"~/Lib*/App*/A*/s*", "gm-token gm-token-kept smolcorp_gm_token hire-guard.json hire-guard setup-key grants.jsonl phones-seal claude-install push-key-kept nightshift.json phones.json window-key settings.local.json"},
+		{"~/Lib*/App*/A*/s*", "gm-token gm-token-kept smolcorp_gm_token hire-guard.json hire-guard setup-key grants.jsonl phones-seal claude-install push-key-kept nightshift.json phones.json hold-key paste-hold paste-hold-seen window-key settings.local.json"},
 		{"x/AgentDeck/*.swift", ""}, {"setup-key~x", "setup-key"}, {"setup-kx#ey", "setup-key"}, {"{}", ""},
 		{"{.c,x}laude", ".claude"}, {"=*.go", ""},
 	} {

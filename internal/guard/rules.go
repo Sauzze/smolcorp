@@ -43,7 +43,8 @@ func DefaultGroups() []Group {
 			"smolcorp|smolcorp-cli gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
 			// The person's own commands (1.26 X3): a hire is not a person. say, open and hire are refused by the command
 			// itself for now, but its own check (an environment variable) is only a polite refusal, so they are fenced here too.
-			"smolcorp|smolcorp-cli hire|say|open",
+			// So is hold (PASTEHOLD1): holding what the office types into desks is the owner's test runner's.
+			"smolcorp|smolcorp-cli hire|say|open|hold",
 			"security", "osascript",
 			// stored credentials, printed
 			"git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager", "op read|item|inject|signin", "bw", "pass",

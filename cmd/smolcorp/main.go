@@ -11,6 +11,7 @@
 //	smolcorp attach <desk>            show a desk in this terminal, through its sandbox where it has one
 //	smolcorp guard [--profile gm] [--rules FILE]     the hire guard: Claude Code runs it before each Bash command
 //	smolcorp quit                     stop the running copy, by the pid it recorded
+//	smolcorp hold on [MINUTES] | off  on a Mac, hold what the office types into desks while tests run there
 //	smolcorp version
 package main
 
@@ -48,6 +49,8 @@ const usage = `Usage: smolcorp [command]
   guard [--profile gm] [--rules FILE]    the hire guard, a PreToolUse hook: reads the call on stdin
   mcp                     serve the gm commands as MCP tools on standard input and output
   quit                    stop the running Smolcorp (the one of this user)
+  hold on [MINUTES] | off on a Mac, hold what the office types into desks
+                          while tests run there (15 minutes at most)
   version                 which Smolcorp this is`
 
 // `smolcorp gm login` checks the program it starts as the GM as Smolcorp checks every agent it starts (SG2,
@@ -107,6 +110,8 @@ func main() {
 		os.Exit(gm.RunMCP(args[1:], os.Stdin, os.Stdout, os.Stderr))
 	case "quit":
 		os.Exit(desktop.RunQuit())
+	case "hold":
+		os.Exit(desktop.RunHold(args[1:]))
 	case "core":
 		// Not in the usage: Smolcorp.app starts it, as its engine (start_darwin.go).
 		os.Exit(runCore(args[1:]))

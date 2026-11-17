@@ -1525,11 +1525,11 @@ func valuePattern(value string, unq []bool) []bool {
 // spelling (the GM token, in its file or where a computer with no secret
 // store keeps it, the guard file, the app's setup key, the owner's grant record, the paired phones' seal's
 // key, which Claude Code the owner has, the push key, where a computer with no secret store keeps it, the GM's memory's
-// folder, the night shift's jobs, and the paired phones themselves, phones.json, kept by its patterns too since
-// GUARDPS1: cp x ph*s.json). protectedByPattern says which a pattern word (gm-t*, hire-g?ard.json) could fill in, read
+// folder, the night shift's jobs, the paired phones themselves, phones.json, kept by its patterns too since
+// GUARDPS1: cp x ph*s.json, and the paste hold's key and file, PASTEHOLD1). protectedByPattern says which a pattern word (gm-t*, hire-g?ard.json) could fill in, read
 // as its skeleton (skeleton.go). On Windows a wildcard in quotes is read so too (windowsWild), for each of them.
 var protectedNames = []string{"gm-token", "gm-token-kept", "smolcorp_gm_token", "hire-guard.json", "hire-guard", setupKeyFile,
-	"grants.jsonl", "phones-seal", "claude-install", "push-key-kept", "gm-memory", nightFile, phonesFile}
+	"grants.jsonl", "phones-seal", "claude-install", "push-key-kept", "gm-memory", nightFile, phonesFile, "hold-key", "paste-hold", "paste-hold-seen"}
 
 // supportWords are the words of the app's support folder on each system (appdirs: AgentDeck, sauzzedeck-pro,
 // SauzzeDeck Pro), and Smolcorp's: a path before a pattern that could hold one may be that folder.

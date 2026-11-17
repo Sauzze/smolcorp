@@ -35,6 +35,10 @@ type mailPump struct {
 	// look looks in the bots' mailboxes for replies, at the given time.
 	look func(time.Time)
 	now  func() time.Time
+	// enter is false while tests on this computer hold what's typed into desks (pastehold.go): a hire's message then
+	// stays in the outbox, due, for the first round after the hold. Else its typing is under way until leave. nil: never held.
+	enter func() bool
+	leave func()
 }
 
 // round is one pass of the pump (MailRouter.pump): each due queued message in outbox order, once.
@@ -62,6 +66,14 @@ func (p *mailPump) round() {
 					p.outbox.fail(m.ID, why)
 					continue
 				}
+			}
+			if p.enter != nil {
+				if !p.enter() {
+					continue
+				}
+				p.deliverToHire(m, *found)
+				p.leave()
+				continue
 			}
 			p.deliverToHire(m, *found)
 		}
@@ -115,6 +127,8 @@ func (d *Deck) startMailPump() (stop func(), ended <-chan struct{}) {
 		across: d.mailDeliveryRefusal,
 		look:   d.botMailboxLook,
 		now:    time.Now,
+		enter:  d.hold.enter,
+		leave:  d.hold.end,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var once sync.Once

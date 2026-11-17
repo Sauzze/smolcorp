@@ -184,8 +184,8 @@ func newEscapeDesk(t *testing.T) *escapeDesk {
 	d.ownSocket = filepath.Join(d.sockets, "h1", "s")
 	d.key = filepath.Join(d.support, "setup-key")
 	for at, text := range map[string]string{
-		d.key: escapeKey, filepath.Join(d.support, "hire-guard.json"): escapeFence,
-		filepath.Join(d.own, "BRIEF.md"): "the brief", filepath.Join(d.own, "settings.json"): escapeFence,
+		d.key: escapeKey, filepath.Join(d.support, "hire-guard.json"): escapeFence, filepath.Join(d.support, "paste-hold"): "1800000000 run-1 fakeseal\n",
+		filepath.Join(d.support, "hold-key"): "fake-hold-key\n", filepath.Join(d.own, "BRIEF.md"): "the brief", filepath.Join(d.own, "settings.json"): escapeFence,
 		filepath.Join(d.support, "hires", "h2", "claude", "notes.md"): "another desk's",
 		filepath.Join(home, ".claude", "CLAUDE.md"):                   "the owner's instructions",
 		filepath.Join(home, ".claude", "skills", "s", "SKILL.md"):     "a skill",
@@ -420,6 +420,18 @@ func TestOnAMacAHireReachesNoneOfTheOwnersFilesSocketsOrPorts(t *testing.T) {
 		{"R2/T2: the guard file", attempt{"write", guard, ""}, "EPERM"},
 		{"R2/T2: the fence", attempt{"write", fence, ""}, "EPERM"},
 		{"R2/T2: a new file in the support folder", attempt{"create", at(d.support, "fence.json"), ""}, "EPERM"},
+		// PASTEHOLD1: the owner's paste hold (desktop/pastehold.go) is the support folder's: a desk can't read the key
+		// that seals a hold, nor read, set, change or clear the hold, nor say it seen, so it can neither hold the
+		// owner's messages nor drop them.
+		{"PASTEHOLD1: the hold key read", attempt{"read", at(d.support, "hold-key"), ""}, "EPERM"},
+		{"PASTEHOLD1: the hold key changed", attempt{"write", at(d.support, "hold-key"), ""}, "EPERM"},
+		{"PASTEHOLD1: a hard link to the hold key", attempt{"link", at(d.support, "hold-key"), at(d.root, "hk")}, "EPERM"},
+		{"PASTEHOLD1: the hold read", attempt{"read", at(d.support, "paste-hold"), ""}, "EPERM"},
+		{"PASTEHOLD1: the hold changed", attempt{"write", at(d.support, "paste-hold"), ""}, "EPERM"},
+		{"PASTEHOLD1: the hold cleared", attempt{"remove", at(d.support, "paste-hold"), ""}, "EPERM"},
+		{"PASTEHOLD1: the hold moved aside", attempt{"rename", at(d.support, "paste-hold"), at(d.own, "held")}, "EPERM"},
+		{"PASTEHOLD1: a hold set as the command writes it", attempt{"create", at(d.support, "paste-hold.tmp"), ""}, "EPERM"},
+		{"PASTEHOLD1: the hold said seen", attempt{"create", at(d.support, "paste-hold-seen"), ""}, "EPERM"},
 		// R5: the local ports on the list, both ways.
 		{"R5: ssh on 127.0.0.1", attempt{"tcp", "127.0.0.1:22", ""}, "EPERM"},
 		{"R5: ssh on ::1", attempt{"tcp", "[::1]:22", ""}, "EPERM"},

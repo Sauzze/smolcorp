@@ -497,6 +497,8 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		// SA-X8: a desk's own Claude folder, which its sandbox reads and writes (§A4.1): the account's sign-in profile
 		// (not a secret) and the MCP servers the owner ticked for desks, never a key of Smolcorp's nor a sign-in.
 		deskOwn = "the desk's own (its sandbox's)"
+		// PASTEHOLD1: holds what the office types into desks, 15 minutes at most; it opens nothing.
+		holdKeyClass = "hold key (PASTEHOLD1)"
 	)
 	classes := map[string]string{
 		"phones.json": sealed, "mac-peers.json": sealed, registryName: sealed, "config.json": sealed, hireGuardFile: sealed,
@@ -527,6 +529,9 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		// SA-L6: a Linux desk's way out, the core's proxy listening in its own folder (sandbox.ProxySocket), connect
 		// only to that desk ("its way out"). A socket: it holds nothing. Never made on a Mac.
 		"hires/<id>/" + sandbox.ProxySocketName: notSecret,
+		// PASTEHOLD1: the paste hold's key, new at each start under the Mac app, which seals a hold (pastehold.go); the
+		// hold as `smolcorp hold on` writes it and the core's word that it holds, both sealed with it, neither a secret.
+		"hold-key": holdKeyClass, "paste-hold": notSecret, "paste-hold-seen": notSecret,
 	}
 	d, mac, phoneKey, _ := macDeck(t)
 	sendKey := withAHire(t)
@@ -547,6 +552,18 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		transcript.close(time.Now())
 	}
 	keptNote(t, d, memoryNote("Tests run with pnpm"))
+	// PASTEHOLD1: a hold set and said seen, as `smolcorp hold on` and the core leave them.
+	if d.hold.key == "" {
+		t.Fatal("no hold key under the Mac app")
+	}
+	d.rounds.stop()
+	if err := writePrivate(holdFile(), holdRecord(d.hold.key, "run-1", time.Now().Add(time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	d.hold.look(time.Now())
+	if readSeen(holdSeen(), d.hold.key) != "run-1" {
+		t.Fatal("the hold wasn't said seen")
+	}
 	// SA-X8: a desk's own Claude folder, made from a stand-in default account whose .claude.json holds a ticked MCP
 	// server with a stand-in key of its own, and a sign-in's profile.
 	if err := os.WriteFile(filepath.Join(homeDir, ".claude.json"), []byte(`{"oauthAccount":{"accountUuid":"acct-x8"},`+

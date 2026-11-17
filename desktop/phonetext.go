@@ -322,6 +322,7 @@ func (d *Deck) phoneText(name string, t Tab, agent Agent, words string, lines bo
 		if tab.pane != nil {
 			return tab.pane.phoneText(words, lines)
 		}
+		defer d.hold.pastedOnMac()
 		return hostPhoneText(tab.host, tab.name, agent, words, deskState)
 	case commandTab:
 		return tab.phoneText(words, lines)
@@ -372,6 +373,13 @@ func (d *Deck) TypePhoneText(text, id string, send *bool) (int, string) {
 // needs no phone-text switch (D2), it is never typed into a Mac terminal app's tab (D3), and it always sends,
 // unless it says otherwise, with its own words where the phone's say "the deck".
 func (d *Deck) typeText(from textFrom, text, id string, send *bool) (int, string) {
+	return d.typeTextOr(true, nil, from, text, id, send)
+}
+
+// typeTextOr is typeText, held while tests run on this Mac (pastehold.go): what comes then waits, and the sender is
+// told so (202). Ungated, it is what waited, typed once the hold ended, with every rule checked again. settled, if
+// not nil, hears how words that waited went in the end (a photo's path: its file goes if they were refused).
+func (d *Deck) typeTextOr(gated bool, settled func(int, string), from textFrom, text, id string, send *bool) (int, string) {
 	d.mu.Lock()
 	on, autoSend := d.config.PhoneMicEnabled, d.config.PhoneMicAutoSend
 	d.mu.Unlock()
@@ -389,6 +397,26 @@ func (d *Deck) typeText(from textFrom, text, id string, send *bool) (int, string
 	target, status, why := d.typeTarget(from, id)
 	if why != "" {
 		return status, why
+	}
+	if gated {
+		// Once the hold ends: tried again while the desk asks you something; refused otherwise, Setup says so.
+		again := func() (bool, string) {
+			status, message := d.typeTextOr(false, nil, from, text, id, send)
+			if status == http.StatusConflict && message == from.answerFirst() {
+				return true, ""
+			}
+			if settled != nil {
+				settled(status, message)
+			}
+			if status >= http.StatusBadRequest {
+				return false, message
+			}
+			return false, ""
+		}
+		if says := d.hold.held(&heldTyping{desk: target.name, name: d.holdDeskName(id), try: again}); says != "" {
+			return http.StatusAccepted, says
+		}
+		defer d.hold.end()
 	}
 	// Typed by the core: the prompt they make in the GM's session isn't kept again as its terminal's (ownerwords.go).
 	d.coreTypes(target.name, words)

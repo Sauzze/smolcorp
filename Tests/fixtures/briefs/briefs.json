@@ -1016,7 +1016,7 @@
             "commands" : [
               "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
               "smolcorp|smolcorp-cli gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
-              "smolcorp|smolcorp-cli hire|say|open",
+              "smolcorp|smolcorp-cli hire|say|open|hold",
               "security",
               "osascript",
               "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
@@ -1189,7 +1189,7 @@
             "commands" : [
               "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
               "smolcorp|smolcorp-cli gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
-              "smolcorp|smolcorp-cli hire|say|open",
+              "smolcorp|smolcorp-cli hire|say|open|hold",
               "security",
               "osascript",
               "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
@@ -1358,7 +1358,7 @@
             "commands" : [
               "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
               "smolcorp|smolcorp-cli gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
-              "smolcorp|smolcorp-cli hire|say|open",
+              "smolcorp|smolcorp-cli hire|say|open|hold",
               "security",
               "osascript",
               "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
@@ -1544,7 +1544,7 @@
             "commands" : [
               "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
               "smolcorp|smolcorp-cli gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
-              "smolcorp|smolcorp-cli hire|say|open",
+              "smolcorp|smolcorp-cli hire|say|open|hold",
               "security",
               "osascript",
               "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
@@ -1724,7 +1724,7 @@
             "commands" : [
               "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
               "smolcorp|smolcorp-cli gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
-              "smolcorp|smolcorp-cli hire|say|open",
+              "smolcorp|smolcorp-cli hire|say|open|hold",
               "security",
               "osascript",
               "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
@@ -1908,7 +1908,7 @@
             "commands" : [
               "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
               "smolcorp|smolcorp-cli gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
-              "smolcorp|smolcorp-cli hire|say|open",
+              "smolcorp|smolcorp-cli hire|say|open|hold",
               "security",
               "osascript",
               "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
@@ -2081,7 +2081,7 @@
             "commands" : [
               "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
               "smolcorp|smolcorp-cli gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
-              "smolcorp|smolcorp-cli hire|say|open",
+              "smolcorp|smolcorp-cli hire|say|open|hold",
               "security",
               "osascript",
               "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",
@@ -2488,7 +2488,7 @@
             "commands" : [
               "tmux ... send-keys|send-prefix|kill-session|kill-server|kill-window|kill-pane|respawn-pane|respawn-window|pipe-pane|run-shell|if-shell|paste-buffer|source-file|command-prompt",
               "smolcorp|smolcorp-cli gm hire|fire|brief|tile|watch|unwatch|rotate-token|screen",
-              "smolcorp|smolcorp-cli hire|say|open",
+              "smolcorp|smolcorp-cli hire|say|open|hold",
               "security",
               "osascript",
               "git credential|credential-osxkeychain|credential-store|credential-cache|credential-manager",

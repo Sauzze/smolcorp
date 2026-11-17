@@ -36,3 +36,28 @@ func TestAHireCannotUseThePeoplesCommands(t *testing.T) {
 		}
 	}
 }
+
+// RT126PASTEHOLD1 B1's probes: `smolcorp hold` is fenced as hire, say and open are (its own check is an environment
+// variable), and so are the hold's key and file by name, written out or as a pattern, read or written, for the GM too.
+func TestAHireCannotHoldWhatTheOfficeTypes(t *testing.T) {
+	support := `"$HOME/Library/Application Support/AgentDeck/`
+	for _, line := range []string{
+		"smolcorp hold on 15", "smolcorp hold off", "smolcorp hold", "smolcorp-cli hold on", "smolcorp --port 7711 hold on",
+		"SMOLCORP_HIRE_KEY= smolcorp hold on 15", "env -u SMOLCORP_HIRE_KEY smolcorp hold on 15", "env -i smolcorp hold on",
+		"sh -c 'smolcorp hold on 15'", "/Applications/Smolcorp.app/Contents/Resources/bin/smolcorp hold on 15",
+		`printf "9999999999 x" > ` + support + `paste-hold"`, "cat " + support + `hold-key"`, "cp x " + support + `paste-hold"`,
+		"cat ~/Library/Application\\ Support/AgentDeck/HOLD-KEY", "cat ~/.config/sauzzedeck-pro/hold-k?y",
+		"cp x ~/Library/Application\\ Support/AgentDeck/paste-h*", "echo x > paste-hold-seen",
+	} {
+		for _, groups := range [][]Group{DefaultGroups(), ForGM(DefaultGroups())} {
+			if Check(line, groups) == nil {
+				t.Errorf("let through: %s", line)
+			}
+		}
+	}
+	for _, line := range []string{"smolcorp status", "go test -run Hold ./desktop", "git log --oneline -3"} {
+		if r := Check(line, DefaultGroups()); r != nil {
+			t.Errorf("%q was refused: %v", line, r)
+		}
+	}
+}

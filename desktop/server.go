@@ -2816,6 +2816,7 @@ func writeStatus(w http.ResponseWriter) func(int, string) {
 // app's Swift engine says them (Deck.swift, DeckRouter.swift).
 var macWords = map[string]string{
 	pairCodeRefusal:     "That code isn't valid. Get a new one on your Mac.",
+	heldWords:           "On hold while tests run on this Mac: typed, in order, when they end (in 15 minutes at most).",
 	settingsElsewhere:   "Settings open on your Mac.",
 	hireWindowElsewhere: "Hires' windows open on your Mac.",
 	backgroundNeedsTmux: "Running hires in the background needs tmux, which isn't on this Mac.",

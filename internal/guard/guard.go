@@ -324,9 +324,11 @@ var fullFolds = strings.NewReplacer(
 // through the core's routes. A pattern that fills in a file's name (gm-t*)
 // comes out of the lexer as the name itself, for each file of
 // protectedNames (lex.go): phones.json is there too (GUARDPS1). The night
-// shift's jobs are kept as the guard file is (nightFile).
+// shift's jobs are kept as the guard file is (nightFile). And the paste
+// hold's key and file (hold-key, paste-hold: desktop/pastehold.go), whose
+// hold keeps what the office types into desks waiting.
 var always = []string{"gm-token", "SMOLCORP_GM_TOKEN", "disableAllHooks", "grants-key", "grants.jsonl",
-	"phones.json", "phones-seal", "claude-install", "push-key-kept", "gm-memory"}
+	"phones.json", "phones-seal", "claude-install", "push-key-kept", "gm-memory", "hold-key", "paste-hold"}
 
 func namesAlways(text string) string {
 	low := Fold(text)

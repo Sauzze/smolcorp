@@ -174,6 +174,8 @@ type Deck struct {
 	mailPumpEnded <-chan struct{}
 	// The deck's timed rounds, and the looks it starts by itself: see deckRounds.
 	rounds deckRounds
+	// What's typed into desks, held while tests run on this Mac (pastehold.go): its own lock, never with mu.
+	hold pasteHold
 	// OnChange is called on every change, for the tray.
 	OnChange func()
 }
@@ -331,6 +333,12 @@ func NewDeck() *Deck {
 	// past their time as they come.
 	clearPhotos(supportDir)
 	d.rounds.every(photoSweepEvery, d.sweepPhotos)
+	d.hold.file, d.hold.seenFile = holdFile(), holdSeen()
+	// The paste hold's key, under the Mac app only: off a Mac nothing holds (pastehold.go).
+	if d.mac.host != nil {
+		d.hold.key = newHoldKey()
+	}
+	d.rounds.every(holdLookEvery, func() { d.hold.look(time.Now()) })
 	// The mail pump, after d.cloud is set; the watchers' stop ends it too, and the deck's rounds.
 	stopWatching := d.stopWatchers
 	stopMail, mailEnded := d.startMailPump()

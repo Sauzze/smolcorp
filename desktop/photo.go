@@ -205,11 +205,15 @@ func (d *Deck) sendPhoto(from textFrom, r *request, id string) (int, string) {
 	d.rounds.after(photoWait, d.sweepPhotos)
 	send := true
 	// In quotes: the support folder can hold a space ("Application Support", a Windows user's name).
-	status, message := d.typeText(from, photoLookAt+`"`+path+`"`, id, &send)
-	// Refused before a word went: the photo goes too. Typed and not sent, or maybe typed, it stays for the desk.
-	if status >= http.StatusBadRequest && status < http.StatusInternalServerError && message != from.typedNotSent() {
-		_ = os.Remove(path)
+	// Refused before a word went: the photo goes too. Typed and not sent, or maybe typed, it stays for the desk. Held
+	// while tests run on this Mac (pastehold.go), the same once it was tried.
+	refused := func(status int, message string) {
+		if status >= http.StatusBadRequest && status < http.StatusInternalServerError && message != from.typedNotSent() {
+			_ = os.Remove(path)
+		}
 	}
+	status, message := d.typeTextOr(true, refused, from, photoLookAt+`"`+path+`"`, id, &send)
+	refused(status, message)
 	return status, message
 }
 

@@ -55,6 +55,7 @@ func (d *Deck) selfTest() []check {
 	}
 	// What the update to 1.26 kept and reset, on every system (upgrade.go).
 	checks = append(checks, d.updateChecks(time.Now())...)
+	checks = append(checks, d.holdChecks()...)
 	if h := d.macHost(); h != nil {
 		// Under the Mac app, where the app is, as the Mac's own self-test says it (hostshell.go). Without
 		// the app's answer there's no line, rather than a made-up one.

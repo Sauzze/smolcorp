@@ -231,11 +231,27 @@ func (d *Deck) stopDictation(run *dictationRun) {
 // window's go (typeTarget): checked right before the text, on the key worker. A terminal that stopped
 // answering, or a desk that began asking, says so over the desk. Called without the lock.
 func (d *Deck) typeDictation(run *dictationRun, text string) {
+	// Held while tests run on this Mac (pastehold.go): typed once the hold ends, and said so over the desk. Then,
+	// while the desk asks you something, it waits for it.
+	again := func() (bool, string) { return d.typeDictationNow(run, text, false) }
+	if says := d.hold.held(&heldTyping{desk: run.tab, name: d.holdTabName(run.tab), try: again}); says != "" {
+		if says == heldWords {
+			says = dictationHeld
+		}
+		d.noteVoice(run.tab, says, false)
+		return
+	}
+	defer d.hold.end()
+	d.typeDictationNow(run, text, true)
+}
+
+// typeDictationNow is typeDictation past the hold: whether the desk was asking you something (said over the desk
+// if sayAsking), and why nothing was typed otherwise ("" once typed).
+func (d *Deck) typeDictationNow(run *dictationRun, text string, sayAsking bool) (asked bool, refused string) {
 	// The core types it, maybe as Claude tidied it: never kept as the owner's words (ownerwords.go, RT126MEM3 N4).
 	d.coreTypes(run.tab, text)
 	var failed error
-	var asked bool
-	_, _ = d.toAgent(run.tab, run.agent, func(t Tab) error {
+	status, message := d.toAgent(run.tab, run.agent, func(t Tab) error {
 		if d.tabAsking(run.tab) {
 			asked = true
 			return nil
@@ -261,8 +277,10 @@ func (d *Deck) typeDictation(run *dictationRun, text string) {
 		return err
 	})
 	if asked {
-		d.noteVoice(run.tab, dictationAsking, false)
-		return
+		if sayAsking {
+			d.noteVoice(run.tab, dictationAsking, false)
+		}
+		return true, ""
 	}
 	// The Mac app's sentence for a terminal that stopped answering, said over the desk: only that, the Swift
 	// engine's delivery's 503 (RGAPA N3). Any other no, and an agent that has ended or isn't in front, is
@@ -271,6 +289,13 @@ func (d *Deck) typeDictation(run *dictationRun, text string) {
 	if errors.As(failed, &refusal) && terminalNotAnswering(refusal.Error()) {
 		d.noteVoice(run.tab, refusal.Error(), false)
 	}
+	switch {
+	case failed != nil:
+		return false, failed.Error()
+	case status >= http.StatusBadRequest:
+		return false, message
+	}
+	return false, ""
 }
 
 // dictationPartial is words a source has heard so far, for the recording that's on for the window's box: they go
