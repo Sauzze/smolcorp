@@ -140,18 +140,9 @@ func removalOf(h Hire, args []string) int {
 }
 
 // scopeGit is the GM's scope's and the demo fence's git: a hire's own tree as runGit runs it, and any other folder
-// (one a desk made with git itself, unknown to the registry) with gitstate's hardened environment and arguments.
+// (one a desk made with git itself, unknown to the registry) as runGit runs it there too (ownerGit).
 func scopeGit(dir string, args ...string) (int, string, bool) {
-	if run, mine := deskGitFor(dir, args); mine {
-		return run()
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
-	out, status, err := readGitOut(ctx, dir, gitCall{global: gitReadArgs, config: gitHere().owner}, args...)
-	if err != nil {
-		return 0, "", false
-	}
-	return status, strings.TrimSpace(string(out)), true
+	return runGit(dir, args...)
 }
 
 // gitOnDeskTree runs git with args in dir for hire h: on its tree, in its sandbox when it has one, or, for the
@@ -175,7 +166,13 @@ func gitOnDeskTree(h Hire, dir string, inCheckout bool, args []string) (int, str
 		return deskRefused(h, args, err.Error())
 	}
 	if inCheckout {
-		return deskGit(ctx, h, "", t.common, t.repo, dir, args)
+		// In the checkout, outside any sandbox, as every git the core runs there: the branch is deleted in a git
+		// folder of the core's own and carried into the repo (ownergit.go), so no hook a config names fires.
+		status, out, err := gitWriteThroughFolder(ctx, t.repo, "", "", "", args)
+		if err != nil {
+			return deskRefused(h, args, err.Error())
+		}
+		return status, out, true
 	}
 	return deskGit(ctx, h, h.ID, t.gitDir, t.top, dir, args)
 }
@@ -200,6 +197,28 @@ func deskGit(ctx context.Context, h Hire, desk, gitDir, top, dir string, args []
 		args = append([]string{"status", "--ignore-submodules=all"}, slices.DeleteFunc(slices.Clone(args[1:]), func(arg string) bool {
 			return strings.HasPrefix(arg, "--ignore-submodules")
 		})...)
+	}
+	// Outside a sandbox (FXGITSTATECFGR1, RT126GITSTATECFG B3-1), git never runs on the repo's config where it could
+	// run a program: the config read below and the git after it are two runs, and a desk can change the config in
+	// between. A command that reads the working files, or writes in a form the core carries, runs through a git
+	// folder of the core's own (ownergit.go), with the repo named as the registry names it (the registration is in
+	// worktrees/ of the common git folder: deskTreeOf); one with no such form isn't run.
+	if !gitReadsNoFiles[args[0]] && !deskRunsSandboxed(desk) {
+		var status int
+		var out string
+		var err error
+		switch {
+		case gitReadsFilesThrough[args[0]]:
+			status, out, err = gitFilesThroughFolder(ctx, dir, gitDir, top, args)
+		case gitWritesThrough(args):
+			status, out, err = gitWriteThroughFolder(ctx, dir, gitDir, top, filepath.Dir(filepath.Dir(gitDir)), args)
+		default:
+			return deskRefused(h, args, "this desk has no sandbox, and the command has no form on config of the core's own")
+		}
+		if err != nil {
+			return deskRefused(h, args, err.Error())
+		}
+		return status, out, true
 	}
 	config := slices.Clip(here.owner)
 	run := func(args ...string) ([]byte, int, error) {
@@ -227,6 +246,10 @@ func deskGit(ctx context.Context, h Hire, desk, gitDir, top, dir string, args []
 			return deskRefused(h, args, "its config has "+refused)
 		}
 		config = append(config, blanks...)
+		// The owner's line ends, as their git has them around the repo's own (RT126CRLFRULING), so the fire's look in
+		// the desk's sandbox agrees with the owner's git on a file the hire's git wrote CRLF. Read after the list, so
+		// they're never taken for the repo's.
+		config = append(config, gitLineEndsAround(ctx, list)...)
 	}
 	out, status, err := run(args...)
 	if err != nil {

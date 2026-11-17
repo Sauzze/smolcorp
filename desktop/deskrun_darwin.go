@@ -39,6 +39,16 @@ func (h deskSandboxHeld) close() {
 	}
 }
 
+// deskRunsSandboxed is whether deskRun runs a program for desk id in its sandbox: a desk with a profile, of any
+// kind (one that isn't a plain file refuses the run, never runs it outside).
+func deskRunsSandboxed(id string) bool {
+	if !plainHireID(id) {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(hireFolder(supportDir, id), "sandbox.sb"))
+	return !errors.Is(err, fs.ErrNotExist)
+}
+
 // deskSandboxCommand is program with args and env in desk id's sandbox, and its start; no command and no error for a
 // desk with no profile, which has none. A profile that isn't a plain file, or a sandbox that can't be started, is an
 // error: the run is refused.

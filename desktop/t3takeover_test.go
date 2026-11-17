@@ -152,6 +152,8 @@ type t3TakeOverRig struct {
 	stat     func(string) (os.FileInfo, error)
 	now      time.Time
 	pausedAt func()
+	// given is the fence's bytes as Fence gave them to Take over, when it asked.
+	given []byte
 }
 
 // ownersHome makes the rig's home the owner's for the test, so the deck takes its transcript as one of the owner's
@@ -201,7 +203,11 @@ func (k *t3TakeOverRig) ways() t3Handing {
 		Stat:  func(path string) (os.FileInfo, error) { return k.stat(path) },
 		Pause: func(time.Duration) { k.pausedAt() },
 		Now:   func() time.Time { k.now = k.now.Add(time.Second); return k.now },
-		Fence: func() (map[string]any, error) { return k.settings(), nil },
+		Fence: func() (map[string]any, error) {
+			settings := k.settings()
+			k.given = t3FenceBytes(settings)
+			return settings, nil
+		},
 		Stop: func(h Hire, session string) error {
 			k.log = append(k.log, "stop "+session)
 			return k.stopped
@@ -309,6 +315,9 @@ func TestT3TakeOverRefusesEveryHireItCantTakeOver(t *testing.T) {
 
 func TestT3TakeOverStopsTheHireThenFencesImportsThatSessionAndMakesItAT3Desk(t *testing.T) {
 	k := newT3TakeOverRig(t)
+	// The hire's fence as its settings are before Take over runs anything: its git reads make a folder of the core's
+	// own in the support folder (FXGITSTATECFG), which a fence made after would list too.
+	before := t3FenceBytes(k.settings())
 	thread, err := t3TakeOver(k.hire, k.session, k.ways())
 	if err != nil || thread != t3ImportedThread+t3TakeOverSession {
 		t.Fatalf("%q %v", thread, err)
@@ -335,7 +344,7 @@ func TestT3TakeOverStopsTheHireThenFencesImportsThatSessionAndMakesItAT3Desk(t *
 	if strings.TrimSpace(string(notes)) != "worktree fence ignored" {
 		t.Errorf("at project add: %q", notes)
 	}
-	if !t3FenceHolds(k.fence(), k.settings()) {
+	if on, _ := os.ReadFile(k.fence()); k.given == nil || !bytes.Equal(k.given, before) || !bytes.Equal(on, k.given) {
 		t.Error("the fence isn't the hire's")
 	}
 	// THAT session: into the project just added, in its worktree.

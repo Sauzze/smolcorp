@@ -647,7 +647,8 @@ func TestARepoWithLfsProgramsIsReadWithThemBlanked(t *testing.T) {
 				t.Errorf("%s: %s isn't blanked: %v", command, key, given[command])
 			}
 		}
-		if slices.ContainsFunc(given[command], func(kv [2]string) bool { return kv[0] == "lfs.url" }) {
+		// Data is handed over as the repo had it (gitstatefolder.go), never blanked.
+		if slices.ContainsFunc(given[command], func(kv [2]string) bool { return kv[0] == "lfs.url" && kv[1] != "https://lfs.example.invalid/" }) {
 			t.Errorf("%s: lfs.url is data, not blanked", command)
 		}
 	}
@@ -898,6 +899,9 @@ type fakeGit struct {
 }
 
 func (f *fakeGit) read(_ context.Context, _ string, _ gitCall, args ...string) ([]byte, int, error) {
+	if slices.Contains(args, "--git-common-dir") { // the read's own git folder (gitstatefolder.go), counted apart
+		args = append([]string{"common-dir"}, args...)
+	}
 	f.mu.Lock()
 	f.calls[args[0]]++
 	err, gate := f.fail[args[0]], f.gate
@@ -911,6 +915,12 @@ func (f *fakeGit) read(_ context.Context, _ string, _ gitCall, args ...string) (
 	switch args[0] {
 	case "rev-parse":
 		return []byte("/repo\n" + f.dir + "\n"), 0, nil
+	case "common-dir":
+		return []byte(f.dir + "\nsha1\n"), 0, nil
+	case "symbolic-ref":
+		return []byte("refs/heads/main\n"), 0, nil
+	case "for-each-ref":
+		return []byte("abc refs/heads/main\n"), 0, nil
 	case "config":
 		return []byte(f.config), 0, nil
 	case "status":

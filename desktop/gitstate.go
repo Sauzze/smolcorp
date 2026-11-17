@@ -80,9 +80,13 @@ type GitState struct {
 // gitReadArgs and what readGitState adds to them), and config is settings handed to git in its environment
 // (GIT_CONFIG_COUNT, KEY_n and VALUE_n), where a key is never split as `-c` splits it, at its first "=": a filter
 // named "x=y" is blanked there as "filter.x=y.clean", where `-c` would set "filter.x" and leave it.
+//
+// env is more of git's environment, after gitReadEnv's: the git folder a read's status and diff go through
+// (gitstatefolder.go).
 type gitCall struct {
 	global []string
 	config [][2]string
+	env    []string
 }
 
 // gitReader runs one read-only git command in dir and returns its standard output, its exit code, and an error
@@ -133,7 +137,8 @@ var gitConfigNames = map[string]bool{
 // No transport: GIT_ALLOW_PROTOCOL empty allows none and, unlike protocol.allow, beats a repo's own
 // protocol.<name>.allow; GIT_NO_LAZY_FETCH (git 2.44 and later; older ones ignore it) starts no fetch at all. The
 // system and user git config are switched off, so they can't run anything either: the owner's ignore file and
-// trusted folders are handed back by name (gitHere), and nothing else of theirs applies to what is read here.
+// trusted folders are handed back by name (gitHere), and through a git folder of the core's own their line ends too
+// (gitOwnerLineEnds, makeGitReadFolder; and deskGit's, gitLineEndsAround); nothing else of theirs applies here.
 func gitReadEnv(env []string, config [][2]string) []string {
 	out := make([]string, 0, len(env)+8+2*len(config))
 	for _, kv := range env {
@@ -158,7 +163,7 @@ func gitReadEnv(env []string, config [][2]string) []string {
 
 // readGitOut is the real gitReader: `git -C dir …` with no shell, in ctx, with only its standard output kept.
 func readGitOut(ctx context.Context, dir string, call gitCall, args ...string) ([]byte, int, error) {
-	return execGit(ctx, gitReadEnv(os.Environ(), call.config), append(append([]string{"-C", dir}, call.global...), args...)...)
+	return execGit(ctx, append(gitReadEnv(os.Environ(), call.config), call.env...), append(append([]string{"-C", dir}, call.global...), args...)...)
 }
 
 // execGit runs git with args in env, keeping its standard output up to the cap.
@@ -503,11 +508,11 @@ func readGitState(dir string, read gitReader, now time.Time) (state GitState, gi
 		state.Note = "The git on this computer is older than 2.32, so the changes aren't read: update git to see them."
 		return state, gitDir
 	}
-	// From here git reads files of the repo, which a filter its config names would run a program on: so the
-	// config is read first, and the read stops at a key it doesn't know; the filters and text converters it names
-	// are blanked; and, where git allows, no attributes are read from the working folder. If the config can't be
-	// read, nothing else is. A key added between this and the reads below (a few milliseconds) isn't seen: a hire
-	// could, but a hire already runs commands as the owner, so that is an accepted risk.
+	// From here git reads files of the repo, which a filter its config names would run a program on. The config is
+	// read first, and the read stops at a key it doesn't know (the owner is told). Then status and diff run through
+	// a git folder of the read's own (gitstatefolder.go), which holds no config of the repo's: a desk that owns the
+	// repo can change its config after this look (FXGITSTATECFG), and git would read it again. Where git allows, no
+	// attributes are read from the working folder either. If the config can't be read, nothing else is.
 	list, listStatus, err := read(ctx, dir, call, "config", "--list", "-z")
 	if err != nil || listStatus != 0 {
 		return failed(err), gitDir
@@ -521,7 +526,13 @@ func readGitState(dir string, read gitReader, now time.Time) (state GitState, gi
 		}
 		return state, gitDir
 	}
-	call = gitCall{global: slices.Clip(gitReadArgs), config: append(slices.Clip(here.owner), blanks...)}
+	folder, err := makeGitReadFolder(ctx, dir, state.Top, gitDir, read, gitCall{global: gitReadArgs, config: here.owner}, list)
+	if err != nil {
+		return failed(err), gitDir
+	}
+	defer folder.remove()
+	call = folder.call
+	call.config = append(call.config, blanks...) // the repo's program keys, blanked by name as well: none is forwarded
 	if attrSource {
 		format := "sha1"
 		if len(lines) == 3 {
@@ -746,20 +757,53 @@ func (g *gitStates) trim(keep string) {
 }
 
 // deskGit answers GET /desk/git: the state of the folder session id works in: its project, which for a hire is
-// its own worktree (the place startedIn gave it), not the repo it was hired from.
+// its own worktree (the place startedIn gave it), not the repo it was hired from. A desk names its session's folder
+// itself (its hook's project and working folder): one outside the place the registry gives it (deskReadsIn) isn't
+// read (FXGITSTATECFG). The desk is the one whose key reported the session (a headless run of its own included,
+// RT126GITSTATECFG B4-1), else the one whose tab it is. The folder is resolved once, git reads that path, and the repo
+// git found is held to the place as well: a folder swapped for a link out of it after the look isn't read either (N4-1).
 func (d *Deck) deskGit(id string) (int, any) {
+	desks := currentHookDesks()
 	d.mu.Lock()
 	s := d.sessions.Get(id)
-	var folder string
+	var folder, desk string
 	var event float64
 	if s != nil {
 		folder, event = cmpOr(s.Project, s.Folder), s.LastEventAt
+		desks.launchers = d.launcherHires()
+		desk = cmpOr(s.reportedBy, desks.deskOfTab(s.Tab))
 	}
 	d.mu.Unlock()
 	if s == nil {
 		return http.StatusNotFound, "That agent has gone."
 	}
-	return http.StatusOK, withPR(gits.get(folder, event))
+	if desk == "" {
+		return http.StatusOK, withPR(gits.get(folder, event))
+	}
+	outside := GitState{Files: []GitFile{}, Skipped: true, At: time.Now().UnixMilli(),
+		Note: "This desk names a folder outside its own worktree, so its git state isn't read."}
+	place, real, ok := deskReadsIn(desk, folder)
+	if !ok {
+		return http.StatusOK, outside
+	}
+	state := gits.get(real, event)
+	if state.Top != "" && !within(place, physical(state.Top)) {
+		return http.StatusOK, outside
+	}
+	return http.StatusOK, withPR(state)
+}
+
+// deskReadsIn is desk's own place, by the registry (its worktree, or the folder it works in when it has none), and
+// folder resolved, when that is the place or a folder below it, links resolved. A desk the registry doesn't hold has
+// none.
+func deskReadsIn(desk, folder string) (place, real string, ok bool) {
+	h, found := registryHire(desk)
+	place = cmpOr(h.Worktree, h.Folder)
+	if !found || !filepath.IsAbs(place) || !filepath.IsAbs(folder) {
+		return "", "", false
+	}
+	place, real = physical(place), physical(folder)
+	return place, real, within(place, real)
 }
 
 // gmGit answers GET /setup/gm/git for the GM (and the page and tools): ?hire= is a hire's registry id, read where it

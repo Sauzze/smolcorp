@@ -88,6 +88,10 @@ type Session struct {
 	// The owner's own session whose hooks name a transcript in a Claude folder that isn't ~/.claude or confirmed in
 	// setup (unconfirmedClaudeFolder): not taken, so the session's card says why. Never saved.
 	unconfirmedFolder bool
+	// The desk whose key reported the session (deskForKey), once one has: a headless run a keyed desk started has no
+	// desk's tab, but is that desk's all the same (RT126GITSTATECFG B4-1). An event with the owner's key afterwards
+	// doesn't clear it. Kept across a restart.
+	reportedBy string
 }
 
 type Subagent struct {

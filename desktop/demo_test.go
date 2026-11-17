@@ -42,13 +42,15 @@ func dryRun(t *testing.T, in string) (int, string) {
 	return code, out.String()
 }
 
+// gitOut is the test's own look at a demo's repo, with plain git: the core's own runs only what it has a form of on
+// config of its own (ownergit.go).
 func gitOut(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	out, err := demoGit(dir, args...)
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("git %v: %v %s", args, err, out)
 	}
-	return out
+	return strings.TrimSpace(string(out))
 }
 
 func TestTheDryRunGoesEndToEndWithStandIns(t *testing.T) {
@@ -132,8 +134,8 @@ func TestTheDemoNeverPushes(t *testing.T) {
 		t.Fatal(err, string(out))
 	}
 	gitOut(t, repo, "remote", "add", "origin", bare)
-	if status, out, _ := runGit(repo, "push", "origin", "hire/bughunter-1", "main"); status == 0 || !strings.Contains(out, "never pushes") {
-		t.Errorf("the push went: %d %s", status, out)
+	if out, err := exec.Command("git", "-C", repo, "push", "origin", "hire/bughunter-1", "main").CombinedOutput(); err == nil || !strings.Contains(string(out), "never pushes") {
+		t.Errorf("the push went: %v %s", err, out)
 	}
 	if refs := gitOut(t, bare, "for-each-ref"); refs != "" {
 		t.Errorf("the remote got: %s", refs)

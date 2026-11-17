@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -51,7 +52,7 @@ const (
 	demoFolderName = "smolcorp-demo"
 )
 
-// demoAfterInit runs on the new project right after `git init`: the tests stop its signing there.
+// demoAfterInit runs on the new project right after its repo is made (demoMakeRepo): the tests stop its signing there.
 var demoAfterInit = func(repo string) {}
 
 // demoFolder is a demo's folder, its project, and the project's first commit.
@@ -284,32 +285,66 @@ func writeDemoProject(f demoFolder, roles []string) error {
 	if err := writeNewFile(filepath.Join(f.repo, ".claude", "settings.json"), settings, 0o644); err != nil {
 		return err
 	}
-	if _, err := demoGit(f.repo, "init", "-q"); err != nil {
+	if err := demoMakeRepo(f); err != nil {
 		return err
 	}
 	demoAfterInit(f.repo)
-	hooks := filepath.Join(f.repo, ".git", "hooks")
 	prePush := "#!/bin/sh\necho 'The Smolcorp demo never pushes: this project has no remote, on purpose.' >&2\nexit 1\n"
-	if err := writeNewFile(filepath.Join(hooks, "pre-push"), []byte(prePush), 0o755); err != nil {
+	return writeNewFile(filepath.Join(f.repo, ".git", "hooks", "pre-push"), []byte(prePush), 0o755)
+}
+
+// demoMakeRepo makes the project a repo with one commit, on main, with its own hooks folder, whatever core.hooksPath
+// says elsewhere, so the pre-push hook always runs (FXGITSTATECFGR1). git makes it in a git folder of the core's own,
+// in the support folder, on config the core wrote, and only then is that folder moved into the project: whatever is
+// written into the new project meanwhile, git reads no config of it. The owner's own name and address make the
+// commit, as their git would; with none, the project's own, so the hires' commits work too.
+func demoMakeRepo(f demoFolder) error {
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	defer cancel()
+	if err := sweepGitReads(); err != nil {
 		return err
 	}
-	steps := [][]string{
-		{"symbolic-ref", "HEAD", "refs/heads/main"},
-		// Its own hooks folder, whatever core.hooksPath says elsewhere: the pre-push hook always runs.
-		{"config", "--local", "core.hooksPath", hooks},
+	made, err := os.MkdirTemp(gitReadsFolder(), "demo-")
+	if err != nil {
+		return err
 	}
-	if email, _ := demoGit(f.repo, "config", "user.email"); email == "" {
-		// No name of yours to commit with: the project's own, so the hires' commits work too.
-		steps = append(steps, []string{"config", "--local", "user.name", "Smolcorp demo"},
-			[]string{"config", "--local", "user.email", "demo@smolcorp.invalid"})
+	defer os.RemoveAll(made)
+	gitDir := filepath.Join(made, "git")
+	call := gitCall{global: gitReadArgs, env: []string{"GIT_DIR=" + gitDir, "GIT_WORK_TREE=" + f.repo}}
+	steps := [][]string{{"init", "-q"}, {"symbolic-ref", "HEAD", "refs/heads/main"},
+		{"config", "core.hooksPath", filepath.Join(f.repo, ".git", "hooks")}}
+	name, email := ownerGitIdentity(ctx)
+	if email == "" {
+		name, email = "Smolcorp demo", "demo@smolcorp.invalid"
+		steps = append(steps, []string{"config", "user.name", name}, []string{"config", "user.email", email})
 	}
-	steps = append(steps, []string{"add", "-A"}, []string{"commit", "-q", "-m", "The sample project for Smolcorp's demo"})
+	steps = append(steps, []string{"add", "-A"},
+		[]string{"-c", "user.name=" + name, "-c", "user.email=" + email, "commit", "-q", "-m", "The sample project for Smolcorp's demo"},
+		[]string{"config", "--unset", "core.worktree"}) // git init wrote where the work tree was: the project, where it goes
 	for _, step := range steps {
-		if _, err := demoGit(f.repo, step...); err != nil {
-			return err
+		status, out, err := gitRun(ctx, f.repo, call, step)
+		if err == nil && status != 0 && !(step[0] == "config" && step[1] == "--unset" && status == 5) { // 5: it wasn't set
+			err = errors.New(out)
+		}
+		if err != nil {
+			return fmt.Errorf("git %s: %s", step[0], firstRunes(err.Error(), 300))
 		}
 	}
-	return nil
+	return os.Rename(gitDir, filepath.Join(f.repo, ".git"))
+}
+
+// ownerGitIdentity is the owner's own name and address for a commit, from their git config (reading config runs
+// nothing; --global follows no includes): "" for what they haven't set.
+func ownerGitIdentity(ctx context.Context) (name, email string) {
+	env := slices.DeleteFunc(gitReadEnv(os.Environ(), nil), func(kv string) bool { return strings.HasPrefix(kv, "GIT_CONFIG_GLOBAL=") })
+	value := func(key string) string {
+		out, status, err := execGit(ctx, env, "-C", os.TempDir(), "--no-pager", "config", "--global", "--get", key)
+		if err != nil || status != 0 {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	}
+	return value("user.name"), value("user.email")
 }
 
 // demoSettings is the project's .claude/settings.json: the demo's fence before every tool call,

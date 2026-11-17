@@ -15,6 +15,9 @@ type deskSandboxHeld struct{}
 func (deskSandboxHeld) wait(time.Duration) error { return nil }
 func (deskSandboxHeld) close()                   {}
 
+// deskRunsSandboxed: deskRun runs nothing in a desk's sandbox here yet.
+func deskRunsSandboxed(string) bool { return false }
+
 func deskSandboxCommand(string, []string, string, ...string) (*exec.Cmd, deskSandboxHeld, error) {
 	return nil, deskSandboxHeld{}, nil
 }

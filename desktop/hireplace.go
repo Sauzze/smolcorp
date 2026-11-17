@@ -1,18 +1,15 @@
 package desktop
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Sauzze/smolcorp/internal/disclaim"
 	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
@@ -41,25 +38,13 @@ var (
 type gitRunner func(dir string, args ...string) (status int, output string, ok bool)
 
 // runGit is the real gitRunner. A dir in a hire's own worktree (and the fire's removal of one) is a desk's tree:
-// git runs there as deskRun runs it, named and hardened, in the hire's sandbox when it has one (deskrun.go).
+// git runs there as deskRun runs it, named and hardened, in the hire's sandbox when it has one (deskrun.go). Any other
+// folder may be a repo a desk can write: git runs there only on config the core wrote, or not at all (ownergit.go).
 func runGit(dir string, args ...string) (int, string, bool) {
 	if run, mine := deskGitFor(dir, args); mine {
 		return run()
 	}
-	limit := gitTimeout
-	if len(args) >= 2 && args[0] == "worktree" && args[1] == "add" {
-		limit = worktreeTimeout // a checkout of a big repo can take a while
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), limit)
-	defer cancel()
-	out, err := disclaim.Cmd(exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)).CombinedOutput()
-	if err != nil {
-		if exit, isExit := err.(*exec.ExitError); isExit && ctx.Err() == nil {
-			return exit.ExitCode(), strings.TrimSpace(string(out)), true
-		}
-		return 0, "", false
-	}
-	return 0, strings.TrimSpace(string(out)), true
+	return ownerGit(dir, args)
 }
 
 // hireRequest is what the place is made for.

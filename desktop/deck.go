@@ -584,6 +584,9 @@ func (d *Deck) ingestAs(desks hookDesks, desk string, event map[string]any, repo
 		}
 	}
 	changed := d.sessions.Apply(canonical, agent, tab, startedIn, at)
+	if s := d.sessions.Get(id); s != nil && desk != "" {
+		s.reportedBy = desk
+	}
 	if s := d.sessions.Get(id); s != nil && named != "" && s.unconfirmedFolder != unconfirmed {
 		s.unconfirmedFolder, changed = unconfirmed, true
 	}

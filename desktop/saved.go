@@ -62,6 +62,7 @@ type savedSession struct {
 	TurnStartedAt float64 `json:"turnStartedAt,omitempty"`
 	PID           int     `json:"pid,omitempty"`
 	Parent        string  `json:"parent,omitempty"`
+	Desk          string  `json:"desk,omitempty"` // the desk whose key reported it (Session.reportedBy)
 }
 
 // Saved is every session as it's kept across a restart.
@@ -71,7 +72,7 @@ func (s *Sessions) Saved() []savedSession {
 		saved = append(saved, savedSession{ID: session.ID, Agent: string(session.Agent), Folder: session.Folder, Project: session.Project,
 			Tab: session.Tab, State: string(session.State), Effort: session.Effort, Model: session.Model, Transcript: session.Transcript,
 			StartedAt: session.StartedAt, LastEventAt: session.LastEventAt, TurnStartedAt: session.TurnStartedAt, PID: session.PID,
-			Parent: session.ParentFolder})
+			Parent: session.ParentFolder, Desk: session.reportedBy})
 	}
 	return saved
 }
@@ -97,7 +98,7 @@ func (s *Sessions) Restore(saved []savedSession, fresh bool) bool {
 		}
 		session := &Session{ID: entry.ID, Agent: agent, Folder: entry.Folder, Project: entry.Project, Tab: entry.Tab, State: Idle,
 			Effort: entry.Effort, Model: entry.Model, Transcript: entry.Transcript, StartedAt: entry.StartedAt,
-			LastEventAt: entry.LastEventAt, PID: entry.PID, ParentFolder: entry.Parent}
+			LastEventAt: entry.LastEventAt, PID: entry.PID, ParentFolder: entry.Parent, reportedBy: entry.Desk}
 		if state := SessionState(entry.State); fresh && slices.Contains([]SessionState{Idle, Thinking, Asking, Unread, Failed}, state) {
 			session.State = state
 			if session.IsBusy() {
