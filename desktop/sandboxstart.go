@@ -137,6 +137,9 @@ func checkLinks(pol *sandbox.Policy, pl sandbox.Places) (replaced []string, err 
 		if names != r.links {
 			return nil, &linkCheckError{fmt.Sprintf("%s has a second name in a place Smolcorp doesn't look in at a start (%d names, %d of them where it looks), which may be a file desks can't read, so the desk didn't start. Remove the other name (%s), then start it again.", r.at, r.links, names, otherNames(r.at))}
 		}
+		if most := freshCopyMost(pl, r.at); r.info.Size() > most {
+			return nil, &linkCheckError{fmt.Sprintf("%s has a second name and is bigger than Smolcorp ever makes it (%d bytes, at most %d), so Smolcorp didn't copy it, and the desk didn't start. Remove the other name (%s) and put the file back as it was, then start it again.", r.at, r.info.Size(), most, otherNames(r.at))}
+		}
 	}
 	for i, r := range toReplace {
 		// One already replaced was one of this file's names: it has one fewer now.
@@ -348,7 +351,7 @@ func freshCopy(at string, info fs.FileInfo, links uint64) error {
 	if err := temp.Chmod(info.Mode().Perm()); err != nil {
 		return err
 	}
-	if err := copyFrom(temp, at); err != nil {
+	if err := copyFrom(temp, at, info); err != nil {
 		return err
 	}
 	if err := temp.Close(); err != nil {
@@ -370,17 +373,51 @@ func freshCopy(at string, info fs.FileInfo, links uint64) error {
 	return nil
 }
 
-// copyFrom copies the file at at into w, and closes it before it returns.
-func copyFrom(w io.Writer, at string) error {
-	src, err := os.Open(at)
+// copyFrom copies into w the plain file at at that the check looked at as info, and closes it before it returns. As
+// copyLooked does: it's opened through no link and without waiting on a pipe (openClaudeIn), only while it's still
+// the file looked at, and read no further than its size then, which checkLinks holds to freshCopyMost. So a desk with
+// another name for the file can't make the copy long by growing it through that name (FXFRESHCOPYCAP): a copy that
+// isn't the size looked at fails.
+func copyFrom(w io.Writer, at string, info fs.FileInfo) error {
+	src, err := openClaudeIn(nil, at, info)
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(w, src)
+	defer src.Close()
+	if now, err := src.Stat(); err != nil || !now.Mode().IsRegular() || !os.SameFile(now, info) {
+		return errors.New("it changed while it was looked at")
+	}
+	n, err := io.Copy(w, io.LimitReader(src, info.Size()+1))
+	if err == nil && n != info.Size() {
+		err = errors.New("it changed while it was copied")
+	}
 	if closeErr := src.Close(); err == nil {
 		err = closeErr
 	}
 	return err
+}
+
+// freshCopySmallMost is the most bytes freshCopy copies of a file Smolcorp writes for a desk: the guard file, the night
+// shift's jobs, a desk's brief, its fence, its profile and its Claude settings. The real ones are a few tens of KiB
+// (on 17 Nov, the owner's 32 briefs at most 14 KiB, 30 fences at most 19 KiB); the night shift reads no more than
+// nightFileMost of its jobs, and a brief or the guard's patterns come in a request of at most maxRequestSize.
+const freshCopySmallMost = 4 << 20
+
+// freshCopyMost is the most bytes freshCopy copies of the file at at, in the desk at pl's start: the largest a real
+// one can be. What the core copies into a Linux desk's own folder at each start, its Claude folder's copies and its
+// kept copy, may be as big as a start copies into the Claude folder at most (deskClaudeCopyBytesMost); Smolcorp's own
+// files, freshCopySmallMost. A bigger file with a second name was grown through that name: the start is refused.
+func freshCopyMost(pl sandbox.Places, at string) int64 {
+	copies := []string{filepath.FromSlash(sandbox.KeptFolder(pl.Support, pl.OwnID))}
+	for _, name := range deskClaudeCopied {
+		copies = append(copies, filepath.Join(pl.Support, "hires", pl.OwnID, deskClaudeName, name))
+	}
+	for _, folder := range copies {
+		if inside(folder, at) {
+			return deskClaudeCopyBytesMost
+		}
+	}
+	return freshCopySmallMost
 }
 
 // oldGitPlant is one thing in the shared .git that runs a program for the owner's git, from before the sandbox: a
