@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -132,7 +133,9 @@ func TestANicknameFindsAProjectPinnedOnAnyFloor(t *testing.T) {
 	folder := filepath.Join(homeDir, "upstairs-app")
 	os.MkdirAll(folder, 0o755)
 	d.config.PinOn(folder, 3, 6)
-	body := `{"folder":"` + folder + `","name":"Ada"}`
+	// Marshalled: a Windows folder's \ is an escape in JSON.
+	data, _ := json.Marshal(map[string]string{"folder": folder, "name": "Ada"})
+	body := string(data)
 	got := serve(t, d, call{method: "POST", target: "/setup/gm/nickname", host: "localhost:7710", from: thisComputer, withoutSetupKey: true,
 		body: body, headers: map[string]string{setupHeader: "1", gmTokenHeader: gm}}).Code
 	if got != http.StatusOK {

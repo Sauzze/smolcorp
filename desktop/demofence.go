@@ -92,9 +92,24 @@ type demoFence struct {
 	// goos is the system whose calls these are: "" for this computer's. A test sets another to read
 	// that system's calls by its path rules (fencePaths), Windows' on a Mac.
 	goos string
+	// long is a stand-in for the disk's long names of a Windows path (fencePaths.long): nil for the disk's own.
+	long func(string) (string, error)
 }
 
-func (f demoFence) paths() fencePaths { return fencePaths{goos: f.goos} }
+func (f demoFence) paths() fencePaths { return fencePaths{goos: f.goos, long: f.long} }
+
+// withLongNames is the fence with its demo folder and the app's folder by their long names (longName), as every
+// path it's asked about is: both sides of a comparison long, so a short name is never another place. false when
+// one can't be told (the fence then refuses every call).
+func (f demoFence) withLongNames() (demoFence, bool) {
+	root, rootOK := f.paths().longName(f.root)
+	support, supportOK := f.paths().longName(f.support)
+	if f.support == "" {
+		support, supportOK = "", true
+	}
+	f.root, f.support = root, support
+	return f, rootOK && supportOK
+}
 
 // demoFenceRefusal starts every refusal, so the GM and the owner know whose it is.
 const demoFenceRefusal = "Refused by the Smolcorp demo's fence: "
@@ -918,7 +933,8 @@ func (f demoFence) whole(path, cwd string) (string, bool) {
 
 // place is whole, and untold when what the path is can't be told whatever the cwd: \x or a /x on Windows that
 // isn't a Git Bash drive (the top of some drive, Git Bash's own /tmp), C:x or a : after the drive (drifts: that
-// drive's own folder, an NTFS stream), ~user (that user's home to bash, RWIN4 N1). Such a path could be the app's support folder (supportRests). Git
+// drive's own folder, an NTFS stream), ~user (that user's home to bash, RWIN4 N1), a short name whose long one
+// can't be told (longName). Such a path could be the app's support folder (supportRests). Git
 // Bash's /dev/null and the rest of /dev are neither told nor untold: no folder of the disk's.
 func (f demoFence) place(path, cwd string) (whole string, ok, untold bool) {
 	p := f.paths()
@@ -930,15 +946,21 @@ func (f demoFence) place(path, cwd string) (whole string, ok, untold bool) {
 	case otherHome(path) || p.drifts(path):
 		return "", false, true
 	case p.isAbs(path):
-		return path, true, false
 	case p.gitBashDevice(path):
 		return "", false, false
 	case p.windows() && p.rooted(path):
 		return "", false, true
 	case cwd == "" || !p.isAbs(cwd):
 		return "", false, false
+	default:
+		path = p.join(cwd, path)
 	}
-	return p.join(cwd, path), true, false
+	// By its long names on Windows (longName): RUNNER~1 is runneradmin, CLAUDE~1 .claude. One the disk can't tell
+	// is untold, so it is never read as somewhere it may not be.
+	if long, ok := p.longName(path); ok {
+		return long, true, false
+	}
+	return "", false, true
 }
 
 // otherHome says whether path starts with a ~ that isn't the home's own (~, ~/…, ~\…): ~user, ~+, ~-, a
@@ -1164,7 +1186,10 @@ func (f demoFence) aboveSupport(folder string) bool {
 	if f.support == "" || folder == "" {
 		return false
 	}
-	folder = p.win32(folder)
+	folder, ok := p.longName(p.win32(folder))
+	if !ok {
+		return true
+	}
 	for _, resolved := range []string{p.resolveExisting(folder), p.resolvePhysical(folder)} {
 		if _, in := p.belowAnyCase(resolved, f.support); in {
 			return true
@@ -1407,9 +1432,12 @@ func runDemoFence(args []string, stdin io.Reader, stdout io.Writer) int {
 	var c demoCall
 	data, err := io.ReadAll(io.LimitReader(stdin, 4<<20))
 	why := ""
+	f, long := f.withLongNames()
 	switch {
 	case len(args)%2 != 0 || f.root == "" || !filepath.IsAbs(f.root) || len(f.roles) == 0:
 		why = demoFenceRefusal + "its own command line is wrong."
+	case !long:
+		why = demoFenceRefusal + "it couldn't tell the long names of the demo folder or the app's own folder."
 	case err != nil || json.Unmarshal(data, &c) != nil || c.ToolName == "":
 		why = demoFenceRefusal + "it couldn't read the tool call."
 	default:

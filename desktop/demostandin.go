@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -87,6 +88,16 @@ func (standInTeam) ready(out io.Writer) ([]string, error) {
 func (standInTeam) off() []demoSwitch    { return nil }
 func (standInTeam) leftOn() []demoSwitch { return nil }
 
+// standInFolder is the project's folder as the stand-in GM writes it in a hire: quoted (shellPath), and on Windows
+// as the demo tells the real GM (demoShellFolder): its long name with /. shellPath's is a hook's there, an 8.3 short
+// name (RUNNER~1), whose ~ outside quotes the guard reads as zsh's glob and refuses (FXDEMOWIN).
+func standInFolder(repo string) string {
+	if runtime.GOOS == "windows" {
+		return demoShellFolder(repo)
+	}
+	return shellPath(repo)
+}
+
 func (standInTeam) work(ctx context.Context, f demoFolder, roles []string, out io.Writer) error {
 	fence := demoFence{root: f.root, roles: roles, home: homeDir}
 	say := func(who, format string, a ...any) { fmt.Fprintf(out, "%-14s %s\n", who+":", fmt.Sprintf(format, a...)) }
@@ -106,7 +117,7 @@ func (standInTeam) work(ctx context.Context, f demoFolder, roles []string, out i
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		hire := fmt.Sprintf("smolcorp gm hire --role %s --folder %s --worktree --task %s", t.role, shellPath(f.repo), shellPath(t.title))
+		hire := fmt.Sprintf("smolcorp gm hire --role %s --folder %s --worktree --task %s", t.role, standInFolder(f.repo), shellPath(t.title))
 		if why := fence.command(hire, f.repo); why != "" {
 			return fmt.Errorf("the stand-in GM's hire was refused: %s", why)
 		}
@@ -133,7 +144,7 @@ func (standInTeam) work(ctx context.Context, f demoFolder, roles []string, out i
 		say("GM", "checked %s's proof: %s (a real hire's tests run; a stand-in's don't)", name, strings.TrimSpace(stat))
 		report = append(report, fmt.Sprintf("- %s: %s, %s. Review: approved (stand-in).", t.title, branch, strings.TrimSpace(stat)))
 	}
-	review := fmt.Sprintf("smolcorp gm hire --role reviewer --folder %s --task %s", shellPath(f.repo), shellPath("Review each hire/ branch"))
+	review := fmt.Sprintf("smolcorp gm hire --role reviewer --folder %s --task %s", standInFolder(f.repo), shellPath("Review each hire/ branch"))
 	if why := fence.command(review, f.repo); why != "" {
 		return fmt.Errorf("the stand-in GM's hire was refused: %s", why)
 	}

@@ -15,7 +15,36 @@ import (
 // made long. For another system (goos set, in a test) they are that system's rules alone, so a test on a Mac
 // reads a Windows call as Windows would (C:\…, \ and / both separators, case aside), and the other way round.
 // No disk is asked then: a hire's folder, which must be a checkout on the disk, is never held (fail-closed).
-type fencePaths struct{ goos string }
+type fencePaths struct {
+	goos string
+	// long is the disk's long names for a Windows path (longName): nil for this computer's own disk, or none for
+	// another system's. A test gives a stand-in, so Windows' short names are read on any computer.
+	long func(string) (string, error)
+}
+
+// shortShape is the shape of a Windows 8.3 short name in a path's part: a ~ then a digit (RUNNER~1, CLAUDE~1,
+// SE1A2B~1.JSO). A name set by hand (fsutil file setshortname) may have no ~: only the disk knows those.
+var shortShape = regexp.MustCompile(`~[0-9]`)
+
+// longName is a whole Windows path with each of its short (8.3) names made long, as the disk names it
+// (GetLongPathName on the part of it that's there; the rest as written), so a short name and its long one are the
+// same place to the fence, and a short name never stands in for a name it refuses (CLAUDE~1 is .claude, RUNNER~1
+// is runneradmin). false when that can't be told: the disk didn't answer, or, with no disk of that system's to ask
+// (another system's path, no stand-in), a part has a short name's shape. The fence reads such a path as untold
+// (fail-closed). Off Windows, the path as it is.
+func (p fencePaths) longName(name string) (string, bool) {
+	switch {
+	case !p.windows():
+		return name, true
+	case p.long != nil:
+		long, err := p.long(name)
+		return long, err == nil
+	case p.here():
+		long, err := longPathHere(name)
+		return long, err == nil
+	}
+	return name, !slices.ContainsFunc(p.parts(name), shortShape.MatchString)
+}
 
 // here says whether the rules are this computer's, with its disk.
 func (p fencePaths) here() bool { return p.goos == "" || p.goos == runtime.GOOS }

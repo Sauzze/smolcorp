@@ -199,8 +199,14 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 	// demo writes it for the GM. PowerShell is refused whatever it says (RWIN B3).
 	bash := demoShellFolder
 	powerShell := func(command string) demoCall { return tool("PowerShell", map[string]any{"command": command}) }
+	// The folder as the app's hooks write it (shellPath). On Windows that's its 8.3 short name (C:/Users/RUNNER~1/…),
+	// the same place to the fence (FXDEMOWIN), in single quotes: outside them the guard reads its ~ as zsh's glob.
+	hookFolder := shellPath(repo)
+	if runtime.GOOS == "windows" {
+		hookFolder = "'" + strings.Trim(hookFolder, `"`) + "'"
+	}
 	allowed := []demoCall{
-		bashCall("smolcorp gm hire --role tester --folder "+shellPath(repo)+" --worktree --task 'fix it'", repo),
+		bashCall("smolcorp gm hire --role tester --folder "+hookFolder+" --worktree --task 'fix it'", repo),
 		bashCall("smolcorp gm hire --role=reviewer --folder="+bash(repo), repo),
 		bashCall("smolcorp gm hire --role tester --folder .", repo),
 		bashCall("smolcorp gm fire tester-1", repo),

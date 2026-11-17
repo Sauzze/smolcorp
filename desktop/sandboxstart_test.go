@@ -126,6 +126,9 @@ func TestAFileKeptFromDesksWithASecondNameIsReplacedOrRefusesTheStart(t *testing
 			tr := newLinkTree(t)
 			target := filepath.Join(tr.base, filepath.FromSlash(c.rel))
 			before, _ := os.Lstat(target)
+			// On Windows, Go reads a FileInfo's file id from its path at the first SameFile, not at Lstat: read it now,
+			// or before is whatever file holds the name by then (the fresh copy).
+			os.SameFile(before, before)
 			text, _ := os.ReadFile(target)
 			other := tr.link(t, target)
 			if c.met {
