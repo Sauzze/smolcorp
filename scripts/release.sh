@@ -31,6 +31,15 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# Every check a release must pass, before anything is looked up, signed or
+# built: scripts/release-gate.sh (its top lists them), as for the Windows and
+# Linux downloads. If one fails, it stops here and nothing is built.
+# --check-signing builds nothing, so it doesn't run them. go's folders stay for
+# the app's build below (build-app.sh, which removes them when it's done).
+if [ "${1:-}" != "--check-signing" ]; then
+  [ "${1:-}" = "--dmg-only" ] || declare +x release_gate_builds_go=1
+  . scripts/release-gate.sh
+fi
 APP="build/Smolcorp.app"
 DMG="build/Smolcorp.dmg"
 ZIP="build/Smolcorp.zip"
@@ -110,16 +119,8 @@ if [ "${1:-}" = "--dmg-only" ]; then
   echo "Keeping $APP ($(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")), notarised and stapled."
 fi
 
-# A release is built from what's committed, and nothing else: no changes
-# waiting, and no stray files, ignored or not, beside the pages it seals in.
-if [ -n "$(git status --porcelain)" ] || [ -n "$(git ls-files --others --ignored --exclude-standard Resources/web)" ]; then
-  echo "Commit or set aside these first: a release is built from what's committed."
-  git status --short
-  git ls-files --others --ignored --exclude-standard Resources/web
-  exit 1
-fi
-# Nothing of the maintainer's own goes out in a download.
-scripts/check-public.sh
+# What's committed, and nothing of the maintainer's own: the gate checked both
+# at the top (scripts/release-gate.sh).
 # A Developer ID named must be there, before anything is built.
 if [ -n "$DEVELOPER_ID" ] && ! has_identity "$DEVELOPER_ID"; then
   echo "$DEVELOPER_ID is not in the keychain: security find-identity -v -p codesigning lists what is."
@@ -127,8 +128,15 @@ if [ -n "$DEVELOPER_ID" ] && ! has_identity "$DEVELOPER_ID"; then
 fi
 # Ad hoc to start with, whatever build-app.sh would pick for a copy of your
 # own: a release is signed ad hoc or with the Developer ID, never with a
-# development certificate.
-[ "$DMG_ONLY" = 1 ] || SMOLCORP_SIGN_IDENTITY=- scripts/build-app.sh universal
+# development certificate. It runs in a subshell of this one, where the gate
+# passed: there it builds with the gate's go and C compiler and their settings
+# only (pinned_env), and its own traps stay its own.
+if [ "$DMG_ONLY" = 0 ]; then
+  (
+    export SMOLCORP_SIGN_IDENTITY=-
+    . scripts/build-app.sh universal
+  )
+fi
 
 # tmux ships in the app (Resources/bin/tmux, for Apple silicon and Intel) with its notices. build-app.sh only warns
 # when it can't build tmux, so a copy of your own still gets built; a release stops here instead.
@@ -186,8 +194,13 @@ fi
 
 # make-dmg.sh signs the DMG with the Developer ID it's given, found here or
 # named. The DMG is signed before Apple sees it, so the ticket is for the
-# signed DMG and Gatekeeper accepts it.
-SMOLCORP_DEVELOPER_ID="$DEVELOPER_ID" scripts/make-dmg.sh
+# signed DMG and Gatekeeper accepts it. It runs in a subshell of this one,
+# where the gate passed: there it only checks the files are still the tree it
+# passed (scripts/release-gate.sh), and its own traps stay its own.
+(
+  SMOLCORP_DEVELOPER_ID="$DEVELOPER_ID"
+  . scripts/make-dmg.sh
+)
 if [ -n "$DEVELOPER_ID" ]; then
   SIGNATURE="$(codesign --display --verbose=2 "$DMG" 2>&1 || true)"
   grep -qF "Authority=$DEVELOPER_ID" <<<"$SIGNATURE" || { echo "Stopped: the DMG isn't signed with ${DEVELOPER_ID}."; exit 1; }

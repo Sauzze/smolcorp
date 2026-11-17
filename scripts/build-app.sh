@@ -5,7 +5,8 @@
 #   scripts/build-app.sh universal        for Apple silicon and Intel, as released
 #   scripts/build-app.sh --check-signing  says how it would sign, and signs and builds nothing
 #
-# Used by install.sh and scripts/release.sh. Needs the Xcode Command Line Tools,
+# Used by install.sh and scripts/release.sh (which sources it in a subshell, after
+# its release gate). Needs the Xcode Command Line Tools,
 # and Go 1.26 or later: the app's engine is the `smolcorp` command inside it.
 #
 # Every build has the hardened runtime, ad hoc or not: the app, the smolcorp
@@ -16,7 +17,7 @@
 
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 MODE="${1:-}"
 
 # With a code-signing identity of your own in your keychain, the app is signed
@@ -65,10 +66,41 @@ if [ "$MODE" = "--check-signing" ]; then
   exit 0
 fi
 
-# Without Go the app would have no engine to run, so nothing is built.
-if ! command -v go >/dev/null 2>&1; then
-  echo "Smolcorp needs Go 1.26 or later to build: its engine is written in Go. Install it (brew install go, or go.dev/dl), then run this again."
-  exit 1
+# Signed with a Developer ID, a build is a release's, so it's made only after
+# every check a release must pass (scripts/release-gate.sh), which stops here if
+# one fails. scripts/release.sh builds ad hoc here and signs with its Developer
+# ID itself: it sources this in a subshell after its own gate passed, where the
+# gate only checks the files are still the tree it passed (a gate mark from
+# anywhere else runs it whole). A copy of your own, ad hoc or with your own
+# identity, isn't a release and doesn't run them.
+RELEASE_BUILD=0
+case "$IDENTITY" in
+  "Developer ID "*) RELEASE_BUILD=1 ;;
+esac
+[ -z "${release_gate_passed+set}" ] || RELEASE_BUILD=1
+if [ "$RELEASE_BUILD" = 1 ]; then
+  # go's folders stay for the builds below (release_gate_go_done removes them).
+  declare +x release_gate_builds_go=1
+  . scripts/release-gate.sh
+fi
+# A release's go and C compiler are the gate's, found by their real paths, each
+# run with its settings only (pinned_env: /usr/bin/env -i and go_env), so none
+# of the caller's (GOFLAGS, GOTOOLCHAIN, CC, CGO_*, LIBRARY_PATH…) reaches what
+# ships; tmux's build runs with them too. A copy of your own is built with the
+# go and cc on PATH, as you set them.
+if [ "$RELEASE_BUILD" = 1 ]; then
+  BUILD_ENV=(pinned_env)
+  BUILD_GO="$GO"
+  BUILD_CC="$CC_PROGRAM"
+else
+  # Without Go the app would have no engine to run, so nothing is built.
+  if ! command -v go >/dev/null 2>&1; then
+    echo "Smolcorp needs Go 1.26 or later to build: its engine is written in Go. Install it (brew install go, or go.dev/dl), then run this again."
+    exit 1
+  fi
+  BUILD_ENV=(env)
+  BUILD_GO=go
+  BUILD_CC=cc
 fi
 APP_NAME="Smolcorp"
 EXECUTABLE="AgentDeck" # the Swift package's product, named in Info.plist
@@ -123,7 +155,7 @@ done
 # command below (go:embed, web.go), so the app carries no copy of Resources/web
 # or Resources/briefs: nothing reads one. The GM's plugin stays a folder, as the
 # command finds it beside itself (desktop/hirestart.go).
-go run ./scripts/buildoffice -check
+"${BUILD_ENV[@]}" "$BUILD_GO" run ./scripts/buildoffice -check
 cp -R Resources/gm "$APP/Contents/Resources/"
 # Signed already, so the app's signature seals it as it is.
 cp -R "build/Smolcorp Office.saver" "$APP/Contents/Resources/"
@@ -141,7 +173,7 @@ CLI_TMP="$(mktemp -d)"
 # stops on an engine without this mark.
 FOR_APP="-X github.com/Sauzze/smolcorp/internal/disclaim.builtForApp=smolcorp-spawn-required"
 for goarch in arm64 amd64; do
-  CGO_ENABLED=1 MACOSX_DEPLOYMENT_TARGET=13.0 GOOS=darwin GOARCH="$goarch" go build -trimpath -buildvcs=false \
+  "${BUILD_ENV[@]}" CGO_ENABLED=1 MACOSX_DEPLOYMENT_TARGET=13.0 GOOS=darwin GOARCH="$goarch" "$BUILD_GO" build -trimpath -buildvcs=false \
     -ldflags "-s -w -X main.version=$CLI_VERSION $FOR_APP" -o "$CLI_TMP/smolcorp-$goarch" ./cmd/smolcorp
 done
 lipo -create "$CLI_TMP/smolcorp-arm64" "$CLI_TMP/smolcorp-amd64" -output "$APP/Contents/Resources/bin/smolcorp"
@@ -151,9 +183,13 @@ rm -rf "$CLI_TMP"
 # builds it once and keeps it (build/tmux/), so a rebuild of the app only copies it. It is the same file with or without
 # `universal`. If it can't be built (no network the first time, a broken toolchain) the app is built without it and says so:
 # it then uses the tmux the Mac has, so a copy of your own never fails over tmux. scripts/release.sh doesn't allow that.
+# A release's tmux is built fresh, with the gate's settings only and the system's PATH (as build-tmux.sh sets it):
+# none of the caller's (DEVELOPER_DIR, SDKROOT, CCC_OVERRIDE_OPTIONS, LDFLAGS…) reaches clang, and no build kept from
+# a run of your own, made with yours, is reused.
 HAS_TMUX=0
+[ "$RELEASE_BUILD" = 0 ] || rm -rf build/tmux
 echo "tmux (kept after the first build, which takes a few minutes)…"
-if scripts/build-tmux.sh >build/tmux-build.log 2>&1; then
+if "${BUILD_ENV[@]}" PATH=/usr/bin:/bin:/usr/sbin:/sbin /bin/bash scripts/build-tmux.sh >build/tmux-build.log 2>&1; then
   TMUX_BUILT="$(tail -n 1 build/tmux-build.log)"
   if [ -x "$TMUX_BUILT" ] && [ -s "$(dirname "$TMUX_BUILT")/THIRD-PARTY-NOTICES.txt" ]; then
     cp "$TMUX_BUILT" "$APP/Contents/Resources/bin/tmux"
@@ -172,9 +208,11 @@ fi
 # the screen): macOS charges it to itself (internal/disclaim). The engine starts nothing from an app without it, so a
 # build without it stops here.
 echo "smolcorp-spawn…"
-cc -Wall -Wextra -Werror -O2 -arch arm64 -arch x86_64 -mmacosx-version-min=13.0 \
+"${BUILD_ENV[@]}" "$BUILD_CC" -Wall -Wextra -Werror -O2 -arch arm64 -arch x86_64 -mmacosx-version-min=13.0 \
   -o "$APP/Contents/Resources/bin/smolcorp-spawn" packaging/macos/smolcorp-spawn.c
 chmod 755 "$APP/Contents/Resources/bin/smolcorp-spawn"
+# A release's last go or C compiler has run: go's folders for it go now.
+[ "$RELEASE_BUILD" = 0 ] || release_gate_go_done
 # Signed with the identity chosen above, with the hardened runtime on each, as a
 # release is; the app with its entitlements (Apple Events and the mic), which
 # the runtime would otherwise refuse it. The command, tmux and smolcorp-spawn are code of their

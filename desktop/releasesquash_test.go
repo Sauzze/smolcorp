@@ -38,15 +38,17 @@ const (
 	stopWorktree  = "git here looks at another folder"
 )
 
-// releaseRepo is a throwaway repo holding release-desktop.sh, the stand-in check-public.sh and a little Go code
-// (go.mod and web.go at the top, cmd/smolcorp/main.go, the stand-in tmux test in desktop/): main and origin/main at
-// one commit, and a branch "work" two commits past it.
+// releaseRepo is a throwaway repo holding release-desktop.sh and the gate it sources (release-gate.sh), the stand-in
+// check-public.sh and a little Go code (go.mod and web.go at the top, cmd/smolcorp/main.go, the stand-in tmux test in
+// desktop/): main and origin/main at one commit, and a branch "work" two commits past it.
 type releaseRepo struct {
 	t              *testing.T
 	dir, home, bin string
 	env            []string
 	// wait is how long a run may take: 30 seconds unless set.
 	wait time.Duration
+	// script is the script a run runs: scripts/release-desktop.sh unless set.
+	script string
 }
 
 func newReleaseRepo(t *testing.T) *releaseRepo {
@@ -59,6 +61,10 @@ func newReleaseRepo(t *testing.T) *releaseRepo {
 		t.Skip("no /bin/bash")
 	}
 	script, err := os.ReadFile(filepath.Join("..", "scripts", "release-desktop.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate, err := os.ReadFile(filepath.Join("..", "scripts", "release-gate.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,6 +89,7 @@ func newReleaseRepo(t *testing.T) *releaseRepo {
 	r.git("config", "user.email", "release-test@example.invalid")
 	r.git("config", "commit.gpgsign", "false")
 	writeReleaseFile(t, filepath.Join(r.dir, "scripts", "release-desktop.sh"), string(script), 0o755)
+	writeReleaseFile(t, filepath.Join(r.dir, "scripts", "release-gate.sh"), string(gate), 0o755)
 	// With TOUCH set it changes a committed file while it runs, as if something did behind its back; with ADD set it
 	// adds that file.
 	r.write("scripts/check-public.sh", "#!/bin/sh\necho '"+checkPublicRan+"'\n"+
@@ -215,7 +222,7 @@ func (r *releaseRepo) blind(what string) {
 // the script runs (SA-X11).
 var standinSettings = []string{"DROP", "DROPCC", "TO_BUILDS", "DROP_GO"}
 
-// release runs release-desktop.sh with the extra environment given, and gives its exit status and output.
+// release runs release-desktop.sh (or r.script) with the extra environment given, and gives its exit status and output.
 func (r *releaseRepo) release(extra ...string) (int, string) {
 	r.t.Helper()
 	var conf strings.Builder
@@ -231,11 +238,15 @@ func (r *releaseRepo) release(extra ...string) (int, string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "/bin/bash", "scripts/release-desktop.sh")
+	script := r.script
+	if script == "" {
+		script = "scripts/release-desktop.sh"
+	}
+	cmd := exec.CommandContext(ctx, "/bin/bash", script)
 	cmd.Dir, cmd.Env = r.dir, append(append([]string{}, r.env...), extra...)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
-		r.t.Fatalf("release-desktop.sh didn't end within %v:\n%s", wait, out)
+		r.t.Fatalf("%s didn't end within %v:\n%s", script, wait, out)
 	}
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		return exitErr.ExitCode(), string(out)

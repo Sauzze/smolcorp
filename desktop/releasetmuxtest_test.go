@@ -483,10 +483,10 @@ func TestReleaseDesktopNeedsTheBundledTmuxTestPassing(t *testing.T) {
 	}
 }
 
-// The name, the control variable and its line the script needs are the ones M7/L4 are told to use, and each is said
+// The name, the control variable and its line the release gate needs are the ones M7/L4 are told to use, and each is said
 // once, so a rename in one place shows.
 func TestReleaseDesktopNamesTheBundledTmuxTestOnce(t *testing.T) {
-	script, err := os.ReadFile(filepath.Join("..", "scripts", "release-desktop.sh"))
+	script, err := os.ReadFile(filepath.Join("..", "scripts", "release-gate.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +497,7 @@ func TestReleaseDesktopNamesTheBundledTmuxTestOnce(t *testing.T) {
 		`TMUX_CONTROL_LINE="` + tmuxControlLine + `"` + "\n",
 	} {
 		if n := strings.Count(string(script), line); n != 1 {
-			t.Errorf("release-desktop.sh has %q %d times, want once", line, n)
+			t.Errorf("release-gate.sh has %q %d times, want once", line, n)
 		}
 	}
 }

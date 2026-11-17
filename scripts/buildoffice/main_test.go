@@ -37,9 +37,17 @@ func TestTheBuildsCheckOfficeJS(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		check := strings.Index(string(text), "go run ./scripts/buildoffice -check\n")
+		// The release gate (gate 3) runs Go through its pinned toolchain and settings: build-app.sh as
+		// "${BUILD_ENV[@]}" "$BUILD_GO" run …, release-desktop.sh as pinned_go run …. Either way the check
+		// must run; no other spelling counts.
+		check := -1
+		for _, run := range []string{"go run ./scripts/buildoffice -check\n", "\"$BUILD_GO\" run ./scripts/buildoffice -check\n"} {
+			if i := strings.Index(string(text), run); i >= 0 && (check < 0 || i < check) {
+				check = i
+			}
+		}
 		if check < 0 {
-			t.Errorf("%s doesn't run go run ./scripts/buildoffice -check", script)
+			t.Errorf("%s doesn't run go run ./scripts/buildoffice -check (or its pinned \"$BUILD_GO\" run)", script)
 		}
 		if script != "scripts/build-app.sh" {
 			continue

@@ -13,10 +13,20 @@ release notes:
 | `build/Smolcorp.dmg` | The download for most people: open it, drag Smolcorp to Applications. |
 | `build/Smolcorp.zip` | The same app, zipped, for the Homebrew cask and older links. Keep uploading it. |
 
-The script won't run with uncommitted changes or untracked files: commit them
-or set them aside first. It needs [Go](https://go.dev) 1.26 or later, as any
+Before it looks anything up or builds, it runs the release gate,
+`scripts/release-gate.sh`, as `scripts/release-desktop.sh` does for Windows and
+Linux: HEAD must be one squashed commit straight onto `origin/main` with
+nothing uncommitted or untracked beside it, and the public check, the bundled
+tmux's test, the release scripts' own tests and the forged-event table must
+pass, run by a pinned go. Its top lists each check and how to make that commit.
+It takes several minutes, and a notarised release runs it twice (again for the
+DMG made around the stapled app). It needs [Go](https://go.dev) 1.26 or later, as any
 build of the app does: the app's core, `Contents/Resources/bin/smolcorp`, is
-built from `cmd/smolcorp` for both architectures.
+built from `cmd/smolcorp` for both architectures. In a release, that build and
+`smolcorp-spawn`'s use the go and C compiler the gate pinned, with its settings
+only: your `GOFLAGS`, `CC`, `CGO_*` and the like don't reach them. The bundled
+tmux is built with those settings too, and afresh: a release never reuses the
+build a copy of your own kept in `build/tmux/`.
 
 ## The DMG
 
@@ -29,7 +39,15 @@ is involved.
 The first time, it sets up a Python venv at `build/dmg-venv` with dmgbuild in
 it. That needs Python 3 (the Xcode Command Line Tools have it) and the
 internet, once. Nothing is installed outside `build/`, which git ignores.
-Delete `build/dmg-venv` to undo it.
+Delete `build/dmg-venv` to undo it. Python and pip run isolated: `python -I`
+leaves out your `PYTHON*` settings and user site-packages, `pip --isolated`
+your `PIP_*` settings and your own pip config, and `PIP_CONFIG_FILE=/dev/null`
+every pip config file, including one your `PIP_CONFIG_FILE` names and the
+machine's. So another package index, say, can't change what is installed for
+dmgbuild. Other settings pip's download itself may use, such as a proxy, still
+apply. The venv is reused only when `build/dmg-venv/made-isolated` is there and
+dmgbuild loads in it; otherwise it's deleted and made again. A venv from before
+Python and pip ran isolated has no `made-isolated`, so it's made again.
 
 The window is in `packaging/macos/dmg/`:
 

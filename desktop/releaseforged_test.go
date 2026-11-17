@@ -318,9 +318,23 @@ func TestReleaseDesktopStopsUnlessTheForgedEventTableIsWhole(t *testing.T) {
 		// goes on to the builds (TO_BUILDS) instead.
 		want string
 		then func(t *testing.T, r *releaseRepo, status int, out string)
+		// script, when set, is run in place of release-desktop.sh.
+		script string
 	}
 	for _, c := range []forgedCase{
 		{name: "the table whole", want: ""},
+		// The gate run on its own (RELGATE1), as release.sh, make-dmg.sh, build-app.sh and publish-release.sh run it:
+		// it passes, says its list, and removes go's folders for the run before it says so, as a script that sourced
+		// it and doesn't build with them may set an exit trap of its own after it.
+		{name: "the gate on its own, the table whole", script: releaseGatePath,
+			then: func(t *testing.T, r *releaseRepo, status int, out string) {
+				removed, passed := strings.Index(out, " KB, removed.\n"), strings.Index(out, "\nThe release gate passed for HEAD's tree (")
+				if status != 0 || !strings.Contains(out, forgedPassed) || removed < 0 || passed < removed ||
+					!strings.Contains(out, "): pins one-commit heads-files tmux-test own-tests forged-events.\n") ||
+					strings.Contains(out, officeRan) || strings.Contains(out, goReached) || strings.Contains(out, "Stopped: ") {
+					t.Errorf("want the gate passed, go's folders removed first, and nothing after it, got status %d:\n%s", status, out)
+				}
+			}},
 		{name: "a test of the table missing", extra: map[string]string{
 			"desktop/forged_test.go": "package desktop\n\nimport \"testing\"\n\nfunc TestSomethingElse(t *testing.T) {}\n"},
 			want: stopForgedHole},
@@ -510,6 +524,7 @@ func TestReleaseDesktopStopsUnlessTheForgedEventTableIsWhole(t *testing.T) {
 				target = c.target(t, ran)
 			}
 			r := forgedRepo(t, target, c.toolchain, c.bodies, c.extra)
+			r.script = c.script
 			var env []string
 			if c.env != nil {
 				env = c.env(t, r, ran)
@@ -663,18 +678,16 @@ func forgedWant(home, tmp, run, cc, sdk string) map[string]string {
 	return want
 }
 
-// A fast row, in every go test of this package (no go build, no run of the script): release-desktop.sh's side of what
+// A fast row, in every go test of this package (no go build, no run of the script): release-desktop.sh's side, with the
+// gate it sources (scripts/release-gate.sh), of what
 // the forged-event table's heavy rows check. Its list of go's settings is forgedWant's, set from the run's own values;
 // every go it runs gets that list through /usr/bin/env -i, its own tests' run with the pinned go's folder first on
 // PATH; go's folders for the run are made fresh and removed by a trap set before its first go, their size logged; the
 // list is logged; the forged-event table runs after the bundled tmux's checks and this script's own tests, before
 // the office's check, with HEAD's tree checked again between; and its rows are heavy rows, here and in the script.
 func TestReleaseDesktopGivesEveryGoOnlyItsOwnList(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "scripts", "release-desktop.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	script := string(data)
+	// The script as it runs: the gate it sources, in its place (RELGATE1).
+	script := releaseDesktopAsRun(t)
 
 	// The forged-event table's rows take minutes: never in a plain go test, always in the script's run of its own.
 	const forgedRows = "TestReleaseDesktopStopsUnlessTheForgedEventTableIsWhole"

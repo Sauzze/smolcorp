@@ -19,18 +19,18 @@ import (
 	"time"
 )
 
-// release-desktop.sh runs this package's TestReleaseDesktop tests before every release, with
-// SMOLCORP_RELEASE_GATE_ROWS=1 (its point 5). Only then do the heavy ones run: each of their rows is a dry run of the
-// script, a second or more for the go and cc it pins at its start, and the bundled tmux's rows build and run its test
-// twice, which together would take an ordinary go test of ./desktop past go's 10 minutes. Everywhere else they skip,
-// and the fast rows here check that the variable still does both.
+// The release gate (scripts/release-gate.sh, which every release script sources) runs this package's TestRelease
+// tests before every release, with SMOLCORP_RELEASE_GATE_ROWS=1 (its gate 5). Only then do the heavy ones run: each of
+// their rows is a dry run of the release, a second or more for the go and cc it pins at its start, and the bundled
+// tmux's rows build and run its test twice, which together would take an ordinary go test of ./desktop past go's 10
+// minutes. Everywhere else they skip, and the fast rows here check that the variable still does both.
 
 const (
 	releaseGateRows    = "SMOLCORP_RELEASE_GATE_ROWS"
-	releaseGateRowsRun = "^TestReleaseDesktop"
+	releaseGateRowsRun = "^TestRelease"
 
-	stopRows        = "this script's own tests didn't all pass in ./desktop"
-	stopRowsChanged = "the files changed while this script's own tests ran"
+	stopRows        = "the release's own tests didn't all pass in ./desktop"
+	stopRowsChanged = "the files changed while the release's own tests ran"
 )
 
 // heavyReleaseRows skips a test of heavy rows unless the release gate runs it. It is that test's first statement, and
@@ -38,7 +38,7 @@ const (
 func heavyReleaseRows(t *testing.T) {
 	t.Helper()
 	if os.Getenv(releaseGateRows) != "1" {
-		t.Skip("heavy rows: release-desktop.sh runs them before every release, with " + releaseGateRows + "=1")
+		t.Skip("heavy rows: the release gate (scripts/release-gate.sh) runs them before every release, with " + releaseGateRows + "=1")
 	}
 }
 
@@ -119,7 +119,7 @@ func TestReleaseDesktopRunsItsHeavyRowsOnlyForTheGate(t *testing.T) {
 		t.Errorf("the bundled tmux's rows aren't heavy rows: heavy tests %v", found.names)
 	}
 
-	script, err := os.ReadFile(filepath.Join("..", "scripts", "release-desktop.sh"))
+	script, err := os.ReadFile(filepath.Join("..", "scripts", "release-gate.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,21 +128,21 @@ func TestReleaseDesktopRunsItsHeavyRowsOnlyForTheGate(t *testing.T) {
 		"RELEASE_ROWS_RUN=" + releaseGateRowsRun + "\n",
 	} {
 		if n := strings.Count(string(script), line); n != 1 {
-			t.Errorf("release-desktop.sh has %q %d times, want once", line, n)
+			t.Errorf("release-gate.sh has %q %d times, want once", line, n)
 		}
 	}
 	heavy := regexp.MustCompile(`(?m)^RELEASE_ROWS_HEAVY=\(([^)]*)\)$`).FindAllStringSubmatch(string(script), -1)
 	if len(heavy) != 1 {
-		t.Fatalf("release-desktop.sh has RELEASE_ROWS_HEAVY=(…) %d times, want once", len(heavy))
+		t.Fatalf("release-gate.sh has RELEASE_ROWS_HEAVY=(…) %d times, want once", len(heavy))
 	}
 	named := strings.Fields(heavy[0][1])
 	slices.Sort(named)
 	if !slices.Equal(named, found.names) {
-		t.Errorf("release-desktop.sh's heavy tests are %v, this package's are %v", named, found.names)
+		t.Errorf("release-gate.sh's heavy tests are %v, this package's are %v", named, found.names)
 	}
 	top, _, _ := strings.Cut(string(script), "\nset -euo pipefail\n")
 	if !strings.Contains(top, "#      "+releaseGateRows+"=1.") {
-		t.Errorf("release-desktop.sh's header doesn't name %s=1", releaseGateRows)
+		t.Errorf("release-gate.sh's header doesn't name %s=1", releaseGateRows)
 	}
 	run := regexp.MustCompile(releaseGateRowsRun)
 	for _, name := range found.names {
