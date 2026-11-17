@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 // SA-X1: the Policy, row by row (SANDBOX-PLAN §A4.1, SIERRA's base-branch row, PL126M's memory row), for a hire, the
@@ -475,7 +476,8 @@ func TestOffAMacThePathsAreTheSystems(t *testing.T) {
 
 func TestDecomposedNamesCompose(t *testing.T) {
 	for in, want := range map[string]string{"e\u0301": "\u00e9", "A\u030a": "\u00c5", "\u304b\u3099": "\u304c", "\u1100\u1161\u11a8": "\uac01",
-		"\u1100\u1161": "\uac00", "e\u0323\u0302": "\u1ec7", "plain": "plain", "\u00e9": "\u00e9"} {
+		"\u1100\u1161": "\uac00", "e\u0323\u0302": "\u1ec7", "e\u0302\u0323": "\u1ec7", "\u212b": "\u00c5", "\uf900": "\u8c48",
+		"plain": "plain", "\u00e9": "\u00e9"} {
 		if got := composed(in); got != want {
 			t.Errorf("composed(%q) = %q, want %q", in, got, want)
 		}
@@ -947,6 +949,219 @@ func TestTmuxsOwnFolderIsAMacRow(t *testing.T) {
 	for _, r := range mustNew(t, linux).Rules() {
 		if r.Row == rowTmuxFolder {
 			t.Errorf("a Linux Policy has a row in tmux's own folder: %+v", r)
+		}
+	}
+}
+
+// FXPOLICYFOLD: the Mac's volume takes a name in Unicode's full case folding, so each of these is the support
+// folder's key, its ssh keys, a plant or the default branch, as the volume takes them: by ſ (the long s), ß and ẞ (ss),
+// ﬆ and ﬅ (st), ﬁ (fi), the Kelvin sign (k), the Ohm and Ångström signs (ω, å), İ (i and a dot above), and marks in
+// another order. Linux takes a name as written; Windows is left as it was (its volume's upcase table isn't measured).
+func TestEveryFullyFoldedSpellingOfAPathIsTheSameRule(t *testing.T) {
+	const asa = "/Users/\u212bsa\u2126" // the Ångström and Ohm signs: Åsaω
+	pl := hirePlaces(asa + "/Library/Application Support/AgentDeck")
+	pl.Home, pl.Root, pl.HiresFolder, pl.Checkout, pl.GitDir, pl.GMFolder = asa, asa+"/p-hires/h1", asa+"/p-hires", asa+"/p", asa+"/p/.git", ""
+	pl.Accounts, pl.SocketParent, pl.OwnSockets, pl.DefaultBranch, pl.RemoteLogin = nil, "/tmp/smolcorp-501", "/tmp/smolcorp-501/h1", "stable", true
+	p := mustNew(t, pl)
+	for _, c := range []struct {
+		at   string
+		op   Op
+		want Verdict
+	}{
+		{"/Users/\u00e5sa\u03c9/Library/Application \u017fupport/AgentDeck/hook-key", Read, Deny},
+		{"/Users/A\u030asa\u03a9/Library/Application Support/AgentDeck/hook-\u212aey", Read, Deny},
+		{asa + "/Library/Application \u017fupport/AgentDeck", Move, Deny},
+		{asa + "/Library/Application Support/AgentDec\u212a/setup-key", Read, Deny},
+		{asa + "/.\u00dfh/id_ed25519", Read, Deny},
+		{asa + "/.\u1e9eH/id_ed25519", Read, Deny},
+		{asa + "/.\u017f\u017fh/id_ed25519", Read, Deny},
+		{asa + "/.z\u017fhrc", Write, Deny},
+		{asa + "/.pro\ufb01le", Write, Deny},
+		{asa + "/.gitcon\ufb01g", Write, Deny},
+		{asa + "/.ssh/authorized_\u212aeys", Write, Deny},
+		{asa + "/p/.git/refs/heads/\ufb06able", Write, Deny},
+		{asa + "/p/.git/refs/heads/\ufb05able", Write, Deny},
+		{asa + "/p/.git/con\ufb01g", Write, Deny},
+		{asa + "/p-hire\u017f/h2/main.go", Write, Deny},
+		{asa + "/.claude/.credential\u017f.json", Read, Deny},
+		{"/private/tmp/\u017fmolcorp-501/h2/s", Write, Deny},
+		{"/\u017fystem/Volume\u017f/Data/private/tmp/smolcorp-501/h2/s", Write, Deny},
+		{"/Sy\ufb06em/Volumes/Data/private/tmp/smolcorp-501/h2/s", Write, Deny},
+		{"/tmp/smolcorp-501/h2/s", Write, Deny},
+		// What isn't the same name stays its own: the dotless ı, a ligature not in the folding, an accent.
+		{asa + "/.\u017f\u017fh-notes", Read, Allow},
+		{asa + "/p/.git/refs/heads/\u0131stable", Write, Allow},
+		{asa + "/p/.git/refs/heads/stabl\u00e9", Write, Allow},
+		{"/tmp/smolcorp-501/h1/s", Write, Allow},
+		{"/private/tmp/smolcorp-501/H1/\u017f", Write, Allow},
+	} {
+		if got, by := p.Decide(c.at, c.op); got != c.want {
+			t.Errorf("%v %+q: %v by %q, want %v", c.op, c.at, got, by.Row, c.want)
+		}
+	}
+	for in, want := range map[string]string{"\u0130": "i\u0307", "\u1e9e": "ss", "\u00df": "ss", "\ufb06": "st", "\u212a": "k",
+		"\u03b1\u0345\u0301": "\u03ac\u03b9", "\u03b1\u0301\u0345": "\u03ac\u03b9", "\u1fb4": "\u03ac\u03b9", "\u1f88": "\u1f00\u03b9",
+		"e\u0302\u0323": "\u1ec7", "\u03c2": "\u03c3", "\u13a0": "\u13a0", "\uab70": "\u13a0", "plain": "plain"} {
+		if got := foldName("darwin", in); got != want {
+			t.Errorf("darwin: %+q folds to %+q, want %+q", in, got, want)
+		}
+	}
+	if got := foldName("linux", "\u017f"); got != "\u017f" {
+		t.Errorf("linux: \u017f folds to %+q", got)
+	}
+}
+
+// RT126POLICYFOLD's probe, made a row (FXPOLICYFOLDR1): a stand-in owner whose home, checkout and hires folder are
+// named with letters this Mac's volume (Unicode 17.0) takes for one and Unicode 16 didn't know: three Latin pairs, the
+// first and last Beria Erfe pairs, and a dot below with a new mark of class 230 (U+1AD0) or 220 (U+1ADD, against an
+// acute) in either order. The volume takes each pair for one name (the review measured them on stand-in files); a
+// denied place spelled the other way must be denied too.
+func TestReviewUnicode17SpellingsOfADeniedPlace(t *testing.T) {
+	for _, c := range []struct{ name, homeName, other string }{
+		{"U+A7CF home, U+A7CE spelling", "/Users/o꟏", "/Users/o꟎"},
+		{"U+A7D3 home, U+A7D2 spelling", "/Users/oꟓ", "/Users/o꟒"},
+		{"U+A7D5 home, U+A7D4 spelling", "/Users/oꟕ", "/Users/o꟔"},
+		{"U+16EBB home, U+16EA0 spelling", "/Users/o\U00016ebb", "/Users/o\U00016ea0"},
+		{"U+16ED3 home, U+16EB8 spelling", "/Users/o\U00016ed3", "/Users/o\U00016eb8"},
+		{"dot below then U+1AD0, other order", "/Users/oạ᫐", "/Users/oa᫐̣"},
+		{"acute then U+1ADD, other order", "/Users/oá᫝", "/Users/oa᫝́"},
+	} {
+		pl := hirePlaces(c.homeName + "/Library/Application Support/AgentDeck")
+		pl.Home, pl.Root, pl.HiresFolder, pl.Checkout, pl.GitDir, pl.GMFolder = c.homeName, c.homeName+"/p-hires/h1", c.homeName+"/p-hires", c.homeName+"/p", c.homeName+"/p/.git", ""
+		pl.Accounts, pl.GitHooks, pl.GitNamed, pl.GitConfigs = nil, nil, nil, nil
+		p := mustNew(t, pl)
+		for _, at := range []struct {
+			rest string
+			op   Op
+		}{{"/.ssh/id_ed25519", Read}, {"/.zshrc", Write}, {"/Library/Application Support/AgentDeck/setup-key", Read}, {"/p-hires/h2/main.go", Write}} {
+			plain, _ := p.Decide(c.homeName+at.rest, at.op)
+			other, row := p.Decide(c.other+at.rest, at.op)
+			t.Logf("%s: %v %s: plainly %v, other spelling %v (%q)", c.name, at.op, at.rest, plain, other, row.Row)
+			if plain != Deny || other != Deny {
+				t.Errorf("%s: %v %s: plainly %v, other spelling %v by %q; want both deny", c.name, at.op, at.rest, plain, other, row.Row)
+			}
+		}
+		// And the desk's own place, in the other spelling, is still its work: the letters are known, not refused.
+		if v, row := p.Decide(c.other+"/p-hires/h1/main.go", Write); v != Allow {
+			t.Errorf("%s: its own place in the other spelling: %v by %q, want allow", c.name, v, row.Row)
+		}
+	}
+}
+
+// FXPOLICYFOLDR1 (RT126POLICYFOLD's fix 3): on a Mac, a path with a code point the fold's Unicode (17.0) doesn't assign
+// is denied, whatever the rows say, and a Policy with such a place isn't made: a later macOS's volume may know it and
+// fold it as the key can't, and this one refuses it (EILSEQ). Unicode 17.0's new letters and marks are known. Off a
+// Mac nothing is folded, so nothing is refused.
+func TestOnAMacAPathWithACodePointTheFoldDoesntKnowIsDenied(t *testing.T) {
+	mac := mustNew(t, hirePlaces(realSupport))
+	lin := hirePlaces(realSupport)
+	lin.GOOS = "linux"
+	linux := mustNew(t, lin)
+	for _, r := range []rune{0x0378, 0x1aec, 0xfffe, 0x2fffd, 0x3347a, 0x50000, 0xe0080, 0xe01f0, 0x10ffff} {
+		for _, at := range []string{hires + "/h1/a" + string(r), hires + "/h1/" + string(r) + "/main.go", home + "/notes-" + string(r)} {
+			if v, row := mac.Decide(at, Write); v != Deny {
+				t.Errorf("Mac: write %+q: %v by %q, want deny", at, v, row.Row)
+			}
+			if v, row := linux.Decide(at, Write); v != Allow {
+				t.Errorf("Linux: write %+q: %v by %q, want allow", at, v, row.Row)
+			}
+		}
+		for what, change := range map[string]func(*Places){
+			"home":       func(pl *Places) { pl.Home = "/Users/o" + string(r) },
+			"checkout":   func(pl *Places) { pl.Checkout, pl.GitDir = repo+string(r), repo+string(r)+"/.git" },
+			"a git hook": func(pl *Places) { pl.GitHooks = []string{home + "/.githooks" + string(r)} },
+		} {
+			pl := hirePlaces(realSupport)
+			change(&pl)
+			if _, err := New(pl); !errors.Is(err, ErrUnknownCodePoint) {
+				t.Errorf("Mac: a %s with U+%04X: New says %v, want %v", what, r, err, ErrUnknownCodePoint)
+			}
+			pl.GOOS = "linux"
+			if _, err := New(pl); err != nil {
+				t.Errorf("Linux: a %s with U+%04X: New says %v", what, r, err)
+			}
+		}
+	}
+	for _, r := range []rune{0xa7ce, 0xa7cf, 0x16ea0, 0x16ed3, 0x1acf, 0x1ad0, 0x1aeb, 0x10efa, 0x1e6f5, 0x3347a - 1, 0xe01ef, 0xe000, 0x10fffd} {
+		at := hires + "/h1/a" + string(r)
+		if v, row := mac.Decide(at, Write); v != Allow {
+			t.Errorf("Mac: write %+q: %v by %q, want allow (Unicode 17.0 assigns U+%04X)", at, v, row.Row, r)
+		}
+	}
+}
+
+// FXPOLICYFOLDR1: every Go simple-fold orbit (Go's unicode, 17.0 in Go 1.27) is one key on a Mac, or one of the
+// two letters is one the fold doesn't know, so that a path with it is denied and a place with it refused: the volume
+// joins a letter and its case pairs, so the key must. (RT126POLICYFOLD's new17 probe, without the volume;
+// TestTheMacsFoldIsUnicodesCanonicalCaselessMatch tries them on it.) When Go's Unicode is the fold's, the two say
+// the same code points are assigned.
+func TestEveryGoSimpleFoldOrbitIsOneKeyOrRefused(t *testing.T) {
+	p := mustNew(t, hirePlaces(realSupport))
+	refused := func(r rune) bool {
+		v, _ := p.Decide(hires+"/h1/a"+string(r), Write)
+		pl := hirePlaces(realSupport)
+		pl.Home = "/Users/o" + string(r)
+		_, err := New(pl)
+		return v == Deny && errors.Is(err, ErrUnknownCodePoint)
+	}
+	orbits, apart := 0, 0
+	for r := rune(0); r <= unicode.MaxRune; r++ {
+		if unicode.SimpleFold(r) == r {
+			continue
+		}
+		orbits++
+		for o := unicode.SimpleFold(r); o != r; o = unicode.SimpleFold(o) {
+			if foldName("darwin", string(o)) == foldName("darwin", string(r)) {
+				continue
+			}
+			apart++
+			if !refused(r) && !refused(o) {
+				t.Errorf("U+%04X and U+%04X are one Go fold orbit, but keys %+q and %+q, and neither is refused",
+					r, o, foldName("darwin", string(r)), foldName("darwin", string(o)))
+			}
+		}
+	}
+	t.Logf("%d code points with a Go fold orbit (Go's Unicode %s), %d pairs kept apart by the key, so one refused", orbits, unicode.Version, apart)
+	if orbits < 2800 {
+		t.Errorf("only %d code points with a fold orbit", orbits)
+	}
+	if unicode.Version != foldUnicode {
+		return
+	}
+	for r := rune(0); r <= unicode.MaxRune; r++ {
+		if r >= 0xd800 && r <= 0xdfff {
+			continue
+		}
+		if goKnows := !unicode.Is(unicode.Cn, r); goKnows != known(string(r)) {
+			t.Errorf("U+%04X: Go's Unicode %s assigns it: %v; the fold's: %v", r, unicode.Version, goKnows, known(string(r)))
+		}
+	}
+}
+
+// FXPOLICYFOLDR1 (RT126POLICYFOLD's cheap follow-up): an ASCII path's firmlink folders are compared without folding
+// it, so a plain path costs nothing more than it did; any case of them still counts.
+func TestAnASCIIPathsFirmlinkFoldersCostNothing(t *testing.T) {
+	for _, c := range []struct {
+		p, folder, rest string
+		ok              bool
+	}{
+		{"/System/Volumes/Data/Users/ada", "/System/Volumes/Data", "/Users/ada", true},
+		{"/SYSTEM/volumes/DATA", "/System/Volumes/Data", "", true},
+		{"/System/Volumes/Datax/Users", "/System/Volumes/Data", "", false},
+		{"/System/Volumes", "/System/Volumes/Data", "", false},
+		{"/TMP/x", "/tmp", "/x", true},
+		{"/Users/ada/.ssh", "/var", "", false},
+		{"/ſystem/Volumes/Data/x", "/System/Volumes/Data", "/x", true},
+	} {
+		if rest, ok := cutFolderFold(c.p, c.folder); rest != c.rest || ok != c.ok {
+			t.Errorf("cutFolderFold(%+q, %q) = %q, %v; want %q, %v", c.p, c.folder, rest, ok, c.rest, c.ok)
+		}
+	}
+	for _, p := range []string{"/Users/ada/Projects/app-hires/h1/main.go", "/System/Volumes/Data/Users/Ada/.SSH/id_ed25519", "/Private/Var/Folders/x"} {
+		for _, folder := range []string{"/System/Volumes/Data", "/var", "/tmp", "/etc"} {
+			if n := testing.AllocsPerRun(20, func() { cutFolderFold(p, folder) }); n != 0 {
+				t.Errorf("cutFolderFold(%q, %q): %v allocations, want 0", p, folder, n)
+			}
 		}
 	}
 }

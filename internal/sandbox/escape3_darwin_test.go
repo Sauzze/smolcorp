@@ -678,6 +678,9 @@ var startSites = map[string]string{
 
 	// MSYSTACK4's: SA-L7, built before this guard.
 	"forward_linux_test.go TestAnAbstractSocketIsNeverReached": "the test binary (os.Executable) as its abstractprobe, outside and then inside bwrap (BwrapPath) with its own network, Linux only",
+
+	// FXPOLICYFOLD's.
+	"policy_fold_darwin_test.go TestOnAMacAFullyFoldedSpellingOfADeniedPlaceIsDeniedToo": "sandbox-exec under the row's profile, with the row's own words",
 }
 
 // guardFinding is one thing the guard holds against a test file: at a line, in a declaration, what. start is a start

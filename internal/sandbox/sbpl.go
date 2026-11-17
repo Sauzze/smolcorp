@@ -39,8 +39,9 @@ import (
 //
 // A row's place is a literal, a subpath when it holds everything below, and a regex when it has a Tail: `**` is any
 // number of folders, `*` and `?` stay within one name. On the Mac's volume, made case-insensitive, Seatbelt matches a
-// path in any case and any Unicode normalization, as the Policy's folded key does (sbpl_darwin_test.go checks it), so
-// the profile spells each place once, as the Policy does. A place Seatbelt can't be given exactly (a control character
+// path in any case, any Unicode normalization and Unicode's full case folding (ſ is s, ß is ss, ﬆ is st), as the
+// volume and the Policy's folded key do, a name that isn't there yet included (sbpl_darwin_test.go and
+// policy_fold_darwin_test.go check it), so the profile spells each place once, as the Policy does. A place Seatbelt can't be given exactly (a control character
 // or bytes that aren't UTF-8 in it, a Tail with a class or an escape) fails the whole profile: the desk doesn't start.
 //
 // Sockets, services, signals and network (SA-M2, §A3.1 and §A4.2), from the desk's Services. Right after the header,

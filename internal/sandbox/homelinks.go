@@ -172,7 +172,7 @@ func (b *builder) followLinks(first int, home string, owned []string) {
 			}
 		}
 		look = nil
-		known := &Policy{goos: b.goos, rules: slices.Clone(b.rules)} // with the rows the last round added
+		sofar := &Policy{goos: b.goos, rules: slices.Clone(b.rules)} // with the rows the last round added
 		for _, link := range links {
 			hops, real, err := linkHops(link)
 			if err != nil {
@@ -182,11 +182,11 @@ func (b *builder) followLinks(first int, home string, owned []string) {
 			r := Rule{Row: rowHomeLink + ": where one in the owner's places leads", Path: real, Below: true}
 			held := false
 			for _, op := range []Op{Read, Write} {
-				if v, _ := known.Decide(link, op); v != Deny {
+				if denied, _ := rowDenies(sofar, link, op); !denied {
 					continue
 				}
 				held = true
-				if v, _ := known.Decide(real, op); v == Deny {
+				if denied, _ := rowDenies(sofar, real, op); denied {
 					continue
 				}
 				if op == Read {
@@ -204,7 +204,7 @@ func (b *builder) followLinks(first int, home string, owned []string) {
 			}
 			var open []string
 			for _, hop := range hops {
-				if v, _ := known.Decide(hop, Write); v != Deny {
+				if denied, _ := rowDenies(sofar, hop, Write); !denied {
 					open = append(open, hop)
 				}
 			}
@@ -220,16 +220,26 @@ func (b *builder) heldAlready(r Rule, real string) bool {
 	if r.Tail != "" || r.Read == Allow || r.Write == Allow || r.Connect == Allow || r.Move == Allow || r.Link == Allow {
 		return false
 	}
-	known := &Policy{goos: b.goos, rules: b.rules}
+	sofar := &Policy{goos: b.goos, rules: b.rules}
 	for _, op := range []Op{Read, Write, Connect, Move, Link} {
 		if r.verdict(op) != Deny {
 			continue
 		}
-		if v, by := known.Decide(real, op); v != Deny || by.Wide || by.Tail != "" || r.Below && !by.Below {
+		if denied, by := rowDenies(sofar, real, op); !denied || by.Wide || by.Tail != "" || r.Below && !by.Below {
 			return false
 		}
 	}
 	return true
+}
+
+// rowDenies is whether a row so far denies op at p, and that row. On a Mac, Decide denies a path with a code point the
+// fold's Unicode doesn't assign by a row of its own that is in no profile (rowUnknownCodePoint): that deny holds
+// nothing, so it isn't counted here (RT126POLICYFOLDR2 F1). Such a place, where a link leads or on the way, then gets
+// its row, and builder.add refuses it, so New does: on a later macOS whose volume takes the name, Seatbelt would
+// otherwise leave it open.
+func rowDenies(sofar *Policy, p string, op Op) (bool, Rule) {
+	v, by := sofar.Decide(p, op)
+	return v == Deny && by.Row != rowUnknownCodePoint, by
 }
 
 // splitTail is a tail's names, none for "".

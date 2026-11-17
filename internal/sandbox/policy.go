@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -279,17 +280,22 @@ func (p *Policy) Exception(r Rule) bool {
 
 // Decide is what the desk's sandbox does when the desk asks op of path, and the row that says so, the same in any
 // order of the rows. A final deny wins; then a Wide deny no exception opens; then an allow; else normal work. Of
-// several rows, the narrowest is named. A path that isn't whole is denied.
+// several rows, the narrowest is named. A path that isn't whole is denied, and so, on a Mac, is a path with a code
+// point the fold's Unicode doesn't assign (FXPOLICYFOLDR1): a later macOS's volume may fold it as the key can't. (New
+// refuses such a place. Unicode keeps the case folding, classes and compositions of the code points it assigns, so
+// two names of known code points the fold keeps apart stay apart under a later Unicode.)
 //
 // path must be resolved: Decide reads it as written, folding only the spellings policy_fold.go names. A link, a
 // mount, another volume's name for the same disk (/Volumes/Macintosh HD/…), a Windows 8.3 name, a trailing dot or
-// space, a `::$DATA` stream, and two combining marks after one letter in an order NFD wouldn't write (RT126SAX1R2 N2:
-// e, a dot below, a circumflex compose to `ệ`; e, a circumflex, a dot below are left so) are the caller's to resolve
-// first; the kernel does it for a profile.
+// space and a `::$DATA` stream are the caller's to resolve first; the kernel does it for a profile. Marks after a
+// letter in any order are one name, as NFD puts them in order (RT126SAX1R2 N2's e, a circumflex, a dot below is `ệ`).
 func (p *Policy) Decide(path string, op Op) (Verdict, Rule) {
 	k := key(p.goos, path)
 	if k == "" {
 		return Deny, Rule{Row: "not a whole path"}
+	}
+	if p.goos == "darwin" && !known(path) {
+		return Deny, Rule{Row: rowUnknownCodePoint}
 	}
 	var final, wide, allows []Rule
 	for _, r := range p.rules {
@@ -331,6 +337,8 @@ var (
 	ErrDeskStart      = errors.New("sandbox: the desk-start socket is in a support folder, and isn't its core's")
 	ErrOwnSockets     = errors.New("sandbox: a desk's own socket folder isn't a folder inside the socket folder")
 	ErrHomeLinks      = errors.New("sandbox: a home place's links can't be told whole")
+	// ErrUnknownCodePoint is a Mac's place with a code point the name fold's Unicode doesn't assign (FXPOLICYFOLDR1).
+	ErrUnknownCodePoint = errors.New("sandbox: a place's name has a code point the Mac's name fold doesn't know")
 )
 
 // The rows exceptions open, by name.
@@ -345,6 +353,9 @@ const (
 	rowSupport    = "the support folder, whole"
 	rowAbove      = "the folders above a denied place can't be moved or removed"
 )
+
+// rowUnknownCodePoint is Decide's on a Mac for a path with a code point the fold's Unicode (foldUnicode) doesn't assign.
+const rowUnknownCodePoint = "a name with a code point Unicode " + foldUnicode + " doesn't assign"
 
 // rowOldRemotes is the row of git's old remote files, which X12's start-time listing names as well.
 const rowOldRemotes = "the shared git places: the old remote files"
@@ -658,18 +669,36 @@ type builder struct {
 	err   error
 }
 
-// add puts r last. A place that isn't whole fails the whole Policy: it would otherwise read as anywhere.
+// add puts r last. A place that isn't whole fails the whole Policy: it would otherwise read as anywhere. So, on a Mac,
+// does a place with a code point the fold's Unicode doesn't assign (FXPOLICYFOLDR1): a later Unicode may make it a
+// known letter's case pair (U+A7D2 became U+A7D3's in 17.0), and the place's key would miss that letter's spelling.
+// The error names the place and the code point (RT126POLICYFOLDR2 F2). The first cause is the one New gives.
 func (b *builder) add(r Rule) {
 	if r.Path != "" {
 		r.Path = spell(b.goos, r.Path)
 		if r.Path == "" {
-			b.err = ErrNotWhole
+			b.fail(ErrNotWhole)
 		}
 	} else if r.Tail == "" {
-		b.err = ErrNotWhole
+		b.fail(ErrNotWhole)
+	}
+	if b.goos == "darwin" {
+		for _, s := range []string{r.Path, r.Tail} {
+			if c, ok := unknownIn(s); ok {
+				b.fail(fmt.Errorf("%w: %s (U+%04X)", ErrUnknownCodePoint, path.Join(r.Path, r.Tail), c))
+				break
+			}
+		}
 	}
 	r.key, r.tail = foldName(b.goos, r.Path), foldName(b.goos, r.Tail)
 	b.rules = append(b.rules, r)
+}
+
+// fail keeps err as the Policy's error, unless an earlier one is kept already.
+func (b *builder) fail(err error) {
+	if b.err == nil {
+		b.err = err
+	}
 }
 
 // denyAbove holds every denied place's parents (RT126SAX1 B1): for each row that denies anything, the folders its

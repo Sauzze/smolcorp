@@ -532,3 +532,49 @@ func TestOnAMacAnACPDesksTerminalsAreItsOwnAndEndWithIt(t *testing.T) {
 		t.Error("a terminal made after the desk ended")
 	}
 }
+
+// FXPOLICYFOLD: the core reads and writes an ACP desk's files as the owner, outside its sandbox, by what the Policy
+// says of the path as the agent spelled it. The Mac's volume takes a name in Unicode's full case folding, so the
+// support folder spelled with ſ (the long s) for its s is the support folder, and a plant spelled with ſ or ﬁ is the
+// plant: each is refused as its plain spelling is, and nothing there changes.
+func TestAnACPDesksFilesKeepToItsPolicyInEverySpellingTheMacTakes(t *testing.T) {
+	s := standInDesk(t)
+	f := standInACPFiles(t, s)
+	files := acpFiles{desk: s}
+	ctx := context.Background()
+	support := physical(supportDir)
+	name := filepath.Base(support)
+	if !strings.Contains(name, "s") {
+		t.Fatalf("the stand-in support folder %q has no s to spell another way", name)
+	}
+	folded := filepath.Join(filepath.Dir(support), strings.Replace(name, "s", "ſ", 1))
+	key, token := filepath.Join(folded, "stand-in-key"), filepath.Join(folded, "stand-in-token")
+	for _, at := range []string{key, token} {
+		want, err1 := os.Stat(filepath.Join(support, filepath.Base(at)))
+		got, err2 := os.Stat(at)
+		if err1 != nil || err2 != nil || !os.SameFile(want, got) {
+			t.Skipf("this volume doesn't take %q for the support folder (%v, %v)", folded, err1, err2)
+		}
+	}
+	for _, at := range []string{key, token, filepath.Join(support, "stand-in-Key")} {
+		resp, err := files.ReadTextFile(ctx, acp.ReadTextFileRequest{SessionID: "s1", Path: at})
+		var refusal *acp.RPCError
+		if !errors.As(err, &refusal) || strings.Contains(resp.Content, "FAKEKEY") {
+			t.Errorf("read %q: the stand-in was read (%v)", strings.TrimPrefix(at, filepath.Dir(support)), err)
+		}
+	}
+	home := physical(homeDir)
+	for _, at := range []string{key, filepath.Join(home, ".zſhrc"), filepath.Join(home, ".proﬁle")} {
+		err := files.WriteTextFile(ctx, acp.WriteTextFileRequest{SessionID: "s1", Path: at, Content: "overwritten"})
+		var refusal *acp.RPCError
+		if !errors.As(err, &refusal) {
+			t.Errorf("write %q: written (%v)", strings.TrimPrefix(at, filepath.Dir(support)), err)
+		}
+	}
+	keyIntact(t, f)
+	for _, plant := range []string{".zshrc", ".profile"} {
+		if _, err := os.Lstat(filepath.Join(home, plant)); err == nil {
+			t.Errorf("the stand-in home got a %s", plant)
+		}
+	}
+}
