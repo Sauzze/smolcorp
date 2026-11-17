@@ -57,6 +57,9 @@ func ownsHireSocket(socket string, testPort int) bool { return false }
 // deskSocketID: no desk runs on a tmux server of its own here, in its sandbox or not.
 func deskSocketID(socket string, testPort int) string { return "" }
 
+// deskShapedSocket: no desk has a socket folder here, so no socket is shaped as one's.
+func deskShapedSocket(socket string) bool { return false }
+
 // tmuxFor: no desk runs in tmux here, so a tmux tab is never one's.
 func tmuxFor(socket string) (program, guard string) { return tmuxProgramFor(socket), tmuxUnchecked }
 

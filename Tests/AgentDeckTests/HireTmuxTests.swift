@@ -115,8 +115,9 @@ final class HireTmuxTests: XCTestCase {
                       "\(parent)/../ab12/s", "\(parent)/ab12/s/s", "ab12/s", "/private/tmp/tmux-501/default"] {
             XCTAssertFalse(HireTmux.owns(other, testPort: nil), other)
         }
-        // Shaped as a desk's socket but not one of ours: never owned, yet still a desk's shape, so the app drives it
-        // only with what the core recorded (it fails closed), never as a tmux of your own.
+        // Shaped as a desk's socket but no desk's name: never ours to act on (owns), yet still a desk's place, so with no desk
+        // from the core the app runs nothing on it, never as a tmux of your own. The Mac's /tmp is case-insensitive:
+        // …/AB12/s is desk ab12's own socket, so taking it for "a tmux of your own" would drive a desk's server unchecked.
         XCTAssertTrue(HireTmux.isDeskSocket("\(parent)/AB12/s"))
         for other in ["/private/tmp/smolcorp-\(getuid() + 1)/ab12/s", "\(parent)/ab12/t", "/private/tmp/x/ab12/s",
                       "\(parent)/../ab12/s", "\(parent)/ab12/s/s", "ab12/s", "/private/tmp/tmux-501/default"] {

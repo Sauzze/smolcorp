@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -98,6 +99,64 @@ func deskSocketID(socket string, testPort int) string {
 		return id
 	}
 	return ""
+}
+
+// deskShapedSocket says whether socket is where a sandboxed desk's socket would be, whatever its folder is called: a
+// file named s in a folder right inside deskSocketParent, as this system finds the place (FXDESKCASE). A Mac's volume
+// is case-insensitive as made, and folds as Unicode does: …/AB12/s, …/ab12/S and …/ab12/ſ are desk ab12's own socket
+// there. So names are compared folded on a Mac and as they are elsewhere. A parent that is the same folder on the disk
+// (the firmlink's /System/Volumes/Data spelling, say) counts, and so does a link to a desk's folder or socket. The place
+// is also found as the kernel finds it (FXDESKCASER1): a relative socket from the core's current folder (tmux is run
+// there), and a .. after a link back from the link's target, not cleaned away as text. If the current folder can't be
+// read, a relative socket counts as a desk's: nothing is run on it. Only deskSocketID's spelling is driven, with its
+// row's server; any other spelling of the place is given nothing (tmuxFor).
+func deskShapedSocket(socket string) bool {
+	raw := socket
+	if !filepath.IsAbs(raw) {
+		folder, err := workingFolder()
+		if err != nil || !filepath.IsAbs(folder) {
+			return true
+		}
+		raw = folder + string(filepath.Separator) + raw // joined as text: filepath.Join would clean a .. after a link away
+	}
+	socket = filepath.Clean(raw)
+	parent := physical(deskSocketParent())
+	places := []string{socket, filepath.Join(physical(filepath.Dir(socket)), filepath.Base(socket)), physical(socket)}
+	// As the kernel walks the raw text: EvalSymlinks takes each link before the .. after it. For a socket that isn't
+	// there yet, its folder walked so, and its name.
+	if resolved, err := filepath.EvalSymlinks(raw); err == nil {
+		places = append(places, resolved)
+	} else if cut := strings.LastIndexByte(raw, filepath.Separator); cut >= 0 {
+		if folder, err := filepath.EvalSymlinks(raw[:cut+1]); err == nil {
+			places = append(places, filepath.Join(folder, raw[cut+1:]))
+		}
+	}
+	for _, at := range places {
+		if sameName(filepath.Base(at), deskSocketFile) && samePlace(physical(filepath.Dir(filepath.Dir(at))), parent) {
+			return true
+		}
+	}
+	return false
+}
+
+// workingFolder is the core's current folder, where a relative socket is found: a variable, for the tests.
+var workingFolder = os.Getwd
+
+// namesFold is whether this system's names compare folded: a Mac's, as its volume is made (a case-sensitive one only
+// puts more spellings under a desk's place, never fewer). Linux's /tmp compares names as they are.
+const namesFold = runtime.GOOS == "darwin"
+
+// sameName says whether a and b name the same file in one folder, as namesFold says.
+func sameName(a, b string) bool { return a == b || namesFold && strings.EqualFold(a, b) }
+
+// samePlace says whether folders a and b are one: spelt alike (sameName), or the same folder on the disk.
+func samePlace(a, b string) bool {
+	if sameName(a, b) {
+		return true
+	}
+	aInfo, aErr := os.Stat(a)
+	bInfo, bErr := os.Stat(b)
+	return aErr == nil && bErr == nil && os.SameFile(aInfo, bInfo)
 }
 
 // makeDeskSocketFolder makes the own folder of the desk whose socket is socket, new, for its start (§A5.2 step 8): the
@@ -300,12 +359,17 @@ func hireTmuxUsing(socket string, testPort int, run tmuxRunner, pick func(socket
 
 // tmuxFor is what a tab's tmux calls on socket run, and the server their guard is told (SA-M7): tmuxProgramFor's tmux;
 // for a sandboxed desk's socket, the server pid its row records ("" with none, or with a recorded tmux that's gone:
-// nothing is run); for any other, tmuxUnchecked (a desk started before the sandbox, which keeps its recorded tmux, or a
-// tmux of the owner's own, which a stock tmux ignores).
+// nothing is run); for any other spelling of a desk's place (deskShapedSocket: another case, a folder that isn't a
+// desk's id, a link), "": nothing is run, never a tmux of your own on a desk's server (FXDESKCASE); for any other,
+// tmuxUnchecked (a desk started before the sandbox, which keeps its recorded tmux, or a tmux of the owner's own, which
+// a stock tmux ignores).
 func tmuxFor(socket string) (program, guard string) {
 	program, guard = tmuxProgramFor(socket), tmuxUnchecked
-	if deskSocketID(socket, testCopyPort()) != "" {
+	if deskShapedSocket(socket) {
 		guard = ""
+		if deskSocketID(socket, testCopyPort()) == "" {
+			return program, guard
+		}
 		if _, server := recordedDeskTmux(socket); server > 1 {
 			guard = strconv.Itoa(server)
 		}

@@ -289,8 +289,8 @@ func tmuxProgramFor(socket string) string {
 		return path
 	}
 	instead := tmuxProgram()
-	if deskSocketID(socket, testCopyPort()) != "" {
-		instead = bundledTmux() // a sandboxed desk's (SA-M6): never another tmux
+	if deskShapedSocket(socket) {
+		instead = bundledTmux() // a sandboxed desk's place, however spelt (SA-M6, FXDESKCASE): never another tmux
 	}
 	sayTmuxSkipped(socket, recorded, why, instead)
 	return instead

@@ -42,7 +42,8 @@ final class DeskTmuxTests: XCTestCase {
 
     /// With no desk from the core, a desk's socket, either form, gets nothing run: no key, no look, no fire, no focus.
     func testADesksSocketGetsNothingWithoutItsDesk() {
-        for tab in [deskPane, TabAddress("tmux:%3@/private/tmp/tmux-501/smolcorp-ab12")!] {
+        // …/AB12/s too: no desk's name, but desk ab12's own socket on the Mac's case-insensitive /tmp (RT126M9AB12).
+        for tab in [deskPane, TabAddress("tmux:%3@/private/tmp/tmux-501/smolcorp-ab12")!, TabAddress("tmux:%3@\(parent)/AB12/s")!] {
             XCTAssertFalse(Tmux().press(.init(key: .returnKey), in: tab))
             XCTAssertNil(Tmux().screen(of: tab))
             XCTAssertNil(Tmux().isOpen(tab))
