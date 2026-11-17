@@ -803,14 +803,21 @@ func TestOnAMacAHiresTmuxServerReachesNothingOfTheOwners(t *testing.T) {
 	if r := hireTmux("show-buffer", "-b", "k"); strings.Contains(r.stdout, escapeKey) {
 		t.Errorf("R1/T1, the key is in its buffer: %+v", r)
 	}
-	hireTmux("set-buffer", "-b", "f", `{"fence":0}`)
+	// The buffer must be there, else save-buffer fails on "no buffer" and the row proves nothing.
+	if r := hireTmux("set-buffer", "-b", "f", `{"fence":0}`); r.status != 0 {
+		t.Errorf("control: its own client sets its own buffer: %+v", r)
+	}
 	if r := hireTmux("save-buffer", "-b", "f", guard); r.status == 0 {
 		t.Errorf("R2/T2, its own client wrote the guard file: %+v", r)
 	}
-	mustWrite(t, filepath.Join(d.root, "copy.sh"), "/bin/cat "+d.key+" > "+out+"\n")
+	if data, _ := os.ReadFile(guard); string(data) != escapeFence {
+		t.Errorf("R2/T2, the guard file reads %q after its own client's save-buffer", data)
+	}
+	mustWrite(t, filepath.Join(d.root, "copy.sh"), "/bin/cat "+d.key+" > "+out+" 2>&1\n")
 	hireTmux("run-shell", "/bin/sh "+filepath.Join(d.root, "copy.sh"))
-	if data, _ := os.ReadFile(out); strings.Contains(string(data), escapeKey) {
-		t.Errorf("P1/T5, its server's script copied the key: %q", data)
+	// out must be there, holding cat's own refusal: the script ran in the sandbox, and the sandbox refused the key.
+	if data, err := os.ReadFile(out); err != nil || strings.Contains(string(data), escapeKey) || !strings.Contains(string(data), "Operation not permitted") {
+		t.Errorf("P1/T5, its server's script left %q (%v), not cat's \"Operation not permitted\"", data, err)
 	}
 	if r := hireTmux("has-session", "-t", "main"); r.status != 0 {
 		t.Errorf("control: its own server answers its own client: %+v", r)
@@ -863,6 +870,10 @@ func TestOnAMacAHiresTmuxServerReachesNothingOfTheOwners(t *testing.T) {
 		hireTmux("set-option", "-g", "update-environment", "SBX_SECRET")
 		hireTmux("set-hook", "-g", "after-list-sessions", "new-session -d -s leak")
 		r = core([]string{"SBX_SECRET=OWNERENV"}, "list-sessions")
+		// The hook must have made its session, else show-environment finds nothing and the row proves nothing.
+		if l := hireTmux("has-session", "-t", "leak"); l.status != 0 {
+			t.Errorf("R3/T3: the hook after the core's list-sessions made no session: %+v, list-sessions %+v", l, r)
+		}
 		if e := hireTmux("show-environment", "-t", "leak", "SBX_SECRET"); r.status != 0 || strings.Contains(e.stdout, "OWNERENV") {
 			t.Errorf("R3/T3: %+v, the hire's environment %+v", r, e)
 		}
