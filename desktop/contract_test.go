@@ -727,9 +727,7 @@ func contractGaps(t *testing.T, c contract) []knownGap {
 	for _, file := range contractFiles {
 		for _, route := range c.files[file] {
 			method, path, _ := strings.Cut(route.Route, " ")
-			ask := func(a contractAsk) contractAnswer {
-				return newContractDeck(t, c, a.Given).ask(method, path, a)
-			}
+			ask := func(a contractAsk) contractAnswer { return contractCase(t, c, method, path, a) }
 			var found []knownGap
 			// Setup's callers are its table's: the same here as on the Mac.
 			if isSetupRoute(path) {
@@ -808,6 +806,72 @@ func contractGaps(t *testing.T, c contract) []knownGap {
 		add(g)
 	}
 	return gaps
+}
+
+// contractCase asks one of a fixture's requests of a deck of its own, in a subtest of its own: the deck is stopped,
+// its mail pump and rounds with it, and isolate's folders and withMac's app put back, before the next case makes
+// its own. Run in the test itself, every case's deck ran on to its end: a case's mail pump read registryPath()
+// while the next case's isolate() changed supportDir (FXCONTRACTRACE, the Studio's race, CI 13d862ba). A deck still
+// running once its case is over fails the test, here.
+func contractCase(t *testing.T, c contract, method, path string, a contractAsk) contractAnswer {
+	t.Helper()
+	var got contractAnswer
+	var d *Deck
+	t.Run(method+" "+path, func(t *testing.T) {
+		cd := newContractDeck(t, c, a.Given)
+		d = cd.d
+		got = cd.ask(method, path, a)
+	})
+	if d != nil {
+		if running := deckStillRunning(d); running != "" {
+			t.Errorf("%s %s: %s after its case", method, path, running)
+		}
+	}
+	return got
+}
+
+// deckStillRunning is what of a deck still runs, its mail pump or its rounds, or "" once both have ended.
+func deckStillRunning(d *Deck) string {
+	select {
+	case <-d.mailPumpEnded:
+	default:
+		return "its mail pump still runs"
+	}
+	d.rounds.mu.Lock()
+	defer d.rounds.mu.Unlock()
+	if !d.rounds.ended {
+		return "its rounds still run"
+	}
+	return ""
+}
+
+// A contract case's deck ends with its case, its mail pump first, and the package's folders are as they were
+// before it: the next case's isolate() never changes them under a pump or a round still running (FXCONTRACTRACE).
+func TestAContractCasesDeckEndsWithItsCase(t *testing.T) {
+	c := readContract(t)
+	var events *contractRoute
+	for i, route := range c.files["state.json"] {
+		if route.Route == "GET /events" {
+			events = &c.files["state.json"][i]
+		}
+	}
+	if events == nil || events.Request == nil {
+		t.Fatal("no GET /events in state.json")
+	}
+	before := supportDir
+	var d *Deck
+	t.Run("a deck left running", func(t *testing.T) {
+		d = newContractDeck(t, c, events.Request.Given).d
+		if deckStillRunning(d) == "" {
+			t.Fatal("a deck that runs says it has ended")
+		}
+	})
+	if got := contractCase(t, c, "GET", "/events", *events.Request); got.status != http.StatusOK {
+		t.Fatalf("GET /events: %d", got.status)
+	}
+	if running := deckStillRunning(d); running != "" || supportDir != before {
+		t.Errorf("after a case: %q, the support folder put back %v", running, supportDir == before)
+	}
 }
 
 // macDictationGaps is the office's dictation under the Mac app, which no fixture shows: the Mac's own test

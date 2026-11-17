@@ -104,8 +104,9 @@ func (p *mailPump) deliverToHire(m mailMessage, h Hire) {
 }
 
 // startMailPump runs the pump every mailPumpEvery until stop is called. stop waits for a round that is
-// under way, and may be called more than once.
-func (d *Deck) startMailPump() (stop func()) {
+// under way, and may be called more than once. ended is closed once the pump's goroutine has returned: a test's
+// deck is checked by it, so no pump of a deck goes on reading the folders the next test puts in (FXCONTRACTRACE).
+func (d *Deck) startMailPump() (stop func(), ended <-chan struct{}) {
 	p := &mailPump{
 		outbox: d.mail,
 		hires:  func() []Hire { return readRegistry(registryPath(), false).hires },
@@ -117,10 +118,9 @@ func (d *Deck) startMailPump() (stop func()) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var once sync.Once
-	var ended sync.WaitGroup
-	ended.Add(1)
+	done := make(chan struct{})
 	go func() {
-		defer ended.Done()
+		defer close(done)
 		ticker := time.NewTicker(mailPumpEvery)
 		defer ticker.Stop()
 		for {
@@ -134,8 +134,8 @@ func (d *Deck) startMailPump() (stop func()) {
 	}()
 	return func() {
 		once.Do(cancel)
-		ended.Wait()
-	}
+		<-done
+	}, done
 }
 
 // mailDeckAsking says whether the app knows, from its hooks, that a session working where h does is at a

@@ -170,6 +170,8 @@ type Deck struct {
 	night *nightShift
 	// stopWatchers ends the watchers' two loops, the mail pump and the deck's rounds, and waits for them; the app lets them run as long as the process does, the tests' deck helpers call it.
 	stopWatchers func()
+	// mailPumpEnded is closed once the mail pump's goroutine has returned (startMailPump): set at the start, then only read.
+	mailPumpEnded <-chan struct{}
 	// The deck's timed rounds, and the looks it starts by itself: see deckRounds.
 	rounds deckRounds
 	// OnChange is called on every change, for the tray.
@@ -330,7 +332,9 @@ func NewDeck() *Deck {
 	clearPhotos(supportDir)
 	d.rounds.every(photoSweepEvery, d.sweepPhotos)
 	// The mail pump, after d.cloud is set; the watchers' stop ends it too, and the deck's rounds.
-	stopWatching, stopMail := d.stopWatchers, d.startMailPump()
+	stopWatching := d.stopWatchers
+	stopMail, mailEnded := d.startMailPump()
+	d.mailPumpEnded = mailEnded
 	d.stopWatchers = func() { stopMail(); d.rounds.stop(); stopWatching() }
 	// Under the Mac app, its dictation languages and the one it suggests, asked once now, so the
 	// office has a language before setup is first opened.
