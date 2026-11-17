@@ -710,7 +710,6 @@ var guardAllowed = map[string]string{
 	"mask_test.go TestASocketTheOwnersAccountCantReachDecidesNothing":            "\"can't open\" in a row's name, words for a person: the row builds a start's words on a fake file system and runs nothing",
 	"reportsh_test.go TestTheAppsReportShIsReadOnlyToEveryDesk":                  "Smolcorp.app/Contents/Resources/{bin/smolcorp,report.sh}: shell-script stand-ins in the test's temp folder for the resolver and the Policy's Decide, never run",
 	"shims_test.go TestTheAppsShimsAreReadOnlyToEveryDesk":                       "Smolcorp.app/Contents/Resources/{bin/smolcorp,shims}: a shell-script stand-in and a folder in the test's temp folder for the resolver and the Policy's Decide, never run",
-	"escape2_darwin_test.go headlessChrome":                                      "the owner's installed Google Chrome (or SMOLCORP_TEST_CHROME), its program run directly in the desk, never through LaunchServices, headless with a mock keychain and basic password store (_rules.md); it skips where there is none. A signed app the rules allow headless (RT126MACLAUNCH1)",
 	"escape2_darwin_test.go TestOnAMacOpenInADeskLaunchesNothing":                "open -g -j -n in a desk on Missing.app, checked missing before and after: the rules' probe of open on a missing path only, which leaves LaunchServices and Gatekeeper nothing to reach",
 	"escape2_darwin_test.go TestOnAMacAStandInWithAccessibilityCantUseItInADesk": "the hire's copy of the app, its open and its program: all after the row's SMOLCORP_STUDIO_ROWS=1 skip, which studioGated holds",
 
@@ -1102,7 +1101,6 @@ func (g guardFinding) allowed() (key string, ok bool) {
 // its bundle, which the guard holds as it holds a literal path of it (RT126ESCAPE2REFUSAL B1): without this list, any
 // row could start the owner's Chrome without spelling it.
 var chromeCallers = map[string]string{
-	"escape2_darwin_test.go normalWork":                           "its headless Chrome row, through w.work in a desk, with the rules' flags and a profile folder of the row's in the temp folder",
 	"escape3_darwin_test.go startRefusal":                         "the run-time gate: the Chrome form, in a desk only",
 	"escape3_darwin_test.go TestOnAMacNoRowHereOpensAnAppUngated": "the refusal rows' <chrome>, a stand-in path set in SMOLCORP_TEST_CHROME: words given to startRefusal only, never run",
 }
@@ -1424,9 +1422,10 @@ var refusalRows = []struct {
 }
 
 // deskFormRows are what startRefusal must say to its two forms that hold in a desk only, in a desk and outside one
-// (RT126ESCAPE2REFUSAL B1): given to it only, never run. chrome is SMOLCORP_TEST_CHROME for the row ("" for the
-// installed Google Chrome's path), and "<chrome>" in program what headlessChrome then gives; "<there>" is a temp
-// folder of the row's, holding "link", a link out of the temp folder. Each pair is {this Mac, the Studio}: refused?
+// (RT126ESCAPE2REFUSAL B1): given to it only, never run. chrome is SMOLCORP_TEST_CHROME for the row (a stand-in
+// Chrome's path in the row's temp folder, where the installed Google Chrome's was until FXCHROMEPOPUP: nothing is made
+// there), and "<chrome>" in program what headlessChrome then gives; "<there>" is a temp folder of the row's, holding
+// "link", a link out of the temp folder. Each pair is {this Mac, the Studio}: refused?
 var deskFormRows = []struct {
 	chrome, program string
 	args            []string
@@ -1446,30 +1445,30 @@ var deskFormRows = []struct {
 	{"", "/usr/bin/open", []string{"-g", "-j", "-n", "<there>/Missing.app", "--args"}, [2]bool{true, true}, [2]bool{true, true}},
 	{"", "/usr/bin/open", []string{"-n", "<there>/Missing.app", "--args", "x"}, [2]bool{true, true}, [2]bool{true, true}},
 	{"", "/usr/bin/open", []string{"-g", "-j", "-n", "<there>/Missing.app", "--args", "x", "y"}, [2]bool{true, true}, [2]bool{true, true}},
-	// Headless Chrome from its bundle (normalWork), in a desk, with the rules' flags and one profile folder in the temp
-	// folder; outside a desk, a bundle as any other: the Studio's.
-	{"", "<chrome>", []string{"--headless", "--no-sandbox", "--use-mock-keychain", "--password-store=basic",
+	// Headless Chrome from its bundle, in a desk, with the rules' flags and one profile folder in the temp folder;
+	// outside a desk, a bundle as any other: the Studio's.
+	{"<there>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", []string{"--headless", "--no-sandbox", "--use-mock-keychain", "--password-store=basic",
 		"--disable-features=DialMediaRouteProvider", "--user-data-dir=<there>/chrome", "--no-first-run",
 		"--no-default-browser-check", "--dump-dom", "data:text/html,<p>x</p>"}, [2]bool{false, false}, [2]bool{true, false}},
-	{"", "<chrome>", []string{"--no-sandbox", "--use-mock-keychain", "--password-store=basic",
+	{"<there>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", []string{"--no-sandbox", "--use-mock-keychain", "--password-store=basic",
 		"--disable-features=DialMediaRouteProvider", "--user-data-dir=<there>/chrome", "--no-first-run", "--no-default-browser-check"}, [2]bool{true, false}, [2]bool{true, false}},
-	{"", "<chrome>", []string{"--headless", "--use-mock-keychain", "--password-store=basic",
+	{"<there>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", []string{"--headless", "--use-mock-keychain", "--password-store=basic",
 		"--disable-features=DialMediaRouteProvider", "--no-first-run", "--no-default-browser-check"}, [2]bool{true, false}, [2]bool{true, false}},
 	{"", "/Applications/Safari.app/Contents/MacOS/Safari", []string{"--headless", "--use-mock-keychain", "--password-store=basic",
 		"--disable-features=DialMediaRouteProvider", "--user-data-dir=<there>/chrome", "--no-first-run", "--no-default-browser-check"}, [2]bool{true, false}, [2]bool{true, false}},
-	{"", "<chrome>", []string{"--headless", "--use-mock-keychain", "--password-store=basic", "--disable-features=DialMediaRouteProvider",
+	{"<there>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", []string{"--headless", "--use-mock-keychain", "--password-store=basic", "--disable-features=DialMediaRouteProvider",
 		"--user-data-dir=<there>/chrome", "--no-first-run", "--no-default-browser-check", "/usr/bin/open"}, [2]bool{true, true}, [2]bool{true, true}},
 	// RT126ESCAPE2REFUSAL B1: the profile folder is exactly one, and the row's own, in the temp folder (the review's
 	// M8 probe first: a profile folder outside it).
-	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=/nonexistent-rt126/Library/Chrome"), [2]bool{true, false}, [2]bool{true, false}},
-	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=chrome"), [2]bool{true, false}, [2]bool{true, false}},
-	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/x/../chrome"), [2]bool{true, false}, [2]bool{true, false}},
-	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/gone/chrome"), [2]bool{true, false}, [2]bool{true, false}},
-	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/link"), [2]bool{true, false}, [2]bool{true, false}},
-	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome", "--user-data-dir=/nonexistent-rt126/Library/Chrome"), [2]bool{true, false}, [2]bool{true, false}},
-	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome", "-user-data-dir=/nonexistent-rt126/Library/Chrome"), [2]bool{true, false}, [2]bool{true, false}},
-	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir", "<there>/chrome"), [2]bool{true, false}, [2]bool{true, false}},
-	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir="), [2]bool{true, false}, [2]bool{true, false}},
+	{"<there>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=/nonexistent-rt126/Library/Chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"<there>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"<there>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/x/../chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"<there>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/gone/chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"<there>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/link"), [2]bool{true, false}, [2]bool{true, false}},
+	{"<there>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome", "--user-data-dir=/nonexistent-rt126/Library/Chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"<there>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome", "-user-data-dir=/nonexistent-rt126/Library/Chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"<there>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir", "<there>/chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"<there>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir="), [2]bool{true, false}, [2]bool{true, false}},
 	// RT126ESCAPE2REFUSAL N3: SMOLCORP_TEST_CHROME gets the form only for a Chrome's or a Chromium's own bundle.
 	{"/Applications/Chromium.app/Contents/MacOS/Chromium", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome"), [2]bool{false, false}, [2]bool{true, false}},
 	{"/System/Applications/Calculator.app/Contents/MacOS/Calculator", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome"), [2]bool{true, false}, [2]bool{true, false}},

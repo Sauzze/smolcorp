@@ -602,6 +602,10 @@ func briefSandboxTools(goos string, sandboxed bool) string {
 	}
 	text := "\n## Tools with a sandbox of their own\n" +
 		"A tool's own sandbox can't start inside Smolcorp's, so turn it off when you run one of these:\n"
+	// The Chrome line's first claim (Google Chrome's own headless mode doesn't start here) rests on RT126SAM5 F1 and
+	// the 17 Nov "Google Chrome quit unexpectedly" reports; no row re-checks it, since FXCHROMEPOPUP took the installed
+	// Chrome out of every test (RT126CHROMEPOPUP (3)). What works is pinned with the opt-in's chrome-headless-shell
+	// (internal/sandbox/headlessshell_darwin_test.go).
 	if goos == "darwin" {
 		return text + "- **Swift:** `swift build`, `swift test`, `swift run` and `swift package` take `--disable-sandbox`, also when you call swift by its full path (`/usr/bin/swift`).\n" +
 			"- **Xcode:** add `ENABLE_USER_SCRIPT_SANDBOXING=NO` to the `xcodebuild` line.\n" +

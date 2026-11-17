@@ -18,7 +18,7 @@ import (
 func TestTheSetupPageStaysWhereYouScrolledThroughItsRefreshes(t *testing.T) {
 	chrome := headlessChrome()
 	if chrome == "" {
-		t.Skip("no Chrome or Chromium on this computer (SMOLCORP_TEST_CHROME names one)")
+		t.Skip("SMOLCORP_TEST_CHROME doesn't name a chrome-headless-shell: this test runs only on one named there")
 	}
 	d := newTestDeck(t)
 	d.config.GuideDone = true

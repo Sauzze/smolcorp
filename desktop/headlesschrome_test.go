@@ -44,7 +44,7 @@ func browserMargin(left time.Duration) time.Duration {
 	return min(30*time.Second, left/4)
 }
 
-// startHeadlessChrome starts chrome (a Chrome or Chromium, from headlessChrome) headless, with words after its own (a
+// startHeadlessChrome starts chrome (a chrome-headless-shell, from headlessChrome) headless, with words after its own (a
 // window size, the page's address), and kills it and all it started when the test ends, whatever way it ends. Never a
 // window, the Keychain or any other system dialog (_rules.md): a mock keychain, and a profile and a home of its own.
 func startHeadlessChrome(t *testing.T, chrome string, words ...string) *headlessBrowser {
@@ -61,8 +61,10 @@ func startBrowserUntil(t *testing.T, chrome string, until time.Time, words []str
 	t.Helper()
 	// Started as a plain program, by its path, never through LaunchServices: a bundle a test made would be checked by
 	// Gatekeeper, which shows a dialog on the owner's screen (VICTOR, 15 Nov). A stand-in is a script, never a .app.
-	if !installedOrNoBundle(chrome) {
-		t.Fatalf("%s is in a bundle that isn't an installed app's: a stand-in browser is a plain program, never an app bundle", chrome)
+	// And never the owner's own browser: refused here, before anything starts, whatever found it (FXCHROMEPOPUPR1).
+	if why := browserRefusal(chrome); why != "" {
+		t.Fatalf("refused before it started: %s %s. A test's browser is a chrome-headless-shell named in SMOLCORP_TEST_CHROME, "+
+			"or a stand-in it made in its temp folder, a plain program (FXCHROMEPOPUPR1)", chrome, why)
 	}
 	dir := t.TempDir()
 	b := &headlessBrowser{profile: filepath.Join(dir, "profile"), ended: make(chan struct{}), waited: make(chan error, 1)}
@@ -127,46 +129,70 @@ func (l *lockedBuffer) String() string {
 	return l.buf.String()
 }
 
-// headlessChrome is a Chrome or Chromium to run headless: SMOLCORP_TEST_CHROME, or one where it's usually installed.
+// headlessChrome is the browser a test runs headless: SMOLCORP_TEST_CHROME when it names a chrome-headless-shell, a
+// plain program in no bundle (on a Mac, scripts/fetch-headless-shell.sh DIR fetches the pinned one), or "", and the
+// test skips. It never looks for one, on the PATH or where browsers are installed: the owner's own Chrome is never a
+// test's (FXCHROMEPOPUP).
 func headlessChrome() string {
-	if named := os.Getenv("SMOLCORP_TEST_CHROME"); named != "" {
-		return named
+	named := os.Getenv("SMOLCORP_TEST_CHROME")
+	if strings.TrimSuffix(filepath.Base(named), ".exe") != "chrome-headless-shell" || bundlePath.MatchString(named) {
+		return ""
 	}
-	for _, name := range []string{"google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"} {
-		if found, err := exec.LookPath(name); err == nil {
-			return found
+	return named
+}
+
+// browserRefusal is why a test may not start program as its browser, or "" when it may (FXCHROMEPOPUPR1, SIERRA's
+// ruling on RT126CHROMEPOPUP B1): only a plain chrome-headless-shell (the opt-in's, SMOLCORP_TEST_CHROME) or a
+// stand-in the test made in its temp folder; never a program in a .app bundle or in an Applications folder (where the
+// owner's browsers are installed), nor a link to one. It reads the path's words and where a link goes, never runs it,
+// so a finder that falls back to the owner's browser (by another variable, a helper of the package's code, a command
+// on the PATH) fails its test instead of starting it.
+func browserRefusal(program string) string {
+	seen := []string{program}
+	if target, err := os.Readlink(program); err == nil {
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(program), target)
 		}
+		seen = append(seen, target)
 	}
-	paths := []string{"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium"}
-	for _, folder := range []string{"ProgramFiles", "ProgramFiles(x86)", "LocalAppData"} {
-		if at := os.Getenv(folder); at != "" {
-			paths = append(paths, filepath.Join(at, "Google", "Chrome", "Application", "chrome.exe"))
+	if resolved, err := filepath.EvalSymlinks(program); err == nil {
+		seen = append(seen, resolved)
+	}
+	applications := []string{"/Applications"}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		applications = append(applications, filepath.Join(home, "Applications"))
+	}
+	for _, at := range seen {
+		clean := filepath.Clean(at)
+		if bundlePath.MatchString(clean) {
+			return "is in an app bundle"
 		}
-	}
-	for _, path := range paths {
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			return path
+		for _, folder := range applications {
+			if under(clean, filepath.Clean(folder)) {
+				return "is in " + folder + ", where apps are installed"
+			}
+		}
+		if strings.TrimSuffix(filepath.Base(clean), ".exe") != "chrome-headless-shell" && !inTempFolder(clean) {
+			return "is neither a chrome-headless-shell nor in this test's temp folder"
 		}
 	}
 	return ""
 }
 
-// installedOrNoBundle is whether program is in no .app bundle, or in an installed app's (in /Applications, or in the
-// Applications of this account's home): one a test made, in a temp folder or anywhere else, is neither.
-func installedOrNoBundle(program string) bool {
-	if !bundlePath.MatchString(program) {
-		return true
+// under is whether path is folder or in it, any case (a Mac's disk doesn't tell /applications from /Applications).
+func under(path, folder string) bool {
+	path, folder = strings.ToLower(path), strings.ToLower(folder)
+	return path == folder || strings.HasPrefix(path, strings.TrimSuffix(folder, string(filepath.Separator))+string(filepath.Separator))
+}
+
+// inTempFolder is whether path is in the temp folder (t.TempDir's), as named or with its links followed.
+func inTempFolder(path string) bool {
+	temps := []string{os.TempDir()}
+	if resolved, err := filepath.EvalSymlinks(os.TempDir()); err == nil {
+		temps = append(temps, resolved)
 	}
-	roots := []string{"/Applications/"}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		roots = append(roots, filepath.Join(home, "Applications")+"/")
-	}
-	clean := filepath.Clean(program)
-	if made, err := filepath.Rel(os.TempDir(), clean); err == nil && !strings.HasPrefix(made, "..") {
-		return false
-	}
-	for _, root := range roots {
-		if strings.HasPrefix(clean, root) {
+	for _, temp := range temps {
+		if under(path, filepath.Clean(temp)) {
 			return true
 		}
 	}

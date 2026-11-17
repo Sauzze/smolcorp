@@ -525,14 +525,13 @@ func (w *workDesk) startAgent(t *testing.T) {
 
 func TestOnAMacNormalWorkRunsInADesksSandbox(t *testing.T) { normalWork(t, IOKitClasses()) }
 
-// headlessChrome is the Chrome program normal work runs headless: SMOLCORP_TEST_CHROME, or the owner's installed
-// Google Chrome. startRefusal lets it start in a desk only, with the words chromeRefusal takes; only the declarations
-// on chromeCallers may call it (TestOnAMacNoRowHereOpensAnAppUngated).
+// headlessChrome is the Chrome program startRefusal gives its desk form: SMOLCORP_TEST_CHROME, or "" when that's
+// unset. It never looks for one: the owner's installed Google Chrome, which it used to fall back to, aborted in a
+// desk's profile and put a "quit unexpectedly" dialog on the owner's screen at each run (FXCHROMEPOPUP). Normal work
+// runs chrome-headless-shell only (headlessShell). Only the declarations on chromeCallers may call it
+// (TestOnAMacNoRowHereOpensAnAppUngated).
 func headlessChrome() string {
-	if chrome := os.Getenv("SMOLCORP_TEST_CHROME"); chrome != "" {
-		return chrome
-	}
-	return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+	return os.Getenv("SMOLCORP_TEST_CHROME")
 }
 
 // normalWork runs the normal-work list, each row in a desk whose IOKit list is iokit, and says how each row ended:
@@ -713,42 +712,14 @@ func normalWork(t *testing.T, iokit []IOKitClass) map[string]string {
 		worked(t, "swift test --disable-sandbox", w.work(t, "", dir, 10*time.Minute, env, swift, "test", "--disable-sandbox"))
 	})
 	row("headless Chrome with --no-sandbox", func(t *testing.T) {
-		chrome := headlessChrome()
-		if _, err := os.Stat(chrome); err != nil {
-			required(t, "no Chrome here (SMOLCORP_TEST_CHROME names one): %v", err)
-		}
+		// chrome-headless-shell only, where SMOLCORP_TEST_CHROME names one (headlessShell): with no such flag the row
+		// skips, before it looks at any path. Never the owner's installed Chrome (FXCHROMEPOPUP). It runs in a desk as
+		// a hire's brief says, with its helpers inside it (headlessshell_darwin_test.go), and as that row runs it: its
+		// own process group, a watchdog, and pgrep after (CHROMEKILL1's rules, RT126HEADLESSSHELL1 nit 2).
+		chrome := headlessShell(t)
 		w := newWorkDesk(t, iokit)
-		// chrome-headless-shell runs in a desk as a hire's brief says, with its helpers inside it
-		// (headlessshell_darwin_test.go), and as that row runs it: its own process group, a watchdog, and pgrep after
-		// (CHROMEKILL1's rules, RT126HEADLESSSHELL1 nit 2). Chrome.app's headless mode has no such way.
-		if filepath.Base(chrome) == "chrome-headless-shell" {
-			if r := runHeadlessShell(t, w, w.profile, chrome, "--disable-gpu", "--dump-dom", "data:text/html,<p>in a desk</p>"); r.status != 0 || !strings.Contains(r.stdout, "<p>in a desk</p>") {
-				t.Fatalf("chrome-headless-shell --single-process under the desk's profile: status %d (%s)", r.status, tail(r.stderr))
-			}
-			return
-		}
-		// Never a window, never the Keychain (_rules.md): headless, a mock keychain, its own profile folder. Nothing to
-		// the network either: no background requests, no component updates.
-		dump := func(profile, folder string) ran {
-			return w.work(t, profile, w.root, 90*time.Second, []string{pathOf()}, chrome, "--headless", "--no-sandbox", "--use-mock-keychain",
-				"--password-store=basic", "--disable-features=DialMediaRouteProvider", "--user-data-dir="+filepath.Join(w.base, folder),
-				"--no-first-run", "--no-default-browser-check", "--disable-background-networking", "--disable-component-update",
-				"--disable-gpu", "--dump-dom", "data:text/html,<p>in a desk</p>")
-		}
-		if r := dump("", "chrome"); r.status == 0 && strings.Contains(r.stdout, "<p>in a desk</p>") {
-			return
-		} else {
-			t.Logf("headless Chrome under the desk's profile: status %d (%s)", r.status, tail(r.stderr))
-		}
-		// It didn't run. The same profile with every Mach service allowed tells whether the list is all that stops it:
-		// if so, what it needs is off the list on purpose (it is named in the report, never added); if not, something
-		// else of the profile's stops it, and that fails here.
-		if r := dump(w.appended(t, "every-mach-service.sb", "(allow mach-lookup) ; a probe: is the Mach list all that stops it?"), "chrome2"); r.status != 0 || !strings.Contains(r.stdout, "<p>in a desk</p>") {
-			t.Errorf("headless Chrome fails in a desk for more than the Mach list: %+v", r)
-		} else {
-			t.Log("COST: headless Chrome here needs Mach services that stay off the list (the WindowServer's, LaunchServices'); " +
-				"it runs in a desk only once they are allowed: see T126SAM5-report, for SIERRA. chrome-headless-shell with " +
-				"--single-process runs in a desk with the lists as they are (T126HEADLESSSHELL1)")
+		if r := runHeadlessShell(t, w, w.profile, chrome, "--disable-gpu", "--dump-dom", "data:text/html,<p>in a desk</p>"); r.status != 0 || !strings.Contains(r.stdout, "<p>in a desk</p>") {
+			t.Fatalf("chrome-headless-shell --single-process under the desk's profile: status %d (%s)", r.status, tail(r.stderr))
 		}
 	})
 	return ended
