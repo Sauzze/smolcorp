@@ -557,6 +557,9 @@ func TestTheKeptTokensFileIsNeverWrittenThroughAnotherOne(t *testing.T) {
 	if _, err := os.Lstat(path + ".tmp"); !errors.Is(err, os.ErrNotExist) {
 		t.Error("the temp file is left")
 	}
+	if left, _ := filepath.Glob(path + ".*.tmp"); len(left) != 0 {
+		t.Errorf("the temp file is left: %v", left)
+	}
 	if runtime.GOOS == "windows" {
 		return
 	}

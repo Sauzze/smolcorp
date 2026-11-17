@@ -3,6 +3,7 @@ package desktop
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"slices"
@@ -151,6 +152,9 @@ func TestSavingLeavesNoHalfWrittenConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(configFile + ".tmp"); err == nil {
 		t.Fatal("the file it was written through was left behind")
+	}
+	if left, _ := filepath.Glob(configFile + ".*.tmp"); len(left) != 0 {
+		t.Fatalf("the file it was written through was left behind: %v", left)
 	}
 }
 

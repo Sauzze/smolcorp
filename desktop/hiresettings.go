@@ -340,11 +340,11 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 	// The secrets of both engines a Mac may run (the Swift app's gm-session and hook-header, the Go
 	// engine's hook-key and window-key), in the order the Mac's fence has always had (the fixtures,
 	// Tests/fixtures/frontdesk): one file either way.
-	// Then the owner's grant record (grants.go): its key's name, kept off the disk, and the file it is written
-	// through (grants.jsonl itself is a *.jsonl); the paired phones' seal's key (access.go: phones.json itself
-	// is a *.json); and which Claude Code the owner has (agentcheck.go: one a hire wrote "npm" in would let an
-	// unsigned Claude Code start after a signed one, at the next start), and the file it is written through,
-	// whether or not they are there yet.
+	// Then the owner's grant record (grants.go): its key's name, kept off the disk, and the fixed name it was
+	// written through before writePrivate took a random one, as one may be left there (grants.jsonl itself is a
+	// *.jsonl); the paired phones' seal's key (access.go: phones.json itself is a *.json); and which Claude Code the
+	// owner has (agentcheck.go: one a hire wrote "npm" in would let an unsigned Claude Code start after a signed one,
+	// at the next start), and its old fixed name too, whether or not they are there yet.
 	for _, pattern := range []string{"*.json", "*.sh", "*.md", "*.log", "*.jsonl", "gm-token", "gm-session", "setup-key", "hook-header", "hook-key", "window-key", "token", "grants-key", "grants.jsonl.tmp", phoneSealName, claudeInstallName, claudeInstallTemp} {
 		both(root + "/" + pattern)
 	}
@@ -371,8 +371,9 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 			both(root + "/" + name + "/**")
 		}
 	}
-	// Which Claude Code the owner has, and the file it is written through, as folders too, listed even when absent
-	// now: a folder a hire left in either's place would stop "signed" from ever reaching the disk (RT126SG2F B1).
+	// Which Claude Code the owner has, and its old fixed name, as folders too, listed even when absent now: a folder a
+	// hire left in its place would stop "signed" from ever reaching the disk (RT126SG2F B1). One at the old name no
+	// longer stops it (writePrivate writes through a random name now), and is fenced all the same.
 	for _, name := range []string{claudeInstallName, claudeInstallTemp} {
 		if !has(entries, name) {
 			both(root + "/" + name + "/**")
@@ -423,10 +424,10 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 			rules = append(rules, rule)
 		}
 	}
-	// The GM's token, kept in a file on a computer whose secret store can't keep it (gmtokenstore.go), and the file
-	// it is written through: on Linux and Windows always, whether or not it is there yet, since a GM hired after this
-	// hire makes it. A Mac never keeps it there, so its fence is unchanged. So is the push key (pushkey.go), which
-	// signs every notification, and the file it is written through.
+	// The GM's token, kept in a file on a computer whose secret store can't keep it (gmtokenstore.go), and the fixed
+	// name an older Smolcorp wrote it through: on Linux and Windows always, whether or not it is there yet, since a GM
+	// hired after this hire makes it. A Mac never keeps it there, so its fence is unchanged. So is the push key
+	// (pushkey.go), which signs every notification, and its old fixed name.
 	if system != "darwin" {
 		for _, name := range []string{keptGMTokenName, keptGMTokenTemp, keptPushKeyName, keptPushKeyName + ".tmp"} {
 			rules = append(rules, "Edit("+root+"/"+name+")", "Read("+root+"/"+name+")")

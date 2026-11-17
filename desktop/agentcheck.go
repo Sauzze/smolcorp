@@ -93,8 +93,9 @@ const (
 // for config.json's security settings.
 var claudeInstalls = &claudeInstallMemory{}
 
-// claudeInstallName is the support folder's file the kind is remembered in; claudeInstallTemp the file it is written
-// through (writePrivate, paths.go).
+// claudeInstallName is the support folder's file the kind is remembered in, written through a new file with a random
+// name (writePrivate, paths.go); claudeInstallTemp the fixed name an older Smolcorp wrote it through, still fenced,
+// since one may be left there.
 const (
 	claudeInstallName = "claude-install"
 	claudeInstallTemp = claudeInstallName + ".tmp"

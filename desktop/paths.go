@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Sauzze/smolcorp/internal/appdirs"
@@ -91,18 +92,31 @@ func useSupportDir(dir string) {
 // on a Mac (AgentDeck), so the setup key is found there.
 func supportDirName(goos string) string { return appdirs.Name(goos) }
 
-// writePrivate writes a file only its owner can read, as the keys need: to a file beside it, then put in its
-// place. The temp file is set to 0600 once open, before any of the data goes in, so one left by a crash with a
-// wider mode is never what lands in the key's place.
+// writePrivate writes a file only its owner can read, as the keys need: to a new file beside it, then put in its
+// place. The new file is named after the file with a random part (`<name>.<random>.tmp`, os.CreateTemp's), so no
+// one can make it first: it's made by this call alone (O_EXCL), and a file, folder or link at any name that could be
+// guessed beforehand is never written through and stops nothing. It's 0600 from the start, set so again once open,
+// before any of the data goes in, synced to the disk, then renamed over the file: a link at the file's own name is
+// replaced, never followed. On any failure it's taken away. One left by an older Smolcorp at the fixed name it wrote
+// through (`<name>.tmp`) is taken away too, never opened.
 func writePrivate(path string, data []byte) error {
-	temp := path + ".tmp"
-	file, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	_ = os.Remove(path + ".tmp")
+	if refuse := privateWriteRefused.Load(); refuse != nil {
+		if err := (*refuse)(path); err != nil {
+			return err
+		}
+	}
+	file, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return err
 	}
+	temp := file.Name()
 	err = file.Chmod(0o600)
 	if err == nil {
 		_, err = file.Write(data)
+	}
+	if err == nil {
+		err = file.Sync()
 	}
 	if closed := file.Close(); err == nil {
 		err = closed
@@ -115,3 +129,7 @@ func writePrivate(path string, data []byte) error {
 	}
 	return err
 }
+
+// privateWriteRefused, while a test sets it, says which private writes fail before anything is made, as on a full
+// disk: the error for a path, or nil to let it through. Nil, as outside a test, lets every write through.
+var privateWriteRefused atomic.Pointer[func(path string) error]

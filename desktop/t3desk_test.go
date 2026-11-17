@@ -1374,14 +1374,11 @@ func TestT3AThreadTheRegistryCantKeepIsTakenBack(t *testing.T) {
 
 	h := r.t3Hire(r.worktree())
 	t3Registered(t, h)
-	blocker := registryPath() + ".tmp"
-	if err := os.Mkdir(blocker, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	allow := refusePrivateWrites(t, registryPath())
 	if t3MarkFailed(registryPath(), h.ID, "why") == nil {
 		t.Error("an unwritten registry said nothing")
 	}
-	_ = os.Remove(blocker)
+	allow()
 	if err := t3MarkFailed(registryPath(), h.ID, "why"); err != nil {
 		t.Error(err)
 	}

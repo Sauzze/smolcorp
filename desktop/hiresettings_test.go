@@ -356,9 +356,43 @@ func TestAHireCantWriteWhichClaudeCodeTheOwnerHas(t *testing.T) {
 	}
 }
 
-// RT126SG2F: a folder left where claude-install is written through stops the write; that is said, never silent, and
-// the kind still holds while Smolcorp runs.
+// RT126SG2F: a folder left where claude-install goes stops the write; that is said, never silent, and the kind still
+// holds while Smolcorp runs. (Since FXWRITEPRIVATE it is written through a random name, so a folder at the fixed name
+// it was written through before stops nothing: TestAFolderAtClaudeInstallsOldTempNameStopsNothing.)
 func TestAClaudeInstallThatCantBeWrittenIsSaid(t *testing.T) {
+	var said []string
+	saved := sayClaudeInstall
+	sayClaudeInstall = func(text string) { said = append(said, text) }
+	t.Cleanup(func() { sayClaudeInstall = saved })
+	support := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(support, claudeInstallName, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	m := &claudeInstallMemory{path: filepath.Join(support, claudeInstallName)}
+	m.keep(claudeSigned)
+	if m.kind != claudeSigned {
+		t.Errorf("in memory: %q", m.kind)
+	}
+	if info, err := os.Stat(m.path); err != nil || !info.IsDir() {
+		t.Error("written after all")
+	}
+	if len(said) != 1 || !strings.Contains(said[0], "couldn't be written down") || !strings.Contains(said[0], m.path) {
+		t.Errorf("said: %q", said)
+	}
+	// Kept as it was, nothing more is said; a write that works says nothing.
+	m.keep(claudeSigned)
+	if err := os.RemoveAll(m.path); err != nil {
+		t.Fatal(err)
+	}
+	m.keep(claudeUnsigned)
+	if data, err := os.ReadFile(m.path); err != nil || string(data) != claudeUnsigned+"\n" || len(said) != 1 {
+		t.Errorf("after the folder is gone: %q %v, said %q", data, err, said)
+	}
+}
+
+// FXWRITEPRIVATE: a folder a hire left at the fixed name claude-install was written through before stops nothing now,
+// and nothing is said.
+func TestAFolderAtClaudeInstallsOldTempNameStopsNothing(t *testing.T) {
 	var said []string
 	saved := sayClaudeInstall
 	sayClaudeInstall = func(text string) { said = append(said, text) }
@@ -369,23 +403,8 @@ func TestAClaudeInstallThatCantBeWrittenIsSaid(t *testing.T) {
 	}
 	m := &claudeInstallMemory{path: filepath.Join(support, claudeInstallName)}
 	m.keep(claudeSigned)
-	if m.kind != claudeSigned {
-		t.Errorf("in memory: %q", m.kind)
-	}
-	if _, err := os.Stat(m.path); err == nil {
-		t.Error("written after all")
-	}
-	if len(said) != 1 || !strings.Contains(said[0], "couldn't be written down") || !strings.Contains(said[0], claudeInstallTemp) {
-		t.Errorf("said: %q", said)
-	}
-	// Kept as it was, nothing more is said; a write that works says nothing.
-	m.keep(claudeSigned)
-	if err := os.RemoveAll(filepath.Join(support, claudeInstallTemp)); err != nil {
-		t.Fatal(err)
-	}
-	m.keep(claudeUnsigned)
-	if data, err := os.ReadFile(m.path); err != nil || string(data) != claudeUnsigned+"\n" || len(said) != 1 {
-		t.Errorf("after the folder is gone: %q %v, said %q", data, err, said)
+	if data, err := os.ReadFile(m.path); err != nil || string(data) != claudeSigned+"\n" || len(said) != 0 {
+		t.Errorf("past a folder at %s: %q %v, said %q", claudeInstallTemp, data, err, said)
 	}
 }
 

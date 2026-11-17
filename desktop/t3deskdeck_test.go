@@ -310,11 +310,8 @@ func TestT3LetGoWhoseRegistryCantBeWrittenSaysSo(t *testing.T) {
 	t.Cleanup(func() { newT3Machine, t3Stand = keptMachine, keptStand })
 	d := newTestDeck(t)
 	t3Registered(t, h)
-	// The registry's temp file can't be made: a folder is where it goes.
-	blocker := registryPath() + ".tmp"
-	if err := os.Mkdir(blocker, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	// The registry can't be written: its new file can't be made, as on a full disk.
+	allow := refusePrivateWrites(t, registryPath())
 	got := serve(t, d, t3PageCall("POST", "/setup/t3code/letgo", `{"id":"`+h.ID+`"}`))
 	if got.Code != http.StatusInternalServerError || got.Body.String() != "Ada was let go from T3 Code, but the registry couldn't be written, so it's still on the team: let it go again." {
 		t.Errorf("%d %s", got.Code, got.Body)
@@ -322,7 +319,7 @@ func TestT3LetGoWhoseRegistryCantBeWrittenSaysSo(t *testing.T) {
 	if still, _ := registryHire(h.ID); !isOpen(still) {
 		t.Errorf("%+v", still)
 	}
-	_ = os.Remove(blocker)
+	allow()
 	if got := serve(t, d, t3PageCall("POST", "/setup/t3code/letgo", `{"id":"`+h.ID+`"}`)); got.Code != http.StatusOK {
 		t.Errorf("again: %d %s", got.Code, got.Body)
 	}

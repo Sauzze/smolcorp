@@ -63,8 +63,9 @@ func gmStoreFor(h hostBridge) gmTokenStore {
 // errGMTokenUnreadable: the Mac app has the GM's token in its Keychain item, but couldn't read it.
 var errGMTokenUnreadable = errors.New("the GM's token couldn't be read from the Keychain")
 
-// keptGMTokenName is the file the token is kept in on a computer whose secret store can't keep it, written whole to
-// keptGMTokenTemp first.
+// keptGMTokenName is the file the token is kept in on a computer whose secret store can't keep it, written whole to a
+// new file beside it first (writePrivate); keptGMTokenTemp is the fixed name an older Smolcorp wrote it through, still
+// fenced, since one may be left there.
 const (
 	keptGMTokenName = "gm-token-kept"
 	keptGMTokenTemp = keptGMTokenName + ".tmp"
@@ -119,32 +120,10 @@ func storeOrFileWhere(store secretStore, path func() string, none func(error) bo
 	}
 }
 
-// writeKeptToken writes data to path through a new file beside it, path's name with ".tmp": made by this call alone,
-// only its owner can read it, and a link put there is never followed. One left behind is taken away first.
-func writeKeptToken(path string, data []byte) error {
-	temp := path + ".tmp"
-	if err := os.Remove(temp); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	f, err := os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|noFollow, 0o600)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(data)
-	if err == nil {
-		err = f.Sync()
-	}
-	if closed := f.Close(); err == nil {
-		err = closed
-	}
-	if err == nil {
-		err = os.Rename(temp, path)
-	}
-	if err != nil {
-		_ = os.Remove(temp)
-	}
-	return err
-}
+// writeKeptToken writes data to path as writePrivate does: through a new file beside it with a random name, made by
+// this call alone, only its owner can read it, and a link put at any name is never followed. One left behind at the
+// fixed name an older Smolcorp wrote through (keptGMTokenTemp's form) is taken away first.
+func writeKeptToken(path string, data []byte) error { return writePrivate(path, data) }
 
 // gmTokenRetry is how long the keeper waits before it tries a write that failed again, doubled after each failure
 // up to gmTokenRetryMost; a change asked meanwhile, or a quit, tries again at once.
