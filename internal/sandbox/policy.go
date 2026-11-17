@@ -392,7 +392,12 @@ func build(pl Places) (*Policy, error) {
 	if goos == "" {
 		goos = runtime.GOOS
 	}
-	b := &builder{goos: goos}
+	b := &builder{goos: goos, home: key(goos, pl.Home)}
+	for _, place := range []string{pl.Root, pl.Checkout, pl.HiresFolder, pl.GMFolder} {
+		if k := key(goos, place); k != "" {
+			b.work = append(b.work, k)
+		}
+	}
 	supports := append([]string{pl.Support}, pl.OtherSupports...)
 	for _, place := range append([]string{pl.Home, pl.Root}, supports...) {
 		if key(goos, place) == "" {
@@ -449,14 +454,18 @@ func build(pl Places) (*Policy, error) {
 	plants := []string{".zshrc", ".zshenv", ".zprofile", ".zlogin", ".zlogout", ".bashrc", ".bash_profile", ".bash_login",
 		".bash_logout", ".profile", ".gitconfig", ".tmux.conf", ".ssh/config", ".ssh/rc"}
 	for _, name := range plants {
-		b.add(Rule{Row: "plants the owner's programs run later", Path: join(home, name), Write: Deny})
+		var more []string
+		if name == ".zshrc" {
+			more = omzNames
+		}
+		b.ownersBeside(Rule{Row: "plants the owner's programs run later", Path: join(home, name), Write: Deny}, more...)
 	}
 	for _, folder := range []string{".config/fish", "Library/LaunchAgents", ".config/autostart", ".config/systemd/user", ".config/git", ".config/tmux"} {
 		b.add(Rule{Row: "plants the owner's programs run later", Path: join(home, folder), Below: true, Write: Deny})
 	}
 	b.add(Rule{Row: "plants the owner's programs run later", Path: join(home, ".ssh"), Tail: "authorized_keys*", Write: Deny})
 	for _, file := range pl.GitConfigs {
-		b.add(Rule{Row: "plants the owner's programs run later: git's other config", Path: file, Write: Deny})
+		b.ownersBeside(Rule{Row: "plants the owner's programs run later: git's other config", Path: file, Write: Deny})
 	}
 	// What the owner's git config names for git to run or read as config (GITCFG1). A hooks folder is denied whole: a
 	// hook may run what is beside it (husky's hooks source its `h`). ReadGitConfig gives the folders beside which a hook
@@ -465,7 +474,7 @@ func build(pl Places) (*Policy, error) {
 		b.add(Rule{Row: "plants the owner's programs run later: git's hooks folder", Path: folder, Below: true, Write: Deny})
 	}
 	for _, file := range pl.GitNamed {
-		b.add(Rule{Row: "plants the owner's programs run later: what git's config names", Path: file, Write: Deny})
+		b.ownersBeside(Rule{Row: "plants the owner's programs run later: what git's config names", Path: file, Write: Deny})
 	}
 	if goos == "darwin" {
 		for _, folder := range []string{"/usr/lib/cron/tabs", "/private/var/at"} {
@@ -475,13 +484,18 @@ func build(pl Places) (*Policy, error) {
 	for _, account := range append([]string{join(home, ".claude")}, pl.Accounts...) {
 		b.add(Rule{Row: "the account folders", Path: account, Below: true, Read: Allow, Write: Deny})
 		for _, secret := range []string{"ide", ".credentials.json", "history.jsonl", "projects", "sessions"} {
-			b.add(Rule{Row: "the account folders' tokens and history", Path: join(account, secret), Below: true, Read: Deny, Write: Deny})
+			r := Rule{Row: "the account folders' tokens and history", Path: join(account, secret), Below: true, Read: Deny, Write: Deny}
+			if strings.Contains(secret, ".") {
+				b.beside(r, anyAfter) // a file: read in its temporary copy as much as in place
+			} else {
+				b.add(r)
+			}
 		}
 		b.add(Rule{Row: "the accounts' .claude.json", Path: account, Tail: ".claude.json*", Read: Deny, Write: Deny})
 	}
 	b.add(Rule{Row: "the accounts' .claude.json", Path: join(home), Tail: ".claude.json*", Read: Deny, Write: Deny})
 	for _, file := range CredentialFiles(home) {
-		b.add(Rule{Row: "other agents' sign-ins", Path: file, Read: Deny, Write: Deny})
+		b.beside(Rule{Row: "other agents' sign-ins", Path: file, Read: Deny, Write: Deny}, anyAfter)
 	}
 	if goos == "linux" {
 		for _, file := range []string{join(home, ".Xauthority"), pl.XAuthority} {
@@ -515,7 +529,7 @@ func build(pl Places) (*Policy, error) {
 		// from, for the owner's checkout as for a worktree, and `gitdir` is denied with it. `info` holds `alternates`
 		// too, should a git read it there; `objects/info` holds `alternates` and `http-alternates`.
 		for _, name := range []string{"config", "config.worktree", "index", "HEAD", "commondir", "gitdir"} {
-			b.add(Rule{Row: "the shared git places", Path: join(git, name), Write: Deny})
+			b.beside(Rule{Row: "the shared git places", Path: join(git, name), Write: Deny}, gitLock)
 		}
 		for _, folder := range []string{"hooks", "info", "objects/info"} {
 			b.add(Rule{Row: "the shared git places", Path: join(git, folder), Below: true, Write: Deny})
@@ -554,7 +568,7 @@ func build(pl Places) (*Policy, error) {
 		worktrees := join(git, "worktrees")
 		b.add(Rule{Row: "the shared git places: a worktree's registration", Path: worktrees, Tail: "*", Write: Deny})
 		for _, name := range []string{"commondir", "gitdir", "config.worktree"} {
-			b.add(Rule{Row: "the shared git places: where a worktree finds them", Path: worktrees, Tail: "*/" + name, Write: Deny})
+			b.beside(Rule{Row: "the shared git places: where a worktree finds them", Path: worktrees, Tail: "*/" + name, Write: Deny}, gitLock)
 		}
 		// The .git at the desk's place: in a worktree, the file that names its registration (and so the shared .git);
 		// at the project, the shared .git itself.
@@ -565,10 +579,12 @@ func build(pl Places) (*Policy, error) {
 			}
 		}
 		// The base branches stay the owner's to move (SIERRA, 14 Nov): a hire's commits go on its own branch.
-		b.add(Rule{Row: "the base branches", Path: join(git, "packed-refs"), Write: Deny})
+		// packed-refs' lock is only held, never renamed onto it (git 2.55 renames packed-refs.new), and a desk's own
+		// commit, rebase and branch deletion take it, to drop a ref from it: it stays the desk's (FXLOCKSIBLINGS).
+		b.beside(Rule{Row: "the base branches", Path: join(git, "packed-refs"), Write: Deny}, gitNew)
 		for _, branch := range []string{"main", "master", pl.DefaultBranch} {
 			if branch != "" {
-				b.add(Rule{Row: "the base branches", Path: join(git, "refs/heads", branch), Write: Deny})
+				b.beside(Rule{Row: "the base branches", Path: join(git, "refs/heads", branch), Write: Deny}, gitLock)
 			}
 		}
 		b.add(Rule{Row: "the base branches", Path: join(git, "refs/heads/release"), Below: true, Write: Deny})
@@ -589,11 +605,11 @@ func build(pl Places) (*Policy, error) {
 		// Linux's view isn't changed here (FXREPLACEREFS' report lists it for the VM).
 		if goos == "darwin" {
 			b.add(Rule{Row: rowSubstitutions, Path: join(git, "refs/replace"), Below: true, Write: Deny})
-			b.add(Rule{Row: rowSubstitutions, Path: join(git, "shallow"), Write: Deny})
+			b.beside(Rule{Row: rowSubstitutions, Path: join(git, "shallow"), Write: Deny}, gitLock)
 			b.add(Rule{Row: rowSubstitutions, Path: join(git, "objects/pack"), Tail: "multi-pack-index*", Below: true, Write: Deny})
 			for _, branch := range []string{"main", "master", pl.DefaultBranch} {
 				if branch != "" {
-					b.add(Rule{Row: rowBaseReflogs, Path: join(git, "logs/refs/heads", branch), Write: Deny})
+					b.beside(Rule{Row: rowBaseReflogs, Path: join(git, "logs/refs/heads", branch), Write: Deny}, gitLock)
 				}
 			}
 			b.add(Rule{Row: rowBaseReflogs, Path: join(git, "logs/refs/heads/release"), Below: true, Write: Deny})
@@ -611,8 +627,8 @@ func build(pl Places) (*Policy, error) {
 
 	// Anywhere: the fences, and the folders a desk's place hangs from.
 	b.add(Rule{Row: "a .claude folder can't be made, moved or removed", Tail: "**/.claude", Write: Deny})
-	b.add(Rule{Row: "fences and hooks", Tail: "**/.claude/settings.json", Write: Deny})
-	b.add(Rule{Row: "fences and hooks", Tail: "**/.claude/settings.local.json", Write: Deny})
+	b.beside(Rule{Row: "fences and hooks", Tail: "**/.claude/settings.json", Write: Deny}, anyAfter)
+	b.beside(Rule{Row: "fences and hooks", Tail: "**/.claude/settings.local.json", Write: Deny}, anyAfter)
 	for _, place := range append([]string{pl.Root, pl.Checkout}, supports...) {
 		for folder := spell(goos, place); place != ""; folder = parent(folder) {
 			b.add(Rule{Row: "a desk's place and the folders above it can't be moved or removed", Path: folder, Write: Deny})
@@ -654,7 +670,14 @@ func build(pl Places) (*Policy, error) {
 	}
 	claude := join(own, "claude")
 	b.add(Rule{Row: "its own Claude folder", Path: claude, Below: true, Read: Allow, Write: Allow, Opens: opens})
-	b.add(Rule{Row: "its own Claude folder's fence", Path: claude, Tail: "settings*.json", Read: Allow, Write: Deny, Opens: opens})
+	b.beside(Rule{Row: "its own Claude folder's fence", Path: claude, Tail: "settings*.json", Read: Allow, Write: Deny, Opens: opens}, anyAfter)
+	// The core's own copy of it, made beside it and renamed over it at a start when it has a second name (freshCopy,
+	// desktop/sandboxstart.go): a desk's process still running from the last start could open it there. The core's
+	// other names of this kind (`.<name>.<id>`, `.sandbox-*.sb`) are in its own folder, which the support folder's row
+	// holds whole: none ends in .md.
+	if goos == "darwin" {
+		b.add(Rule{Row: "its own Claude folder's fence", Path: claude, Tail: ".settings*.json.fresh-*", Read: Allow, Write: Deny, Opens: opens})
+	}
 	for _, link := range []string{"CLAUDE.md", "commands", "agents", "skills", "plugins", "output-styles"} {
 		b.add(Rule{Row: "the links the core put in its Claude folder", Path: join(claude, link), Below: true, Read: Allow, Write: Deny, Opens: opens})
 	}
@@ -696,6 +719,12 @@ type builder struct {
 	goos  string
 	rules []Rule
 	err   error
+	// inFolder is the writers' names of their own each folder has a row for already (inFolder).
+	inFolder map[[2]string]bool
+	// work is the keys of the places a desk works in (Root, Checkout, the hires and GM folders), and home the home
+	// folder's: where ownName adds no name (FXLOCKSIBLINGSR2).
+	work []string
+	home string
 }
 
 // add puts r last. A place that isn't whole fails the whole Policy: it would otherwise read as anywhere. So, on a Mac,
@@ -721,6 +750,144 @@ func (b *builder) add(r Rule) {
 	}
 	r.key, r.tail = foldName(b.goos, r.Path), foldName(b.goos, r.Tail)
 	b.rules = append(b.rules, r)
+}
+
+// What a denied file's writers write first, then rename over it (FXLOCKSIBLINGS), as beside takes them.
+const (
+	// gitLock is git's lock file, `<name>.lock`: every file git rewrites (a ref, HEAD, the index, a config, shallow, a
+	// reflog it expires) is written there whole, then renamed onto its place.
+	gitLock = ".lock"
+	// gitNew is packed-refs' new copy, `packed-refs.new`, which git writes and renames onto packed-refs while it
+	// holds packed-refs.lock (git 2.55).
+	gitNew = ".new"
+	// anyAfter is every name that starts with the file's: beside a sign-in or a fence, where no name is a desk's.
+	anyAfter = "*"
+)
+
+// ownersNames are the names the owner's programs write beside a plant or a git config file they keep whole, then
+// rename onto it: git's lock (`git config --global`, `--system`, `--file`), a `.new` copy, `<name>.tmp` (the core's
+// writePrivate) and `<name>.tmp.<pid>.<time>` (Claude Code's, Node's), `<name>.<random>.tmp` (the core's own
+// os.CreateTemp: writeClaudeJSON, writeSettings, accounthooks.go) and JetBrains' safe write, `<name>___jb_tmp___`. A
+// neighbour's name stays the desk's (`<name>.bak`, `<name>-notes`), and so does an editor's backup (`<name>~`), the old
+// copy, which nothing renames back. npm's write-file-atomic names its copy `<name>.<hash>`, which no Tail can tell from
+// `<name>.bak` (a Tail has no `[0-9a-f]`): the report of FXLOCKSIBLINGS lists it.
+var ownersNames = []string{gitLock, gitNew, ".tmp*", ".*.tmp", "___jb_tmp___"}
+
+// ownersAround are the owner's programs' names that start before a plant's or a git config's own (FXLOCKSIBLINGSR1),
+// each a name's start and its end: macOS's sed -i (`/usr/bin/sed` with an empty suffix, the usual way to edit a
+// dotfile, in setup and uninstall scripts) writes `.!<pid>!<name>`, and mise's dotfiles (`mise bootstrap dotfiles
+// add`, `apply`) write `.<name>.tmp.<pid>.<n>`, each then renamed onto the file (both seen on this Mac:
+// RT126LOCKSIBLINGS' B1, FXLOCKSIBLINGSR1's report).
+var ownersAround = [][2]string{{".!*!", ""}, {".", ".tmp.*"}}
+
+// ownersInFolder are names of their own the owner's programs write in a plant's or a git config's folder, whatever
+// its name, then rename onto it (FXLOCKSIBLINGSR1, seen on this Mac): install(1)'s `INS@` and six random characters
+// (`install -m 644 zshrc ~/.zshrc`, with or without -S), and perl -i's `XX` and six (perl 5.34). Python's tempfile, a
+// Rust tempfile and the like have a random name with no fixed part: the report lists them (R1).
+var ownersInFolder = []string{"INS@??????", perlTemp}
+
+// perlTemp is perl -i's name. perl makes it in the edited file's folder whatever the file, and when it can't, only
+// warns, leaves the file as it was and exits 0: a desk's edit is lost with no error (RT126LOCKSIBLINGSR2's B2).
+const perlTemp = "XX??????"
+
+// ownersNotInHome are the names of ownersInFolder ownName leaves out of the home folder itself (SIERRA's ruling on
+// RT126LOCKSIBLINGSR2's B2): a desk's perl -pi of its own file in ~ must work. perl -i's race on a plant there is
+// listed with Python's and Rust's tempfile (R1). install(1) copies in place inside a desk, so its name costs nothing.
+var ownersNotInHome = []string{perlTemp}
+
+// omzNames are oh-my-zsh's names beside ~/.zshrc (RT126LOCKSIBLINGS' B1): its installer writes `.zshrc-omztemp` and
+// moves it onto ~/.zshrc, and its uninstaller moves the old one, kept as `.zshrc.pre-oh-my-zsh`, back onto ~/.zshrc.
+var omzNames = []string{"-omztemp", ".pre-oh-my-zsh"}
+
+// ownersBeside adds r, a plant or a git config, and on a Mac r again at each name the owner's programs write and then
+// rename onto it: ownersNames and more after its name, ownersAround around it, and ownersInFolder in its folder.
+func (b *builder) ownersBeside(r Rule, more ...string) {
+	b.beside(r, append(slices.Clone(ownersNames), more...)...)
+	for _, a := range ownersAround {
+		b.around(r, a[0], a[1])
+	}
+	for _, name := range ownersInFolder {
+		b.ownName(r, name)
+	}
+}
+
+// beside adds r, and on a Mac r again for each of after, its writers' names beside its place (above): the same row,
+// so each is denied as the file is (FXLOCKSIBLINGS). Seatbelt checks a write when a file is opened, not when it is
+// renamed onto: a desk that opens such a name while the owner's git or another program of the owner's has it there
+// keeps a handle on it, and once the owner's program renames it into place the desk writes the denied file through
+// that handle (`main` moved, the shared config changed: RT126REPLACEREFS), or reads a denied file's new copy as it is
+// written. A name is put after a file's Path, or after its Tail; a pattern after a Path whose last name a Tail can't
+// hold (`[`, `]` or `\`) is left out, its plain names kept. A writer whose temporary file has a name of its own (a
+// random one in the same folder, or in another folder the desk can write) can't be denied by name: its folder must be
+// held, and the report of FXLOCKSIBLINGS lists those. Linux's view and Windows' jail are made from other rows: the
+// report lists them for the VM.
+func (b *builder) beside(r Rule, after ...string) {
+	b.add(r)
+	if b.goos != "darwin" {
+		return
+	}
+	for _, a := range after {
+		b.around(r, "", a)
+	}
+}
+
+// around adds, on a Mac, r again at before, r's own name, then after, beside its place: the name's end after its Path,
+// or the whole name in place of its Tail's last one. A pattern around a Path whose last name a Tail can't hold (`[`,
+// `]` or `\`) is left out; a plain name is kept.
+func (b *builder) around(r Rule, before, after string) {
+	if b.goos != "darwin" {
+		return
+	}
+	s := r
+	switch name := path.Base(r.Path); {
+	case r.Tail != "":
+		folders, last := "", r.Tail
+		if i := strings.LastIndex(r.Tail, "/"); i >= 0 {
+			folders, last = r.Tail[:i+1], r.Tail[i+1:]
+		}
+		s.Tail = folders + before + last + after
+	case !strings.ContainsAny(before+after, "*?"):
+		s.Path = path.Join(path.Dir(r.Path), before+name+after)
+	case strings.ContainsAny(name, `[]\`):
+		return
+	default:
+		s.Path, s.Tail = path.Dir(r.Path), before+name+after
+	}
+	b.add(s)
+}
+
+// ownName adds, on a Mac, r again at name in r's folder: a writer's name of its own, whatever the file's. The first
+// row to hold it in a folder keeps it. It adds none at or under a place the desk works in (Root, Checkout, the hires
+// and GM folders), where the name would be every file's, the desk's own work too (FXLOCKSIBLINGSR2: perl -pi of a
+// worktree's package.json did nothing once the owner's git config named a file beside it); with a Tail, r's Path is
+// the place it goes by. Nor one of ownersNotInHome in the home folder itself.
+func (b *builder) ownName(r Rule, name string) {
+	if b.goos != "darwin" {
+		return
+	}
+	s := r
+	if r.Tail != "" {
+		s.Tail = path.Join(path.Dir(r.Tail), name)
+	} else {
+		s.Path, s.Tail = path.Dir(r.Path), name
+	}
+	folder := key(b.goos, s.Path)
+	for _, w := range b.work {
+		if under(folder, w) {
+			return
+		}
+	}
+	if folder == b.home && path.Dir(s.Tail) == "." && slices.Contains(ownersNotInHome, name) {
+		return
+	}
+	k := [2]string{folder, foldName(b.goos, s.Tail)}
+	if b.inFolder == nil {
+		b.inFolder = map[[2]string]bool{}
+	}
+	if !b.inFolder[k] {
+		b.inFolder[k] = true
+		b.add(s)
+	}
 }
 
 // fail keeps err as the Policy's error, unless an earlier one is kept already.

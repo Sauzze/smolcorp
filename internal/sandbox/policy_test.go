@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/rand/v2"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -979,7 +980,9 @@ func TestGitsSubstitutionsOfABaseBranchAreNoDesksOnAMac(t *testing.T) {
 		{"$G/objects/ab/cdef", A, ""}, {"$G/objects/pack/pack-ab12.pack", A, ""}, {"$G/objects/pack/pack-ab12.idx", A, ""},
 		{"$G/objects/pack/pack-ab12.rev", A, ""}, {"$G/objects/pack/pack-ab12.bitmap", A, ""}, {"$G/objects/pack/tmp_pack_x", A, ""},
 		{"$G/refs/heads/hire/h1/work", A, ""}, {"$G/logs/refs/heads/hire/h1/work", A, ""}, {"$G/logs/refs/heads/mainline", A, ""},
-		{"$G/refs/tags/v1", A, ""}, {"$G/refs/notes/commits", A, ""}, {"$G/shallow.lock", A, ""}, {"$G/refs/replaced", A, ""},
+		{"$G/refs/tags/v1", A, ""}, {"$G/refs/notes/commits", A, ""}, {"$G/refs/replaced", A, ""},
+		// The shallow list's lock, which git renames onto it: denied as it is (FXLOCKSIBLINGS flips this pin).
+		{"$G/shallow.lock", D, rowSubstitutions},
 	}
 	for _, s := range setups() {
 		p := mustNew(t, s.pl)
@@ -1003,6 +1006,195 @@ func TestGitsSubstitutionsOfABaseBranchAreNoDesksOnAMac(t *testing.T) {
 		for _, r := range mustNew(t, pl).Rules() {
 			if r.Row == rowSubstitutions || r.Row == rowBaseReflogs {
 				t.Errorf("a %s Policy has a row of git's substitutions: %+v", pl.GOOS, r)
+			}
+		}
+	}
+}
+
+// FXLOCKSIBLINGS (RT126REPLACEREFS' finding): on a Mac, each name a denied file's writers write first and then rename
+// onto it is denied as the file is, by the file's own row. Seatbelt checks a write when a file is opened, so a desk
+// that opened one of them while the owner's program had it there would write the file through it once renamed. One
+// class per subtest: git's lock beside the shared git places, beside the base branches (and packed-refs' new copy),
+// beside git's substitutions; the owner's programs' names beside a plant and git's other config; beside a fence; a
+// sign-in's copy, which isn't read either; and the core's own names in the support folder, which its row holds whole
+// already. A desk's own work beside them stays its own.
+func TestADeniedFilesWritersNamesBesideItAreDeniedAsItIsOnAMac(t *testing.T) {
+	type c struct {
+		path string
+		op   Op
+		v    Verdict
+		row  string
+	}
+	const plants, fences, ownFence = "plants the owner's programs run later", "fences and hooks", "its own Claude folder's fence"
+	classes := []struct {
+		name  string
+		cases []c
+	}{
+		{"git's lock beside the shared git places", []c{
+			{"$G/config.lock", Write, D, "the shared git places"}, {"$G/config.worktree.lock", Write, D, "the shared git places"},
+			{"$G/index.lock", Write, D, "the shared git places"}, {"$G/HEAD.lock", Write, D, "the shared git places"},
+			{"$G/commondir.lock", Write, D, "the shared git places"}, {"$G/gitdir.lock", Write, D, "the shared git places"},
+			{"$G/Config.LOCK", Write, D, "the shared git places"},
+			{"$G/worktrees/$WT/config.worktree.lock", Write, D, "the shared git places: where a worktree finds them"},
+			{"$G/worktrees/$WT/commondir.lock", Write, D, "the shared git places: where a worktree finds them"},
+			{"$G/worktrees/$WT/gitdir.lock", Write, D, "the shared git places: where a worktree finds them"},
+		}},
+		{"git's lock and new copy beside the base branches", []c{
+			{"$G/packed-refs.new", Write, D, "the base branches"},
+			{"$G/refs/heads/main.lock", Write, D, "the base branches"}, {"$G/refs/heads/master.lock", Write, D, "the base branches"},
+			{"$G/refs/heads/develop.lock", Write, D, "the base branches"}, {"$G/refs/heads/release/1.26.lock", Write, D, "the base branches"},
+		}},
+		{"git's lock beside git's substitutions", []c{
+			{"$G/shallow.lock", Write, D, rowSubstitutions}, {"$G/refs/replace/0123.lock", Write, D, rowSubstitutions},
+			{"$G/objects/pack/multi-pack-index.lock", Write, D, rowSubstitutions},
+			{"$G/logs/refs/heads/main.lock", Write, D, rowBaseReflogs}, {"$G/logs/refs/heads/master.lock", Write, D, rowBaseReflogs},
+			{"$G/logs/refs/heads/develop.lock", Write, D, rowBaseReflogs},
+		}},
+		{"the owner's programs' names beside a plant", []c{
+			{"$H/.gitconfig.lock", Write, D, plants}, {"$H/.zshrc.tmp.4242.1763400000000", Write, D, plants},
+			{"$H/.zshenv___jb_tmp___", Write, D, plants}, {"$H/.bash_profile.new", Write, D, plants}, {"$H/.profile.1a2b3c4d.tmp", Write, D, plants},
+			{"$H/.tmux.conf.new", Write, D, plants}, {"$H/.ssh/config.lock", Write, D, plants}, {"$H/.ssh/rc.tmp", Write, D, plants},
+			{"/opt/homebrew/etc/gitconfig.lock", Write, D, plants + ": git's other config"},
+			{"$H/.xdg/git/config.lock", Write, D, plants + ": git's other config"},
+			{"$H/.gitconfig-work.lock", Write, D, plants + ": what git's config names"},
+			{"/opt/standin/nc.tmp", Write, D, plants + ": what git's config names"},
+		}},
+		{"the writers' names beside a fence", []c{
+			{"$ROOT/.claude/settings.local.json.tmp", Write, D, fences}, {"$ROOT/.claude/settings.json.tmp.4242.1763400000000", Write, D, fences},
+			{"$ROOT/sub/.claude/settings.local.json.lock", Write, D, fences},
+			{"$S/hires/$ID/claude/settings.json.tmp.4242.1763400000000", Write, D, ownFence},
+			{"$S/hires/$ID/claude/.settings.json.fresh-12345", Write, D, ownFence},
+			{"$S/hires/$ID/claude/settings.local.json.lock", Write, D, ownFence},
+		}},
+		{"a sign-in's copy isn't read or written", []c{
+			{"$H/.claude/.credentials.json.tmp.4242.1763400000000", Read, D, "the account folders' tokens and history"},
+			{"$H/.claude-work/.credentials.json.lock", Read, D, "the account folders' tokens and history"},
+			{"$H/.claude/history.jsonl.tmp", Read, D, "the account folders' tokens and history"},
+			{"$H/.codex/auth.json.tmp", Read, D, "other agents' sign-ins"}, {"$H/.codex/auth.json.tmp", Write, D, "other agents' sign-ins"},
+			{"$H/.gemini/oauth_creds.json.tmp.1", Read, D, "other agents' sign-ins"},
+		}},
+		// The support folder's row holds these whole already: none of the core's names ends in .md.
+		{"the core's own names in the support folder", []c{
+			{"$S/hires/$ID/.BRIEF.md.0123abcd", Write, D, rowSupport}, {"$S/hires/$ID/.BRIEF.md.fresh-12345", Write, D, rowSupport},
+			{"$S/hires/$ID/.settings.json.0123abcd", Write, D, rowSupport}, {"$S/hires/$ID/.sandbox-12345.sb", Write, D, rowSupport},
+			{"$S/hires/$ID/.BRIEF.md.0123abcd", Read, D, rowSupport}, {"$S/.hire-guard.json.0123abcd", Write, D, rowSupport},
+			{"$S/hire-guard.json.tmp", Read, D, rowSupport}, {"$S/config.json.tmp", Write, D, rowSupport},
+			{"$S/nightshift.json.tmp", Write, D, rowSupport},
+		}},
+		{"a desk's own work beside them stays its own", []c{
+			{"$G/refs/heads/hire/h1/work.lock", Write, A, ""}, {"$G/logs/refs/heads/hire/h1/work.lock", Write, A, ""},
+			// Held, never renamed onto packed-refs; a desk's commit, rebase and branch deletion take it.
+			{"$G/packed-refs.lock", Write, A, ""},
+			{"$G/worktrees/$WT/index.lock", Write, A, ""}, {"$G/worktrees/$WT/HEAD.lock", Write, A, ""},
+			{"$G/worktrees/$WT/ORIG_HEAD.lock", Write, A, ""}, {"$G/refs/tags/v2.lock", Write, A, ""},
+			{"$G/refs/remotes/origin/main.lock", Write, A, ""}, {"$G/refs/heads/mainline.lock", Write, A, ""},
+			{"$G/objects/pack/tmp_pack_x", Write, A, ""}, {"$G/objects/ab/tmp_obj_x", Write, A, ""},
+			{"$ROOT/.claude/notes.md", Write, A, ""}, {"$ROOT/settings.json.tmp", Write, A, ""},
+			{"$S/hires/$ID/claude/.claude.json.tmp.4242.1763400000000", Write, A, ""}, {"$S/hires/$ID/STATUS.md", Write, A, ""},
+			{"$H/.zsh_history", Write, A, ""}, {"$H/.bash_history", Write, A, ""}, {"$H/.claude/CLAUDE.md", Read, A, ""},
+			// A plant's neighbour, and an editor's backup of it: the old copy, which nothing renames back.
+			{"$H/.zshrc-notes", Write, A, ""}, {"$H/.gitconfig-work.bak", Write, A, ""}, {"$H/.zshrc~", Write, A, ""},
+		}},
+		// FXLOCKSIBLINGSR1 (RT126LOCKSIBLINGS' B1, widened by SIERRA): macOS's sed -i's `.!<pid>!<name>` and mise's
+		// `.<name>.tmp.<pid>.<n>` beside each plant and git config, install(1)'s `INS@` and perl -i's `XX` names in
+		// their folders, and oh-my-zsh's two names beside ~/.zshrc.
+		{"the owner's tools' other names beside a plant", []c{
+			{"$H/.!40818!.zshrc", Write, D, plants}, {"$H/.!1!.gitconfig", Write, D, plants}, {"$H/.!7!.bash_profile", Write, D, plants},
+			{"$H/.ssh/.!7!config", Write, D, plants}, {"$H/.!7!.ZSHRC", Write, D, plants},
+			{"/opt/homebrew/etc/.!9!gitconfig", Write, D, plants + ": git's other config"},
+			{"$H/.xdg/git/.!9!config", Write, D, plants + ": git's other config"},
+			{"$H/.!9!.gitconfig-work", Write, D, plants + ": what git's config names"}, {"/opt/standin/.!9!nc", Write, D, plants + ": what git's config names"},
+			{"$H/..zshrc.tmp.42164.1", Write, D, plants}, {"$H/..profile.tmp.1.0", Write, D, plants}, {"$H/.ssh/.rc.tmp.1.0", Write, D, plants},
+			{"/opt/homebrew/etc/.gitconfig.tmp.1.0", Write, D, plants + ": git's other config"},
+			{"$H/..gitconfig-work.tmp.1.0", Write, D, plants + ": what git's config names"},
+			{"$H/INS@q4Ontc", Write, D, plants}, {"$H/ins@Q4ONTC", Write, D, plants}, {"$H/.ssh/XXNu6Xnm", Write, D, plants},
+			{"/opt/homebrew/etc/INS@q4Ontc", Write, D, plants + ": git's other config"}, {"$H/.xdg/git/XXNu6Xnm", Write, D, plants + ": git's other config"},
+			{"/opt/standin/XXNu6Xnm", Write, D, plants + ": what git's config names"},
+			{"$H/.config/standin/INS@q4Ontc", Write, D, plants + ": what git's config names"},
+			{"$H/.zshrc-omztemp", Write, D, plants}, {"$H/.zshrc.pre-oh-my-zsh", Write, D, plants},
+		}},
+		{"a desk's own names beside the owner's tools' stay its own", []c{
+			{"$H/.!x.zshrc", Write, A, ""}, {"$H/.zshrc.!1!", Write, A, ""},
+			{"$H/XXshort", Write, A, ""}, {"$H/XXtoolong1", Write, A, ""}, {"$H/INS@abc", Write, A, ""}, {"$H/Projects/INS@q4Ontc", Write, A, ""},
+			{"$H/Projects/XXNu6Xnm", Write, A, ""}, {"$ROOT/XXNu6Xnm", Write, A, ""}, {"$ROOT/INS@q4Ontc", Write, A, ""},
+			{"$ROOT/.!1!main.go", Write, A, ""}, {"$H/.bashrc-omztemp", Write, A, ""}, {"$H/..zsh_history.tmp.1.0", Write, A, ""},
+			// perl -i's directly in ~ (SIERRA's ruling on RT126LOCKSIBLINGSR2's B2; the report lists its race, R1).
+			{"$H/XXNu6Xnm", Write, A, ""}, {"$H/xxnu6xnm", Write, A, ""},
+		}},
+	}
+	for _, class := range classes {
+		t.Run(class.name, func(t *testing.T) {
+			for _, s := range setups() {
+				p := mustNew(t, s.pl)
+				for _, c := range class.cases {
+					v, r := p.Decide(s.path(c.path), c.op)
+					if v != c.v || c.row != "" && r.Row != c.row {
+						t.Errorf("%s: %v %s: %v by %q, want %v by %q", s.name, c.op, c.path, v, r.Row, c.v, c.row)
+					}
+				}
+			}
+		})
+	}
+	// Linux's view and Windows' jail are made from other rows (the report lists them for the VM).
+	for _, pl := range []Places{linuxPlaces(lHome + "/.local/share/smolcorp"), {GOOS: "windows", Subject: Hire, Home: `C:\Users\ada`,
+		Support: `C:\Users\ada\AppData\Roaming\Smolcorp`, OwnID: "h1", Root: `C:\Users\ada\Projects\app-hires\h1`,
+		Checkout: `C:\Users\ada\Projects\app`, GitDir: `C:\Users\ada\Projects\app\.git`, OwnWorktree: "h1"}} {
+		for _, r := range mustNew(t, pl).Rules() {
+			if strings.HasSuffix(r.Path+r.Tail, gitLock) || strings.HasSuffix(r.Path+r.Tail, gitNew) || strings.HasSuffix(r.Tail, ".json*") && r.Row != "the accounts' .claude.json" {
+				t.Errorf("a %s Policy has a row of a writer's name beside a file: %+v", pl.GOOS, r)
+			}
+			for _, name := range append(append([]string{".!*!", ".tmp.*"}, ownersInFolder...), omzNames...) {
+				if strings.Contains(r.Path+"/"+r.Tail, name) {
+					t.Errorf("a %s Policy has a row of an owner's tool's name beside a plant: %+v", pl.GOOS, r)
+				}
+			}
+		}
+	}
+}
+
+// FXLOCKSIBLINGSR2 (RT126LOCKSIBLINGSR2's B2): install(1)'s and perl -i's names in a folder are no row at or under a
+// place a desk works in (its root, the owner's checkout, the hires and GM folders), even when the owner's git config
+// names files there and in a folder below, so a desk's own install and perl -pi there still work. What git's config
+// names there is still denied, and so are the names beside it. Away from those places they stay: in ~ install(1)'s
+// (perl -i's isn't, SIERRA's ruling), in ~/.ssh both, and beside what git's config names elsewhere.
+func TestTheOwnersToolsNamesInAFolderAreNoRowWhereADeskWorksOnAMac(t *testing.T) {
+	const plants = "plants the owner's programs run later"
+	const named = plants + ": what git's config names"
+	for _, s := range profileSetups() {
+		pl := s.pl
+		root := pl.Root
+		pl.GitConfigs = append(slices.Clone(pl.GitConfigs), root+"/etc/gitconfig")
+		pl.GitNamed = append(slices.Clone(pl.GitNamed), root+"/.gitconfig", root+"/scripts/pre-commit.sh", repo+"/.gitconfig",
+			repo+"/scripts/pre-commit.sh", hires+"/h2/scripts/pre-commit.sh", gmDir+"/.gitconfig")
+		p := mustNew(t, pl)
+		work := []string{key("darwin", root), key("darwin", repo), key("darwin", hires), key("darwin", gmDir)}
+		for _, r := range p.Rules() {
+			if !slices.Contains(ownersInFolder, path.Base(r.Tail)) {
+				continue
+			}
+			for _, w := range work {
+				if under(key("darwin", r.Path), w) {
+					t.Errorf("%s: a row of an owner's tool's name in a place a desk works in: %+v", s.name, r)
+				}
+			}
+		}
+		for _, c := range []struct {
+			path string
+			v    Verdict
+			row  string
+		}{
+			{root + "/XXNu6Xnm", A, ""}, {root + "/INS@q4Ontc", A, ""}, {root + "/scripts/XXNu6Xnm", A, ""},
+			{root + "/scripts/INS@q4Ontc", A, ""}, {root + "/etc/XXNu6Xnm", A, ""}, {root + "/etc/INS@q4Ontc", A, ""},
+			{root + "/.gitconfig", D, named}, {root + "/.!9!.gitconfig", D, named}, {root + "/.gitconfig.lock", D, named},
+			{root + "/scripts/pre-commit.sh", D, named}, {root + "/scripts/.!9!pre-commit.sh", D, named},
+			{root + "/scripts/.pre-commit.sh.tmp.1.0", D, named},
+			{root + "/etc/gitconfig", D, plants + ": git's other config"}, {root + "/etc/.!9!gitconfig", D, plants + ": git's other config"},
+			{home + "/XXNu6Xnm", A, ""}, {home + "/INS@q4Ontc", D, plants}, {home + "/.ssh/XXNu6Xnm", D, plants},
+			{home + "/.ssh/INS@q4Ontc", D, plants}, {"/opt/standin/XXNu6Xnm", D, named}, {home + "/.config/standin/XXNu6Xnm", D, named},
+			{"/opt/homebrew/etc/XXNu6Xnm", D, plants + ": git's other config"},
+		} {
+			if v, r := p.Decide(c.path, Write); v != c.v || c.row != "" && r.Row != c.row {
+				t.Errorf("%s: write %s: %v by %q, want %v by %q", s.name, c.path, v, r.Row, c.v, c.row)
 			}
 		}
 	}

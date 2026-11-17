@@ -399,8 +399,11 @@ func TestOnAMacAHireReachesNoneOfTheOwnersFilesSocketsOrPorts(t *testing.T) {
 		{"P3: the worktree's .git file rewritten", attempt{"write", at(d.root, ".git"), ""}, "EPERM"},
 		{"P3: the worktree's .git file moved aside", attempt{"rename", at(d.root, ".git"), at(d.root, "git.old")}, "EPERM"},
 		{"R4: the shared config", attempt{"write", at(d.git, "config"), ""}, "EPERM"},
-		{"R4: the shared config, by git's lock and a rename", attempt{"create", at(d.git, "config.lock"), ""}, "ok"},
-		{"R4: the shared config, by git's lock and a rename", attempt{"rename", at(d.git, "config.lock"), at(d.git, "config")}, "EPERM"},
+		// FXLOCKSIBLINGS: git's lock beside the shared config is no desk's to make: a desk holding it open while the
+		// owner's git renames it onto config would write the config through that handle (RT126REPLACEREFS).
+		{"R4: the shared config's git lock", attempt{"create", at(d.git, "config.lock"), ""}, "EPERM"},
+		{"R4: a file of its own, to rename onto the shared config", attempt{"create", at(d.root, "draft.txt"), ""}, "ok"},
+		{"R4: the shared config, by a rename", attempt{"rename", at(d.root, "draft.txt"), at(d.git, "config")}, "EPERM"},
 		{"R4: a hook in the shared hooks", attempt{"create", at(d.git, "hooks", "pre-commit"), ""}, "EPERM"},
 		{"R4: its own registration's config", attempt{"create", at(d.git, "worktrees", "h1", "config.worktree"), ""}, "EPERM"},
 		{"R4: where its worktree finds the shared .git", attempt{"write", at(d.git, "worktrees", "h1", "commondir"), ""}, "EPERM"},
