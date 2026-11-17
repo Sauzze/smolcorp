@@ -2,6 +2,8 @@ package desktop
 
 import (
 	"errors"
+	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -106,18 +108,167 @@ func t3TakeOverRefusal(h Hire, session t3Session, home string, testCopy bool) st
 		return "Smolcorp hasn't heard from " + name + "'s Claude Code yet, so it doesn't know which session to hand over."
 	case !t3SessionShape.MatchString(session.ID):
 		return name + "'s session id isn't one T3 Code resumes, so it can't be taken over."
-	case !t3OnDefaultAccount(session, home):
+	case !t3OnDefaultAccount(h, session, home):
 		return name + " works on another Claude account, and T3 Code's agent works on your default one, so it can't take this session over."
 	}
 	return ""
 }
 
-// t3OnDefaultAccount is whether session's transcript is the default account's (~/.claude/projects/<folder>/<id>.jsonl):
-// the only one T3 Code's import looks in.
-func t3OnDefaultAccount(session t3Session, home string) bool {
+// t3OnDefaultAccount is whether session's transcript is the default account's: in ~/.claude/projects/<folder>/<id>.jsonl,
+// the only place T3 Code's import looks in, or in hire h's own Claude folder (SA-X8) when h works on the default
+// account, from where Take over copies it there (t3CopyIn).
+func t3OnDefaultAccount(h Hire, session t3Session, home string) bool {
 	transcript := filepath.Clean(session.Transcript)
-	return session.Transcript != "" && home != "" && filepath.Base(transcript) == session.ID+".jsonl" &&
-		filepath.Dir(filepath.Dir(transcript)) == filepath.Join(filepath.Clean(home), ".claude", "projects")
+	if session.Transcript == "" || home == "" || filepath.Base(transcript) != session.ID+".jsonl" {
+		return false
+	}
+	if filepath.Dir(filepath.Dir(transcript)) == t3OwnersProjects(home) {
+		return true
+	}
+	return t3InOwnClaude(h, transcript) && (h.Account == "" || h.Account == claudeDefaultName)
+}
+
+// t3OwnersProjects is where the default account keeps its sessions' transcripts, one folder per project.
+func t3OwnersProjects(home string) string {
+	return filepath.Join(filepath.Clean(home), ".claude", "projects")
+}
+
+// t3InOwnClaude is whether transcript is in hire h's own Claude folder (SA-X8), as Claude Code lays one out there:
+// hires/<id>/claude/projects/<folder>/<name>.jsonl, the folder one plain name.
+func t3InOwnClaude(h Hire, transcript string) bool {
+	place := transcriptPlace(transcript)
+	_, own := deskOwnClaude(h.ID)
+	return own && isDeskClaudePlace(place) && filepath.Base(filepath.Dir(place)) == h.ID && oneName(filepath.Base(filepath.Dir(transcript)))
+}
+
+// t3OwnersCopy is where Take over copies a transcript from a desk's own Claude folder: the same project's folder and
+// name, in ~/.claude/projects, where T3 Code's import finds it and its agent goes on writing it.
+func t3OwnersCopy(home, transcript string) string {
+	transcript = filepath.Clean(transcript)
+	return filepath.Join(t3OwnersProjects(home), filepath.Base(filepath.Dir(transcript)), filepath.Base(transcript))
+}
+
+// errT3Copy is a transcript Take over or Hand back didn't copy, with the reason as the answer says it.
+type errT3Copy string
+
+func (e errT3Copy) Error() string { return string(e) }
+
+// t3CopyIn copies the transcript at from, a desk's own (read through the core's reader: no link, one name, a plain
+// file), to to in your ~/.claude, never over a file that's there.
+func t3CopyIn(from, to string) error {
+	source, _, err := openTranscript(from)
+	if err != nil {
+		return errT3Copy("it isn't a plain file of the desk's own")
+	}
+	defer source.Close()
+	if os.MkdirAll(filepath.Dir(to), 0o700) != nil {
+		return errT3Copy("its folder in ~/.claude couldn't be made")
+	}
+	out, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return errT3Copy("a file is already there, or it couldn't be written")
+	}
+	_, err = io.Copy(out, source)
+	if closed := out.Close(); err == nil {
+		err = closed
+	}
+	if err != nil {
+		_ = os.Remove(to)
+		return errT3Copy("it couldn't be written")
+	}
+	return nil
+}
+
+// t3TakeOversCopy is the copy Take over made of hire h's transcript (t3CopyIn), "" when it made none: h.T3Transcript in
+// ~/.claude/projects, for a hire with a Claude folder of its own, and only when the registry says Take over made it
+// (T3Copied). Where a transcript is never says so on its own: a desk given its own folder later (a restart that makes
+// it anew, SA-X14) while its session is still on ~/.claude must never have that transcript moved (RT126SAX9R2 F2).
+func t3TakeOversCopy(h Hire, home string) string {
+	_, ok := deskOwnClaude(h.ID)
+	copied := filepath.Clean(h.T3Transcript)
+	if !ok || !h.T3Copied || h.T3Transcript == "" || home == "" || filepath.Dir(filepath.Dir(copied)) != t3OwnersProjects(home) || !oneName(filepath.Base(filepath.Dir(copied))) {
+		return ""
+	}
+	return copied
+}
+
+// t3BringBack puts the session T3 Code wrote back in hire h's own Claude folder, where its resume finds it: only when
+// Take over made a copy (t3TakeOversCopy). The desk wrote its folder, links too: it's written through an os.Root of it,
+// under a new name first, then renamed over the old transcript, so a link there is replaced, never followed out of it.
+// The copy stays until the resume has run and its save is written (t3DropCopy): a Hand back again after a resume that
+// failed finds it, quiet, and brings it back again over the same file (RT126SAX9 B1).
+func t3BringBack(h Hire, home string) error {
+	own, _ := deskOwnClaude(h.ID)
+	copied := t3TakeOversCopy(h, home)
+	if copied == "" {
+		return nil
+	}
+	project, name := filepath.Base(filepath.Dir(copied)), filepath.Base(copied)
+	source, _, err := openHireFile(t3OwnersProjects(home), copied)
+	if err != nil {
+		return errT3Copy("the session T3 Code wrote isn't a plain file in ~/.claude")
+	}
+	defer source.Close()
+	root, err := os.OpenRoot(own)
+	if err != nil {
+		return errT3Copy("its own Claude folder couldn't be opened")
+	}
+	defer root.Close()
+	folder := filepath.Join("projects", project)
+	temp := filepath.Join(folder, "."+name+".handback")
+	_ = root.Remove(temp)
+	if root.MkdirAll(folder, 0o700) != nil {
+		return errT3Copy("its project's folder in its own Claude folder couldn't be made")
+	}
+	out, err := root.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return errT3Copy("its own Claude folder couldn't be written")
+	}
+	_, err = io.Copy(out, source)
+	if closed := out.Close(); err == nil {
+		err = closed
+	}
+	if err == nil {
+		err = root.Rename(temp, filepath.Join(folder, name))
+	}
+	if err != nil {
+		_ = root.Remove(temp)
+		return errT3Copy("its own Claude folder couldn't be written")
+	}
+	return nil
+}
+
+// t3BroughtBack is hire h's transcript in its own Claude folder when Take over's copy of it (t3TakeOversCopy) is gone
+// and the desk's own file is there, a plain file in its folder: a Hand back whose resume failed brought the copy back
+// already (4c), and the copy was then removed by hand. Hand back again goes on from the desk's own file, as if brought
+// back, instead of refusing every time while Fire waits for it (RT126SAX9R2 F1). "" otherwise.
+func t3BroughtBack(h Hire, home string) string {
+	copied := t3TakeOversCopy(h, home)
+	if copied == "" {
+		return ""
+	}
+	if _, err := os.Lstat(copied); !errors.Is(err, fs.ErrNotExist) {
+		return ""
+	}
+	own, _ := deskOwnClaude(h.ID)
+	root, err := os.OpenRoot(own)
+	if err != nil {
+		return ""
+	}
+	defer root.Close()
+	inOwn := filepath.Join("projects", filepath.Base(filepath.Dir(copied)), filepath.Base(copied))
+	if info, err := root.Lstat(inOwn); err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	return filepath.Join(own, inOwn)
+}
+
+// t3DropCopy takes Take over's copy of hire h's transcript away, once its session is resumed and the registry no
+// longer names the copy: the next Take over makes it new (t3CopyIn never writes over a file).
+func t3DropCopy(h Hire, home string) {
+	if copied := t3TakeOversCopy(h, home); copied != "" {
+		_ = os.Remove(copied)
+	}
 }
 
 // t3Handing is what Take over and Hand back use besides the hire: tests give their own.
@@ -249,10 +400,12 @@ func t3TakeOverSaid(h Hire, session t3Session, ways t3Handing) (thread, said str
 		return "", "", err
 	}
 	// From here it's on record as taken over: whatever stops part way is handed back, never lost.
-	h.T3Session, h.T3Transcript = session.ID, session.Transcript
+	h.T3Session, h.T3Transcript, h.T3Copied = session.ID, session.Transcript, false
 	if !t3SaveTries(ways, func() error {
 		// It leaves its sandbox with its worktree (C6): untagged until Hand back resumes it in one.
-		return ways.Save(h.ID, func(r *Hire) { r.T3Session, r.T3Transcript, r.Sandboxed = session.ID, session.Transcript, false })
+		return ways.Save(h.ID, func(r *Hire) {
+			r.T3Session, r.T3Transcript, r.T3Copied, r.Sandboxed = session.ID, session.Transcript, false, false
+		})
 	}) {
 		return "", "", t3Refused(http.StatusInternalServerError, t3UnsavedAfterStop(h))
 	}
@@ -286,6 +439,23 @@ func t3TakeOverSaid(h Hire, session t3Session, ways t3Handing) (thread, said str
 		return giveBack(http.StatusConflict, refused)
 	}
 	said, wasPutBack = keptSaid(h, changes), keptSaid(h, keptOnce(changes, nil))
+	// 2b'. A desk with its own Claude folder (SA-X8) keeps its transcript there, and T3 Code's import looks in ~/.claude
+	// alone: it's copied there, never over a file that's there. That copy is the one T3 Code goes on writing, and the
+	// one Hand back brings back (t3BringBack), so it goes on record, as Take over's copy (T3Copied), in one save; Hand
+	// back takes it away once the desk is resumed.
+	if t3InOwnClaude(h, session.Transcript) {
+		copied := t3OwnersCopy(ways.Machine.Home, session.Transcript)
+		if err := t3CopyIn(session.Transcript, copied); err != nil {
+			return giveBack(http.StatusConflict, name+"'s session couldn't be copied where T3 Code looks for it ("+err.Error()+"), so it wasn't handed over.")
+		}
+		if !t3SaveTries(ways, func() error {
+			return ways.Save(h.ID, func(r *Hire) { r.T3Transcript, r.T3Copied = copied, true })
+		}) {
+			_ = os.Remove(copied)
+			return giveBack(http.StatusInternalServerError, "The registry couldn't be written, so "+name+" wasn't handed over.")
+		}
+		h.T3Transcript, h.T3Copied = copied, true
+	}
 	// 2c. What it made named .claude or .mcp.json in its worktree is listed and held for you, now that it's stopped,
 	// with what other hires left around it: T3 Code's agent is your own Claude Code, which reads them (CLAUDEPLANT1).
 	if why := claudeGate(h.Worktree, append([]Hire{h}, officeHires()...)); why != "" {
@@ -386,12 +556,20 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 	}
 	// 3. The hard check: nothing holds the session or works in the worktree, and nothing writes its transcript.
 	still, looked := t3WaitFree(h.Worktree, session, ways)
+	// Take over's copy gone, the desk's own file there: already brought back, so that's the file looked at (F1).
+	transcript, broughtBack := h.T3Transcript, ""
+	if looked && len(still) == 0 {
+		broughtBack = t3BroughtBack(h, ways.Machine.Home)
+	}
+	if broughtBack != "" {
+		transcript = broughtBack
+	}
 	switch {
 	case !looked:
 		return "", t3Refused(http.StatusConflict, t3CantLook(name))
 	case len(still) > 0:
 		return "", t3Refused(http.StatusConflict, "A process still holds "+name+"'s session or works in its worktree ("+t3StillHeld(still, ways.Name)+"), so it wasn't resumed: two agents on one session lose turns silently. If that's yours, close it and hand back again.")
-	case !t3Quiet(h.T3Transcript, ways):
+	case !t3Quiet(transcript, ways):
 		return "", t3Refused(http.StatusConflict, name+"'s session is still being written, or its file is gone, so it wasn't resumed.")
 	}
 	// 4. The fence off the worktree: in its tmux session, its own settings file is its fence.
@@ -409,7 +587,14 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 	}
 	// What it put back is said in a refusal after it too: no later look finds it again (RT126L1GUARD1FIRE B1).
 	said := keptSaid(h, changes)
+	// 4c. The session T3 Code wrote, back in its own Claude folder (SA-X8), where its resume finds it; unless it's there
+	// already and Take over's copy is gone (F1): then it goes on from that file, and the answer says so.
 	note := joinNote(said, fenceNote)
+	if broughtBack != "" {
+		note = joinNote(note, name+"'s session was no longer in ~/.claude, so it went on from the file in its own Claude folder.")
+	} else if err := t3BringBack(h, ways.Machine.Home); err != nil {
+		return "", t3Refused(http.StatusConflict, joinNote(name+"'s session couldn't be brought back to its own Claude folder ("+err.Error()+"), so it wasn't resumed. Hand it back again to retry.", said))
+	}
 	if ways.Save(h.ID, func(r *Hire) { r.Engine, r.T3Thread, r.T3Link, r.T3Floor, r.T3Desk = "", "", "", nil, nil }) != nil {
 		return "", t3Refused(http.StatusInternalServerError, joinNote("The registry couldn't be written, so "+name+" wasn't resumed.", said))
 	}
@@ -421,7 +606,7 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 	// Its socket as tmux spells it, as the engine keeps it, in the same checked save.
 	if !t3SaveTries(ways, func() error {
 		return ways.Save(h.ID, func(r *Hire) {
-			r.T3Session, r.T3Transcript, r.State = "", "", "working"
+			r.T3Session, r.T3Transcript, r.T3Copied, r.State = "", "", false, "working"
 			if resumed.Socket != "" {
 				// A new server, started by the tmux this system picks now (a sandboxed desk's, the bundled one, with its
 				// server's pid as the core checked it: SA-M6): its row says so.
@@ -432,8 +617,10 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 		})
 	}) {
 		// It runs in its tmux; only the registry lags. Hand back again sees its own session there and clears it
-		// (handBackFromT3), as nothing else would: Fire waits for Hand back (RM5c N2).
+		// (handBackFromT3), as nothing else would: Fire waits for Hand back (RM5c N2). Take over's copy stays till then.
 		note = strings.TrimSpace(note + " " + t3ResumedUnsaved(name))
+	} else {
+		t3DropCopy(h, ways.Machine.Home)
 	}
 	return note, nil
 }
@@ -657,13 +844,15 @@ func (d *Deck) handBackFromT3(id string) (int, any) {
 		// its own tmux, so only the registry is behind. Nothing is stopped, removed or resumed.
 		// Its server came from the pick of that Hand back, so its row says today's, not the old stopped server's.
 		if ways.Save(hire.ID, func(r *Hire) {
-			r.T3Session, r.T3Transcript, r.State = "", "", "working"
+			r.T3Session, r.T3Transcript, r.T3Copied, r.State = "", "", false, "working"
 			if deskSocketID(r.TmuxSocket, testCopyPort()) == "" { // a sandboxed desk keeps its bundled tmux (SA-M6)
 				r.TmuxProgram = recordableTmux(tmuxPath())
 			}
 			r.TmuxPane, r.TmuxPaneStarted = 0, 0 // that start's pane wasn't kept: none from before is compared with it
 		}) != nil {
 			err = t3Refused(http.StatusInternalServerError, "The registry couldn't be written, so "+calledHire(hire)+" still shows as handed over.")
+		} else {
+			t3DropCopy(hire, ways.Machine.Home) // the copy that Hand back kept, its last save not written (RT126SAX9 N5)
 		}
 	default:
 		note, err = t3HandBack(hire, ways)

@@ -897,7 +897,7 @@ func TestT3ARecordSaysT3OnlyWhenItIs(t *testing.T) {
 	data, _ := json.Marshal(plain)
 	var keys map[string]any
 	_ = json.Unmarshal(data, &keys)
-	for _, key := range []string{"engine", "t3Thread", "t3Link"} {
+	for _, key := range []string{"engine", "t3Thread", "t3Link", "t3Session", "t3Transcript", "t3Copied"} {
 		if _, found := keys[key]; found {
 			t.Errorf("%s written for a plain hire", key)
 		}

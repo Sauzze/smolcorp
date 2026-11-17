@@ -5,7 +5,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 )
 
@@ -19,8 +18,8 @@ import (
 // asks it: no credential, key or token is ever read.
 
 // preflightAction is what a line's button does: "copy" (a command to paste in
-// a terminal), "fix" (a POST /setup/fix by name), "folder" (the folder step above) or "account" (the
-// Claude accounts, for a Mac's test copy's line).
+// a terminal), "fix" (a POST /setup/fix by name), "folder" (the folder step above), "account" (the
+// Claude accounts, for a Mac's test copy's line) or "signin" (the Claude accounts' sign-in of your hires).
 type preflightAction struct {
 	Kind    string `json:"kind"`
 	Label   string `json:"label"`
@@ -89,37 +88,18 @@ var claudeFoundAt = func() string {
 	return ""
 }
 
-// claudeSignIn asks program whether it's signed in on the account whose config folder is configDir ("" for
-// ~/.claude's), as a desk starts it, with the hire's environment, so a key or a cloud provider in it counts. A
-// variable, for the tests.
+// claudeSignIn asks program whether a hire on the account whose config folder is configDir ("" for ~/.claude's)
+// starts signed in, as the engine asks it at the desk's start (desksignin.go): in a Claude folder of the desk's kind,
+// with the hire's environment, so a key or a cloud provider in it counts. A variable, for the tests.
 var claudeSignIn = func(program, configDir string) signIn {
-	// A Claude Code that isn't Anthropic's is never run (agentcheck.go): it can't say.
-	if checkAgentProgram(string(Claude), program) != nil {
-		return signInUnknown
-	}
-	command := signInCommand(program)
-	return signInFrom(quickRun(command[0], command[1:], signInEnvironment(configDir)).output)
+	return hiresSignInWith(func() string { return program }, configDir)
 }
 
 // signInCommand is `claude auth status --json`, run as a desk's Claude Code is started: the program itself, no
-// login shell (SANDBOX-PLAN §3.4, SG2), on the account the GM's hire would work on, which signInEnvironment names
-// (CLAUDE_CONFIG_DIR set to the account's folder, or cleared for ~/.claude's, configDir ""). Checked before it
-// runs, as every Claude Code the core starts (spawnCapped).
+// login shell (SANDBOX-PLAN §3.4, SG2), with the desk's folders (deskSignInEnvironment). Checked before it runs, as
+// every Claude Code the core starts (spawnCapped).
 func signInCommand(program string) []string {
 	return []string{program, "auth", "status", "--json"}
-}
-
-// signInEnvironment is the hire's environment without CLAUDE_CONFIG_DIR, as the launcher drops it for the GM, and
-// with the account's own folder when one is named.
-func signInEnvironment(configDir string) []string {
-	env := slices.DeleteFunc(hireEnvironment(), func(variable string) bool {
-		name, _, _ := strings.Cut(variable, "=")
-		return strings.EqualFold(name, "CLAUDE_CONFIG_DIR")
-	})
-	if configDir != "" {
-		env = append(env, "CLAUDE_CONFIG_DIR="+configDir)
-	}
-	return env
 }
 
 // signInFrom reads `claude auth status --json`, after whatever your shell's files print as it starts.
@@ -269,10 +249,10 @@ func (d *Deck) gmPreflightOn(account string) preflightReport {
 		case signedIn:
 			add(preflightItem{ID: "signin", OK: true, Title: "Claude Code is signed in."})
 		case signedOut:
-			// Said, never in the way: an API key or a cloud provider can work where this can't see it.
-			add(preflightItem{ID: "signin", Optional: true, Title: "Claude Code isn't signed in.",
-				Fix:    "Hire anyway: its window asks you to sign in. Or sign in first: paste this in " + shellName + " (type /login if it doesn't ask), then press Check again.",
-				Action: &preflightAction{Kind: "copy", Label: "Copy", Command: "claude"}})
+			// In the way: a desk Claude Code says isn't signed in isn't started (SA-X9). The hire's environment was asked,
+			// so an API key or a cloud provider there counts.
+			add(preflightItem{ID: "signin", Title: "Claude Code isn't signed in on this account, so your General Manager wouldn't start.",
+				Fix: "Sign in your hires under Claude accounts, then press Check again.", Action: &preflightAction{Kind: "signin", Label: "Sign in"}, Todo: true})
 		default:
 			add(preflightItem{ID: "signin", Optional: true, Title: "Smolcorp couldn't tell if Claude Code is signed in.",
 				Fix: "You can hire anyway: if your General Manager asks you to sign in, type /login in its window."})

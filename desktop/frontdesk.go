@@ -84,6 +84,10 @@ type Hire struct {
 	// session and that session's transcript, kept until Hand back resumes it there. Written only then.
 	T3Session    string `json:"t3Session,omitempty"`
 	T3Transcript string `json:"t3Transcript,omitempty"`
+	// T3Copied: T3Transcript is the copy Take over made in ~/.claude of a transcript from the desk's own Claude folder
+	// (SA-X8), the one Hand back brings back there and then takes away. Set only by Take over, in the same save as
+	// the copy's place, and cleared with it: never told from where a transcript is (RT126SAX9R2 F2).
+	T3Copied bool `json:"t3Copied,omitempty"`
 	// Scope: a General Manager the owner hired held to one project (gmscope.go), as the full path of that
 	// project; written only when set. Go only: the Mac's Swift engine has no scope (M7).
 	Scope string `json:"scope,omitempty"`

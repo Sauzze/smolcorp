@@ -76,6 +76,9 @@ func (d *Deck) t3StopInTmux(h Hire) error {
 	return ended()
 }
 
+// t3NotSignedIn is a resume refused because the desk's own Claude folder isn't signed in (SA-X9), as Hand back says it.
+const t3NotSignedIn = "it isn't signed in: sign in your hires once in Setup (Claude sign-in)."
+
 // t3ResumeInTmux starts hire h's Claude Code again on session, in a tmux session of its own made as the engine
 // makes one: its own settings (its fence, made afresh, in its command line), its ports, a new send key, the default account
 // (the one T3 Code's agent worked on), in the folder it started in. No window is opened: Setup's Open a window
@@ -113,11 +116,13 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 		return t3Resumed{}, errors.New("its role isn't a Claude Code one any more.")
 	}
 	role.Model = cmpOr(h.Model, role.Model)
-	// No OwnClaude: Take over takes only a session on the default account (t3OnDefaultAccount), so it goes on there, in
-	// ~/.claude, with Claude Code's own plans folder. One that resumes a desk in its own Claude folder (SA-X8) must set
-	// OwnClaude and DeskClaude and make its plans folder, as the engine does (RT126SAX8R2).
+	// Take over takes only a session on the default account (t3OnDefaultAccount), so it goes on there. A desk with its
+	// own Claude folder (SA-X8) goes on in it, where Hand back brought its session back (t3BringBack), with its plans
+	// kept outside it, as the engine starts it (RT126SAX8R2); one without, in ~/.claude, with Claude Code's own plans.
+	own, ownClaude := deskOwnClaude(h.ID)
 	settings, err := writeHireSettings(hireSettingsOptions{HireID: h.ID, Auto: engineAutoMode, Profile: guardHire, CLI: o.CLI,
-		Support: supportDir, ReportPort: testPort, Profiles: profiles, Run: o.Guard, IsExec: o.IsExec, Kept: deskKeptFolder(runtime.GOOS, tmux.sandboxed, h.ID)})
+		Support: supportDir, ReportPort: testPort, Profiles: profiles, Run: o.Guard, IsExec: o.IsExec, OwnClaude: ownClaude,
+		Kept: deskKeptFolder(runtime.GOOS, tmux.sandboxed, h.ID)})
 	if err != nil {
 		return t3Resumed{}, errors.New("its settings, its fence, couldn't be made: " + err.Error())
 	}
@@ -131,6 +136,16 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 	}
 	start := hireStart{Role: role, Resume: session, DefaultAccount: true, Settings: settings, CLIDir: filepath.Dir(o.CLI),
 		Ports: h.Ports, SendKey: sendKey, HookKey: hookKey}
+	if ownClaude {
+		start.DeskClaude = own
+		// Its sign-in, as its own folder sees it, as at every start (SA-X9).
+		if deskSignInRefusal(own, "", false) != "" {
+			return t3Resumed{}, errors.New(t3NotSignedIn)
+		}
+		if makeDeskPlans(startedIn(h), h.ID) != nil {
+			return t3Resumed{}, errors.New("its plans folder couldn't be made.")
+		}
+	}
 	if testPort != 0 {
 		start.TestPort, start.TestSupportDir = testPort, supportDir
 	}

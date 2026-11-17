@@ -132,14 +132,17 @@ func TestTheGMPreflightGivesTheLineForALoginShellThatDoesntFindClaude(t *testing
 	}
 }
 
-// Signed out is said, never in the way: an API key or a cloud provider may work where the check can't see it.
+// Signed out is in the way since SA-X9: a desk Claude Code says isn't signed in isn't started, so the line is a step
+// to take, Sign in, under Claude accounts. It was asked with the hire's environment, so a key or a cloud provider there
+// counted.
 func TestTheGMPreflightAsksClaudeCodeIfItIsSignedIn(t *testing.T) {
 	d, _, _, state := preflightDeck(t)
 	*state = signedOut
 	report := d.gmPreflight()
 	line := preflightLine(t, report, "signin")
-	if !report.Ready || line.OK || !line.Optional || line.Action == nil || line.Action.Command != "claude" || !strings.Contains(line.Fix, "/login") ||
-		!strings.HasPrefix(line.Fix, "Hire anyway: its window asks you to sign in.") {
+	if report.Ready || line.OK || line.Optional || !line.Todo || line.Action == nil || line.Action.Kind != "signin" || line.Action.Label != "Sign in" ||
+		line.Title != "Claude Code isn't signed in on this account, so your General Manager wouldn't start." ||
+		line.Fix != "Sign in your hires under Claude accounts, then press Check again." {
 		t.Errorf("signed out: ready %v, %+v", report.Ready, line)
 	}
 	// Couldn't tell: said, but not in the way.
@@ -638,8 +641,8 @@ func TestTheGMHireTurnsHiringOnAndBackOffIfItFails(t *testing.T) {
 }
 
 // Asked as a desk starts Claude Code: the program itself, never through your login shell (SG2), with the same
-// environment, keys and cloud providers kept. The GM works on ~/.claude's account, so CLAUDE_CONFIG_DIR is
-// cleared from the app's environment, as the GM's start and the launcher clear it.
+// environment, keys and cloud providers kept. Its own Claude folder and its account's sign-in (SA-X9), never the
+// folders the app's environment names.
 func TestTheSignInIsAskedAsTheHireStartsIt(t *testing.T) {
 	if command := signInCommand("/x/bin/claude"); !slices.Equal(command, []string{"/x/bin/claude", "auth", "status", "--json"}) {
 		t.Errorf("sign-in command %q", command)
@@ -647,12 +650,14 @@ func TestTheSignInIsAskedAsTheHireStartsIt(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "k-fake")
 	t.Setenv("SMOLCORP_SESSION", "s1")
 	t.Setenv("CLAUDE_CONFIG_DIR", "/x/other-account")
-	env := signInEnvironment("")
+	t.Setenv(secureStorageEnvironment, "/x/other-account")
+	env := deskSignInEnvironment("/x/desk", "")
 	if !slices.Contains(env, "ANTHROPIC_API_KEY=k-fake") || slices.Contains(env, "SMOLCORP_SESSION=s1") {
 		t.Errorf("the hire's environment: key kept %v, session dropped %v", slices.Contains(env, "ANTHROPIC_API_KEY=k-fake"), !slices.Contains(env, "SMOLCORP_SESSION=s1"))
 	}
-	if slices.ContainsFunc(env, func(variable string) bool { return strings.HasPrefix(variable, "CLAUDE_CONFIG_DIR=") }) {
-		t.Error("CLAUDE_CONFIG_DIR kept: the GM's hire runs on ~/.claude's account")
+	if slices.ContainsFunc(env, func(variable string) bool { return strings.Contains(variable, "/x/other-account") }) ||
+		!slices.Contains(env, "CLAUDE_CONFIG_DIR=/x/desk") || !slices.Contains(env, secureStorageEnvironment+"=") {
+		t.Errorf("the desk's folders: %q", env)
 	}
 }
 
@@ -832,7 +837,7 @@ func TestTheGMPreflightLooksAtTheAccountNamed(t *testing.T) {
 		return signedIn
 	}
 	report := d.gmPreflightOn("work")
-	if line := preflightLine(t, report, "signin"); line.OK || !line.Optional {
+	if line := preflightLine(t, report, "signin"); line.OK || line.Optional || line.Action == nil || line.Action.Kind != "signin" {
 		t.Errorf("work isn't signed in: %+v", line)
 	}
 	// work's settings.json has none of Smolcorp's hooks, though ~/.claude's are connected (the stand-in).
@@ -851,7 +856,7 @@ func TestTheGMPreflightLooksAtTheAccountNamed(t *testing.T) {
 		t.Errorf("the route on work: %d %s", rec.Code, rec.Body.String())
 	}
 
-	if env := signInEnvironment(work); !slices.Contains(env, "CLAUDE_CONFIG_DIR="+work) {
-		t.Error("the account's folder isn't in the sign-in's environment")
+	if env := deskSignInEnvironment("/x/desk", work); !slices.Contains(env, secureStorageEnvironment+"="+work) {
+		t.Error("the account's sign-in isn't in the sign-in's environment")
 	}
 }

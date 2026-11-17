@@ -259,6 +259,9 @@
   .accounts-fine { color: var(--dim); font-size: 11.5px; margin: 6px 0 0; }
   .accounts .gm-not { color: var(--dim); font-size: 11px; white-space: nowrap; }
   .accounts .settings-problem { flex-basis: 100%; color: var(--error); font-size: 12px; }
+  /* Whether your hires on an account start signed in (SA-X9), and the sign-in that runs for them. */
+  .accounts .hires-in { color: var(--dim); font-size: 11.5px; white-space: nowrap; }
+  .accounts .hires-out { color: var(--error); font-size: 11.5px; white-space: nowrap; }
   /* Come from Start here's account line: which account to add, said once, plainly. */
   .accounts-for-gm { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); font-size: 12.5px; }
   #accounts-next { color: var(--ink); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
@@ -928,6 +931,16 @@
             <!-- Come from Start here's account line (a test copy): which to pick, and what happens then. -->
             <p class="accounts-for-gm" id="accounts-for-gm" role="status" hidden></p>
             <div class="accounts" id="accounts-list"></div>
+            <!-- Your hires' sign-in (SA-X9): Claude Code's own login, run by Smolcorp on one account's folder. -->
+            <div class="accounts" id="hires-signin" role="status" hidden>
+              <div class="row"><span id="hires-signin-what"></span></div>
+              <div class="row" id="hires-signin-link-row" hidden><a id="hires-signin-link" target="_blank" rel="noopener noreferrer">Open the sign-in page</a></div>
+              <div class="row" id="hires-signin-code-row" hidden>
+                <input type="text" id="hires-signin-code" class="mono" spellcheck="false" autocomplete="off" placeholder="Paste the code the page shows" aria-label="The sign-in code">
+                <button class="btn" id="hires-signin-send">Send</button>
+              </div>
+              <div class="row"><button class="btn" id="hires-signin-cancel">Cancel</button></div>
+            </div>
             <div class="accounts"><div class="row" id="accounts-add">
               <input type="text" id="account-name" spellcheck="false" placeholder="Name, such as work" aria-label="The account's name">
               <input type="text" id="account-dir" class="mono" spellcheck="false" placeholder="Folder, such as ~/.claude-work" aria-label="The account's folder">
@@ -3605,6 +3618,18 @@
       // Its settings.json can't be read or isn't valid JSON: Smolcorp leaves it untouched, and says so here.
       if (p.settingsProblem && !testCopy()) row.append(Object.assign(document.createElement('span'), { className: 'settings-problem', textContent: p.settingsProblem }));
       if (p.name === forGm) row.append(Object.assign(document.createElement('span'), { className: 'gm-uses', textContent: 'Your General Manager works on this one' }));
+      // Whether hires on it start signed in, as their own Claude folders see it: one that isn't is refused at its start.
+      const hires = (hiresSignIn || []).find((h) => h.account === p.name);
+      if (hires) {
+        row.append(Object.assign(document.createElement('span'), { className: hires.state === 'signedOut' ? 'hires-out' : 'hires-in',
+          textContent: hiresSignInSays[hires.state] || hiresSignInSays.unknown }));
+        if (hires.state === 'signedOut') {
+          const signIn = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Sign in', disabled: !!hiresSignInRun });
+          signIn.setAttribute('aria-label', `Sign in your hires on ${p.name}`);
+          signIn.onclick = () => startHiresSignIn(p);
+          row.append(signIn);
+        }
+      }
       if (adding && p.default) row.append(Object.assign(document.createElement('span'), { className: 'gm-not', textContent: 'The one you use yourself' }));
       if (!p.default) {
         const remove = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Remove' });
@@ -3630,6 +3655,8 @@
     if (accounts.unconfirmedInUse) rows.push(Object.assign(document.createElement('div'), { className: 'row', id: 'accounts-unconfirmed',
       textContent: "One of your sessions uses a Claude folder that isn't confirmed here, so its conversation isn't shown: add that folder below to see it." }));
     $('accounts-list').replaceChildren(...rows);
+    // Asked again at most every 30 s here (Smolcorp keeps its answer as long), and at once after a sign-in.
+    if (Date.now() - hiresSignInAt > 30000) loadHiresSignIn(false);
     // A test copy's second account is named for what it's for.
     $('account-signin-line').textContent = `CLAUDE_CONFIG_DIR=~/.claude-${testCopy() ? 'test' : 'work'} claude`;
     $('accounts-next').hidden = !accountAdded || gmHired || $('start-gm').hidden;
@@ -3662,6 +3689,63 @@
     $('accounts-problem').textContent = res ? await res.text() : "Can't reach Smolcorp.";
     $('accounts-problem').hidden = false;
   }
+  /* Your hires' sign-in (SA-X9): each account's hires use its sign-in from a Claude folder of their own, and a desk
+     that isn't signed in isn't started. A sign-in here is Claude Code's own login, on that account's folder. */
+  let hiresSignIn = null, hiresSignInAt = 0, hiresSignInRun = null;
+  const hiresSignInSays = { signedIn: 'Your hires are signed in', signedOut: "Your hires aren't signed in", unknown: "Can't tell if your hires are signed in" };
+  async function loadHiresSignIn(refresh) {
+    hiresSignInAt = Date.now();
+    const res = await fetch(`/setup/accounts/status${refresh ? '?refresh=1' : ''}`, { cache: 'no-store', headers: setupHeaders() }).catch(() => null);
+    const answer = res && res.ok ? await res.json().catch(() => null) : null;
+    if (answer && answer.hires) hiresSignIn = answer.hires;
+    renderAccounts();
+  }
+  function accountsSaid(text) {
+    $('accounts-problem').textContent = text;
+    $('accounts-problem').hidden = false;
+  }
+  async function startHiresSignIn(p) {
+    $('accounts-problem').hidden = true;
+    const res = await fetch('/setup/accounts/login', { method: 'POST', headers: setupHeaders(true),
+      body: JSON.stringify({ agent: 'claude', way: 'claudeai', folder: p.default ? '' : p.dir }) }).catch(() => null);
+    if (!res || !res.ok) return accountsSaid(res ? await res.text() : "Can't reach Smolcorp.");
+    hiresSignInRun = { id: (await res.json()).id, name: p.name };
+    $('hires-signin-code').value = '';
+    renderAccounts();
+    followHiresSignIn();
+  }
+  /** The sign-in running, looked at every 1.5 s: its link and the code box while it runs, what came of it once it ends. */
+  async function followHiresSignIn() {
+    const run = hiresSignInRun;
+    if (!run) return;
+    const res = await fetch(`/setup/accounts/login?id=${encodeURIComponent(run.id)}`, { cache: 'no-store', headers: setupHeaders() }).catch(() => null);
+    const view = res && res.ok ? await res.json().catch(() => null) : null;
+    if (run !== hiresSignInRun) return;
+    if (view && view.state === 'running') {
+      const what = `Signing in your hires on ${run.name}: open the sign-in page, sign in there, then paste the code it shows.`;
+      if ($('hires-signin-what').textContent !== what) $('hires-signin-what').textContent = what;
+      $('hires-signin-link-row').hidden = $('hires-signin-code-row').hidden = !view.url;
+      if (view.url) $('hires-signin-link').href = view.url;
+      $('hires-signin').hidden = false;
+      return setTimeout(followHiresSignIn, 1500);
+    }
+    hiresSignInRun = null;
+    $('hires-signin').hidden = true;
+    const ended = { failed: "That sign-in didn't work: try again.", timedOut: 'That sign-in ran out of time: try again.' };
+    if (!view) accountsSaid("Can't reach Smolcorp.");
+    else if (ended[view.state]) accountsSaid(ended[view.state]);
+    loadHiresSignIn(true);
+  }
+  $('hires-signin-send').onclick = async () => {
+    const run = hiresSignInRun, code = $('hires-signin-code').value.trim();
+    if (!run || !code) return;
+    $('hires-signin-code').value = '';
+    const res = await fetch('/setup/accounts/login/code', { method: 'POST', headers: setupHeaders(true), body: JSON.stringify({ id: run.id, code }) }).catch(() => null);
+    if (!res || !res.ok) accountsSaid(res ? await res.text() : "Can't reach Smolcorp.");
+  };
+  $('hires-signin-cancel').onclick = () => {
+    if (hiresSignInRun) fetch('/setup/accounts/login/cancel', { method: 'POST', headers: setupHeaders(true), body: JSON.stringify({ id: hiresSignInRun.id }) }).catch(() => null);
+  };
   /** The accounts listed besides the default. */
   function addedAccounts() { return ((state.claudeAccounts && state.claudeAccounts.profiles) || []).filter((p) => !p.default); }
   $('account-add').onclick = () => saveAccounts([...state.claudeAccounts.profiles.filter((p) => !p.default),
@@ -8362,6 +8446,11 @@
     }
     // A test copy's account line: the picker beside Hire, or General's Claude accounts.
     if (action.kind === 'account') return chooseAccount().run();
+    // Your hires aren't signed in (SA-X9): General's Claude accounts, where each account's Sign in is.
+    if (action.kind === 'signin') {
+      loadHiresSignIn(true);
+      return go('general', $('step-accounts'));
+    }
     button.disabled = true;
     const res = await fetch(`/setup/fix?fix=${encodeURIComponent(action.fix)}`, { method: 'POST', headers: setupHeaders(true) }).catch(() => null);
     button.disabled = false;

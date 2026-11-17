@@ -150,6 +150,8 @@ type Deck struct {
 	summaryProviders *summaryProviders
 	// Whether Claude, Codex and Gemini are signed in, as setup's Accounts asks (signinstatus.go).
 	signInSeen signInStatus
+	// hiresSeen is each account's hires' sign-in, as their own Claude folders see it, kept as signInSeen is (SA-X9).
+	hiresSeen hiresSignInStatus
 	// The one sign-in to Claude, Codex or Gemini setup's Accounts may have running (signinrun.go).
 	logins loginRunner
 	// The portable office (beta): the office on a phone from anywhere, view only. Off at every start.

@@ -104,6 +104,14 @@ func restartDesk(h Hire, role Role, account string, profiles []claudeProfile, o 
 	if err := makeDeskClaude(start.DeskClaude, deskClaude{Account: account, Trusted: physical(trusted)}); err != nil {
 		return stopped(strings.TrimSuffix(err.Error(), ".") + ".")
 	}
+	// Its sign-in, as its new folder sees it, as at every start (SA-X9): one Claude Code says is missing refuses the
+	// restart with the engine start's words, before anything of it runs, and the folder made for it goes. An API-key
+	// desk never gets here (restartRefusal).
+	if why := deskSignInRefusal(start.DeskClaude, account, false); why != "" {
+		_ = removeDeskClaude(supportDir, h.ID)
+		return t3Resumed{}, t3Refused(http.StatusConflict, why+" "+name+" was stopped, and its worktree and branch are as it "+
+			"left them: once it's signed in, press Restart in the sandbox again, or fire it.")
+	}
 	if makeDeskPlans(startedIn(h), h.ID) != nil {
 		return stopped("Smolcorp couldn't make its plans folder.")
 	}

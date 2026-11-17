@@ -108,5 +108,8 @@ func runWithTempSupport(run func() int) int {
 	// Nor is a stand-in claude refused for its signature (agentcheck.go): the rows that check the refusal put the
 	// real check back, on stand-ins of their own.
 	agentSignatureCheck = func(string) error { return nil }
+	// Nor is the claude installed here asked whether a desk is signed in (desksignin.go): the rows that check it name a
+	// stand-in of their own.
+	deskSignInFind = func() string { return "" }
 	return run()
 }

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -238,7 +239,13 @@ func (rt *router) accountsStatus(w http.ResponseWriter, r *request) {
 		writeStatus(w)(http.StatusForbidden, routeRefusal(r.Method, r.URL.Path))
 		return
 	}
-	agents := rt.deck.signInSeen.get(r.URL.Query().Get("refresh") == "1")
+	refresh := r.URL.Query().Get("refresh") == "1"
+	agents := rt.deck.signInSeen.get(refresh)
+	// Each account's hires, as their own Claude folders would see its sign-in (SA-X9): Setup's "Sign in your hires".
+	rt.deck.mu.Lock()
+	saved := slices.Clone(rt.deck.config.ClaudeProfiles)
+	rt.deck.mu.Unlock()
+	hires := rt.deck.hiresSeen.get(claudeAccountList(saved), refresh)
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]any{"agents": agents})
+	writeJSON(w, http.StatusOK, map[string]any{"agents": agents, "hires": hires})
 }

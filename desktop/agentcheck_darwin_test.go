@@ -62,7 +62,7 @@ func TestAPlantedClaudeIsRefusedAtEachCLIStart(t *testing.T) {
 	savedFind := loginFind
 	loginFind = func(string) string { return wrapper }
 	t.Cleanup(func() { loginFind = savedFind })
-	if _, status, why := (&loginRunner{}).start("claude", "claudeai"); status != http.StatusConflict {
+	if _, status, why := (&loginRunner{}).start("claude", "claudeai", ""); status != http.StatusConflict {
 		t.Errorf("S2's sign-in: %d %q", status, why)
 	} else {
 		refused("S2's sign-in", errors.New(why))

@@ -268,7 +268,20 @@ func (c deskClaude) fill(folder string, seeded []byte) error {
 			return errDeskClaude
 		}
 	}
-	settings, err := os.ReadFile(filepath.Join(account, "settings.json"))
+	if err := c.copySettings(folder); err != nil {
+		return err
+	}
+	// writeNewFile (demo.go) never writes through anything already there; the umask takes nothing from these modes.
+	if err := writeNewFile(claudeJSON(folder), seeded, 0o600); err != nil {
+		return errDeskClaude
+	}
+	return nil
+}
+
+// copySettings puts a read-only copy of the account's settings.json in folder, just made, when the account has one:
+// its env and apiKeyHelper are the desk's too.
+func (c deskClaude) copySettings(folder string) error {
+	settings, err := os.ReadFile(filepath.Join(c.accountFolder(), "settings.json"))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:
@@ -277,10 +290,6 @@ func (c deskClaude) fill(folder string, seeded []byte) error {
 		if err := writeNewFile(filepath.Join(folder, "settings.json"), settings, 0o400); err != nil {
 			return errDeskClaude
 		}
-	}
-	// writeNewFile (demo.go) never writes through anything already there; the umask takes nothing from these modes.
-	if err := writeNewFile(claudeJSON(folder), seeded, 0o600); err != nil {
-		return errDeskClaude
 	}
 	return nil
 }

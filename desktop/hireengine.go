@@ -283,6 +283,10 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 			}
 			return fail(http.StatusInternalServerError, err.Error()+".")
 		}
+		// Its sign-in, as its own folder sees it (SA-X9): one Claude Code says is missing refuses the start.
+		if why := deskSignInRefusal(start.DeskClaude, r.ConfigDir, r.APIKey); why != "" {
+			return fail(http.StatusConflict, why)
+		}
 		// Its plans, in its place (deskPlansDirectory): the fence denies its tools its Claude folder.
 		if makeDeskPlans(place.Folder, id) != nil {
 			return fail(http.StatusInternalServerError, "Smolcorp couldn't make the hire's plans folder.")

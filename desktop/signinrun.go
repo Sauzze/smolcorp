@@ -178,8 +178,9 @@ type loginRunner struct {
 	run *loginRun
 }
 
-// start runs agent's way to sign in: its id, or a status and why not.
-func (lr *loginRunner) start(agent, way string) (string, int, string) {
+// start runs agent's way to sign in, on the Claude folder folder ("" for ~/.claude's, or what loginFolderOf allowed):
+// its id, or a status and why not.
+func (lr *loginRunner) start(agent, way, folder string) (string, int, string) {
 	w := loginWayOf(agent, way)
 	if w == nil {
 		if agent == "gemini" {
@@ -214,7 +215,7 @@ func (lr *loginRunner) start(agent, way string) (string, int, string) {
 	_ = terminal.Resize(loginColumns, loginRows)
 	cmd := terminal.Command(started, words...)
 	useCmdLine(cmd, program, args)
-	cmd.Env = loginEnvironment(os.Environ())
+	cmd.Env = loginEnvironment(os.Environ(), folder)
 	cmd.Dir = os.TempDir()
 	if err := cmd.Start(); err != nil {
 		terminal.Close()
@@ -260,9 +261,53 @@ func loginCommand(program string, args []string) (string, []string) {
 
 // loginEnvironment is a login's environment, from base (Smolcorp's): a
 // summary's (no API key that would stand in for the sign-in, no other
-// provider's cloud, nothing that takes it for a desk), and no colours.
-func loginEnvironment(base []string) []string {
-	return append(summaryEnvironment(base), "NO_COLOR=1")
+// provider's cloud, nothing that takes it for a desk), and no colours. The
+// folder it signs in is folder alone, never one Smolcorp's own environment
+// names (RT126S2 N9): CLAUDE_CONFIG_DIR is folder, or unset for ~/.claude's
+// (""), and no CLAUDE_SECURESTORAGE_CONFIG_DIR points the sign-in elsewhere.
+func loginEnvironment(base []string, folder string) []string {
+	env := slices.DeleteFunc(summaryEnvironment(base), func(variable string) bool {
+		name, _, _ := strings.Cut(variable, "=")
+		return strings.EqualFold(name, "CLAUDE_CONFIG_DIR") || strings.EqualFold(name, secureStorageEnvironment)
+	})
+	if folder != "" {
+		env = append(env, "CLAUDE_CONFIG_DIR="+folder)
+	}
+	return append(env, "NO_COLOR=1")
+}
+
+// loginFolderOf is the Claude folder a sign-in for agent is asked for (given, as the page sends it) as the runner
+// takes it (SB15, RT126S2 D3): "" for none or ~/.claude's, or one of allowed, the folders of the accounts you confirmed
+// and the hires' own (hiresSignInFolders), as they are listed; false for any other, or for an agent but Claude Code.
+func loginFolderOf(agent, given string, allowed []string) (string, bool) {
+	if strings.TrimSpace(given) == "" {
+		return "", true
+	}
+	dir, ok := claudeFolderPath(given)
+	if !ok || agent != "claude" {
+		return "", false
+	}
+	if dir == claudeDefaultProfile().Dir {
+		return "", true
+	}
+	return dir, slices.Contains(allowed, dir)
+}
+
+// hiresSignInFolders are the Claude folders of the hires' own that a sign-in may be for, besides the accounts': none
+// yet. AQ16's fallback (one signed-in "hires" folder per account, HIRESACCT1) adds its folders here.
+var hiresSignInFolders = func() []string { return nil }
+
+// loginFolders are the folders a sign-in may be for: the accounts' (claudeAccountList: those you confirmed, each a
+// folder in your home folder, that is there) and the hires' own.
+func (d *Deck) loginFolders() []string {
+	d.mu.Lock()
+	saved := slices.Clone(d.config.ClaudeProfiles)
+	d.mu.Unlock()
+	var folders []string
+	for _, p := range claudeAccountList(saved) {
+		folders = append(folders, p.Dir)
+	}
+	return append(folders, hiresSignInFolders()...)
 }
 
 // wait ends the run: when the command ends, is cancelled, or runs out of time.
@@ -504,7 +549,7 @@ func agentDisplayName(agent string) string {
 
 // accountsLogin answers the sign-in routes, the page's alone (goOnlyRoutes):
 //
-//	POST /setup/accounts/login         {"agent", "way"}  starts one: {"id"}
+//	POST /setup/accounts/login         {"agent", "way", "folder"}  starts one: {"id"}
 //	GET  /setup/accounts/login?id=     its state (loginView)
 //	POST /setup/accounts/login/code    {"id", "code"}    a code for it to read
 //	POST /setup/accounts/login/cancel  {"id"}            ends it
@@ -515,14 +560,19 @@ func (rt *router) accountsLogin(w http.ResponseWriter, r *request) {
 	}
 	logins := &rt.deck.logins
 	w.Header().Set("Cache-Control", "no-store")
-	var asked struct{ Agent, Way, ID, Code string }
+	var asked struct{ Agent, Way, ID, Code, Folder string }
 	if r.Method == http.MethodPost && json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&asked) != nil {
 		writeStatus(w)(http.StatusBadRequest, "That request isn't one the page sends.")
 		return
 	}
 	switch {
 	case r.Method == http.MethodPost && r.URL.Path == "/setup/accounts/login":
-		id, status, why := logins.start(asked.Agent, asked.Way)
+		folder, ok := loginFolderOf(asked.Agent, asked.Folder, rt.deck.loginFolders())
+		if !ok {
+			writeStatus(w)(http.StatusBadRequest, "Smolcorp signs in only the Claude folders of the accounts you confirmed in Claude accounts.")
+			return
+		}
+		id, status, why := logins.start(asked.Agent, asked.Way, folder)
 		if why != "" {
 			writeStatus(w)(status, why)
 			return

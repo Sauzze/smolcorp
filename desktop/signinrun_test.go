@@ -643,7 +643,7 @@ func TestTheLoginRoutesAreThePagesAlone(t *testing.T) {
 }
 
 func TestALoginsEnvironmentIsCleaned(t *testing.T) {
-	env := loginEnvironment([]string{"PATH=/bin", "ANTHROPIC_API_KEY=" + loginFakeToken, "OPENAI_API_KEY=x", "SMOLCORP_SESSION=abc", "HOME=/h"})
+	env := loginEnvironment([]string{"PATH=/bin", "ANTHROPIC_API_KEY=" + loginFakeToken, "OPENAI_API_KEY=x", "SMOLCORP_SESSION=abc", "HOME=/h"}, "")
 	joined := strings.Join(env, "\n")
 	for _, gone := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "SMOLCORP_SESSION"} {
 		if strings.Contains(joined, gone) {

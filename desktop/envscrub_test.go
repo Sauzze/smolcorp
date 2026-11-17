@@ -75,7 +75,7 @@ func noMarkerAndTheOwnersKept(t *testing.T, row string, env []string, want map[s
 func TestHireEnvironmentHasNoClaudeSessionMarkerAndKeepsTheOwnersProvider(t *testing.T) {
 	openedInsideClaudeCode(t)
 	noMarkerAndTheOwnersKept(t, "hireEnvironment (tmux servers, hire windows, desk starts, the GM's sign-in check)", hireEnvironment(), ownersProvider)
-	noMarkerAndTheOwnersKept(t, "the GM's sign-in check", signInEnvironment(""), ownersProvider)
+	noMarkerAndTheOwnersKept(t, "the GM's sign-in check", deskSignInEnvironment("/fake/desk/claude", ""), ownersProvider)
 	noMarkerAndTheOwnersKept(t, "t3 and T3 Code's app", t3Environment(), ownersProvider)
 }
 
@@ -115,7 +115,7 @@ func TestOnEverySystemTheLaunchersGMHasItsTokenAndNoClaudeSessionMarker(t *testi
 // bills your plan, never a cloud), and unchanged; the rest of the owner's is kept.
 func TestASummarysAndASignInsEnvironmentHaveNoClaudeSessionMarker(t *testing.T) {
 	openedInsideClaudeCode(t)
-	for row, env := range map[string][]string{"a summary": summaryEnvironment(os.Environ()), "a sign-in": loginEnvironment(os.Environ())} {
+	for row, env := range map[string][]string{"a summary": summaryEnvironment(os.Environ()), "a sign-in": loginEnvironment(os.Environ(), "")} {
 		noMarkerAndTheOwnersKept(t, row, env, map[string]string{"CLAUDE_CODE_GIT_BASH_PATH": "/fake/git/bash", "AWS_REGION": "fake-region-1"})
 		if _, ok := environ(env, "CLAUDE_CODE_USE_BEDROCK", false); ok {
 			t.Errorf("%s: a summary's own rule changed: it runs on Bedrock", row)
