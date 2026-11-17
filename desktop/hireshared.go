@@ -322,9 +322,51 @@ func refusalOfState(h Hire, state PaneState, readable, force bool, nothing strin
 // firedWorktreeKept is why a fire left a worktree, as the Mac's HireFire.finish says it.
 const firedWorktreeKept = "It holds changes nobody committed (new files count too), or git wouldn't remove it."
 
-// firedKeptNote is the registry's note of a fired hire whose worktree was kept (the Mac's afterColon).
-func firedKeptNote(worktree string) string {
-	return "Its worktree " + worktree + " was kept: it" + strings.TrimPrefix(firedWorktreeKept, "It")
+// firedKept is why a fire left h's worktree, in the fire's answer (firedWorktreeKept's form). When the repo's own git
+// config sets a hook (a hook.* key: git's hooks by config), that is said as the cause (RT126SAX7STACK F3): the fire's
+// look at the tree is a read, and a read is refused on such a config whatever the tree holds (gitRepoConfig), so
+// "changes" would be a guess. The hire was made all the same (FXGITSTATECFGR1's decision 2). git nil is runGit.
+func firedKept(git gitRunner, h Hire) string {
+	if why := repoHookWords(git, h.Repo); why != "" {
+		return "Y" + why[1:] + ", so it couldn't tell whether anything uncommitted is in it. Look at it, then remove it and its branch yourself."
+	}
+	return firedWorktreeKept
+}
+
+// repoHookWords is the cause, in the owner's words, when the config of repo (the owner's checkout) sets a hook: the
+// fire's look at a hire's worktree is refused for it (firedKept, uncommittedRefusal). "" when it sets none.
+func repoHookWords(git gitRunner, repo string) string {
+	if rule := repoHookRule(git, repo); rule != "" {
+		return "your repo's git config sets a hook (" + rule + "), and Smolcorp doesn't look into a hire's worktree with git while one is set"
+	}
+	return ""
+}
+
+// repoHookRule is the rule (gitRuleOf's) of the first hook the config of repo, the owner's checkout, sets by config,
+// "" for none or when git couldn't say: read as hirePushRemote reads the remotes, the config alone.
+func repoHookRule(git gitRunner, repo string) string {
+	if git == nil {
+		git = runGit
+	}
+	if repo == "" {
+		return ""
+	}
+	status, out, ok := git(repo, "config", "-z", "--get-regexp", `^hook\.`)
+	if !ok || status != 0 {
+		return ""
+	}
+	record, _, _ := strings.Cut(out, "\x00")
+	key, _, _ := strings.Cut(record, "\n")
+	if rule, section := gitRuleOf(key); section == "hook" {
+		return rule
+	}
+	return ""
+}
+
+// firedKeptNote is the registry's note of a fired hire whose worktree was kept (the Mac's afterColon), for why it was
+// (firedWorktreeKept, firedKept).
+func firedKeptNote(worktree, kept string) string {
+	return "Its worktree " + worktree + " was kept: " + strings.ToLower(kept[:1]) + kept[1:]
 }
 
 // firedButHeld is what a fire answers while the records' key can't be read (records.go's recordsHeldOnly), for a hire
@@ -401,10 +443,14 @@ func heldFireNote(h Hire) string {
 }
 
 // uncommittedRefusal is why a hire's worktree may not be left, or "": git
-// lists changes nobody committed (as the Mac's fireRefusal), or can't say.
+// lists changes nobody committed (as the Mac's fireRefusal), or can't say (and why, when the repo's config sets a
+// hook: repoHookWords).
 func uncommittedRefusal(h Hire, git gitRunner) string {
 	status, out, ok := git(physical(h.Worktree), "status", "--porcelain")
 	if !ok || status != 0 {
+		if why := repoHookWords(git, h.Repo); why != "" {
+			return "Couldn't tell whether " + calledHire(h) + "'s worktree has unsaved work: " + why + ". Fire again with force to go ahead."
+		}
 		return "Couldn't tell whether " + calledHire(h) + "'s worktree has unsaved work. Fire again with force to go ahead."
 	}
 	if strings.TrimSpace(out) == "" {

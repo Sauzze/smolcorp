@@ -168,7 +168,7 @@ func gitOnDeskTree(h Hire, dir string, inCheckout bool, args []string) (int, str
 	if inCheckout {
 		// In the checkout, outside any sandbox, as every git the core runs there: the branch is deleted in a git
 		// folder of the core's own and carried into the repo (ownergit.go), so no hook a config names fires.
-		status, out, err := gitWriteThroughFolder(ctx, t.repo, "", "", "", args)
+		status, out, err := gitWriteThroughFolder(ctx, t.repo, "", "", "", nil, args)
 		if err != nil {
 			return deskRefused(h, args, err.Error())
 		}
@@ -209,9 +209,9 @@ func deskGit(ctx context.Context, h Hire, desk, gitDir, top, dir string, args []
 		var err error
 		switch {
 		case gitReadsFilesThrough[args[0]]:
-			status, out, err = gitFilesThroughFolder(ctx, dir, gitDir, top, args)
+			status, out, err = gitFilesThroughFolder(ctx, dir, gitDir, top, nil, args)
 		case gitWritesThrough(args):
-			status, out, err = gitWriteThroughFolder(ctx, dir, gitDir, top, filepath.Dir(filepath.Dir(gitDir)), args)
+			status, out, err = gitWriteThroughFolder(ctx, dir, gitDir, top, filepath.Dir(filepath.Dir(gitDir)), nil, args)
 		default:
 			return deskRefused(h, args, "this desk has no sandbox, and the command has no form on config of the core's own")
 		}

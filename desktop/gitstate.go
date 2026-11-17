@@ -311,9 +311,14 @@ var (
 	// and per URL, lfs.<url>.standalonetransferagent), and an extension's commands (lfs.extension.<name>.clean,
 	// .smudge). Its subsection takes the dots, so these are "lfs.*.path" and the like, and any lfs key so named is
 	// blanked, a program or not. git-lfs's other program, core.askpass, isn't a key a read knows.
+	// gc.recentObjectsHook (git 2.42 and later) is commands the shell runs while gc makes cruft packs, and a commit
+	// can start gc (RT126SAX7's B2). A blank of it by -c would be one more command in its list, not the end of the
+	// others; what being listed here does is keep it out of the core's own git folder (gitForwarded), so a commit
+	// through it runs none (RT126GITSTATECFGR2's F1), make the owner's git refuse it (gitHandOverConfig, Take over)
+	// and SA-X12's start list name it (gitSettingRuns).
 	gitBlankedKeys = map[string]string{"filter.*.clean": "", "filter.*.smudge": "", "filter.*.process": "", "filter.*.required": "false",
 		"diff.*.textconv": "", "diff.*.command": "", "merge.*.driver": "", "credential.*.helper": "", "gpg.*.program": "",
-		"protocol.*.allow": "never", "submodule.*.update": "checkout",
+		"protocol.*.allow": "never", "submodule.*.update": "checkout", "gc.recentobjectshook": "",
 		"lfs.*.path": "", "lfs.*.args": "", "lfs.standalonetransferagent": "", "lfs.*.standalonetransferagent": "",
 		"lfs.*.clean": "", "lfs.*.smudge": ""}
 	// gitBlankedSections have programs in any key (an alias "!program", a pager per command): every key is blanked.
@@ -417,14 +422,9 @@ func gitRepoConfig(list []byte) (blanks [][2]string, refused string) {
 		if key == "" {
 			continue
 		}
-		first, last := strings.Index(key, "."), strings.LastIndex(key, ".")
-		if first < 0 {
+		rule, section := gitRuleOf(key)
+		if rule == "" {
 			return nil, "a key with no section"
-		}
-		section, name := strings.ToLower(key[:first]), strings.ToLower(key[last+1:])
-		rule := section + "." + name
-		if first != last {
-			rule = section + ".*." + name
 		}
 		value, blanked := gitBlankedKeys[rule]
 		switch {

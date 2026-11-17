@@ -27,7 +27,8 @@ import (
 // a repo's config at each run, and a desk can change it between any look and the run (a filter, an fsmonitor, a hook
 // in a folder it names, a config-based hook, hook.<name>.command, which core.hooksPath doesn't switch off). So:
 //   - A command that reads refs or config only (gitReadsRefsOnly: rev-parse, for-each-ref, symbolic-ref's read, one
-//     config key, the remotes' names) runs with gitstate's guards (gitReadEnv, gitReadArgs). It reads no working file,
+//     config key or one pattern's keys, the remotes' names, merge-base --is-ancestor) runs with gitstate's guards
+//     (gitReadEnv, gitReadArgs). It reads no working file,
 //     writes nothing and fires no hook event, so no key of any name runs a program (RT126GITSTATECFG's P1 ran these
 //     after every class of key was flipped in).
 //   - A command that reads the working files (status, ls-files, check-ignore, diff) runs through a git folder of the
@@ -39,13 +40,39 @@ import (
 //     branch git keeps packed, a branch that moved meanwhile, or refs that aren't files: refused), and the new
 //     worktree's registration, copied in.
 //   - A worktree's removal is the core's own (removeDeskTree), as a hire's tree's is.
+//   - A hire's new branch gets its upstream (presetUpstream, SA-X7), the one config write the core asks of git in
+//     the repo itself: `config --local` of that branch's remote and merge, and nothing else (gitPresetsUpstream). A
+//     config write reads no working file and fires no hook event, and runs with the refs-only reads' guards. A branch
+//     the core deletes loses its section too, as git's own `branch -D` drops it.
 //   - Anything else is refused, and the log says why. Nothing falls back to plain git.
+//
+// SA-X7 (SANDBOX-PLAN §A3.5.1, "New (NB2)") adds, for the owner's repo (runGit's every folder that isn't a hire's own
+// tree): before a git that reads or writes its files (a worktree made, add, commit, a status or diff; not a branch's
+// deletion, which touches none), the repo's config is judged as SA-X7 judged it (ownerRepoConfig), on the same list
+// the core's folder is made from, and an include, a key no read knows or an address that runs a program refuses it,
+// in words the owner hears (prepareHire's "Couldn't make the hire's worktree: …"). Through the core's folder none of
+// them would be read; the owner is told why rather than given a hire on a config Smolcorp doesn't understand. A
+// config-based hook (hook.*) is the one exception for a write: the core's folder leaves it out like every program
+// setting, and FXGITSTATECFGR1 lets a hire be made on a repo that has one (a read still refuses it). A git older than
+// 2.32 is refused, in words too, for every command that reads or writes files; rev-parse still finds the repo, so the
+// owner hears why rather than "not a repository".
+//
+// What that costs the hire's checkout: a file git-lfs would fetch is checked out as its pointer (the hire runs
+// `git lfs pull` in its own sandbox); a partial clone that lacks a file's content can't be checked out (no
+// transport); line ends follow the repo's own config and .gitattributes, and the owner's own core.autocrlf, core.eol
+// and core.safecrlf, carried by value (gitOwnerLineEnds, RT126CRLFRULING); and git older than 2.32 makes no worktree.
 
 // gitReadsFilesThrough are the commands that read working files, run through a git folder of the core's own.
 var gitReadsFilesThrough = map[string]bool{"status": true, "ls-files": true, "check-ignore": true, "diff": true}
 
+// ownerGitNo is a refusal the owner hears (SA-X7): ownerGit gives its words as the output, with ok false, so a
+// caller's own message can say them.
+type ownerGitNo string
+
+func (no ownerGitNo) Error() string { return "Smolcorp didn't run git in your repo: " + string(no) }
+
 // ownerGit is runGit's and scopeGit's git for a folder that isn't a hire's own tree by the registry: ok false when it
-// couldn't be run, or was refused.
+// couldn't be run, or was refused (with the refusal's words as the output when the owner is to hear them).
 func ownerGit(dir string, args []string) (int, string, bool) {
 	limit := gitTimeout
 	if len(args) >= 2 && args[0] == "worktree" && args[1] == "add" {
@@ -56,21 +83,43 @@ func ownerGit(dir string, args []string) (int, string, bool) {
 	status, out, err := ownerGitRun(ctx, dir, args)
 	if err != nil {
 		log.Printf("smolcorp: git %s in %s wasn't run as the owner: %v", strings.Join(args, " "), dir, err)
+		var no ownerGitNo
+		if errors.As(err, &no) {
+			return 0, no.Error(), false
+		}
 		return 0, "", false
 	}
 	return status, out, true
 }
 
 func ownerGitRun(ctx context.Context, dir string, args []string) (int, string, error) {
-	switch {
-	case len(args) == 0:
+	if len(args) == 0 {
 		return 0, "", errors.New("no command")
-	case gitReadsRefsOnly(args):
+	}
+	if (gitReadsFilesThrough[args[0]] || gitWritesThrough(args)) && !gitVersionAtLeast(gitHere().version, 2, 32) {
+		return 0, "", ownerGitNo("the git on this computer is missing, or older than 2.32, which can't be told to leave your git config out.")
+	}
+	switch {
+	case gitReadsRefsOnly(args), gitPresetsUpstream(args):
 		return gitRun(ctx, dir, gitCall{global: gitReadArgs, config: gitHere().owner}, args)
 	case gitReadsFilesThrough[args[0]]:
-		return gitFilesThroughFolder(ctx, dir, "", "", args)
+		return gitFilesThroughFolder(ctx, dir, "", "", ownerRepoJudged, args)
+	case gitWritesThrough(args) && args[0] == "branch":
+		// A branch's deletion reads and writes no file: its config isn't judged, as before SA-X7's.
+		status, out, err := gitWriteThroughFolder(ctx, dir, "", "", "", nil, args)
+		if err == nil && status == 0 && strings.HasPrefix(args[2], "hire/") && gitBranchFile("refs/heads/"+args[2]) {
+			// git's own `branch -D` drops the branch's section (a hire's upstream, presetUpstream) with it; the
+			// deletion the core carried left it in the repo's config. Only a hire's branch, as every caller's is, and
+			// only the two keys presetUpstream wrote, each by its whole name: a section's removal (git's own -D too)
+			// matches the section's name only up to its first "]", so it would take another branch's named this one
+			// and a "]" after it (RT126SAX7STACK F2, F4). None there (git's 5 for no such key) is fine.
+			for _, key := range []string{"remote", "merge"} {
+				gitRun(ctx, dir, gitCall{global: gitReadArgs, config: gitHere().owner}, []string{"config", "--local", "--unset-all", "branch." + args[2] + "." + key})
+			}
+		}
+		return status, out, err
 	case gitWritesThrough(args):
-		return gitWriteThroughFolder(ctx, dir, "", "", "", args)
+		return gitWriteThroughFolder(ctx, dir, "", "", "", ownerRepoJudged, args)
 	case len(args) == 4 && args[0] == "worktree" && args[1] == "remove" && args[2] == "--force":
 		// The worktree of a hire with no row (yet, or any more): removed as the fire removes a hire's own, where git
 		// would run a status on it (and follow its .git file) and walk it by path.
@@ -84,11 +133,14 @@ func ownerGitRun(ctx context.Context, dir string, args []string) (int, string, e
 }
 
 // gitReadsRefsOnly is whether args read refs or config only: rev-parse, for-each-ref, symbolic-ref with one name (a
-// second one would write it), one config key, the remotes' names.
+// second one would write it), one config key or the keys one pattern matches (hirePushRemote's remotes), the
+// remotes' names, and whether one commit holds another (the fire's merged look, SA-X7).
 func gitReadsRefsOnly(args []string) bool {
 	switch args[0] {
 	case "rev-parse", "for-each-ref":
 		return true
+	case "merge-base":
+		return len(args) == 4 && args[1] == "--is-ancestor" && !strings.HasPrefix(args[2], "-") && !strings.HasPrefix(args[3], "-")
 	case "symbolic-ref":
 		names := 0
 		for _, arg := range args[1:] {
@@ -101,11 +153,30 @@ func gitReadsRefsOnly(args []string) bool {
 		}
 		return names == 1
 	case "config":
-		return len(args) == 2 && !strings.HasPrefix(args[1], "-") || len(args) == 3 && args[1] == "--get"
+		return len(args) == 2 && !strings.HasPrefix(args[1], "-") || len(args) == 3 && args[1] == "--get" ||
+			len(args) == 4 && args[1] == "-z" && args[2] == "--get-regexp" && !strings.HasPrefix(args[3], "-")
 	case "remote":
 		return len(args) == 1
 	}
 	return false
+}
+
+// gitPresetsUpstream is whether args are presetUpstream's write, and only it: `config --local
+// branch.<hire's branch>.remote <name>`, or `.merge refs/heads/<that branch>`.
+func gitPresetsUpstream(args []string) bool {
+	if len(args) != 4 || args[0] != "config" || args[1] != "--local" {
+		return false
+	}
+	rest, found := strings.CutPrefix(args[2], "branch.")
+	if !found {
+		return false
+	}
+	if branch, found := strings.CutSuffix(rest, ".merge"); found {
+		return strings.HasPrefix(branch, "hire/") && gitBranchFile("refs/heads/"+branch) && args[3] == "refs/heads/"+branch
+	}
+	branch, found := strings.CutSuffix(rest, ".remote")
+	return found && strings.HasPrefix(branch, "hire/") && gitBranchFile("refs/heads/"+branch) &&
+		args[3] != "" && !strings.HasPrefix(args[3], "-") && !strings.ContainsAny(args[3], " \t\n\r\x00\\")
 }
 
 // gitWritesThrough is whether args write in a form the core carries into the repo (gitWriteThroughFolder): add,
@@ -163,8 +234,8 @@ func gitRun(ctx context.Context, dir string, call gitCall, args []string) (int, 
 // gitFilesThroughFolder runs args, which read the working files, on the repo dir is in, through a git folder of the
 // core's own: gitDir and top name the repo when the caller knows them (a desk's tree, by its registration), "" asks
 // git. A config with a key the read doesn't know refuses it (gitRepoConfig), as the git state's read; a status or a
-// diff never goes into a submodule.
-func gitFilesThroughFolder(ctx context.Context, dir, gitDir, top string, args []string) (int, string, error) {
+// diff never goes into a submodule. judge, when not nil, is asked about that same config first (ownerRepoJudged).
+func gitFilesThroughFolder(ctx context.Context, dir, gitDir, top string, judge func([]byte) error, args []string) (int, string, error) {
 	here := gitHere()
 	if !gitVersionAtLeast(here.version, 2, 32) {
 		return 0, "", errors.New("the git on this computer is missing, or older than 2.32")
@@ -183,6 +254,11 @@ func gitFilesThroughFolder(ctx context.Context, dir, gitDir, top string, args []
 	list, status, err := readGitOut(ctx, dir, look, "config", "--list", "-z")
 	if err != nil || status != 0 {
 		return 0, "", errors.Join(err, errors.New("its config couldn't be read"))
+	}
+	if judge != nil {
+		if err := judge(list); err != nil {
+			return 0, "", err
+		}
 	}
 	blanks, refused := gitRepoConfig(list)
 	if refused != "" {
@@ -212,8 +288,9 @@ func gitFilesThroughFolder(ctx context.Context, dir, gitDir, top string, args []
 // gitWriteThroughFolder runs args, which write (gitWritesThrough), on the repo dir is in, through a git folder of the
 // core's own, and carries the one branch they changed into the repo; for a new worktree (made from the repo's HEAD, or
 // from the commit named), its registration too. Nothing is carried when git says no. gitDir, top and common name the
-// repo when the caller knows them (a desk's tree, by the registry), "" asks git.
-func gitWriteThroughFolder(ctx context.Context, dir, gitDir, top, common string, args []string) (int, string, error) {
+// repo when the caller knows them (a desk's tree, by the registry), "" asks git. judge, when not nil, is asked about
+// the repo's config before anything is made (ownerRepoJudged).
+func gitWriteThroughFolder(ctx context.Context, dir, gitDir, top, common string, judge func([]byte) error, args []string) (int, string, error) {
 	tree := ""
 	if args[0] == "worktree" {
 		var ok bool
@@ -239,6 +316,11 @@ func gitWriteThroughFolder(ctx context.Context, dir, gitDir, top, common string,
 	list, status, err := readGitOut(ctx, dir, look, "config", "--list", "-z")
 	if err != nil || status != 0 {
 		return 0, "", errors.Join(err, errors.New("its config couldn't be read"))
+	}
+	if judge != nil {
+		if err := judge(list); err != nil {
+			return 0, "", err
+		}
 	}
 	if storage := gitConfigValue(list, "extensions.refstorage"); storage != "" && !strings.EqualFold(storage, "files") {
 		return 0, "", errors.New("its branches aren't kept as files (" + storage + "), and the core writes them only as files")
@@ -630,4 +712,115 @@ func gitConfigValue(list []byte, key string) string {
 		}
 	}
 	return value
+}
+
+// ownerRepoConfig is the rule of what in the owner's repo's config (list, `config --list -z`) refuses a git that
+// reads or writes its files there (SA-X7), "" for none: an include (include.path, includeIf.*.path), else what
+// refuses a read (gitRepoConfig: a key no read knows, an address that runs a program). A config-based hook (hook.*)
+// doesn't refuse it here: the core's folder leaves it out (gitDataOnly), and FXGITSTATECFGR1 makes a hire on a repo
+// that has one. A read is still refused for it, by gitRepoConfig in gitFilesThroughFolder's own look.
+func ownerRepoConfig(list []byte) string {
+	var judged []string
+	for _, record := range strings.Split(string(list), "\x00") {
+		key, _, _ := strings.Cut(record, "\n")
+		rule, section := gitRuleOf(key)
+		if gitIncludeRule(rule) {
+			return rule
+		}
+		if section != "hook" {
+			judged = append(judged, record)
+		}
+	}
+	_, refused := gitRepoConfig([]byte(strings.Join(judged, "\x00")))
+	return refused
+}
+
+// ownerRepoJudged is ownerRepoConfig's answer as the refusal the owner hears, nil when it has none.
+func ownerRepoJudged(list []byte) error {
+	if refused := ownerRepoConfig(list); refused != "" {
+		return ownerGitNo("its git config has " + refused + ", which could run a program, and git there runs with nothing of the kind.")
+	}
+	return nil
+}
+
+// gitIncludeRule is whether rule brings in another file's config.
+func gitIncludeRule(rule string) bool { return rule == "include.path" || rule == "includeif.*.path" }
+
+// gitHandOverRefused are keys that are data to a read, but not to the owner's own git, which takes them from a
+// worktree's config.worktree when the repo turns worktree config on (RT126SAX7's B1). core.worktree and core.bare say
+// where the work tree's top is: a read names its own (GIT_WORK_TREE), the owner's git doesn't, and git runs hooks
+// from the top, so a relative hooks folder would be one Take over never looked at. pull.twohead and pull.octopus name
+// a merge strategy, and git runs git-merge-<name> for one that isn't its own; so can branch.<name>.mergeOptions, with
+// its -s (RT126SAX7R2's F1).
+var gitHandOverRefused = gitKeySet(`core.worktree core.bare pull.twohead pull.octopus branch.*.mergeoptions`)
+
+// gitHandOverConfig is the rule of the first setting in list (`config --list -z` of a file a desk could have
+// written) that runs a program, or could, for a git that blanks nothing: the owner's own (Take over, C6). "" when
+// every setting is data. Unlike a read's (gitRepoConfig), nothing is blanked: a filter, a text converter, an alias,
+// gitReadArgs' own keys (an fsmonitor, a hooks folder), an include and gitHandOverRefused are each refused, as is a
+// key no read knows and an address that runs a program.
+func gitHandOverConfig(list []byte) string {
+	for _, record := range strings.Split(string(list), "\x00") {
+		key, value, _ := strings.Cut(record, "\n")
+		if key == "" {
+			continue
+		}
+		rule, section := gitRuleOf(key)
+		switch _, blanked := gitBlankedKeys[rule]; {
+		case rule == "":
+			return "a key with no section"
+		case gitIncludeRule(rule), blanked, gitBlankedSections[section], gitFixedKeys[rule], gitHandOverRefused[rule]:
+			return rule
+		case gitSettingAddressRuns(key, value):
+			return rule + gitRefusedAddress
+		case !gitDataKeys[rule] && !gitDataSections[section]:
+			return rule
+		}
+	}
+	return ""
+}
+
+// presetUpstream gives the hire's new branch an upstream (SANDBOX-PLAN §A3.5.1, AQ2): the remote it pushes to, and
+// the same name there. A hire's sandbox denies it the repo's shared config, so its own `git push -u` can't write
+// one; with this, a plain `git push` works. The remote is origin, else the one the checkout's branch tracks, else the
+// repo's only one; with none, there is nowhere to push and nothing is set. False when the setting couldn't be
+// written. The fire's branch deletion removes it with the branch (ownerGitRun).
+func presetUpstream(repo, branch string, git gitRunner) bool {
+	remote := hirePushRemote(repo, git)
+	if remote == "" {
+		return true
+	}
+	for _, setting := range [][2]string{{"remote", remote}, {"merge", "refs/heads/" + branch}} {
+		if status, _, ok := git(repo, "config", "--local", "branch."+branch+"."+setting[0], setting[1]); !ok || status != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// hirePushRemote is the remote a hire's branch in repo pushes to (presetUpstream), "" for none.
+func hirePushRemote(repo string, git gitRunner) string {
+	status, out, ok := git(repo, "config", "-z", "--get-regexp", `^remote\..+\.url$`)
+	if !ok || status != 0 {
+		return "" // 1: no remote
+	}
+	var names []string
+	for _, record := range strings.Split(out, "\x00") {
+		key, _, _ := strings.Cut(record, "\n")
+		if name := strings.TrimSuffix(strings.TrimPrefix(key, "remote."), ".url"); name != "" && name != key {
+			names = append(names, name)
+		}
+	}
+	if slices.Contains(names, "origin") {
+		return "origin"
+	}
+	if status, current, ok := git(repo, "symbolic-ref", "--short", "-q", "HEAD"); ok && status == 0 && current != "" {
+		if status, tracked, ok := git(repo, "config", "--get", "branch."+current+".remote"); ok && status == 0 && slices.Contains(names, tracked) {
+			return tracked
+		}
+	}
+	if len(names) == 1 {
+		return names[0]
+	}
+	return ""
 }

@@ -446,7 +446,8 @@ func TestGitOnlyEverSeesTheGuardsOwnResolvedPaths(t *testing.T) {
 			t.Errorf("git was run in %q: %q", a[0], a)
 		}
 		for _, arg := range a[1:] {
-			if strings.Contains(arg, string(filepath.Separator)) && arg != tree && !strings.HasPrefix(arg, "hire/") {
+			// A hire's branch, by its short name or in full (the fire's merged look, RT126SAX7R2's F2), is a ref.
+			if strings.Contains(arg, string(filepath.Separator)) && arg != tree && !strings.HasPrefix(strings.TrimPrefix(arg, "refs/heads/"), "hire/") {
 				t.Errorf("git was given the path %q: %q", arg, a)
 			}
 		}

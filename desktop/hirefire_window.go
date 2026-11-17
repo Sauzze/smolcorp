@@ -151,8 +151,8 @@ func (d *Deck) fireOwnWindowHire(h Hire, tab string, agent Agent, force, keep bo
 	case note != "":
 		markFired(h.ID, note)
 	case h.Worktree != "" && !removed && !keep:
-		markFired(h.ID, firedKeptNote(h.Worktree))
-		kept = firedWorktreeKept
+		kept = firedKept(o.Git, h)
+		markFired(h.ID, firedKeptNote(h.Worktree, kept))
 	default:
 		markFired(h.ID, "")
 	}

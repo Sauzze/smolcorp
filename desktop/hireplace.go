@@ -40,7 +40,8 @@ type gitRunner func(dir string, args ...string) (status int, output string, ok b
 
 // runGit is the real gitRunner. A dir in a hire's own worktree (and the fire's removal of one) is a desk's tree:
 // git runs there as deskRun runs it, named and hardened, in the hire's sandbox when it has one (deskrun.go). Any other
-// folder may be a repo a desk can write: git runs there only on config the core wrote, or not at all (ownergit.go).
+// folder may be a repo a desk can write: git runs there only on config the core wrote, or not at all, and in the
+// owner's repo SA-X7's checks come first (ownergit.go).
 func runGit(dir string, args ...string) (int, string, bool) {
 	if run, mine := deskGitFor(dir, args); mine {
 		return run()
@@ -177,9 +178,16 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 				if r.Held != nil {
 					r.Held.discardMade(branch, git)
 				}
-				out = "git didn't answer"
+				if out == "" { // else the words of the core's refusal (ownerGit)
+					out = "git didn't answer"
+				}
 			}
 			return hirePlace{}, &hireRefusal{Status: 409, Message: "Couldn't make the hire's worktree: " + firstRunes(out, 200)}
+		}
+		// Its upstream, so a plain `git push` works from its sandbox: the worktree is taken away if it can't be set.
+		if !presetUpstream(repo, branch, git) {
+			removeWorkspace(repo, physical(path), branch, git)
+			return hirePlace{}, &hireRefusal{Status: 409, Message: "Couldn't set where the hire's branch pushes to in your repo's git config, so no worktree was made."}
 		}
 		place.Repo, place.Branch, place.Worktree = repo, branch, physical(path)
 		// A scoped GM's hire: the worktree git made is the project's, and the folder asked for is still the one checked
@@ -303,7 +311,13 @@ func removeWorkspace(repo, worktree, branch string, git gitRunner) bool {
 	if status, _, ok := git(repo, "worktree", "remove", "--force", worktree); !ok || status != 0 {
 		return false
 	}
-	git(repo, "branch", "-d", branch)
+	// Only a branch your checkout's HEAD holds is deleted, as before it had an upstream: `branch -d` alone would also
+	// take one its upstream holds (pushed, but not merged here), and keep one HEAD holds whose upstream is behind
+	// (pushed, then more merged here). With HEAD's look passed, -D deletes just what -d did before the upstream. The
+	// branch is named in full: by its short name, a tag of that name would be looked at instead (RT126SAX7R2's F2).
+	if status, _, ok := git(repo, "merge-base", "--is-ancestor", "refs/heads/"+branch, "HEAD"); ok && status == 0 {
+		git(repo, "branch", "-D", branch)
+	}
 	return true
 }
 

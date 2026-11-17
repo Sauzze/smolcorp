@@ -362,6 +362,11 @@ func t3Quiet(transcript string, ways t3Handing) bool {
 	return err == nil && before.Size() == after.Size() && before.ModTime().Equal(after.ModTime())
 }
 
+// t3TreeRefusal is the start of Take over's refusal for why (t3TreeCheck): the rest says what was done.
+func t3TreeRefusal(name, why string) string {
+	return name + "'s worktree isn't as Smolcorp made it (" + why + "), and in T3 Code your own git runs there, outside any sandbox,"
+}
+
 // t3TakeOver takes hire h over in T3 Code, its session being session; it runs git, t3 and T3 Code's internal
 // import. The thread T3 Code runs it in, or a refusal. h has passed t3TakeOverRefusal and the gate.
 func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
@@ -460,6 +465,11 @@ func t3TakeOverSaid(h Hire, session t3Session, ways t3Handing) (thread, said str
 	// with what other hires left around it: T3 Code's agent is your own Claude Code, which reads them (CLAUDEPLANT1).
 	if why := claudeGate(h.Worktree, append([]Hire{h}, officeHires()...)); why != "" {
 		return giveBack(http.StatusConflict, why)
+	}
+	// 2d. Its worktree as Smolcorp made it, for your own git there (C6): looked at now that nothing works in it, and
+	// after 2b put back what a Linux desk's guard stopped it for, so what T3 Code's git will read is what's checked.
+	if why := t3TreeCheck(h); why != "" {
+		return giveBack(http.StatusConflict, t3TreeRefusal(name, why)+" so it wasn't handed to T3 Code.")
 	}
 	// 3. The fence on its worktree, kept out of git, before T3 Code hears of the folder.
 	if !t3WriteFence(settings, fence) || !t3Exclude(h.Worktree, git) {

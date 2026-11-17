@@ -932,3 +932,58 @@ func hireIsOpenNow(id string) bool {
 	h, found := hireByID(id)
 	return found && isOpen(h)
 }
+
+// A fire that can't look at the hire's worktree because the repo's own git config sets a hook (git's hooks by config)
+// says so, not "changes" (RT126SAX7STACK F3): the worktree and its branch are kept, nothing the hook names runs, and
+// the refusal without force, the answer with it and the note all name the hook. The control: the same fire on a repo with no hook removes the clean
+// worktree, so the hook is what kept it.
+func TestAFireKeptByAHookInTheReposConfigSaysSo(t *testing.T) {
+	for _, hooked := range []bool{false, true} {
+		t.Run(map[bool]string{false: "no hook", true: "hook"}[hooked], func(t *testing.T) {
+			_, r, hire := hiredForFire(t, "")
+			marker := filepath.Join(t.TempDir(), "ran")
+			if hooked {
+				gitRepoCmd(t, r.repo, "config", "hook.desk.command", "echo hook >> '"+marker+"'")
+				for _, event := range []string{"post-checkout", "reference-transaction", "post-index-change"} {
+					gitRepoCmd(t, r.repo, "config", "--add", "hook.desk.event", event)
+				}
+			}
+			windowShows(r, pane(t, "idle-empty"), true)
+			// Without force, the fire's first look refuses, and says why.
+			cause := "your repo's git config sets a hook (hook.*.command), and Smolcorp doesn't look into a hire's worktree with git while one is set"
+			if hooked {
+				_, err := fireEngineHire(hire, 0, r.o, false)
+				if refused, ok := err.(*hireRefusal); !ok || refused.Message != "Couldn't tell whether Janitor's worktree has unsaved work: "+cause+". Fire again with force to go ahead." {
+					t.Fatalf("err = %v, want the refusal naming the hook", err)
+				}
+			}
+			kept, err := fireEngineHire(hire, 0, r.o, hooked)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, gone := os.Stat(hire.Worktree)
+			if !hooked {
+				if kept != "" || gone == nil {
+					t.Fatalf("the control: a clean worktree on a repo with no hook was kept (%q), so this row proves nothing", kept)
+				}
+				return
+			}
+			why := cause[1:] + ", so it couldn't tell whether anything uncommitted is in it. Look at it, then remove it and its branch yourself."
+			if kept != "Y"+why {
+				t.Errorf("kept = %q, want %q", kept, "Y"+why)
+			}
+			if want := "Its worktree " + hire.Worktree + " was kept: y" + why; registered(t)[0].Notes != want {
+				t.Errorf("notes = %q, want %q", registered(t)[0].Notes, want)
+			}
+			if gone != nil {
+				t.Errorf("the worktree went: %v", gone)
+			}
+			if out, err := realGit(r.repo, "rev-parse", "--verify", "-q", "refs/heads/"+hire.Branch); err != nil {
+				t.Errorf("the branch went: %s", out)
+			}
+			if data, _ := os.ReadFile(marker); len(data) != 0 {
+				t.Errorf("the hook ran: %q", data)
+			}
+		})
+	}
+}

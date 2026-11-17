@@ -3,10 +3,12 @@
 package desktop
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -671,5 +673,543 @@ func TestWhatACrashedReadLeftIsClearedOnce(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(gitReadsFolder()); len(entries) != 1 {
 		t.Errorf("the read left its own folder behind: %d entries", len(entries))
+	}
+}
+
+// SA-X7 (ownergit.go) with stand-ins only: real throwaway repos in the test's own temp folder (signing off in their
+// local config only), a bare repo in the same folder as their remote (no network), and stand-in "programs" a repo's
+// config names, shell scripts that only leave a marker file. Each plant has its control: the same `worktree add` run
+// as the core ran it before SA-X7, which runs the stand-in.
+
+// ownerRig is an owner's repo with a commit, and a folder for its plants.
+type ownerRig struct {
+	base, repo, marker string
+}
+
+func newOwnerRig(t *testing.T) *ownerRig {
+	t.Helper()
+	base := physical(t.TempDir())
+	r := &ownerRig{base: base, repo: filepath.Join(base, "proj"), marker: filepath.Join(base, "ran")}
+	if err := os.MkdirAll(r.repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitRepoCmd(t, r.repo, "init", "-q", "-b", "main")
+	stopSigning(t, r.repo)
+	writeRepoFile(t, r.repo, "a.txt", "one\n")
+	gitRepoCmd(t, r.repo, "add", "a.txt")
+	gitRepoCmd(t, r.repo, "commit", "-q", "-m", "first")
+	return r
+}
+
+// standIn is a script that leaves the marker with its name: what a planted setting would have run.
+func (r *ownerRig) standIn(t *testing.T, name string) string {
+	t.Helper()
+	script := filepath.Join(r.base, name+".sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho "+name+" >> '"+r.marker+"'\ncat\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return script
+}
+
+func (r *ownerRig) ran(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(r.marker)
+	if errors.Is(err, os.ErrNotExist) {
+		return ""
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(r.marker)
+	return strings.TrimSpace(string(data))
+}
+
+// hire is prepareHire for a worktree of the rig's repo, with the real git.
+func (r *ownerRig) hire(t *testing.T, git gitRunner) (hirePlace, error) {
+	t.Helper()
+	keepRegistry(t)
+	o := hirePlaceOptions{Worktrees: filepath.Join(r.base, "hires"), PortFree: func(int) bool { return true }, Git: git}
+	return prepareHire(hireRequest{HireID: "abcdef123456", Name: "Ada", Folder: r.repo, Worktree: true}, o)
+}
+
+// withRemote gives the rig's repo a bare remote in the rig's folder, under name.
+func (r *ownerRig) withRemote(t *testing.T, name string) string {
+	t.Helper()
+	bare := filepath.Join(r.base, name+".git")
+	gitRepoCmd(t, r.base, "init", "-q", "--bare", bare)
+	gitRepoCmd(t, r.repo, "remote", "add", name, bare)
+	return bare
+}
+
+// What was planted in the owner's repo before its first sandboxed day (a hooks folder with a post-checkout and a
+// reference-transaction hook, an fsmonitor, a required filter its .gitattributes names) runs nothing at a hire's
+// `worktree add`; the file is checked out as it is kept. The control, the add as the core ran it before, runs them.
+func TestTheOwnersRepoRunsNothingPlantedAtAHiresWorktreeAdd(t *testing.T) {
+	r := newOwnerRig(t)
+	writeRepoFile(t, r.repo, ".gitattributes", "*.txt filter=sneak\n")
+	gitRepoCmd(t, r.repo, "add", ".gitattributes")
+	gitRepoCmd(t, r.repo, "commit", "-q", "-m", "attributes")
+	hooks := filepath.Join(r.base, "hooks")
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, hook := range []string{"post-checkout", "reference-transaction"} {
+		if err := os.Rename(r.standIn(t, hook), filepath.Join(hooks, hook)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, kv := range [][2]string{{"core.hooksPath", hooks}, {"core.fsmonitor", r.standIn(t, "fsmonitor")},
+		{"filter.sneak.smudge", r.standIn(t, "filter")}, {"filter.sneak.required", "true"}} {
+		gitRepoCmd(t, r.repo, "config", kv[0], kv[1])
+	}
+
+	if out := plainGit(r.repo, "worktree", "add", "-q", "-b", "control", filepath.Join(r.base, "control")); !strings.Contains(r.ran(t), "filter") {
+		t.Fatalf("the control: the stand-in filter didn't run for a plain worktree add, so this row proves nothing: %s", out)
+	}
+	place, err := r.hire(t, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.ran(t); got != "" {
+		t.Errorf("the core's worktree add ran the repo's %s", got)
+	}
+	if data, err := os.ReadFile(filepath.Join(place.Worktree, "a.txt")); err != nil || string(data) != "one\n" {
+		t.Errorf("a.txt in the hire's worktree: %q %v", data, err)
+	}
+	if got := gitRepoCmd(t, place.Worktree, "symbolic-ref", "--short", "HEAD"); got != place.Branch {
+		t.Errorf("the worktree is on %q, want %q", got, place.Branch)
+	}
+}
+
+// A setting the core's git can't make harmless refuses the hire's worktree, in words that name it, with nothing made:
+// an include (the file it names is read after the check), a key no read knows, an address that runs a program.
+func TestTheOwnersRepoWithAnIncludeOrAnUnknownKeyMakesNoWorktree(t *testing.T) {
+	for _, row := range []struct{ key, value, said string }{
+		{"include.path", "elsewhere.cfg", "include.path"},
+		{"includeIf.gitdir:/.path", "elsewhere.cfg", "includeif.*.path"},
+		{"core.gitProxy", "stand-in", "core.gitproxy"},
+		{"remote.origin.url", "ext::sh -c stand-in", "remote.*.url, an address that runs a program"},
+	} {
+		t.Run(row.key, func(t *testing.T) {
+			r := newOwnerRig(t)
+			gitRepoCmd(t, r.repo, "config", row.key, row.value)
+			_, err := r.hire(t, nil)
+			var refusal *hireRefusal
+			if !errors.As(err, &refusal) || !strings.Contains(refusal.Message, "its git config has "+row.said+",") {
+				t.Fatalf("got %v, want a refusal naming %s", err, row.said)
+			}
+			if entries, _ := os.ReadDir(filepath.Join(r.base, "hires", "proj")); len(entries) != 0 {
+				t.Errorf("left %v", entries)
+			}
+			if got := branches(t, r.repo); got != "" {
+				t.Errorf("left the branch %q", got)
+			}
+		})
+	}
+}
+
+// A git that can't be told to leave the owner's config out (older than 2.32) makes no worktree.
+func TestAnOldGitMakesNoWorktreeInTheOwnersRepo(t *testing.T) {
+	r := newOwnerRig(t)
+	saved := gitHere
+	gitHere = func() gitHereInfo { return gitHereInfo{version: "git version 2.31.8"} }
+	t.Cleanup(func() { gitHere = saved })
+	_, err := r.hire(t, nil)
+	var refusal *hireRefusal
+	if !errors.As(err, &refusal) || !strings.Contains(refusal.Message, "older than 2.32") {
+		t.Fatalf("got %v", err)
+	}
+	if got := branches(t, r.repo); got != "" {
+		t.Errorf("left the branch %q", got)
+	}
+}
+
+// The hire's branch is given its upstream, so a plain `git push` from its worktree works (its sandbox denies the
+// config write `push -u` makes). The control: a branch made without it can't be pushed that way.
+func TestAHiresBranchPushesWithAPlainPush(t *testing.T) {
+	r := newOwnerRig(t)
+	bare := r.withRemote(t, "origin")
+	place, err := r.hire(t, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gitRepoCmd(t, r.repo, "config", "--get", "branch."+place.Branch+".remote"); got != "origin" {
+		t.Errorf("remote %q", got)
+	}
+	if got := gitRepoCmd(t, r.repo, "config", "--get", "branch."+place.Branch+".merge"); got != "refs/heads/"+place.Branch {
+		t.Errorf("merge %q", got)
+	}
+	writeRepoFile(t, place.Worktree, "b.txt", "two\n")
+	gitRepoCmd(t, place.Worktree, "add", "b.txt")
+	gitRepoCmd(t, place.Worktree, "commit", "-q", "-m", "work")
+	if out, err := exec.Command("git", "-C", place.Worktree, "push", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("a plain push: %v %s", err, out)
+	}
+	if got := gitRepoCmd(t, bare, "rev-parse", "refs/heads/"+place.Branch); got != gitRepoCmd(t, place.Worktree, "rev-parse", "HEAD") {
+		t.Errorf("the remote has %q", got)
+	}
+
+	control := filepath.Join(r.base, "control")
+	gitRepoCmd(t, r.repo, "worktree", "add", "-q", "-b", "control", control)
+	if out, err := exec.Command("git", "-C", control, "push", "-q").CombinedOutput(); err == nil || !strings.Contains(string(out), "no upstream") {
+		t.Fatalf("the control: a branch with no upstream was pushed, so this row proves nothing: %v %s", err, out)
+	}
+}
+
+// The remote a hire's branch pushes to: origin, else the one the checkout's branch tracks, else the only one; else
+// none, and nothing is set.
+func TestTheRemoteAHiresBranchPushesTo(t *testing.T) {
+	for _, row := range []struct {
+		name    string
+		remotes []string
+		tracks  string
+		want    string
+	}{
+		{"origin among others", []string{"up", "origin"}, "up", "origin"},
+		{"the tracked one", []string{"up", "fork"}, "fork", "fork"},
+		{"the only one", []string{"fork"}, "", "fork"},
+		{"two, none tracked", []string{"a", "b"}, "", ""},
+		{"none", nil, "", ""},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			r := newOwnerRig(t)
+			for _, name := range row.remotes {
+				r.withRemote(t, name)
+			}
+			if row.tracks != "" {
+				gitRepoCmd(t, r.repo, "config", "branch.main.remote", row.tracks)
+			}
+			if got := hirePushRemote(r.repo, runGit); got != row.want {
+				t.Errorf("%q, want %q", got, row.want)
+			}
+			place, err := r.hire(t, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, _ := exec.Command("git", "-C", r.repo, "config", "--get", "branch."+place.Branch+".remote").Output()
+			if strings.TrimSpace(string(got)) != row.want {
+				t.Errorf("preset %q, want %q", got, row.want)
+			}
+		})
+	}
+}
+
+// When the upstream can't be written, the hire's worktree and branch are taken away again, and it says so.
+func TestAnUpstreamThatCantBeSetLeavesNothing(t *testing.T) {
+	r := newOwnerRig(t)
+	r.withRemote(t, "origin")
+	git := func(dir string, args ...string) (int, string, bool) {
+		if len(args) > 1 && args[0] == "config" && args[1] == "--local" {
+			return 255, "error: could not lock config file", true
+		}
+		return runGit(dir, args...)
+	}
+	_, err := r.hire(t, git)
+	var refusal *hireRefusal
+	if !errors.As(err, &refusal) || !strings.Contains(refusal.Message, "pushes to") {
+		t.Fatalf("got %v", err)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(r.base, "hires", "proj")); len(entries) != 0 {
+		t.Errorf("left %v", entries)
+	}
+	if got := branches(t, r.repo); got != "" {
+		t.Errorf("left the branch %q", got)
+	}
+}
+
+// With an upstream, `git branch -d` also deletes a branch that is pushed but not merged in the checkout. The fire's
+// removal keeps such a branch, as it did before the upstream; a merged one still goes. The control: `branch -d` alone
+// deletes the pushed one.
+func TestTheFireKeepsAPushedBranchTheCheckoutHasntMerged(t *testing.T) {
+	r := newOwnerRig(t)
+	r.withRemote(t, "origin")
+	place, err := r.hire(t, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRepoFile(t, place.Worktree, "b.txt", "two\n")
+	gitRepoCmd(t, place.Worktree, "add", "b.txt")
+	gitRepoCmd(t, place.Worktree, "commit", "-q", "-m", "work")
+	gitRepoCmd(t, place.Worktree, "push", "-q")
+	if !removeWorkspace(r.repo, place.Worktree, place.Branch, runGit) {
+		t.Fatal("the clean worktree wasn't removed")
+	}
+	if got := branches(t, r.repo); got != place.Branch {
+		t.Errorf("branches %q, want the pushed %q kept", got, place.Branch)
+	}
+	if out, err := exec.Command("git", "-C", r.repo, "branch", "-d", place.Branch).CombinedOutput(); err != nil {
+		t.Fatalf("the control: `branch -d` kept the pushed branch, so this row proves nothing: %v %s", err, out)
+	}
+
+	// Pushed, then more of it merged in the checkout: HEAD holds it all, its upstream is behind. It goes, as it went
+	// before the upstream; the control: `branch -d` alone keeps it (RT126SAX7's nit 4).
+	for _, del := range []string{"", "-d"} {
+		r3 := newOwnerRig(t)
+		r3.withRemote(t, "origin")
+		place, err = r3.hire(t, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeRepoFile(t, place.Worktree, "b.txt", "two\n")
+		gitRepoCmd(t, place.Worktree, "add", "b.txt")
+		gitRepoCmd(t, place.Worktree, "commit", "-q", "-m", "work")
+		gitRepoCmd(t, place.Worktree, "push", "-q")
+		writeRepoFile(t, place.Worktree, "c.txt", "three\n")
+		gitRepoCmd(t, place.Worktree, "add", "c.txt")
+		gitRepoCmd(t, place.Worktree, "commit", "-q", "-m", "more")
+		gitRepoCmd(t, r3.repo, "merge", "-q", "--ff-only", place.Branch)
+		if del == "-d" {
+			gitRepoCmd(t, r3.repo, "worktree", "remove", "--force", place.Worktree)
+			if out, err := exec.Command("git", "-C", r3.repo, "branch", "-d", place.Branch).CombinedOutput(); err == nil {
+				t.Fatalf("the control: `branch -d` deleted the merged branch its upstream is behind, so this row proves nothing: %s", out)
+			}
+			continue
+		}
+		if !removeWorkspace(r3.repo, place.Worktree, place.Branch, runGit) {
+			t.Fatal("the clean worktree wasn't removed")
+		}
+		if got := branches(t, r3.repo); got != "" {
+			t.Errorf("a branch the checkout holds, its upstream behind, was kept: %q", got)
+		}
+	}
+
+	r2 := newOwnerRig(t)
+	r2.withRemote(t, "origin")
+	place, err = r2.hire(t, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !removeWorkspace(r2.repo, place.Worktree, place.Branch, runGit) {
+		t.Fatal("the clean worktree wasn't removed")
+	}
+	if got := branches(t, r2.repo); got != "" {
+		t.Errorf("a branch the checkout holds was kept: %q", got)
+	}
+}
+
+// RT126SAX7R2's F2: the fire's merged look names the branch in full, so a tag of its name, at a commit the checkout
+// holds, never stands in for an unmerged branch. The control: by its short name, git looks at the tag.
+func TestTheFireLooksAtTheBranchNotATagOfItsName(t *testing.T) {
+	r := newOwnerRig(t)
+	place, err := r.hire(t, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRepoFile(t, place.Worktree, "b.txt", "two\n")
+	gitRepoCmd(t, place.Worktree, "add", "b.txt")
+	gitRepoCmd(t, place.Worktree, "commit", "-q", "-m", "work")
+	gitRepoCmd(t, r.repo, "tag", place.Branch, "main")
+	if err := exec.Command("git", "-C", r.repo, "merge-base", "--is-ancestor", place.Branch, "HEAD").Run(); err != nil {
+		t.Fatalf("the control: by its short name git looks at the branch (%v), so this row proves nothing", err)
+	}
+	if !removeWorkspace(r.repo, place.Worktree, place.Branch, runGit) {
+		t.Fatal("the clean worktree wasn't removed")
+	}
+	if got := branches(t, r.repo); got != place.Branch {
+		t.Errorf("branches %q, want the unmerged %q kept", got, place.Branch)
+	}
+}
+
+// The config of a file a desk could have written goes to the owner's own git only when every setting in it is data.
+func TestAHandedOverConfigIsDataOnly(t *testing.T) {
+	list := func(kvs ...string) []byte { return []byte(strings.Join(kvs, "\x00") + "\x00") }
+	for _, row := range []struct {
+		list []byte
+		want string
+	}{
+		{list("user.name\nada", "core.autocrlf\ninput", "remote.origin.url\nhttps://example.com/x.git"), ""},
+		{list("core.fsmonitor\n/x"), "core.fsmonitor"},
+		{list("core.hookspath\n/x"), "core.hookspath"},
+		{list("core.editor\n/x"), "core.editor"},
+		{list("credential.helper\n/x"), "credential.helper"},
+		{list("filter.a.smudge\n/x"), "filter.*.smudge"},
+		{list("diff.a.textconv\n/x"), "diff.*.textconv"},
+		{list("lfs.customtransfer.x.path\n/x"), "lfs.*.path"}, // a program in a data section
+		{list("alias.st\n!x"), "alias.st"},
+		{list("include.path\nx.cfg"), "include.path"},
+		{list("includeif.gitdir:/.path\nx.cfg"), "includeif.*.path"},
+		{list("core.gitproxy\n/x"), "core.gitproxy"},
+		{list("remote.o.url\next::x"), "remote.*.url" + gitRefusedAddress},
+		{list("nosection\n"), "a key with no section"},
+		// RT126SAX7: a program in a data section (B2), where the work tree is (B1), and a merge strategy's program.
+		{list("gc.auto\n1", "gc.recentobjectshook\n/stand-in"), "gc.recentobjectshook"},
+		{list("core.worktree\n/elsewhere"), "core.worktree"},
+		{list("core.bare\nfalse"), "core.bare"},
+		{list("pull.twohead\nstand-in"), "pull.twohead"},
+		{list("pull.octopus\nstand-in"), "pull.octopus"},
+		{list("pull.rebase\ntrue", "gc.auto\n0"), ""},
+		// RT126SAX7R2's F1: a merge strategy by branch; the branch's other settings are still data.
+		{list("branch.hire/ada-abcdef.mergeOptions\n-s stand-in"), "branch.*.mergeoptions"},
+		{list("branch.main.remote\norigin", "branch.main.merge\nrefs/heads/main", "branch.main.rebase\ntrue"), ""},
+	} {
+		if got := gitHandOverConfig(row.list); got != row.want {
+			t.Errorf("%q: %q, want %q", row.list, got, row.want)
+		}
+	}
+}
+
+// The fire's deletion of a hire's branch takes its upstream with it, as git's own `branch -D` does: the core carries
+// the deletion as a file, so it drops the branch's section in the repo's config itself. The control: the preset is
+// there before the fire.
+func TestTheFiresBranchDeletionTakesItsUpstreamWithIt(t *testing.T) {
+	r := newOwnerRig(t)
+	r.withRemote(t, "origin")
+	place, err := r.hire(t, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gitRepoCmd(t, r.repo, "config", "--get", "branch."+place.Branch+".remote"); got != "origin" {
+		t.Fatalf("the control: the hire's branch has no upstream (%q), so this row proves nothing", got)
+	}
+	if !removeWorkspace(r.repo, place.Worktree, place.Branch, runGit) {
+		t.Fatal("the clean worktree wasn't removed")
+	}
+	if got := branches(t, r.repo); got != "" {
+		t.Fatalf("the merged branch was kept: %q", got)
+	}
+	if out, err := exec.Command("git", "-C", r.repo, "config", "--get-regexp", `^branch\.`).CombinedOutput(); err == nil {
+		t.Errorf("the deleted branch's section is still in the repo's config: %s", out)
+	}
+}
+
+// Decision 2's forms, exactly (RT126SAX7STACK F1, the reviewer's TestRVSTheAdmittedFormsAndNoWider): what runs on the
+// repo's own config is the forms SA-X7's callers send (hireplace.go's merged look, hirePushRemote's remotes,
+// presetUpstream's two keys) and nothing wider: another option or count, another config file, another branch, key or
+// value, a name that isn't a hire's.
+func TestTheOwnersGitAdmitsItsCallersFormsAndNoWider(t *testing.T) {
+	b := "hire/abcdef123456/ada-abcdef"
+	admitted := func(args ...string) bool { return gitReadsRefsOnly(args) || gitPresetsUpstream(args) }
+	for _, c := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"merge-base", "--is-ancestor", "refs/heads/" + b, "HEAD"}, true},
+		{[]string{"config", "-z", "--get-regexp", `^remote\..+\.url$`}, true},
+		{[]string{"config", "--local", "branch." + b + ".remote", "origin"}, true},
+		{[]string{"config", "--local", "branch." + b + ".merge", "refs/heads/" + b}, true},
+		{[]string{"merge-base", "refs/heads/" + b, "HEAD"}, false},
+		{[]string{"merge-base", "--is-ancestor", "--fork-point", "HEAD"}, false},
+		{[]string{"merge-base", "--is-ancestor", "a", "b", "c"}, false},
+		{[]string{"merge-base", "--octopus", "a", "b"}, false},
+		{[]string{"merge-base", "--is-ancestor", "a", "--no-replace-objects"}, false},
+		{[]string{"config", "-z", "--get-regexp", "x", "y"}, false},
+		{[]string{"config", "-z", "--get-regexp", "--file=/x"}, false},
+		{[]string{"config", "--get-regexp", "x", "-z"}, false},
+		{[]string{"config", "-z", "--file", "x"}, false},
+		{[]string{"config", "-z", "--get-regexp"}, false},
+		{[]string{"config", "--local", "branch.main.remote", "origin"}, false},
+		{[]string{"config", "--local", "branch.main.merge", "refs/heads/main"}, false},
+		{[]string{"config", "--local", "branch." + b + ".merge", "refs/heads/main"}, false},
+		{[]string{"config", "--local", "branch." + b + ".merge", "refs/heads/" + b + "\n"}, false},
+		{[]string{"config", "--local", "branch." + b + ".pushremote", "origin"}, false},
+		{[]string{"config", "--local", "branch." + b + ".mergeoptions", "-sx"}, false},
+		{[]string{"config", "--local", "branch." + b + ".rebase", "true"}, false},
+		{[]string{"config", "--local", "branch." + b + ".remote", "-x"}, false},
+		{[]string{"config", "--local", "branch." + b + ".remote", ""}, false},
+		{[]string{"config", "--local", "branch." + b + ".remote", "a b"}, false},
+		{[]string{"config", "--local", "branch." + b + ".remote", "a\nb"}, false},
+		{[]string{"config", "--local", "branch." + b + ".remote", "a\rb"}, false},
+		{[]string{"config", "--local", "branch." + b + ".remote", "a\\nb"}, false},
+		{[]string{"config", "--local", "branch." + b + ".remote", "a\x00b"}, false},
+		{[]string{"config", "--global", "branch." + b + ".remote", "origin"}, false},
+		{[]string{"config", "--system", "branch." + b + ".remote", "origin"}, false},
+		{[]string{"config", "--file", "branch." + b + ".remote", "origin"}, false},
+		{[]string{"config", "--local", "--add", "branch." + b + ".remote", "origin"}, false},
+		{[]string{"config", "--local", "branch." + b + ".remote", "origin", "x"}, false},
+		{[]string{"config", "--local", "core.hooksPath", "x"}, false},
+		{[]string{"config", "--local", "user.name", "x"}, false},
+		{[]string{"config", "--local", "hook.hire/x.remote", "origin"}, false},
+		{[]string{"config", "--local", "Branch." + b + ".remote", "origin"}, false},
+		{[]string{"config", "--local", "branch.hire/../main.remote", "origin"}, false},
+		{[]string{"config", "--local", "branch.hire/.remote", "origin"}, false},
+		{[]string{"config", "--local", "branch.hire.remote", "origin"}, false},
+		{[]string{"config", "--local", "branch.hire/a[core].remote", "origin"}, false},
+		{[]string{"config", "--local", "branch.hire/a b.remote", "origin"}, false},
+		{[]string{"config", "--local", "branch.hire/a\\b.remote", "origin"}, false},
+		{[]string{"config", "--local", "--remove-section", "branch." + b}, false},
+		{[]string{"config", "--local", "--unset", "branch." + b + ".remote"}, false},
+		{[]string{"config", "--local", "--unset-all", "branch." + b + ".remote"}, false},
+		{[]string{"config", "set", "branch." + b + ".remote", "origin"}, false},
+	} {
+		if got := admitted(c.args...); got != c.want {
+			t.Errorf("%q: admitted %v, want %v", c.args, got, c.want)
+		}
+	}
+}
+
+// repoConfigKeys is the repo's own config (`--local`), one "key=value" per entry, read with plain git.
+func repoConfigKeys(t *testing.T, repo string) map[string]bool {
+	t.Helper()
+	out, err := exec.Command("git", "-C", repo, "config", "--local", "--list", "-z").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := map[string]bool{}
+	for _, record := range strings.Split(string(out), "\x00") {
+		if record != "" {
+			entries[strings.Replace(record, "\n", "=", 1)] = true
+		}
+	}
+	return entries
+}
+
+// Decision 6's removal, exactly (RT126SAX7STACK F1, F2, F4): a branch the core couldn't delete keeps its upstream
+// (main, checked out; a hire's, checked out in its worktree); a branch that isn't a hire's keeps it, as no caller
+// deletes one; and a hire's deleted branch takes its own two keys and nothing else: not the section of a branch named
+// it and a "]" after it, which a section's removal by name (git's own -D too) would take, nor a section of another
+// kind by its name.
+func TestTheBranchDeletionTakesOnlyThatHiresUpstream(t *testing.T) {
+	r := newOwnerRig(t)
+	names := []string{"hire/a", "hire/a]", "hire/a]x", "hire/ab", "hire/busy", "other"}
+	for _, name := range names {
+		gitRepoCmd(t, r.repo, "branch", name)
+	}
+	gitRepoCmd(t, r.repo, "worktree", "add", "-q", filepath.Join(r.base, "busy"), "hire/busy")
+	for _, name := range append([]string{"main"}, names...) {
+		gitRepoCmd(t, r.repo, "config", "branch."+name+".remote", "origin")
+		gitRepoCmd(t, r.repo, "config", "branch."+name+".merge", "refs/heads/"+name)
+	}
+	gitRepoCmd(t, r.repo, "config", "core.hire/a.x", "y")
+	for _, row := range []struct {
+		why, name string
+		deleted   bool
+		gone      []string
+	}{
+		{"main, checked out", "main", false, nil},
+		{"a hire's, checked out in its worktree", "hire/busy", false, nil},
+		{"not a hire's (F4)", "other", true, nil},
+		{"a hire's, beside hire-a] and hire-a]x (F2)", "hire/a", true, []string{"branch.hire/a.merge=refs/heads/hire/a", "branch.hire/a.remote=origin"}},
+	} {
+		t.Run(row.why, func(t *testing.T) { deleteOneBranch(t, r, row.name, row.deleted, row.gone) })
+	}
+	if got := gitRepoCmd(t, r.repo, "config", "--get", "core.hire/a.x"); got != "y" {
+		t.Errorf("core.hire/a.x = %q", got)
+	}
+}
+
+// deleteOneBranch deletes name through the owner's git, and checks whether it went (deleted) and that it took gone,
+// and only that, from the repo's config.
+func deleteOneBranch(t *testing.T, r *ownerRig, name string, deleted bool, gone []string) {
+	t.Helper()
+	before := repoConfigKeys(t, r.repo)
+	status, out, ok := ownerGit(r.repo, []string{"branch", "-D", name})
+	after := repoConfigKeys(t, r.repo)
+	if _, err := realGit(r.repo, "rev-parse", "--verify", "-q", "refs/heads/"+name); (err != nil) != deleted {
+		t.Errorf("branch -D %q: %d %v %q; deleted %v, want %v", name, status, ok, out, err != nil, deleted)
+	}
+	var took []string
+	for entry := range before {
+		if !after[entry] {
+			took = append(took, entry)
+		}
+	}
+	slices.Sort(took)
+	if !slices.Equal(took, gone) {
+		t.Errorf("branch -D %q took %q from the repo's config, want %q", name, took, gone)
+	}
+	for entry := range after {
+		if !before[entry] {
+			t.Errorf("branch -D %q added %q", name, entry)
+		}
 	}
 }

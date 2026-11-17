@@ -632,6 +632,8 @@ func TestGitSettingRunsSaysWhichSettingsRunAProgram(t *testing.T) {
 		{"protocol.allow", "never", ""}, {"protocol.allow", "user", whyTransport}, {"protocol.allow", "", whyTransport},
 		{"protocol.ext.allow", "never", ""}, {"protocol.ext.allow", "user", whyTransport}, {"protocol.ext.allow", "", whyTransport},
 		{"protocol.file.allow", "always", whyTransport}, {"protocol.ext.allow", "Never", whyTransport},
+		// A program in a data section (RT126SAX7's B2): gitstate blanks it, so it is listed.
+		{"gc.recentobjectshook", "/stand-in", whyProgram}, {"gc.auto", "1", ""},
 	} {
 		if got := gitSettingRuns(c.key, c.value); got != c.want {
 			t.Errorf("%s = %q: %q, want %q", c.key, c.value, got, c.want)

@@ -254,6 +254,7 @@ var tmuxExecSites = map[string]string{
 	"gitstate.go execGit exec.CommandContext(\"git\")":                     "git, with the read-only settings gitstate.go pins",
 	"hire.go showWindow exec.Command(args[0])":                             "a terminal app (gnome-terminal, konsole…), opening a hire's window",
 	"hire_unix.go findInLoginShell lookupCommand(args[0])":                 "the owner's login shell, asked where a program is",
+	"t3treecheck.go t3TreeGit deskRun(git)":                                "git on a hire's worktree, in its sandbox, reading config for Take over's check (SA-X7)",
 	"hiresettings.go runGuardTool exec.CommandContext(tool)":               "smolcorp's own guard tool, from inside this copy",
 	"hiresettings.go hireSettingsObject names runGuardTool(…)":             "runGuardTool, kept as a test's stand-in can replace it: called with the guard tool only",
 	"hook_mac.go psProcess exec.Command(\"/bin/ps\")":                      "/bin/ps, reading a process's parent and terminal",

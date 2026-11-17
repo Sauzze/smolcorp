@@ -169,7 +169,8 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 	// That listing comes first, while its place is as the desk left it: the folders below go only after it.
 	worktreeKept := h.Worktree != "" && !removed && !o.KeepWorktree
 	if worktreeKept {
-		markFired(h.ID, joinNote(firedKeptNote(h.Worktree), said))
+		kept = firedKept(o.Git, h)
+		markFired(h.ID, joinNote(firedKeptNote(h.Worktree, kept), said))
 	} else {
 		markFired(h.ID, said)
 	}
@@ -184,10 +185,7 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 	if h.Worktree == "" {
 		_ = removeDeskPlans(startedIn(h), h.ID)
 	}
-	if worktreeKept {
-		return firedWorktreeKept, said, nil
-	}
-	return "", said, nil
+	return kept, said, nil
 }
 
 // waitForSessionEnd waits up to fireExitWithin for the hire's session to end by itself after "/exit",
