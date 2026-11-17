@@ -98,6 +98,12 @@ func readKeptFile(t *testing.T, at string) string {
 	return string(data)
 }
 
+// onAnotherDisk makes the found folder a stand-in for one on another disk: renames into it, and back, fail.
+func onAnotherDisk(t *testing.T) {
+	keptRename = func(*os.Root, string, *os.Root, string) error { return syscall.EXDEV }
+	t.Cleanup(func() { keptRename = renameKept })
+}
+
 // foundFolder is the desk's folder of what the core set aside.
 func foundFolder(pl Places) string {
 	return filepath.Join(pl.Support, "hires", pl.OwnID, keptFoundName)
@@ -388,8 +394,8 @@ func TestTheSharedObjectsInfoIsNeverPutBack(t *testing.T) {
 		t.Fatalf("noted, though it is never put back: %v", stops)
 	}
 	// Even a note that names it, as found, puts nothing back.
-	forged := strings.Join([]string{`{"At":"` + info + `/alternates","Seal":"` + keptSeal(info+"/alternates") + `"}`,
-		`{"At":"` + info + `/packs","Seal":"` + keptSeal(info+"/packs") + `"}`}, "\n") + "\n"
+	forged := strings.Join([]string{`{"At":"` + info + `/alternates","Seal":"` + keptSeal(info+"/alternates", nil) + `"}`,
+		`{"At":"` + info + `/packs","Seal":"` + keptSeal(info+"/packs", nil) + `"}`}, "\n") + "\n"
 	writeKeptFile(t, keptStopFile(held), forged)
 	if changes, err := RestoreKept(held); err != nil || len(changes) != 2 || changes[0].Back || changes[1].Back {
 		t.Fatalf("the core's put back: %v, %+v", err, changes)
@@ -648,7 +654,7 @@ func TestNothingIsPutBackThroughAFolderSwappedAbove(t *testing.T) {
 	writeKeptFile(t, elsewhere+"/review.md", "the owner's own\n")
 	os.RemoveAll(commands)
 	os.Symlink(elsewhere, commands)
-	if _, err := putBack(held, foundFolder(pl)+"/now", changes[0], saved); err == nil {
+	if _, _, err := putBack(held, foundFolder(pl)+"/now", changes[0], saved); err == nil {
 		t.Fatal("put back through a link")
 	}
 	if got := readKeptFile(t, elsewhere+"/review.md"); got != "the owner's own\n" {
@@ -667,8 +673,13 @@ func TestWhatCantBeSetAsideWholeIsLeftAsItIs(t *testing.T) {
 	writeKeptFile(t, at+"/a.json", "{}\n")
 	writeKeptFile(t, at+"/sub/b.md", "b\n")
 	os.Symlink("/elsewhere", at+"/link")
+	dir, err := os.OpenRoot(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
 	most := keptMost
-	if err := copyAside(at, base+"/aside", &most); err != nil {
+	if err := copyAside(dir, "place", dir, "aside", &most); err != nil {
 		t.Fatal(err)
 	}
 	if got := readKeptFile(t, base+"/aside/a.json") + readKeptFile(t, base+"/aside/sub/b.md"); got != "{}\nb\n" {
@@ -679,10 +690,10 @@ func TestWhatCantBeSetAsideWholeIsLeftAsItIs(t *testing.T) {
 	}
 	syscall.Mkfifo(at+"/p", 0o600)
 	most = keptMost
-	if err := copyAside(at, base+"/aside2", &most); err == nil {
+	if err := copyAside(dir, "place", dir, "aside2", &most); err == nil {
 		t.Fatal("a pipe copied")
 	}
-	if err := setAside(at, base+"/aside"); err == nil {
+	if err := setAside(dir, "place", base+"/aside"); err == nil {
 		t.Fatal("set aside over what was set aside before")
 	}
 	if got := readKeptFile(t, at+"/a.json"); got != "{}\n" {
@@ -787,8 +798,7 @@ func TestAPutBackThatFailsAfterTheSetAsideSaysWhereAndTriesAgain(t *testing.T) {
 	t.Run("set aside elsewhere", func(t *testing.T) {
 		pl, claude, _, room := stopped(t)
 		held := KeptFolder(pl.Support, "h1")
-		keptRename = func(string, string) error { return syscall.EXDEV }
-		t.Cleanup(func() { keptRename = os.Rename })
+		onAnotherDisk(t)
 		changes, err := RestoreKept(held)
 		found := aside(pl, claude)
 		if err == nil || len(found) != 1 || readKeptFile(t, found[0]+"/settings.json") != desk || len(changes) != 1 ||
@@ -805,7 +815,7 @@ func TestAPutBackThatFailsAfterTheSetAsideSaysWhereAndTriesAgain(t *testing.T) {
 		if _, err := RestoreKept(held); err == nil {
 			t.Fatal("the next look went on")
 		}
-		keptRename = os.Rename
+		keptRename = renameKept
 		room()
 		changes, err = RestoreKept(held)
 		if err != nil || len(changes) != 1 || !changes[0].Back || readKeptFile(t, claude+"/commands/review.md") != "Review it.\n" {
@@ -815,8 +825,7 @@ func TestAPutBackThatFailsAfterTheSetAsideSaysWhereAndTriesAgain(t *testing.T) {
 
 	t.Run("at the start", func(t *testing.T) {
 		pl, claude, _, room := stopped(t)
-		keptRename = func(string, string) error { return syscall.EXDEV }
-		t.Cleanup(func() { keptRename = os.Rename })
+		onAnotherDisk(t)
 		err := SaveKept(pl)
 		found := aside(pl, claude)
 		if err == nil || errors.Is(err, ErrKeptChanged) || len(found) != 1 || !strings.Contains(err.Error(), "Move that place aside yourself") ||
@@ -826,7 +835,7 @@ func TestAPutBackThatFailsAfterTheSetAsideSaysWhereAndTriesAgain(t *testing.T) {
 		if err := SaveKept(pl); err == nil {
 			t.Fatal("the next start went on")
 		}
-		keptRename = os.Rename
+		keptRename = renameKept
 		room()
 		if err := SaveKept(pl); !errors.Is(err, ErrKeptChanged) || readKeptFile(t, claude+"/commands/review.md") != "Review it.\n" {
 			t.Fatalf("with room again: %v", err)
@@ -834,5 +843,95 @@ func TestAPutBackThatFailsAfterTheSetAsideSaysWhereAndTriesAgain(t *testing.T) {
 		if err := SaveKept(pl); err != nil {
 			t.Fatalf("the start after it: %v", err)
 		}
+	})
+}
+
+// FXKEPTFD (RT126RESOLVESWEEP S3, S3b): a desk can write and swap anything below its .claude, and the core puts back
+// while its session is still up. So a folder in the middle may be swapped for a link to the owner's own place between
+// the core's look and what it does next (keptBetween is that moment, deterministic). The core never moves, removes,
+// writes or shows anything there: it acts and reads only in the folders it checked, held open.
+func TestNothingIsDoneOrShownThroughAFolderSwappedInTheMiddle(t *testing.T) {
+	// A stand-in owner's place, and a desk whose .claude/x/.bashrc an earlier start took into its copy as it was.
+	setup := func(t *testing.T) (pl Places, home, x string) {
+		pl = keptDesk(t)
+		home, _ = filepath.EvalSymlinks(t.TempDir())
+		writeKeptFile(t, home+"/.bashrc", "the owner's own\n")
+		writeKeptFile(t, home+"/owner-only.txt", "the owner's own\n")
+		x = pl.Root + "/.claude/x"
+		writeKeptFile(t, x+"/.bashrc", "the desk's, kept\n")
+		if err := SaveKept(pl); err != nil {
+			t.Fatal(err)
+		}
+		return pl, home, x
+	}
+	// swapAt is the desk's swap of folder for a link to home, once, at step.
+	swapAt := func(t *testing.T, step, folder, home string) {
+		done := false
+		keptBetween = func(s, _ string) {
+			if s == step && !done {
+				done = true
+				if err := errors.Join(os.Rename(folder, folder+".away"), os.Symlink(home, folder)); err != nil {
+					t.Error(err)
+				}
+			}
+		}
+		t.Cleanup(func() { keptBetween = func(string, string) {} })
+	}
+	untouched := func(t *testing.T, pl Places, home string) {
+		t.Helper()
+		if got := snapshot(t, home+"/.bashrc", home+"/owner-only.txt"); got[home+"/.bashrc"] != "the owner's own\n" || got[home+"/owner-only.txt"] != "the owner's own\n" {
+			t.Errorf("the owner's place was changed: %v", got)
+		}
+		if names, _ := os.ReadDir(home); len(names) != 2 {
+			t.Errorf("the owner's place holds %d names", len(names))
+		}
+		filepath.Walk(foundFolder(pl), func(p string, info os.FileInfo, _ error) error {
+			if info != nil && info.Mode().IsRegular() && readKeptFile(t, p) == "the owner's own\n" {
+				t.Errorf("the owner's file was set aside in %s", p)
+			}
+			return nil
+		})
+	}
+
+	for _, disk := range []string{"one disk", "another disk"} {
+		t.Run("put back, "+disk, func(t *testing.T) {
+			pl, home, x := setup(t)
+			writeKeptFile(t, x+"/.bashrc", "the desk's, changed\n")
+			guardStops(t, pl)
+			if disk == "another disk" {
+				onAnotherDisk(t)
+			}
+			swapAt(t, "put back", x, home)
+			changes, err := RestoreKept(KeptFolder(pl.Support, "h1"))
+			untouched(t, pl, home)
+			// It was put back in the folder it checked and held, wherever the desk moved it: the desk's own.
+			if err != nil || len(changes) != 1 || !changes[0].Back || readKeptFile(t, x+".away/.bashrc") != "the desk's, kept\n" ||
+				readKeptFile(t, changes[0].Found) != "the desk's, changed\n" {
+				t.Errorf("put back: %v, %+v", err, changes)
+			}
+		})
+	}
+
+	t.Run("a file shown", func(t *testing.T) {
+		pl, home, x := setup(t)
+		writeKeptFile(t, x+"/.bashrc", "the desk's, changed\n")
+		swapAt(t, "show", x, home)
+		changes, err := RestoreKept(KeptFolder(pl.Support, "h1"))
+		if words := KeptWords(changes); err != nil || strings.Contains(words, "the owner's own") {
+			t.Errorf("the owner's file shown: %v, %s", err, words)
+		}
+		untouched(t, pl, home)
+	})
+
+	t.Run("a folder shown", func(t *testing.T) {
+		pl, home, _ := setup(t)
+		added := pl.Root + "/.claude/added"
+		writeKeptFile(t, added+"/the-desks.txt", "the desk's\n")
+		swapAt(t, "show", added, home)
+		changes, err := RestoreKept(KeptFolder(pl.Support, "h1"))
+		if words := KeptWords(changes); err != nil || strings.Contains(words, "owner-only") || !strings.Contains(words, "the-desks.txt") {
+			t.Errorf("the owner's names shown, or not the desk's: %v, %s", err, words)
+		}
+		untouched(t, pl, home)
 	})
 }

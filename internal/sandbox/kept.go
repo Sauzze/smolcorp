@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"slices"
@@ -138,19 +139,50 @@ type KeptChange struct {
 }
 
 // looker walks places. Saving, into is where a file's content is copied, and seen and copied count against the caps.
-// Checking, known is the copy: a place it doesn't have is added, and is neither read nor walked into.
+// Checking, known is the copy: a place it doesn't have is added, and is neither read nor walked into; shown is what
+// the look read of each place not as the copy has it, for the words (a file's text, the names in a folder).
+//
+// A desk can swap any folder below its .claude while the core looks (FXKEPTFD, RT126RESOLVESWEEP S3b): the look goes
+// one name at a time in the folders it opened, each opened only if it is still the folder its Lstat saw, and never
+// reads a place again by its path.
 type looker struct {
 	into         string
 	known        map[string]keptEntry
 	seen, copied int
 	entries      []keptEntry
+	shown        map[string]string
 }
 
-func (l *looker) look(at string, branch, repo bool) error {
+// lookTop looks at the kept place at from the folder above it, opened by its path as the start resolved it.
+func (l *looker) lookTop(at string, branch, repo bool) error {
+	dir, err := openKeptRoot(path.Dir(at))
+	if err == nil {
+		defer dir.Close()
+	}
+	return l.look(dir, err, at, branch, repo)
+}
+
+// show keeps what a checking look read of e, from its own fd, when e isn't as the copy has it.
+func (l *looker) show(e keptEntry, text func() string) {
+	if l.into == "" && l.known[e.At] != e {
+		if l.shown == nil {
+			l.shown = map[string]string{}
+		}
+		l.shown[e.At] = text()
+	}
+}
+
+// look looks at at, the name it has in dir (when dir couldn't be opened, opened is why, and at is looked at as missing
+// when that is because it isn't there).
+func (l *looker) look(dir *os.Root, opened error, at string, branch, repo bool) error {
 	_, known := l.known[at]
 	known = known || l.known == nil
 	e := keptEntry{At: at, Kind: "-", Branch: branch, Repo: repo}
-	st, err := os.Lstat(at)
+	name := path.Base(at)
+	st, err := fs.FileInfo(nil), opened
+	if err == nil {
+		st, err = dir.Lstat(name)
+	}
 	if l.seen++; l.into != "" && l.seen > keptNames {
 		return fmt.Errorf("more than %d places to keep", keptNames)
 	} else if err != nil && !errors.Is(err, fs.ErrNotExist) && !branch { // a reftable repo has no branch folder
@@ -165,36 +197,53 @@ func (l *looker) look(at string, branch, repo bool) error {
 		e.Kind, e.Mode = map[bool]string{true: "d", false: "?"}[st.IsDir()], 0
 	case st.Mode().IsRegular() && (!known || l.into == "" && st.Size() > int64(keptMost-l.copied)):
 		e.Kind, e.Sum = "f", "(not read)" // added, or larger than any copy: changed either way
+		l.show(e, func() string { return keptText(readKeptIn(dir, name, st, keptShown)) })
 	case st.Mode().IsRegular():
-		data, err := readKept(at, st, keptMost-l.copied)
+		data, err := readKeptIn(dir, name, st, keptMost-l.copied)
 		sum := sha256.Sum256(data)
 		e.Kind, e.Sum, l.copied = "f", hex.EncodeToString(sum[:]), l.copied+len(data)
 		if err != nil && l.into == "" { // checking, one that can't be read is changed
-			e.Sum, err = "(can't be read)", nil
+			e.Sum = "(can't be read)"
+			l.show(e, func() string { return keptText(nil, err) })
+			break
 		} else if err == nil && l.into != "" {
 			err = os.WriteFile(path.Join(l.into, e.Sum), data, 0o600)
 		}
 		if err != nil {
 			return err
 		}
+		l.show(e, func() string {
+			if len(data) > keptShown {
+				return keptText(data[:keptShown+1], fmt.Errorf("%s holds more than %d bytes", at, keptShown))
+			}
+			return keptText(data, nil)
+		})
 	case st.Mode()&fs.ModeSymlink != 0:
 		e.Kind = "l"
-		if e.To, err = os.Readlink(at); err != nil {
+		if e.To, err = dir.Readlink(name); err != nil {
 			return err
 		}
 	case st.IsDir():
 		e.Kind = "d"
 		l.entries = append(l.entries, e)
+		i := len(l.entries) - 1
+		sub, err := keptSub(dir, name, st)
+		if err == nil {
+			defer sub.Close()
+		}
+		var names []fs.DirEntry
+		if known && err == nil {
+			names, err = keptNamesIn(sub)
+		}
+		if known && err != nil { // a folder that can't be listed is changed, never an error that leaves it so
+			l.entries[i].Sum = "(can't be listed)"
+		}
+		l.show(l.entries[i], func() string { return keptListing(sub) })
 		if !known {
 			return nil
 		}
-		i := len(l.entries) - 1
-		names, err := os.ReadDir(at)
-		if err != nil { // a folder that can't be listed is changed, never an error that leaves it so
-			l.entries[i].Sum = "(can't be listed)"
-		}
 		for _, n := range names {
-			if err := l.look(path.Join(at, n.Name()), false, repo); err != nil {
+			if err := l.look(sub, nil, path.Join(at, n.Name()), false, repo); err != nil {
 				return err
 			}
 		}
@@ -204,10 +253,57 @@ func (l *looker) look(at string, branch, repo bool) error {
 	return nil
 }
 
+// keptSub opens the folder name in dir, and only if it is still the folder st (a look's Lstat of it) says. os.Root
+// keeps what it opens inside dir, but follows a link that stays there: one swapped in meanwhile is refused here, by the
+// device and inode of its own fd.
+//
+// A desk can swap a pipe, a socket or a link for any folder below its .claude meanwhile, and opening a pipe to read
+// waits for a writer: the desk's to give (RT126KEPTFD B1). Root.OpenRoot(name) passes no O_DIRECTORY, but name/. makes
+// name a folder on the way, which Root opens with O_DIRECTORY|O_NOFOLLOW: the kernel refuses anything else at once
+// (ENOTDIR), before it is opened, so nothing but a folder is ever opened or waited on.
+func keptSub(dir *os.Root, name string, st fs.FileInfo) (*os.Root, error) {
+	sub, err := dir.OpenRoot(name + "/.")
+	if err != nil {
+		return nil, err
+	}
+	if now, err := sub.Stat("."); err != nil || !os.SameFile(st, now) {
+		sub.Close()
+		return nil, fmt.Errorf("%s was replaced while it was opened", path.Join(dir.Name(), name))
+	}
+	return sub, nil
+}
+
+// openKeptRoot opens the folder at by its path, and only a folder: at/. makes the kernel refuse anything else at once
+// (ENOTDIR), so a pipe, a device or a socket there is never opened or waited on (RT126KEPTFD B1). A link in the path is
+// followed, as the start resolved it: no desk can write the folders above a kept place.
+func openKeptRoot(at string) (*os.Root, error) { return os.OpenRoot(at + "/.") }
+
+// keptNamesIn are the names in the folder dir, by name.
+func keptNamesIn(dir *os.Root) ([]fs.DirEntry, error) {
+	f, err := dir.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	names, err := f.ReadDir(-1)
+	slices.SortFunc(names, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+	return names, err
+}
+
 // readKept is the file at's content, at most most bytes (and an error past them), read without following a link or
 // waiting on a pipe, and only if it is still the file st says.
 func readKept(at string, st fs.FileInfo, most int) ([]byte, error) {
 	f, err := openKept(at)
+	return readOpened(f, err, at, st, most)
+}
+
+// readKeptIn is readKept of the file name in dir.
+func readKeptIn(dir *os.Root, name string, st fs.FileInfo, most int) ([]byte, error) {
+	f, err := dir.OpenFile(name, os.O_RDONLY|keptNoWait, 0)
+	return readOpened(f, err, path.Join(dir.Name(), name), st, most)
+}
+
+func readOpened(f *os.File, err error, at string, st fs.FileInfo, most int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +364,7 @@ func SaveKept(pl Places) error {
 	err := errors.Join(os.RemoveAll(fresh), os.RemoveAll(old), os.MkdirAll(fresh, 0o700))
 	for _, k := range keptPlaces(pl) {
 		if err == nil {
-			err = l.look(k.at, k.branch, k.repo)
+			err = l.lookTop(k.at, k.branch, k.repo)
 		}
 	}
 	if err != nil {
@@ -343,18 +439,21 @@ func RestoreKept(held string) ([]KeptChange, error) {
 func putBackAll(held string, changes []KeptChange, c keptCopy, back func(KeptChange) bool) ([]KeptChange, error) {
 	found := path.Join(path.Dir(held), keptFoundName, time.Now().Format(keptFoundTime))
 	var err error
+	ids := map[string]fs.FileInfo{} // what was made again, from its own fd: never the disk again by its path
 	for i, ch := range changes {
 		switch {
 		case ch.Branch:
 		case ch.Repo || !back(ch):
 			changes[i].Kept = true
 		case err == nil:
-			changes[i].Found, err = putBack(held, found, ch, c)
+			var made map[string]fs.FileInfo
+			changes[i].Found, made, err = putBack(held, found, ch, c)
 			changes[i].Back = err == nil
+			maps.Copy(ids, made)
 		}
 	}
 	for i, e := range c.Entries {
-		if st, serr := os.Lstat(e.At); serr == nil && slices.ContainsFunc(changes, func(ch KeptChange) bool { return ch.Back && under(e.At, ch.At) }) {
+		if st, ok := ids[e.At]; ok {
 			c.Entries[i].Dev, c.Entries[i].Ino, _ = fileID(st)
 		}
 	}
@@ -378,7 +477,7 @@ func compareKept(held string, branches bool) ([]KeptChange, keptCopy, error) {
 	l := &looker{known: saved}
 	for _, e := range c.Entries {
 		if parent, ok := saved[path.Dir(e.At)]; (branches || !e.Branch) && (!ok || parent.Branch) && err == nil {
-			err = l.look(e.At, e.Branch, e.Repo)
+			err = l.lookTop(e.At, e.Branch, e.Repo)
 		}
 	}
 	var changes []KeptChange
@@ -396,11 +495,12 @@ func compareKept(held string, branches bool) ([]KeptChange, keptCopy, error) {
 		return nil, c, err
 	}
 	slices.SortFunc(changes, func(a, b KeptChange) int { return strings.Compare(a.At, b.At) })
+	keptBetween("show", "")
 	var top []KeptChange
 	for _, ch := range changes {
 		if len(top) == 0 || !under(ch.At, top[len(top)-1].At) {
-			ch.Before, ch.After, ch.When = keptShow(held, saved[ch.At]), keptShow("", now[ch.At]), time.Now()
-			ch.Seal = keptSeal(ch.At)
+			ch.Before, ch.After, ch.When = keptShow(held, saved[ch.At], nil), keptShow("", now[ch.At], l.shown), time.Now()
+			ch.Seal = keptSeal(ch.At, saved)
 			top = append(top, ch)
 		}
 	}
@@ -419,12 +519,27 @@ func keptWhat(was, now keptEntry) string {
 }
 
 // keptSeal is what is at at now, and in it, by each name's kind, mode, device, inode, size, time and link: the same
-// seen from the desk's view and from the core. Any later change to it, by anyone, changes the seal.
-func keptSeal(at string) string {
+// seen from the desk's view and from the core. Any later change to it, by anyone, changes the seal. It is walked as the
+// look walks (RT126KEPTFD N1): from the folder above it, opened as the copy saved it (keptOpen), one name at a time,
+// never through a link or a folder swapped meanwhile, never waiting on a pipe.
+func keptSeal(at string, saved map[string]keptEntry) string {
+	dir, err := keptOpen(path.Dir(at), saved)
+	if err == nil {
+		defer dir.Close()
+	}
+	return keptSealIn(dir, err, at)
+}
+
+// keptSealIn is keptSeal of at, the name it has in dir (when dir couldn't be opened, opened is why).
+func keptSealIn(dir *os.Root, opened error, at string) string {
 	h, n := sha256.New(), 0
-	var walk func(at string)
-	walk = func(at string) {
-		st, err := os.Lstat(at)
+	var walk func(dir *os.Root, opened error, at string)
+	walk = func(dir *os.Root, opened error, at string) {
+		name := path.Base(at)
+		st, err := fs.FileInfo(nil), opened
+		if err == nil {
+			st, err = dir.Lstat(name)
+		}
 		if n++; n > keptNames {
 			fmt.Fprintf(h, "(more)\n")
 			return
@@ -432,29 +547,32 @@ func keptSeal(at string) string {
 			fmt.Fprintf(h, "%q -\n", at)
 			return
 		}
-		to, _ := os.Readlink(at)
+		to, _ := dir.Readlink(name)
 		dev, ino, _ := fileID(st)
 		fmt.Fprintf(h, "%q %v %d %d %d %d %q\n", at, st.Mode(), dev, ino, st.Size(), st.ModTime().UnixNano(), to)
 		if st.IsDir() {
-			names, err := os.ReadDir(at)
+			sub, err := keptSub(dir, name, st)
+			var names []fs.DirEntry
+			if err == nil {
+				defer sub.Close()
+				names, err = keptNamesIn(sub)
+			}
 			if err != nil {
 				fmt.Fprintf(h, "(can't be listed)\n")
 			}
-			for _, name := range names {
-				walk(path.Join(at, name.Name()))
+			for _, e := range names {
+				walk(sub, nil, path.Join(at, e.Name()))
 			}
 		}
 	}
-	walk(at)
+	walk(dir, opened, at)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// keptShow is e's content as shown: a file's text (from held's copy, or the disk when held is ""), else what it is.
-func keptShow(held string, e keptEntry) string {
-	at := e.At
-	if held != "" {
-		at = path.Join(held, e.Sum)
-	}
+// keptShow is e's content as shown: a file's text, a folder's mode, else what it is. Before, a file's text is held's
+// copy of it. After (held ""), it is what the look read of e from its own fd (shown: a file's text, the names in a
+// folder), never the place read again by its path, which a desk may have swapped meanwhile (FXKEPTFD S3b).
+func keptShow(held string, e keptEntry, shown map[string]string) string {
 	switch e.Kind {
 	case "", "-":
 		return "(not there)"
@@ -463,16 +581,25 @@ func keptShow(held string, e keptEntry) string {
 	case "?":
 		return "(" + e.Mode.String() + ")"
 	case "d": // a folder as it is now shows the names in it: an added one is never walked by the look
-		if held != "" {
-			return "(" + e.Mode.String() + ")"
-		}
-		return "(" + e.Mode.String() + ")" + keptListing(e.At)
+		return "(" + e.Mode.String() + ")" + shown[e.At]
 	}
+	if held == "" {
+		if text, ok := shown[e.At]; ok {
+			return text
+		}
+		return "(not read)"
+	}
+	at := path.Join(held, e.Sum)
 	st, err := os.Lstat(at)
 	var data []byte
 	if err == nil {
 		data, err = readKept(at, st, keptShown)
 	}
+	return keptText(data, err)
+}
+
+// keptText is a file's content read, as shown.
+func keptText(data []byte, err error) string {
 	switch {
 	case len(data) == 0 && err != nil:
 		return "(can't be read: " + err.Error() + ")"
@@ -482,13 +609,14 @@ func keptShow(held string, e keptEntry) string {
 	return string(data)
 }
 
-// keptListing is the names in the folder at, a line each, a folder's ending in /, at most keptShown of them.
-func keptListing(at string) string {
+// keptListing is the names in the folder dir (none when it is nil), a line each, a folder's ending in /, at most
+// keptShown of them: each folder opened from the one it is in, as the look opens it.
+func keptListing(dir *os.Root) string {
 	var b strings.Builder
 	n := 0
-	var walk func(folder, shown string)
-	walk = func(folder, shown string) {
-		names, _ := os.ReadDir(folder)
+	var walk func(dir *os.Root, shown string)
+	walk = func(dir *os.Root, shown string) {
+		names, _ := keptNamesIn(dir)
 		for _, name := range names {
 			if n++; n > keptShown {
 				return
@@ -498,12 +626,17 @@ func keptListing(at string) string {
 				line += "/"
 			}
 			b.WriteString("\n" + line)
-			if name.IsDir() {
-				walk(path.Join(folder, name.Name()), line)
+			if st, err := dir.Lstat(name.Name()); err == nil && name.IsDir() && st.IsDir() {
+				if sub, err := keptSub(dir, name.Name(), st); err == nil {
+					walk(sub, line)
+					sub.Close()
+				}
 			}
 		}
 	}
-	walk(at, "")
+	if dir != nil {
+		walk(dir, "")
+	}
 	if n > keptShown {
 		b.WriteString("\n(and more)")
 	}
@@ -572,60 +705,143 @@ func emptyKept(at string) error {
 }
 
 // putBack puts the place ch names back as c has it: what is there now is set aside whole under found, then the copy's
-// subtree is made again; it gives where it was set aside. A folder above it must still be the folder saved, and what
-// is there must be set aside whole, or nothing is touched.
-func putBack(held, found string, ch KeptChange, c keptCopy) (string, error) {
+// subtree is made again; it gives where it was set aside, and what it made. A folder above it must still be the folder
+// saved, and what is there must be set aside whole, or nothing is touched.
+//
+// A desk can swap any folder below its .claude while its session is still up, which it is at a fire (FXKEPTFD,
+// RT126RESOLVESWEEP S3). So all of it is done in the folder above the place, held open once checked, one name at a
+// time: never by a path, never through a link, and what is in it is removed only through its own folders' fds.
+func putBack(held, found string, ch KeptChange, c keptCopy) (string, map[string]fs.FileInfo, error) {
+	above := map[string]keptEntry{}
 	var below []keptEntry
 	for _, e := range c.Entries {
 		if e.At != ch.At && under(ch.At, e.At) {
-			st, err := os.Lstat(e.At)
-			if err != nil || !st.IsDir() {
-				return "", fmt.Errorf("%s isn't the folder it was", e.At)
-			} else if dev, ino, _ := fileID(st); dev != e.Dev || ino != e.Ino {
-				return "", fmt.Errorf("%s isn't the folder it was", e.At)
-			}
+			above[e.At] = e
 		} else if under(e.At, ch.At) {
 			below = append(below, e)
 		}
 	}
-	aside := ""
-	if _, err := os.Lstat(ch.At); err == nil {
+	parent, err := keptOpen(path.Dir(ch.At), above)
+	if err != nil {
+		return "", nil, err
+	}
+	defer parent.Close()
+	keptBetween("put back", ch.At)
+	name, aside := path.Base(ch.At), ""
+	if _, err := parent.Lstat(name); err == nil {
 		aside = path.Join(found, ch.At)
-		if err := setAside(ch.At, aside); err != nil {
-			return "", fmt.Errorf("%s couldn't be set aside whole, so it is left as it is: %w", ch.At, err)
+		if err := setAside(parent, name, aside); err != nil {
+			return "", nil, fmt.Errorf("%s couldn't be set aside whole, so it is left as it is: %w", ch.At, err)
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return "", err
+		return "", nil, err
 	}
-	var err error
-	for _, e := range below { // in the list's order: a folder before what is in it
-		var data []byte
+	made, err := makeKept(held, parent, path.Dir(ch.At), below)
+	if err != nil {
+		aside, err = putBackFailed(held, ch, parent, aside, err)
+		return aside, nil, err
+	}
+	return aside, made, nil
+}
+
+// keptOpen opens the folder at: from the first folder above it the copy doesn't save (the one above a kept place),
+// opened by its path as the start resolved it, then one name at a time, each a folder and not a link, and the folder
+// the copy saved by its own fd's device and inode.
+func keptOpen(at string, saved map[string]keptEntry) (*os.Root, error) {
+	top := at
+	for _, ok := saved[top]; ok; _, ok = saved[top] {
+		top = path.Dir(top)
+	}
+	dir, err := openKeptRoot(top)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range strings.Split(strings.TrimPrefix(strings.TrimPrefix(at, top), "/"), "/") {
+		if name == "" {
+			continue
+		}
+		top = path.Join(top, name)
+		st, err := dir.Lstat(name)
+		var sub *os.Root
+		if err == nil && st.IsDir() {
+			sub, err = keptSub(dir, name, st)
+		}
+		dir.Close()
+		if err != nil || !st.IsDir() {
+			return nil, fmt.Errorf("%s isn't the folder it was", top)
+		}
+		if dev, ino, _ := fileID(st); dev != saved[top].Dev || ino != saved[top].Ino {
+			sub.Close()
+			return nil, fmt.Errorf("%s isn't the folder it was", top)
+		}
+		dir = sub
+	}
+	return dir, nil
+}
+
+// makeKept makes below again (in the list's order: a folder before what is in it), each in the folder it is in, as
+// made and held open, the first in parent, the folder at: a file new, never through a link made meanwhile. It gives
+// what it made, as its own fd or the folder it is in saw it.
+func makeKept(held string, parent *os.Root, at string, below []keptEntry) (map[string]fs.FileInfo, error) {
+	dirs := map[string]*os.Root{at: parent}
+	defer func() {
+		for made, dir := range dirs {
+			if made != at {
+				dir.Close()
+			}
+		}
+	}()
+	made := map[string]fs.FileInfo{}
+	for _, e := range below {
+		dir, name := dirs[path.Dir(e.At)], path.Base(e.At)
+		var st fs.FileInfo
+		var err error
 		switch {
-		case err != nil || e.Kind == "-":
+		case e.Kind == "-":
+			continue
+		case dir == nil:
+			err = fmt.Errorf("%s has no folder to be made again in", e.At)
 		case e.Kind == "d":
-			err = os.Mkdir(e.At, e.Mode.Perm())
+			if err = dir.Mkdir(name, e.Mode.Perm()); err == nil {
+				var sub *os.Root
+				if st, err = dir.Lstat(name); err == nil {
+					sub, err = keptSub(dir, name, st)
+				}
+				if err == nil {
+					dirs[e.At] = sub
+				}
+			}
 		case e.Kind == "l":
-			err = os.Symlink(e.To, e.At)
-		case e.Kind == "f": // made new, never through a link made meanwhile
+			if err = dir.Symlink(e.To, name); err == nil {
+				st, err = dir.Lstat(name)
+			}
+		case e.Kind == "f":
+			var data []byte
 			var f *os.File
 			if data, err = os.ReadFile(path.Join(held, e.Sum)); err == nil {
-				if f, err = os.OpenFile(e.At, os.O_WRONLY|os.O_CREATE|os.O_EXCL, e.Mode.Perm()); err == nil {
+				if f, err = dir.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, e.Mode.Perm()); err == nil {
 					_, err = f.Write(data)
-					err = errors.Join(err, f.Chmod(e.Mode.Perm()), f.Close())
+					err = errors.Join(err, f.Chmod(e.Mode.Perm()))
+					st, _ = f.Stat()
+					err = errors.Join(err, f.Close())
 				}
 			}
 		default:
 			err = fmt.Errorf("%s can't be made again (%s)", e.At, e.Mode)
 		}
+		if err != nil {
+			return nil, err
+		}
+		made[e.At] = st
 	}
-	if err != nil {
-		return putBackFailed(held, ch, aside, err)
-	}
-	return aside, nil
+	return made, nil
 }
 
-// keptRename is os.Rename, for setAside and putBackFailed: a test's stand-in for a found folder on another disk.
-var keptRename = os.Rename
+// keptBetween is a test's stand-in for a desk swapping a folder in the middle between a look and what is done after it.
+var keptBetween = func(step, at string) {}
+
+// keptRename is renameKept, for setAside and putBackFailed: a test's stand-in for a found folder on another disk.
+var keptRename = renameKept
 
 // putBackFailed is a put back whose saved copy couldn't be made again whole once what was there was set aside (a full
 // disk at the write, the copy's content unreadable): what it made is taken away and what was set aside goes back in
@@ -633,15 +849,21 @@ var keptRename = os.Rename
 // where what was there is set aside, and that the place is half made or not there (RT126L1GUARD1FIRE B2). Either way
 // the place is noted, as the guard notes what it stops the desk for, so the next look (a fire, a Hand back, a start)
 // puts its saved copy back again, setting what is there aside whole, and refuses again until it can: it never goes on
-// as if nothing had been tried.
-func putBackFailed(held string, ch KeptChange, aside string, failed error) (string, error) {
+// as if nothing had been tried. Both are done in parent, the folder above the place, held open.
+func putBackFailed(held string, ch KeptChange, parent *os.Root, aside string, failed error) (string, error) {
 	why := fmt.Errorf("%s couldn't be made again as its saved copy has it (%w)", ch.At, failed)
-	undo := os.RemoveAll(ch.At)
+	name := path.Base(ch.At)
+	undo := parent.RemoveAll(name)
 	switch {
 	case undo != nil:
 		why = fmt.Errorf("%w, and what it made couldn't be taken away (%v): the place is left half made", why, undo)
 	case aside != "":
-		if undo = keptRename(aside, ch.At); undo != nil {
+		var found *os.Root
+		if found, undo = openKeptRoot(path.Dir(aside)); undo == nil {
+			undo = keptRename(found, path.Base(aside), parent, name)
+			found.Close()
+		}
+		if undo != nil {
 			why = fmt.Errorf("%w, and what was there couldn't go back in its place (%v): the place is not there now", why, undo)
 		}
 	}
@@ -650,63 +872,80 @@ func putBackFailed(held string, ch KeptChange, aside string, failed error) (stri
 	} else if aside != "" {
 		why = fmt.Errorf("%w, and what was there is set aside whole in %q", why, aside)
 	}
-	if note := NoteKeptStop(held, []KeptChange{{At: ch.At, Seal: keptSeal(ch.At)}}); note != nil {
+	if note := NoteKeptStop(held, []KeptChange{{At: ch.At, Seal: keptSealIn(parent, nil, ch.At)}}); note != nil {
 		return aside, fmt.Errorf("%w. It couldn't be noted to be put back again either (%v)", why, note)
 	}
 	return aside, fmt.Errorf("%w. It is noted, to be put back again before anything goes on", why)
 }
 
-// setAside moves at, whole, to aside, which must not be there yet: by a rename, or on another disk by a copy, and only
-// once the copy is whole is at removed. What can't be copied (a pipe, a socket, past the cap) leaves at as it is.
-func setAside(at, aside string) error {
+// setAside moves name in dir, whole, to aside (in the core's own found folder), which must not be there yet: by a
+// rename, or on another disk by a copy, and only once the copy is whole is it removed. What can't be copied (a pipe,
+// a socket, past the cap) leaves it as it is.
+func setAside(dir *os.Root, name, aside string) error {
 	if _, err := os.Lstat(aside); err == nil {
 		return fmt.Errorf("%s is there already", aside)
 	}
 	if err := os.MkdirAll(path.Dir(aside), 0o700); err != nil {
 		return err
 	}
-	if keptRename(at, aside) == nil {
+	to, err := openKeptRoot(path.Dir(aside))
+	if err != nil {
+		return err
+	}
+	defer to.Close()
+	if keptRename(dir, name, to, path.Base(aside)) == nil {
 		return nil
 	}
 	most := keptMost
-	if err := copyAside(at, aside, &most); err != nil {
-		return errors.Join(err, os.RemoveAll(aside))
+	if err := copyAside(dir, name, to, path.Base(aside), &most); err != nil {
+		return errors.Join(err, to.RemoveAll(path.Base(aside)))
 	}
-	return os.RemoveAll(at)
+	return dir.RemoveAll(name)
 }
 
-// copyAside copies at to to, a folder with all in it, never following a link; most is what may still be copied.
-func copyAside(at, to string, most *int) error {
-	st, err := os.Lstat(at)
+// copyAside copies name in dir to toName in to, a folder with all in it, never following a link, each folder opened
+// from the one it is in; most is what may still be copied.
+func copyAside(dir *os.Root, name string, to *os.Root, toName string, most *int) error {
+	st, err := dir.Lstat(name)
 	switch {
 	case err != nil:
 		return err
 	case st.Mode()&fs.ModeSymlink != 0:
-		link, err := os.Readlink(at)
+		link, err := dir.Readlink(name)
 		if err != nil {
 			return err
 		}
-		return os.Symlink(link, to)
+		return to.Symlink(link, toName)
 	case st.IsDir():
-		names, err := os.ReadDir(at)
-		if err = cmp.Or(err, os.Mkdir(to, 0o700)); err != nil {
+		sub, err := keptSub(dir, name, st)
+		if err != nil {
 			return err
 		}
+		defer sub.Close()
+		names, err := keptNamesIn(sub)
+		if err = cmp.Or(err, to.Mkdir(toName, 0o700)); err != nil {
+			return err
+		}
+		into, err := to.OpenRoot(toName + "/.") // only a folder, as keptSub
+		if err != nil {
+			return err
+		}
+		defer into.Close()
 		for _, n := range names {
-			if err := copyAside(path.Join(at, n.Name()), path.Join(to, n.Name()), most); err != nil {
+			if err := copyAside(sub, n.Name(), into, n.Name(), most); err != nil {
 				return err
 			}
 		}
 		return nil
 	case st.Mode().IsRegular():
-		data, err := readKept(at, st, *most)
+		data, err := readKeptIn(dir, name, st, *most)
 		if err != nil {
 			return err
 		}
 		*most -= len(data)
-		return os.WriteFile(to, data, st.Mode().Perm()&0o700|0o600)
+		return to.WriteFile(toName, data, st.Mode().Perm()&0o700|0o600)
 	}
-	return fmt.Errorf("%s can't be set aside (%s)", at, st.Mode())
+	return fmt.Errorf("%s can't be set aside (%s)", path.Join(dir.Name(), name), st.Mode())
 }
 
 // keptWhen is how a time is said: its zone with it.
