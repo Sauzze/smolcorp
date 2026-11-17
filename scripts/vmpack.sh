@@ -16,9 +16,17 @@
 # VMPACK_PACKAGES (folders, space-separated).
 #
 # What a test reads is put where it reads it from: its package's testdata/,
-# and the repo's files the tests reach through ../ (the tmux guard's build
-# script and its pins, for tmuxfake). Each binary runs from its own package
-# folder, as go test runs it, never from the top of the pack.
+# and the repo's files the tests that run reach through ../, found by
+# scripts/vmpackreads in the test files built for the pack (the shims, for
+# internal/sandbox's SA-T2 rows; FXVMPACK). What a test names only at run time
+# (tmuxfake holds the repo's top folder: the tmux guard's build script and its
+# pins) is listed by hand in reads(). The pack stops, and says what, when a test
+# reads a repo path the tree hasn't, names a read at run time that reads()
+# doesn't cover, or when the pack lacks a path found. Each binary runs from its
+# own package folder, as go test runs it, never from the top of the pack, and by
+# its full path, as go test gives it: a row that runs its own binary again from
+# another folder (os.Args[0], the launcher's rows) finds it only so
+# (FXVMPACKR1: ./desktop.test was "fork/exec ./desktop.test: no such file").
 #
 # Out, in the out folder:
 #   smolcorp-vm-<id>.tar   a folder smolcorp-vm-<id>/ with the binaries, what
@@ -26,8 +34,9 @@
 #   RUN-vm-<id>.txt        the RUN note to fill in before it is sent: what the
 #                          run proves, and which tests; the commands are written
 #
-# Nothing is run but git and go; nothing is written outside the out folder
-# (and Go's own build cache).
+# Nothing is run but git and go (go run of scripts/vmpackreads, from this
+# checkout); nothing is written outside the out folder (and Go's own build
+# cache).
 
 set -euo pipefail
 
@@ -55,7 +64,9 @@ trap 'rm -rf "$SRC"' EXIT
 
 git -C "$REPO" archive "$TREE" | tar -x -C "$SRC"
 
-# The repo's files a package's tests read through ../, by package.
+# The repo's files a package's tests read through ../ under names known only at
+# run time, which scripts/vmpackreads can't see, by package. A package here is
+# passed to it with -listed: its run-time sites are left to this list.
 reads() {
   case "$1" in
     internal/sandbox/tmuxfake) echo scripts/build-tmux.sh scripts/check-runtime.sh third_party/tmux ;;
@@ -70,8 +81,30 @@ PACKAGES="$( (
   for p in ${VMPACK_PACKAGES:-}; do echo "${p%/}"; done
 ) | awk '!seen[$0]++')"
 
+# The -test.run pattern the RUN note gives a package: none for the two (every
+# test), its Linux-only tests for the rest.
+runs() {
+  case "$1" in
+    internal/sandbox | internal/sandbox/tmuxfake) ;;
+    *) echo "^($(cd "$SRC/$1" && sed -n 's/^func \(Test[A-Za-z0-9_]*\)(.*/\1/p' ./*_linux_test.go 2>/dev/null | paste -sd '|' -))\$" ;;
+  esac
+}
+
+# What each package's tests that run read through ../, found in the tree's own
+# test files for this GOOS/GOARCH: "package path" lines.
+# Its flags go before the first package: -listed for each package reads() names.
+scanargs=()
 for pkg in $PACKAGES; do
   [ -d "$SRC/$pkg" ] || { echo "vmpack: no package $pkg in tree $TREE" >&2; exit 1; }
+  [ -n "$(reads "$pkg")" ] && scanargs=(-listed "$pkg" "${scanargs[@]+"${scanargs[@]}"}")
+  scanargs+=("$pkg=$(runs "$pkg")")
+done
+cgo=false
+[ "$CGO_" = 1 ] && cgo=true
+FOUND="$(go run ./scripts/vmpackreads -root "$SRC" -goos "$GOOS_" -goarch "$GOARCH_" -cgo="$cgo" "${scanargs[@]}")" ||
+  { echo "vmpack: a packed test reads what this pack can't give it (above); the pack is not made" >&2; exit 1; }
+
+for pkg in $PACKAGES; do
   bin="$PACK/$pkg/$(basename "$pkg").test"
   mkdir -p "$PACK/$pkg"
   (cd "$SRC" && CGO_ENABLED="$CGO_" GOOS="$GOOS_" GOARCH="$GOARCH_" go test -c -o "$bin" "./$pkg")
@@ -79,11 +112,20 @@ for pkg in $PACKAGES; do
   if [ -d "$SRC/$pkg/testdata" ]; then
     cp -R "$SRC/$pkg/testdata" "$PACK/$pkg/testdata"
   fi
-  for f in $(reads "$pkg"); do
+  for f in $(reads "$pkg") $(printf '%s\n' "$FOUND" | awk -v p="$pkg" '$1 == p { print $2 }'); do
     [ -e "$SRC/$f" ] || { echo "vmpack: $pkg reads $f, which tree $TREE doesn't have" >&2; exit 1; }
-    mkdir -p "$PACK/$(dirname "$f")"
-    cp -R "$SRC/$f" "$PACK/$f"
+    # A folder's files go into it, whether or not one of them is there already.
+    if [ -d "$SRC/$f" ]; then
+      mkdir -p "$PACK/$f" && cp -R "$SRC/$f/." "$PACK/$f/"
+    else
+      mkdir -p "$PACK/$(dirname "$f")" && cp -R "$SRC/$f" "$PACK/$f"
+    fi
   done
+done
+
+# Every path found is in the pack, at its place in the repo's layout.
+for f in $(printf '%s\n' "$FOUND" | awk 'NF { print $2 }'); do
+  [ -e "$PACK/$f" ] || { echo "vmpack: the pack lacks $f, which a packed test reads" >&2; exit 1; }
 done
 
 sum() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
@@ -119,7 +161,7 @@ sum() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 
     # The sandbox's rows fail, not skip, where the sandbox can't start; tmuxfake's would fail on what isn't packed.
     required=""
     [ "$pkg" = internal/sandbox ] && required="SMOLCORP_SANDBOX_REQUIRED=1 "
-    echo "  (cd $pkg && $required./$base.test -test.v -test.count=1$only) 2>&1 | tee $base-\$XDG_SESSION_TYPE.log"
+    echo "  (cd $pkg && $required\"\$PWD/$base.test\" -test.v -test.count=1$only) 2>&1 | tee $base-\$XDG_SESSION_TYPE.log"
   done
   echo
   echo "WHAT IT PROVES: <fill in>"
