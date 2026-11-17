@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -527,13 +528,15 @@ func TestGitIsReadWithNothingToAskAndNoOtherRepoNamed(t *testing.T) {
 		"GIT_PROTOCOL_FROM_USER=1", "GIT_NO_LAZY_FETCH=0", "GIT_EXEC_PATH=/elsewhere", "GIT_AUTHOR_NAME=kept", "GIT_TEST_SPLIT_INDEX=1", "git_test_x=1",
 		"GIT_TEST_ASSUME_DIFFERENT_OWNER=1", "GIT_LITERAL_PATHSPECS=1", "GIT_GLOB_PATHSPECS=1", "GIT_NOGLOB_PATHSPECS=1", "git_icase_pathspecs=1"}
 	want := "PATH=/bin HOME=/h GIT_AUTHOR_NAME=kept GIT_TEST_ASSUME_DIFFERENT_OWNER=1 GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 GIT_PAGER=cat GIT_ALLOW_PROTOCOL= GIT_NO_LAZY_FETCH=1 " +
-		"GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=" + os.DevNull
-	if got := strings.Join(gitReadEnv(app, nil), " "); got != want {
+		"GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=" + os.DevNull + " GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE="
+	// FXREPLACEREFS: gitReadAround, last.
+	around := "GIT_CONFIG_KEY_%d=core.commitGraph GIT_CONFIG_VALUE_%d=false GIT_CONFIG_KEY_%d=core.multiPackIndex GIT_CONFIG_VALUE_%d=false"
+	if got := strings.Join(gitReadEnv(app, nil), " "); got != want+" GIT_CONFIG_COUNT=2 "+fmt.Sprintf(around, 0, 0, 1, 1) {
 		t.Errorf("%s", got)
 	}
 	// Config is handed over whole, a key with an "=" in its subsection included.
 	got := strings.Join(gitReadEnv(app, [][2]string{{"filter.x=y.clean", ""}, {"filter.x=y.required", "false"}}), " ")
-	if got != want+" GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=filter.x=y.clean GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=filter.x=y.required GIT_CONFIG_VALUE_1=false" {
+	if got != want+" GIT_CONFIG_COUNT=4 GIT_CONFIG_KEY_0=filter.x=y.clean GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=filter.x=y.required GIT_CONFIG_VALUE_1=false "+fmt.Sprintf(around, 2, 2, 3, 3) {
 		t.Errorf("%s", got)
 	}
 }

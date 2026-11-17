@@ -130,7 +130,14 @@ var gitConfigNames = map[string]bool{
 	"GIT_SSH": true, "GIT_SSH_COMMAND": true, "GIT_ASKPASS": true, "SSH_ASKPASS": true, "GIT_PROXY_COMMAND": true,
 	"GIT_ALLOW_PROTOCOL": true, "GIT_PROTOCOL_FROM_USER": true, "GIT_NO_LAZY_FETCH": true, "GIT_EXEC_PATH": true,
 	"GIT_LITERAL_PATHSPECS": true, "GIT_GLOB_PATHSPECS": true, "GIT_NOGLOB_PATHSPECS": true, "GIT_ICASE_PATHSPECS": true,
+	"GIT_NO_REPLACE_OBJECTS": true, "GIT_REPLACE_REF_BASE": true, "GIT_GRAFT_FILE": true,
 }
+
+// gitReadAround are the settings every read is given last, so neither a repo's config nor a caller's beats them: git
+// reads no commit's parents from the commit-graph and no object's place from a multi-pack index, only from the commits
+// and each pack's own index (FXREPLACEREFS). A desk could have written either in the shared .git (off a Mac, or before
+// the Mac's rows), and either one bends what a base branch reads as: its ancestry, or a file's bytes.
+var gitReadAround = [][2]string{{"core.commitGraph", "false"}, {"core.multiPackIndex", "false"}}
 
 // gitReadEnv is the environment of a read: the app's, without what would point git at another repo or hand it
 // config, a program or a transport, with nothing to ask the owner, and with config, if any, handed over (gitCall).
@@ -139,8 +146,13 @@ var gitConfigNames = map[string]bool{
 // system and user git config are switched off, so they can't run anything either: the owner's ignore file and
 // trusted folders are handed back by name (gitHere), and through a git folder of the core's own their line ends too
 // (gitOwnerLineEnds, makeGitReadFolder; and deskGit's, gitLineEndsAround); nothing else of theirs applies here.
+//
+// Nor does anything that substitutes what a ref reads as (FXREPLACEREFS): no replace ref (GIT_NO_REPLACE_OBJECTS),
+// no grafts (GIT_GRAFT_FILE empty names no file, so none is read, and git's hint about grafts isn't printed either),
+// and gitReadAround last. The shallow list is still read: a shallow clone's history really ends there.
 func gitReadEnv(env []string, config [][2]string) []string {
-	out := make([]string, 0, len(env)+8+2*len(config))
+	config = append(slices.Clip(config), gitReadAround...)
+	out := make([]string, 0, len(env)+10+2*len(config))
 	for _, kv := range env {
 		name, _, _ := strings.Cut(kv, "=")
 		name = strings.ToUpper(name)
@@ -150,13 +162,11 @@ func gitReadEnv(env []string, config [][2]string) []string {
 		out = append(out, kv)
 	}
 	out = append(out, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_PAGER=cat", "GIT_ALLOW_PROTOCOL=", "GIT_NO_LAZY_FETCH=1",
-		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
-	if len(config) > 0 {
-		out = append(out, "GIT_CONFIG_COUNT="+strconv.Itoa(len(config)))
-		for i, kv := range config {
-			n := strconv.Itoa(i)
-			out = append(out, "GIT_CONFIG_KEY_"+n+"="+kv[0], "GIT_CONFIG_VALUE_"+n+"="+kv[1])
-		}
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_NO_REPLACE_OBJECTS=1", "GIT_GRAFT_FILE=")
+	out = append(out, "GIT_CONFIG_COUNT="+strconv.Itoa(len(config)))
+	for i, kv := range config {
+		n := strconv.Itoa(i)
+		out = append(out, "GIT_CONFIG_KEY_"+n+"="+kv[0], "GIT_CONFIG_VALUE_"+n+"="+kv[1])
 	}
 	return out
 }

@@ -752,6 +752,7 @@ var startSites = map[string]string{
 	"run_darwin_test.go TestSandboxResponsibilityHolder":                                      "the stand-in built from disclaim's testdata, alone and under sandbox-exec",
 	"sbpl_darwin_test.go TestOnAMacTheProfileHoldsForAStandInHire":                            "sandbox-exec under the row's profile, with the row's own words",
 	"sbpl_darwin_test.go TestOnAMacTheServicesHoldForAStandInDesk":                            "/usr/bin/env or sandbox-exec, then python3 with the row's probe",
+	"substitutions_darwin_test.go TestOnAMacTheProfileKeepsGitsSubstitutionsFromADesk":        "sandbox-exec under the row's profile, then python3 with the row's probe (FXREPLACEREFS)",
 	"linuxcaps_linux_test.go systemRows":                                                      "bwrap --version, Linux only",
 	"linuxcaps_linux_test.go runBwrap":                                                        "bwrap, Linux only",
 	"linuxcaps_linux_test.go runPlain":                                                        "the test binary, Linux only",

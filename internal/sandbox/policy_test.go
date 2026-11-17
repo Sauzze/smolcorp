@@ -953,6 +953,61 @@ func TestTmuxsOwnFolderIsAMacRow(t *testing.T) {
 	}
 }
 
+// FXREPLACEREFS: on a Mac no desk writes what makes the owner's git read a base branch as another tree or history
+// while the branch never moves: a replace ref, the shallow list, a multi-pack index, a base branch's reflog; and the
+// grafts, the other stores' lists and the commit-graph stay the shared git places'. What a desk's commits, merges and
+// gc write is still its work: objects, packs and their indexes, its own branch and reflog, tags, notes.
+func TestGitsSubstitutionsOfABaseBranchAreNoDesksOnAMac(t *testing.T) {
+	cases := []struct {
+		path string
+		v    Verdict
+		row  string
+	}{
+		{"$G/refs/replace", D, rowSubstitutions}, {"$G/refs/replace/0123456789abcdef0123456789abcdef01234567", D, rowSubstitutions},
+		{"$G/refs/replace/sub/x", D, rowSubstitutions}, {"$G/Refs/Replace/x", D, rowSubstitutions},
+		{"$G/shallow", D, rowSubstitutions}, {"$G/objects/pack/multi-pack-index", D, rowSubstitutions},
+		{"$G/objects/pack/multi-pack-index.lock", D, rowSubstitutions}, {"$G/objects/pack/multi-pack-index-ab12.bitmap", D, rowSubstitutions},
+		{"$G/objects/pack/multi-pack-index-ab12.rev", D, rowSubstitutions}, {"$G/objects/pack/multi-pack-index.d/multi-pack-index-ab12.midx", D, rowSubstitutions},
+		{"$G/logs/refs/heads/main", D, rowBaseReflogs}, {"$G/logs/refs/heads/master", D, rowBaseReflogs},
+		{"$G/logs/refs/heads/develop", D, rowBaseReflogs}, {"$G/logs/refs/heads/release/1.26", D, rowBaseReflogs},
+		{"$G/logs/refs/heads/release", D, rowBaseReflogs},
+		// The shared git places' already: the grafts, the other stores' lists, the commit-graph.
+		{"$G/info/grafts", D, "the shared git places"}, {"$G/objects/info/commit-graph", D, "the shared git places"},
+		{"$G/objects/info/commit-graphs/commit-graph-chain", D, "the shared git places"},
+		{"$G/objects/info/commit-graphs/graph-ab12.graph", D, "the shared git places"},
+		// A desk's own work.
+		{"$G/objects/ab/cdef", A, ""}, {"$G/objects/pack/pack-ab12.pack", A, ""}, {"$G/objects/pack/pack-ab12.idx", A, ""},
+		{"$G/objects/pack/pack-ab12.rev", A, ""}, {"$G/objects/pack/pack-ab12.bitmap", A, ""}, {"$G/objects/pack/tmp_pack_x", A, ""},
+		{"$G/refs/heads/hire/h1/work", A, ""}, {"$G/logs/refs/heads/hire/h1/work", A, ""}, {"$G/logs/refs/heads/mainline", A, ""},
+		{"$G/refs/tags/v1", A, ""}, {"$G/refs/notes/commits", A, ""}, {"$G/shallow.lock", A, ""}, {"$G/refs/replaced", A, ""},
+	}
+	for _, s := range setups() {
+		p := mustNew(t, s.pl)
+		for _, c := range cases {
+			v, r := p.Decide(s.path(c.path), Write)
+			if v != c.v || c.row != "" && r.Row != c.row {
+				t.Errorf("%s: write %s: %v by %q, want %v by %q", s.name, c.path, v, r.Row, c.v, c.row)
+			}
+		}
+		// The folders above them hold: a desk can't move one aside, write under its new name and move it back.
+		for _, folder := range []string{"$G/objects/pack", "$G/logs/refs/heads", "$G/logs/refs", "$G/logs", "$G/refs/replace"} {
+			if v, r := p.Decide(s.path(folder), Move); v != Deny {
+				t.Errorf("%s: move %s: %v by %q", s.name, folder, v, r.Row)
+			}
+		}
+	}
+	// Linux's view and Windows' jail are made from other rows (FXREPLACEREFS' report lists them for the VM).
+	for _, pl := range []Places{linuxPlaces(lHome + "/.local/share/smolcorp"), {GOOS: "windows", Subject: Hire, Home: `C:\Users\ada`,
+		Support: `C:\Users\ada\AppData\Roaming\Smolcorp`, OwnID: "h1", Root: `C:\Users\ada\Projects\app-hires\h1`,
+		Checkout: `C:\Users\ada\Projects\app`, GitDir: `C:\Users\ada\Projects\app\.git`, OwnWorktree: "h1"}} {
+		for _, r := range mustNew(t, pl).Rules() {
+			if r.Row == rowSubstitutions || r.Row == rowBaseReflogs {
+				t.Errorf("a %s Policy has a row of git's substitutions: %+v", pl.GOOS, r)
+			}
+		}
+	}
+}
+
 // FXPOLICYFOLD: the Mac's volume takes a name in Unicode's full case folding, so each of these is the support
 // folder's key, its ssh keys, a plant or the default branch, as the volume takes them: by ſ (the long s), ß and ẞ (ss),
 // ﬆ and ﬅ (st), ﬁ (fi), the Kelvin sign (k), the Ohm and Ångström signs (ω, å), İ (i and a dot above), and marks in

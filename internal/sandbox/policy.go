@@ -360,6 +360,13 @@ const rowUnknownCodePoint = "a name with a code point Unicode " + foldUnicode + 
 // rowOldRemotes is the row of git's old remote files, which X12's start-time listing names as well.
 const rowOldRemotes = "the shared git places: the old remote files"
 
+// rowSubstitutions and rowBaseReflogs are the Mac's rows of what makes the owner's git read a base branch as another
+// tree or history while the branch never moves (FXREPLACEREFS).
+const (
+	rowSubstitutions = "the base branches: git's substitutions"
+	rowBaseReflogs   = "the base branches: their reflogs"
+)
+
 // New makes the Policy for a desk at pl. A desk whose root (or checkout, hires folder or GM folder) is inside a
 // support folder, or contains one, is refused: no exception could then keep the folder whole. So is one whose root is
 // or contains the hires folder, or contains the owner's checkout (RT126SAX1R2 B2′): it would work in other desks'
@@ -569,6 +576,28 @@ func build(pl Places) (*Policy, error) {
 		// can be told from another there, so no desk moves any, its own branch included (GITCFG1). A repo of files has
 		// no such folder, and git reads one only when the repo's config, which no desk writes, says so.
 		b.add(Rule{Row: "the base branches: a reftable repo's refs", Path: join(git, "reftable"), Below: true, Write: Deny})
+		// git's substitutions (FXREPLACEREFS), on a Mac: the owner's git takes each of these over what a base branch
+		// names, while the branch itself never moves. A replace ref (`git replace <main's commit> <a desk's>`) makes the
+		// owner's show, log, merge and worktree add of main read the desk's commit; the shallow list cuts main's history
+		// where it says (log, merge-base); a multi-pack index tells git where an object's bytes are, so it can give
+		// main's file a desk's bytes, to the owner's checkout as to the core's; a base branch's reflog is what the
+		// owner's plain `git rebase` takes for its upstream's own commits (--fork-point), and drops from their branch.
+		// The grafts (`info/grafts`), the other stores' lists and the commit-graph (`objects/info`) are the shared git
+		// places' already. A desk loses no work: none of these is written by its commits, merges or gc (a gc writes a
+		// pack, its index and reverse index, and tries the commit-graph), only by `git replace`, a shallow fetch,
+		// `multi-pack-index write` and a base branch's move; its own branch's reflog is in logs/refs/heads/hire/<id>.
+		// Linux's view isn't changed here (FXREPLACEREFS' report lists it for the VM).
+		if goos == "darwin" {
+			b.add(Rule{Row: rowSubstitutions, Path: join(git, "refs/replace"), Below: true, Write: Deny})
+			b.add(Rule{Row: rowSubstitutions, Path: join(git, "shallow"), Write: Deny})
+			b.add(Rule{Row: rowSubstitutions, Path: join(git, "objects/pack"), Tail: "multi-pack-index*", Below: true, Write: Deny})
+			for _, branch := range []string{"main", "master", pl.DefaultBranch} {
+				if branch != "" {
+					b.add(Rule{Row: rowBaseReflogs, Path: join(git, "logs/refs/heads", branch), Write: Deny})
+				}
+			}
+			b.add(Rule{Row: rowBaseReflogs, Path: join(git, "logs/refs/heads/release"), Below: true, Write: Deny})
+		}
 		// The old remote files (RT126GITCFG2's note 3; SIERRA, 14 Nov): `branches/<name>` and `remotes/<name>` give a
 		// remote config doesn't name an address, which the owner's fetch, pull and push use, and an address can name a
 		// program (`ext::`, a `<helper>::`). They aren't config, so gitstate never sees them. Git reads them from the
