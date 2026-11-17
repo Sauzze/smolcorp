@@ -1090,6 +1090,7 @@ func lessWrites(args []string) bool {
 func gitFolderPath(word string, p *Place) bool {
 	low := Fold(strings.ReplaceAll(word, `\`, "/"))
 	var folders *placeFolders
+	var wide []string
 	candidates := []string{low}
 	for i := 0; i < len(low); i++ {
 		if low[i] == '=' {
@@ -1119,8 +1120,11 @@ func gitFolderPath(word string, p *Place) bool {
 			if folders = p.folders; folders == nil {
 				folders = readFolders(*p)
 			}
+			if windowsPaths {
+				wide = wideNames(word, nil)
+			}
 		}
-		if inFolders(c, folders, windowsPaths) {
+		if inFolders(c, folders, windowsPaths, wide) {
 			return true
 		}
 	}
@@ -1140,6 +1144,7 @@ type placeFolders struct {
 	here   *winAbs  // the call's folder as Windows reads it (nil when it isn't known)
 	win    []winAbs // dirs as Windows reads them
 	winBad bool     // a folder Windows' reading can't place: every path counts as in it
+	wide   []string // the names of the folders' parts that hold a letter outside ASCII (wideNames)
 }
 
 // readFolders reads p's folders (placeFolders).
@@ -1156,7 +1161,35 @@ func readFolders(p Place) *placeFolders {
 		}
 		f.win = append(f.win, dir)
 	}
+	f.wide = wideNames(p.common, wideNames(p.gitDir, wideNames(p.cwd, nil)))
 	return f
+}
+
+// wideNames appends to out the names of raw's parts (\, / or : between them) that hold a letter outside ASCII,
+// folded and without their trailing dots and spaces, as winPath reads a part. They are read from the raw path because
+// Fold makes some such letters ASCII (ſ is s, the Kelvin sign k, ß ss, ﬁ fi), and Windows makes a short name from the
+// raw letters: Fold("ſtore") is store, whose short name winShortFor reads as STORE~1, but Windows may write TORE~1
+// (FXGUARDWINF1).
+func wideNames(raw string, out []string) []string {
+	if !hasWide(raw) {
+		return out
+	}
+	for _, part := range strings.FieldsFunc(raw, func(r rune) bool { return r == '\\' || r == '/' || r == ':' }) {
+		if hasWide(part) {
+			out = append(out, strings.TrimRight(Fold(part), ". "))
+		}
+	}
+	return out
+}
+
+// hasWide is whether text holds a byte outside ASCII.
+func hasWide(text string) bool {
+	for i := 0; i < len(text); i++ {
+		if text[i] >= utf8.RuneSelf {
+			return true
+		}
+	}
+	return false
 }
 
 // inFolders is whether a path (folded, / between its parts) is one of f's git folders or below one, read from the
@@ -1166,8 +1199,9 @@ func readFolders(p Place) *placeFolders {
 // worktree's git folder. There a path is read as Windows reads it (winPath): a drive, a drive alone, a / alone,
 // \\?\, \\.\ and \??\, UNC, Git Bash's /c/, a part's trailing dots and spaces and its :stream; and a short name
 // (STORE~1, RUNNER~1) may be any one part, on either side. What Windows' reading can't place (a device namespace
-// such as \\?\GLOBALROOT\, or a git folder it can't read) counts as in the folder.
-func inFolders(p string, f *placeFolders, windows bool) bool {
+// such as \\?\GLOBALROOT\, or a git folder it can't read) counts as in the folder. wide are the names of the path's
+// parts that hold a letter outside ASCII (wideNames), for its short names.
+func inFolders(p string, f *placeFolders, windows bool, wide []string) bool {
 	if !windows {
 		if !path.IsAbs(p) {
 			if f.cwd == "" {
@@ -1186,13 +1220,16 @@ func inFolders(p string, f *placeFolders, windows bool) bool {
 	if f.winBad {
 		return true
 	}
+	if len(f.wide) > 0 {
+		wide = slices.Concat(wide, f.wide)
+	}
 	var readings [2]winAbs
 	for _, abs := range winReadings(p, f.here, readings[:0]) {
 		if abs.anywhere {
 			return true
 		}
 		for _, dir := range f.win {
-			if abs.anyOnDrive && abs.vol == dir.vol || !abs.anyOnDrive && winBelow(abs, dir) {
+			if abs.anyOnDrive && abs.vol == dir.vol || !abs.anyOnDrive && winBelow(abs, dir, wide) {
 				return true
 			}
 		}
@@ -1298,13 +1335,14 @@ func winPath(p string, here *winAbs) (winAbs, bool) {
 }
 
 // winBelow is whether a is dir or below it: the same volume, and each of dir's parts the same, or one the other's
-// short name (winShortFor), on either side.
-func winBelow(a, dir winAbs) bool {
+// short name (winShortOf, with the names of either path's parts that hold a letter outside ASCII, wide), on either
+// side.
+func winBelow(a, dir winAbs, wide []string) bool {
 	if a.vol != dir.vol || len(a.parts) < len(dir.parts) {
 		return false
 	}
 	for i, d := range dir.parts {
-		if a.parts[i] != d && !winShortFor(a.parts[i], d) && !winShortFor(d, a.parts[i]) {
+		if a.parts[i] != d && !winShortOf(a.parts[i], d, wide) && !winShortOf(d, a.parts[i], wide) {
 			return false
 		}
 	}
@@ -1357,6 +1395,13 @@ func winShortFor(short, long string) bool {
 		hashed = string(letters[:2])
 	}
 	return (starts(stem, m[1]) || hashed != "" && starts(stem, hashed)) && starts(ext, m[2])
+}
+
+// winShortOf is winShortFor, with long read from its raw name too: a long name that is one of wide (its raw name held a
+// letter outside ASCII, which Fold may have made ASCII: wideNames) takes any short name, as such a name does in
+// winShortFor (FXGUARDWINF1).
+func winShortOf(short, long string, wide []string) bool {
+	return winShortFor(short, long) || long != short && slices.Contains(wide, long) && winShortName.MatchString(short)
 }
 
 func isDriveLetter(c byte) bool { return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' }

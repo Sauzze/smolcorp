@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -308,5 +309,137 @@ func TestAHashInAWordIsStillAZshPattern(t *testing.T) {
 		if r := Check(line, DefaultGroups()); r != nil {
 			t.Errorf("%q: %v", line, r)
 		}
+	}
+}
+
+// RT126GUARDWINR2's follow-up 1: after \??\, as after \\?\ and \\.\, a namespace the guard can't place fails closed,
+// \??\GLOBALROOT\??\C:\…\store\HEAD among them.
+func TestANamespaceAfterTheNTPrefixFailsClosedToo(t *testing.T) {
+	asWindowsPaths(t, true)
+	tmp := `C:\Users\RUNNER~1\AppData\Local\Temp\TestANamespaceAfterTheNTPrefixFailsClosedToo1`
+	tree := Place{Known: true, cwd: tmp + `\002`, gitDir: tmp + `\003\store`, common: tmp + `\003\store`}
+	for _, w := range []string{`\??\GLOBALROOT\??\` + tmp + `\003\store\HEAD`, `\??\GLOBALROOT\x`, `\??\Volume{0}\x`,
+		`\??\HarddiskVolume3\x`, `\??\GLOBAL??\C:\x`, `\??\C:`, "/??/globalroot/x", `of=\??\GLOBALROOT\x`} {
+		if !gitFolderPath(w, &tree) {
+			t.Errorf("%q isn't in %s", w, tree.gitDir)
+		}
+	}
+	for _, w := range []string{`\??\GLOBALROOT\x`, `\??\Volume{0}\x`} {
+		if a, ok := winPath(Fold(w), nil); !ok || !a.anywhere {
+			t.Errorf("winPath(%q) = %+v, %v", w, a, ok)
+		}
+	}
+	groups := At(WithGates(DefaultGroups()), tree)
+	for _, line := range []string{`cp x '\??\GLOBALROOT\??\` + tmp + `\003\store\HEAD'`, `cp x '\??\GLOBALROOT\x'`} {
+		if r := Check(line, groups); r == nil || !strings.Contains(r.Why, "git folder") {
+			t.Errorf("%q: %v", line, r)
+		}
+	}
+}
+
+// RT126GUARDWINR2's follow-up 2: FXGUARDWINR1's P1 as it is built, not only as fast as A2 asks. At reads a place's
+// folders once for a line, and every group shares that reading; gitFolderPath uses it and doesn't read the place again.
+func TestAKnownPlacesFoldersAreReadOnceForALine(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		windows    bool
+		here, away Place
+		hereIn     string // in here's git folder
+		awayIn     string // in away's
+	}{
+		{"windows", true,
+			Place{Known: true, cwd: `C:\w\here\tree`, gitDir: `C:\w\here\store`, common: `C:\w\here\store`},
+			Place{Known: true, cwd: `D:\x\away\tree`, gitDir: `D:\x\away\store`, common: `D:\x\away\store`},
+			`C:\w\here\store\HEAD`, `D:\x\away\store\HEAD`},
+		{"mac and linux", false,
+			Place{Known: true, cwd: "/w/here/tree", gitDir: "/w/here/store", common: "/w/here/store"},
+			Place{Known: true, cwd: "/x/away/tree", gitDir: "/x/away/store", common: "/x/away/store"},
+			"/w/here/store/HEAD", "/x/away/store/HEAD"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			asWindowsPaths(t, c.windows)
+			groups := At(WithGates(DefaultGroups()), c.here)
+			if len(groups) == 0 || groups[0].place == nil || groups[0].place.folders == nil {
+				t.Fatal("At didn't read the place's folders")
+			}
+			for i := range groups {
+				if groups[i].place == nil || groups[i].place.folders != groups[0].place.folders {
+					t.Errorf("group %d: its own reading of the place's folders", i)
+				}
+			}
+			if got, want := groups[0].place.folders, readFolders(c.here); !reflect.DeepEqual(got, want) {
+				t.Errorf("At read %+v, not %+v", got, want)
+			}
+			// Given another place's reading, gitFolderPath answers by it: it uses what At read.
+			p := c.here
+			p.folders = readFolders(c.away)
+			if !gitFolderPath(c.awayIn, &p) {
+				t.Errorf("%q: the reading At stored wasn't used", c.awayIn)
+			}
+			if gitFolderPath(c.hereIn, &p) {
+				t.Errorf("%q: the place was read again", c.hereIn)
+			}
+			// And with none stored (a bare Place), it reads the place itself.
+			if bare := c.here; !gitFolderPath(c.hereIn, &bare) || gitFolderPath(c.awayIn, &bare) {
+				t.Errorf("a bare place: %q, %q", c.hereIn, c.awayIn)
+			}
+		})
+	}
+}
+
+// RT126GUARDWINR2's follow-up 3: Fold turns some letters outside ASCII into ASCII ones (ſ is s, the Kelvin sign k, ß
+// ss), but Windows makes a short name from the raw letters, so it may write TORE~1 for ſtore. A part whose raw name
+// holds a letter outside ASCII takes any short name, on either side: the place's folders, or the word.
+func TestAShortNameIsReadFromTheRawNameNotItsFold(t *testing.T) {
+	asWindowsPaths(t, true)
+	long := &Place{Known: true, cwd: `C:\w\tree`, gitDir: "C:\\w\\\u017ftore", common: "C:\\w\\\u017ftore"}             // ſtore
+	kelvin := &Place{Known: true, cwd: `C:\w\tree`, gitDir: "C:\\\u212aelvin\\store", common: "C:\\\u212aelvin\\store"} // Kelvin
+	german := &Place{Known: true, cwd: "C:\\Stra\u00dfe\\tree", gitDir: "C:\\Stra\u00dfe\\store", common: "C:\\Stra\u00dfe\\store"}
+	short := &Place{Known: true, cwd: `C:\w\tree`, gitDir: `C:\w\TORE~1`, common: `C:\w\TORE~1`} // as the hook may give it
+	ascii := &Place{Known: true, cwd: `C:\w\tree`, gitDir: `C:\w\store`, common: `C:\w\store`}
+	in := map[*Place][]string{
+		long:   {`C:\w\TORE~1\HEAD`, `..\TORE~1\HEAD`, `C:\w\STORE~1\HEAD`, `C:\w\_TORE~1\HEAD`, "C:\\w\\\u017ftore\\HEAD", `C:\w\store\HEAD`},
+		kelvin: {`C:\ELVIN~1\store\HEAD`, `C:\KELVIN~1\store\HEAD`, `C:\_ELVIN~1\store\HEAD`},
+		german: {`C:\STRAE~1\store\HEAD`, `C:\STRA_E~1\store\HEAD`, `C:\STRASS~1\store\HEAD`, `..\store\HEAD`},
+		short:  {"C:\\w\\\u017ftore\\HEAD", "..\\\u017ftore\\HEAD", "C:\\\u212aelvin\\..\\w\\\u017ftore\\HEAD"},
+	}
+	out := map[*Place][]string{
+		long:   {`C:\w\tore\HEAD`, `C:\w\TREE\HEAD`, `C:\w\x\TORE~1\HEAD`, `C:\w\TORE~1x\HEAD`, `D:\w\TORE~1\HEAD`},
+		kelvin: {`C:\ELVIN~1\tree\HEAD`, `C:\elvin\store\HEAD`},
+		german: {`C:\STRAE~1\tree\HEAD`},
+		short:  {`C:\w\store\HEAD`, `C:\w\tree\HEAD`, "C:\\x\\\u017ftore\\HEAD"}, // store, ASCII, is no long name of TORE~1
+		ascii:  {`C:\w\TORE~1\HEAD`, `..\TORE~1\HEAD`},                           // an ASCII name is still compared
+	}
+	for p, words := range in {
+		for _, w := range words {
+			if !gitFolderPath(w, p) {
+				t.Errorf("from %s: %q isn't in %s", p.cwd, w, p.gitDir)
+			}
+		}
+	}
+	for p, words := range out {
+		for _, w := range words {
+			if gitFolderPath(w, p) {
+				t.Errorf("from %s: %q is in %s", p.cwd, w, p.gitDir)
+			}
+		}
+	}
+	for _, c := range []struct {
+		raw  string
+		want []string
+	}{
+		{`C:\w\store`, nil}, {"C:\\w\\\u017ftore.", []string{"store"}}, {"\u212aelvin/x:\u017f", []string{"kelvin", "s"}},
+		{"C:\\Stra\u00dfe\\H\u00e9l\u00e8ne", []string{"strasse", "hélène"}}, {"of=C:\\\ufb01le\\x", []string{"file"}},
+	} {
+		if got := wideNames(c.raw, nil); !slices.Equal(got, c.want) {
+			t.Errorf("wideNames(%q) = %q", c.raw, got)
+		}
+	}
+	groups := At(WithGates(DefaultGroups()), *long)
+	if r := Check(`cp x 'C:\w\TORE~1\HEAD'`, groups); r == nil || !strings.Contains(r.Why, "git folder") {
+		t.Errorf("TORE~1 for ſtore: %v", r)
+	}
+	if r := Check(`cp x 'C:\w\tore\HEAD'`, groups); r != nil {
+		t.Errorf("tore for ſtore: %v", r)
 	}
 }
