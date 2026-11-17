@@ -52,6 +52,7 @@ type launcherEngineOptions struct {
 	Pause func(time.Duration)
 	// As engineOptions'.
 	KeepWorktree bool
+	StoreLook    storeLook
 }
 
 func (o launcherEngineOptions) withDefaults() launcherEngineOptions {
@@ -586,9 +587,21 @@ func (d *Deck) fireLauncherHire(h Hire, o launcherEngineOptions, force bool) (ke
 		d.failHeldMail(h, refused)
 		return "", refused
 	}
-	removed := h.Worktree != "" && !o.KeepWorktree && removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(h)
+	// The repo's stored objects are hashed again before the merged look (firefsck.go).
+	storeKept := ""
+	if h.Worktree != "" && !o.KeepWorktree {
+		if _, _, own := hiresOwnWorktree(o.Git, o.Worktrees, h); own {
+			storeKept = fireStoreKept(h, o.StoreLook)
+		}
+	}
+	removed := storeKept == "" && h.Worktree != "" && !o.KeepWorktree && removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(h)
 	writeRecap(h, "", removed, o.Now())
 	// Its launcher is seen gone: what's in its place is listed once more, and it's on record (CLAUDEPLANT1).
+	if storeKept != "" {
+		markFired(h.ID, storeKept)
+		claudeHireEnded(h.ID)
+		return storeKept, nil
+	}
 	if h.Worktree != "" && !removed && !o.KeepWorktree {
 		kept := firedKept(o.Git, h)
 		markFired(h.ID, firedKeptNote(h.Worktree, kept))
@@ -634,7 +647,8 @@ func (d *Deck) fireLauncherTab(tab string, force bool) (status int, message stri
 		return 0, "", false
 	}
 	stopped := "" // its row already said gone and only its window was ended (gonedesk.go): cleaned up as a fire
-	if _, err := d.fireLauncherHire(h, options, force); err != nil {
+	kept, err := d.fireLauncherHire(h, options, force)
+	if err != nil {
 		var refused *hireRefusal
 		if errors.As(err, &refused) && refused.Status == http.StatusOK {
 			stopped = refused.Message
@@ -665,7 +679,12 @@ func (d *Deck) fireLauncherTab(tab string, force bool) (status int, message stri
 	if stopped != "" {
 		return http.StatusOK, stopped, true
 	}
-	if note := heldFireNote(h); note != "" {
+	note := heldFireNote(h)
+	if kept != firedWorktreeKept {
+		// A worktree kept for changed stored objects is said now (firefsck.go); one kept for its changes, on its card.
+		note = joinNote(note, kept)
+	}
+	if note != "" {
 		return http.StatusOK, note, true
 	}
 	return http.StatusNoContent, "", true

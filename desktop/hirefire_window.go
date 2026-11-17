@@ -145,11 +145,21 @@ func (d *Deck) fireOwnWindowHire(h Hire, tab string, agent Agent, force, keep bo
 		}
 		keep = true
 	}
-	removed := h.Worktree != "" && !keep && removeOwnWorktree(o.Git, o.Worktrees, h)
+	// The repo's stored objects are hashed again before the merged look (firefsck.go).
+	storeKept := ""
+	if h.Worktree != "" && !keep {
+		if _, _, own := hiresOwnWorktree(o.Git, o.Worktrees, h); own {
+			storeKept = fireStoreKept(h, o.StoreLook)
+		}
+	}
+	removed := storeKept == "" && h.Worktree != "" && !keep && removeOwnWorktree(o.Git, o.Worktrees, h)
 	writeRecap(h, "", removed, o.Now())
 	switch {
 	case note != "":
 		markFired(h.ID, note)
+	case storeKept != "":
+		markFired(h.ID, storeKept)
+		kept = storeKept
 	case h.Worktree != "" && !removed && !keep:
 		kept = firedKept(o.Git, h)
 		markFired(h.ID, firedKeptNote(h.Worktree, kept))

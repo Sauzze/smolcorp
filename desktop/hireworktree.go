@@ -28,31 +28,41 @@ func removeOwnWorktree(git gitRunner, worktrees string, h Hire) bool {
 	if git == nil {
 		git = runGit
 	}
+	repo, tree, own := hiresOwnWorktree(git, worktrees, h)
+	return own && removeWorkspace(repo, tree, h.Branch, git)
+}
+
+// hiresOwnWorktree is removeOwnWorktree's checks: whether h's worktree is the hire's own, and its repo and tree resolved.
+// The fire looks at the repo's stored objects only for a worktree that passes them (firefsck.go).
+func hiresOwnWorktree(git gitRunner, worktrees string, h Hire) (repo, tree string, own bool) {
+	if git == nil {
+		git = runGit
+	}
 	// Absolute and already clean: real records hold resolved paths, and a spelling
 	// like <link>/. or <folder>/.. would hide a link from the check below.
 	for _, p := range []string{h.Repo, h.Worktree} {
 		if !filepath.IsAbs(p) || p != filepath.Clean(p) {
-			return false
+			return "", "", false
 		}
 	}
-	repo, tree := physical(h.Repo), physical(h.Worktree)
+	repo, tree = physical(h.Repo), physical(h.Worktree)
 	if within(repo, tree) || within(tree, repo) {
-		return false
+		return "", "", false
 	}
 	// The record's own last path part must not be a link: look at it before it is
 	// resolved (tree is resolved, so a link can't show there).
-	own := filepath.Join(physical(filepath.Dir(h.Worktree)), filepath.Base(h.Worktree))
-	if info, err := os.Lstat(own); err != nil || info.Mode()&os.ModeSymlink != 0 {
-		return false
+	last := filepath.Join(physical(filepath.Dir(h.Worktree)), filepath.Base(h.Worktree))
+	if info, err := os.Lstat(last); err != nil || info.Mode()&os.ModeSymlink != 0 {
+		return "", "", false
 	}
 	// The branch prepareHire made for it (hireBranch), or the one a hire made before branches had a folder of their own.
 	if base := filepath.Base(tree); filepath.Dir(tree) != physical(hiresFolder(repo, worktrees)) || h.Branch != hireBranch(h.ID, base) && h.Branch != "hire/"+base {
-		return false
+		return "", "", false
 	}
 	// What the worktree really has checked out must be the hire's branch (not
 	// renamed, detached or another), or neither it nor any branch is touched.
 	if status, out, ok := git(tree, "symbolic-ref", "--short", "-q", "HEAD"); !ok || status != 0 || out != h.Branch {
-		return false
+		return "", "", false
 	}
-	return removeWorkspace(repo, tree, h.Branch, git)
+	return repo, tree, true
 }

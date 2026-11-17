@@ -163,12 +163,23 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 		refused.Message = joinNote(refused.Message, said)
 		return "", "", refused
 	}
-	removed := h.Worktree != "" && !o.KeepWorktree && removeHireWorktree(o.Git, testPort, o.Worktrees)(h)
+	// Before the merged look (the branch goes only when merged), the repo's stored objects are hashed again for a
+	// worktree that is the hire's own: changed ones, or a look that can't be made, keep the worktree and the branch,
+	// and say so (firefsck.go).
+	storeKept := ""
+	if h.Worktree != "" && !o.KeepWorktree {
+		if _, _, own := hiresOwnWorktree(o.Git, o.Worktrees, h); own {
+			storeKept = fireStoreKept(h, o.StoreLook)
+		}
+	}
+	removed := storeKept == "" && h.Worktree != "" && !o.KeepWorktree && removeHireWorktree(o.Git, testPort, o.Worktrees)(h)
 	writeRecap(h, paneText(capture), removed, o.Now())
 	// Its session is known to have ended: what's in its place is listed once more, and it's on record (CLAUDEPLANT1).
 	// That listing comes first, while its place is as the desk left it: the folders below go only after it.
 	worktreeKept := h.Worktree != "" && !removed && !o.KeepWorktree
-	if worktreeKept {
+	if worktreeKept && storeKept != "" {
+		markFired(h.ID, joinNote(storeKept, said))
+	} else if worktreeKept {
 		kept = firedKept(o.Git, h)
 		markFired(h.ID, joinNote(firedKeptNote(h.Worktree, kept), said))
 	} else {
@@ -184,6 +195,9 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 	// Smolcorp's own folder, never a plant: it goes after the listing, so a .claude a desk made in it is held first.
 	if h.Worktree == "" {
 		_ = removeDeskPlans(startedIn(h), h.ID)
+	}
+	if worktreeKept && storeKept != "" {
+		return storeKept, joinNote(storeKept, said), nil
 	}
 	return kept, said, nil
 }

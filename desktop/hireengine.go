@@ -39,6 +39,9 @@ type engineOptions struct {
 	Pause     func(time.Duration)
 	// The GM's fire, unless removeWorktree is asked: leave the worktree. Zero removes it when clean.
 	KeepWorktree bool
+	// StoreLook is the fire's look at the repo's stored objects before its merged look (firefsck.go): nil is the real
+	// one. A test that stands in Git for a repo that isn't one stands this in too.
+	StoreLook storeLook
 	// Sandbox is a sandboxed desk's start-only runner, for the tests: nil is the system's own (SA-M6), with the real
 	// tmux (Tmux nil). A stand-in Tmux with no Sandbox starts a desk as before, through the stand-in alone.
 	Sandbox func(s *deskSandbox) tmuxStarter

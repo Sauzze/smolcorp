@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
 	"net/http"
@@ -355,6 +356,8 @@ func (w *winRig) standInWorktree(h Hire) (Hire, *[]string) {
 	var mu sync.Mutex
 	asked := &[]string{}
 	w.d.mu.Lock()
+	// Its repo is a stand-in too, so the fire's look at its stored objects is (FXFIREFSCK).
+	w.d.launcherEngine.StoreLook = func(context.Context, string, []string) (int, string, error) { return 1, "", nil }
 	w.d.launcherEngine.Git = func(dir string, args ...string) (int, string, bool) {
 		switch {
 		case slices.Equal(args, []string{"status", "--porcelain"}):
