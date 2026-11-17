@@ -422,15 +422,21 @@ func freshCopyMost(pl sandbox.Places, at string) int64 {
 
 // oldGitPlant is one thing in the shared .git that runs a program for the owner's git, from before the sandbox: a
 // setting in the repo's common config or a submodule's, or a hook that isn't one of git's samples. Setup lists it
-// with a "Remove" button; ID is what the button sends back.
+// with a "Remove" button; ID is what the button sends back. Held is one of git's substitutions (gitsubst.go): the
+// desk doesn't start until it's removed or kept, and Command is what its Remove runs ("" when it has none). Follows
+// is the ref a symbolic replace ref follows, which can't be kept (gitSubstKeepable).
 type oldGitPlant struct {
-	ID    string `json:"id"`
-	File  string `json:"file"`
-	Key   string `json:"key,omitempty"` // a setting's name; "" for a hook
-	Value string `json:"value,omitempty"`
-	Why   string `json:"why"`
+	ID      string `json:"id"`
+	File    string `json:"file"`
+	Key     string `json:"key,omitempty"` // a setting's name; "" for a hook
+	Value   string `json:"value,omitempty"`
+	Why     string `json:"why"`
+	Held    bool   `json:"held,omitempty"`
+	Command string `json:"command,omitempty"`
+	Follows string `json:"follows,omitempty"`
 
-	info fs.FileInfo // a hook's file as it was listed
+	info  fs.FileInfo // a hook's file as it was listed
+	subst gitSubst    // a substitution's, as it was listed
 }
 
 const (
@@ -686,8 +692,8 @@ var errGitPlantGone = errors.New("it isn't there as it was listed: look again")
 // removeOldGitPlant is the owner's "Remove" for the plant whose ID is id in listed, the list Setup showed: a hook or
 // an old remote file is removed (a link, not what it leads to) if it is still the file that was listed; a setting is
 // taken out of its file, that value only, if it is still there (matched as a whole by a quoted pattern, not
-// --fixed-value, which needs git 2.30 or later). Nothing that wasn't listed can be removed, and a plant that can't be
-// read isn't removed: the owner looks at it.
+// --fixed-value, which needs git 2.30 or later); one of git's substitutions as removeGitSubst says. Nothing that
+// wasn't listed can be removed, and a plant that can't be read isn't removed: the owner looks at it.
 func removeOldGitPlant(ctx context.Context, listed []oldGitPlant, id string) error {
 	i := slices.IndexFunc(listed, func(p oldGitPlant) bool { return p.ID == id })
 	if i < 0 {
@@ -695,6 +701,8 @@ func removeOldGitPlant(ctx context.Context, listed []oldGitPlant, id string) err
 	}
 	p := listed[i]
 	switch {
+	case p.Held:
+		return removeGitSubst(ctx, p)
 	case p.Why == whyHook || p.Why == whyRemote:
 		now, err := os.Lstat(p.File)
 		if err != nil || p.info == nil || !os.SameFile(now, p.info) || now.Size() != p.info.Size() || !now.ModTime().Equal(p.info.ModTime()) {

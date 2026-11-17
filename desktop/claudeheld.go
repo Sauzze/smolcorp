@@ -28,9 +28,10 @@ const claudeHeldName = "claude-held.json"
 const claudeHeldMost = 16 << 20
 
 // claudeHeld is what's held, by ID, each desk's baseline and what you kept, by path, and the gone desks on record as
-// listed once their session ended (claudeHireEnded), as read from file. With them, the listings asked for and not
-// done yet, by desk (claudePending, for the record pendingOf names), how many were asked for, the one worker that
-// lists them (its number, 0 for none; workers counts them), and done, closed each time one is done or it stops.
+// listed once their session ended (claudeHireEnded), as read from file, and gitKept, git's substitutions you kept
+// (gitsubst.go), by ID, for each repo's shared .git. With them, the listings asked for and not done yet, by desk
+// (claudePending, for the record pendingOf names), how many were asked for, the one worker that lists them (its
+// number, 0 for none; workers counts them), and done, closed each time one is done or it stops.
 var claudeHeld = struct {
 	sync.Mutex
 	file      string
@@ -38,6 +39,7 @@ var claudeHeld = struct {
 	baselines map[string]map[string]claudePlant
 	kept      map[string]claudePlant
 	ended     map[string]bool
+	gitKept   map[string]map[string]bool
 
 	pending         map[string]claudePending
 	pendingOf       string
@@ -53,6 +55,7 @@ type claudeHeldRecord struct {
 	Kept      []claudePlant            `json:"kept"`
 	Ended     []string                 `json:"ended"`
 	Pending   []claudePending          `json:"pending,omitempty"`
+	GitKept   map[string][]string      `json:"gitKept,omitempty"`
 }
 
 // A hire's listing is no longer made in the registry's save, under frontDeskMu, nor at the gate under the Deck's lock
@@ -98,7 +101,7 @@ func loadClaudeHeldLocked() {
 	}
 	claudeHeld.file = file
 	claudeHeld.plants, claudeHeld.baselines, claudeHeld.kept = map[string]claudePlant{}, map[string]map[string]claudePlant{}, map[string]claudePlant{}
-	claudeHeld.ended = map[string]bool{}
+	claudeHeld.ended, claudeHeld.gitKept = map[string]bool{}, map[string]map[string]bool{}
 	claudeHeld.pending, claudeHeld.pendingOf, claudeHeld.worker = map[string]claudePending{}, file, 0 // a worker from before lists for nothing
 	defer kickClaudeListingsLocked()
 	data, err := readMost(file, claudeHeldMost)
@@ -137,6 +140,12 @@ func loadClaudeHeldLocked() {
 			claudeHeld.pending[p.Desk] = p
 		}
 	}
+	for gitDir, ids := range rec.GitKept {
+		claudeHeld.gitKept[gitDir] = map[string]bool{}
+		for _, id := range ids {
+			claudeHeld.gitKept[gitDir][id] = true
+		}
+	}
 }
 
 // saveClaudeHeldLocked writes the record as held now (records.go's keepRecord): under a new record key when tighten.
@@ -161,6 +170,12 @@ func claudeHeldWriterLocked() recordWriter {
 	}
 	for desk, found := range claudeHeld.baselines {
 		rec.Baselines[desk] = byFile(found)
+	}
+	if len(claudeHeld.gitKept) > 0 {
+		rec.GitKept = map[string][]string{}
+		for gitDir, ids := range claudeHeld.gitKept {
+			rec.GitKept[gitDir] = slices.Sorted(maps.Keys(ids))
+		}
 	}
 	file := claudeHeld.file
 	return func(key []byte, prev string) error {

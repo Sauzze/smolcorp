@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -178,13 +179,19 @@ func readGitOut(ctx context.Context, dir string, call gitCall, args ...string) (
 
 // execGit runs git with args in env, keeping its standard output up to the cap.
 func execGit(ctx context.Context, env []string, args ...string) ([]byte, int, error) {
+	return execGitIn(ctx, env, nil, args...)
+}
+
+// execGitIn is execGit with in as git's standard input (nil: the null device).
+func execGitIn(ctx context.Context, env []string, in io.Reader, args ...string) ([]byte, int, error) {
 	cmd := disclaim.Cmd(exec.CommandContext(ctx, "git", args...))
 	cmd.Env = env
+	cmd.Stdin = in
 	cmd.WaitDelay = 2 * time.Second // after the stop below, git has this long to clean up before it is killed
 	stopGitGently(cmd)
 	hideGitWindow(cmd)
 	var out gitOutput
-	cmd.Stdout = &out // standard input and error go to the null device
+	cmd.Stdout = &out // standard error goes to the null device, and standard input too without in
 	err := cmd.Run()
 	switch {
 	case out.over:

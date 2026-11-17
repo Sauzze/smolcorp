@@ -251,7 +251,7 @@ var tmuxExecSites = map[string]string{
 	"deskrun.go deskRun exec.Command(program)":                             "what deskGit (git) and runGH (gh) hand it, where there's no desk or the desk has no sandbox",
 	"ownergit.go gitRun deskRun(git)":                                      "git (exec.LookPath, a whole path) as the owner, outside any sandbox, on config the core wrote: runGit's and scopeGit's other folders, a desk's tree with no sandbox, the demo's project",
 	"ghpr.go runGH deskRun(program)":                                       "gh, for a branch's pull request: in the hire's sandbox when it has one",
-	"gitstate.go execGit exec.CommandContext(\"git\")":                     "git, with the read-only settings gitstate.go pins",
+	"gitstate.go execGitIn exec.CommandContext(\"git\")":                   "git, with the read-only settings gitstate.go pins: execGit's reads (standard input the null device), and the git plants' cat-file reads, fed object names on standard input (readGitIn, gitsubst.go)",
 	"hire.go showWindow exec.Command(args[0])":                             "a terminal app (gnome-terminal, konsole…), opening a hire's window",
 	"hire_unix.go findInLoginShell lookupCommand(args[0])":                 "the owner's login shell, asked where a program is",
 	"t3treecheck.go t3TreeGit deskRun(git)":                                "git on a hire's worktree, in its sandbox, reading config for Take over's check (SA-X7)",

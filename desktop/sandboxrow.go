@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -119,12 +120,16 @@ func listedGitPlants() []oldGitPlant {
 }
 
 // removeGitPlant is the owner's "Remove" for listed plant id: removeOldGitPlant takes out only what was listed, and
-// only while it is as it was. Then each .git it was found in is looked through again, so the row shows what is
-// there now, whether it was removed or had changed.
-func removeGitPlant(id string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	err := removeOldGitPlant(ctx, listedGitPlants(), id)
-	cancel()
+// only while it is as it was. keep is their "Keep" instead, for one of git's substitutions: it's kept in each .git it
+// was found in (keepGitSubst). Then each of those .git is looked through again, so the row shows what is there now,
+// whether it was removed, kept or had changed.
+func removeGitPlant(id string, keep bool) error {
+	var err error
+	if !keep {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		err = removeOldGitPlant(ctx, listedGitPlants(), id)
+		cancel()
+	}
 	again := map[string][]string{} // a .git → the desks whose start found the plant in it
 	oldGitPlants.Lock()
 	for desk, found := range oldGitPlants.of {
@@ -134,9 +139,10 @@ func removeGitPlant(id string) error {
 	}
 	oldGitPlants.Unlock()
 	for gitDir, desks := range again {
-		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-		plants := findOldGitPlants(ctx, gitDir)
-		cancel()
+		if keep {
+			keepGitSubst(gitDir, id)
+		}
+		plants, _ := gitPlantsAt(gitDir)
 		for _, desk := range desks {
 			keepOldGitPlants(desk, gitDir, plants)
 		}
@@ -147,17 +153,33 @@ func removeGitPlant(id string) error {
 // gitPlantGone is a Remove for a plant no longer as it was listed: nothing was removed.
 const gitPlantGone = "That isn't there as it was listed, so nothing was removed. The list now shows what's there."
 
-// sandboxGitPlantRoute is POST /setup/sandbox/gitplant?id=, the page's alone: "Remove" for one old git plant
-// (removeGitPlant), answered as GET /setup/sandbox. Its file is said to the page, never logged.
+// gitSubstNotKept is a Keep for a plant that isn't one of git's substitutions: those are only removed.
+const gitSubstNotKept = "Only what changes what your git reads can be kept here. Remove this one, or look at it yourself."
+
+// gitSubstFollowsNotKept is a Keep for a replace ref that follows another ref (gitSubstKeepable): what it substitutes
+// can change at any time, so it's only removed.
+const gitSubstFollowsNotKept = "A replace ref that follows another ref can't be kept: what your git reads through it can change at any time. Remove it, or look at it yourself."
+
+// sandboxGitPlantRoute is POST /setup/sandbox/gitplant?id=[&keep=1], the page's alone: "Remove" for one old git
+// plant, or "Keep" for one of git's substitutions (removeGitPlant), answered as GET /setup/sandbox. Its file is said
+// to the page, never logged.
 func (rt *router) sandboxGitPlantRoute(w http.ResponseWriter, r *request) {
-	id, listed := r.URL.Query().Get("id"), listedGitPlants()
+	id, keep, listed := r.URL.Query().Get("id"), r.URL.Query().Get("keep") == "1", listedGitPlants()
 	i := slices.IndexFunc(listed, func(p oldGitPlant) bool { return p.ID == id })
 	if id == "" || i < 0 {
 		writeStatus(w)(http.StatusNotFound, gitPlantGone)
 		return
 	}
+	if keep && !listed[i].Held {
+		writeStatus(w)(http.StatusConflict, gitSubstNotKept)
+		return
+	}
+	if keep && !gitSubstKeepable(listed[i]) {
+		writeStatus(w)(http.StatusConflict, gitSubstFollowsNotKept)
+		return
+	}
 	file := listed[i].File
-	switch err := removeGitPlant(id); {
+	switch err := removeGitPlant(id, keep); {
 	case errors.Is(err, errGitPlantGone):
 		writeStatus(w)(http.StatusConflict, gitPlantGone)
 		return
@@ -241,16 +263,18 @@ func (d *Deck) sandboxRow(state map[string]any, hires []Hire) {
 	state["unsandboxed"], state["remoteLogin"], state["databaseOptIn"] = unsandboxed, login, optIn
 	plants := []gitPlantRow{}
 	for _, p := range listedGitPlants() {
-		plants = append(plants, gitPlantRow{p, p.Why == whyHook || p.Why == whyRemote || p.Key != ""})
+		plants = append(plants, gitPlantRow{p, p.Why == whyHook || p.Why == whyRemote || p.Key != "" || p.Held && p.Command != "", gitSubstKeepable(p)})
 	}
 	state["gitPlants"] = plants
 }
 
 // gitPlantRow is an old git plant as the row shows it: Removable when its "Remove" can take it out (a hook, a remote
-// file, a setting), not a folder Smolcorp couldn't read or look through, which the owner looks at.
+// file, a setting, one of git's substitutions with a command), not a folder Smolcorp couldn't read or look through,
+// which the owner looks at. Keepable when it's one of git's substitutions the owner can keep (gitSubstKeepable).
 type gitPlantRow struct {
 	oldGitPlant
 	Removable bool `json:"removable"`
+	Keepable  bool `json:"keepable,omitempty"`
 }
 
 // sandboxDatabaseRoute is POST /setup/sandbox/database?on=0|1, the page's alone: AQ21's opt-in (setDatabaseOptIn),
@@ -324,11 +348,21 @@ func (d *Deck) sandboxCheck(hires []Hire) check {
 		c.Detail = "Each desk starts in a sandbox of its own: it can't read Smolcorp's keys, or change another desk's work " +
 			"or your own checkout."
 	}
-	// The old git plants, by count too (RT126SAX14 B2): they run outside any sandbox, at your own git commands.
-	if n := len(listedGitPlants()); n > 0 {
-		words := "A desk's start found " + map[bool]string{true: "1 hook or setting", false: strconv.Itoa(n) + " hooks or settings"}[n == 1] +
-			" in a repository's .git that run a program when you use git, outside any sandbox. See them in Hires and " +
-			"roles, under Sandbox, and remove what you didn't put there."
+	// The old git plants, by count too (RT126SAX14 B2): they run outside any sandbox, at your own git commands. Git's
+	// substitutions are said apart, never named either: a desk waits for them.
+	listed := listedGitPlants()
+	held := len(slices.DeleteFunc(slices.Clone(listed), func(p oldGitPlant) bool { return !p.Held }))
+	var said []string
+	if n := len(listed) - held; n > 0 {
+		said = append(said, "A desk's start found "+map[bool]string{true: "1 hook or setting", false: strconv.Itoa(n) + " hooks or settings"}[n == 1]+
+			" in a repository's .git that run a program when you use git, outside any sandbox. See them in Hires and "+
+			"roles, under Sandbox, and remove what you didn't put there.")
+	}
+	if held > 0 {
+		said = append(said, "A desk didn't start, as a repository's .git holds something that changes what your git reads. "+
+			"See it in Hires and roles, under Sandbox, and remove it, or keep it if it's yours.")
+	}
+	if words := strings.Join(said, " "); words != "" {
 		if c.Status == checkOK {
 			c.Detail = words
 		} else {

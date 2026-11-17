@@ -1276,10 +1276,10 @@
           </div>
           <button class="switch" id="database-optin" aria-label="My local database asks for a password"></button>
         </div>
-        <div class="step" id="step-git-plants" data-search="Old git hooks and settings" data-keywords="git hooks config settings repository remove commit pull outside sandbox" hidden>
+        <div class="step" id="step-git-plants" data-search="Old git hooks and settings" data-keywords="git hooks config settings repository remove commit pull outside sandbox replace grafts shallow multi-pack-index keep" hidden>
           <div class="text">
             <div class="title">Hooks and settings your git runs</div>
-            <p class="choice-line">A desk's start found these in a repository's .git. Git runs each one at your own commands, like a commit or a pull, outside any sandbox, and a desk that ran without its sandbox could have left one there. Smolcorp removes nothing by itself: remove what you didn't put there.</p>
+            <p class="choice-line">A desk's start found these in a repository's .git. Git runs each one at your own commands, like a commit or a pull, outside any sandbox, and a desk that ran without its sandbox could have left one there. It also lists what makes git read a branch as something it doesn't hold: a replace ref, a grafts file, or a shallow list or multi-pack index that doesn't match the repository. A desk doesn't start in that repository until you remove each of those, or keep it if it's yours. Smolcorp removes nothing by itself: remove what you didn't put there.</p>
             <div id="git-plants"></div>
             <p class="note" id="git-plant-problem" role="alert" hidden></p>
           </div>
@@ -2454,17 +2454,37 @@
     return button;
   }
 
+  /** "Keep" for one of git's substitutions: it's yours, so it isn't listed again in that repository unless it changes. */
+  function gitKeepButton(plant) {
+    const button = Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Keep' });
+    button.setAttribute('aria-label', `Keep ${plant.file}`);
+    button.onclick = async () => {
+      button.disabled = true;
+      const res = await fetch(`/setup/sandbox/gitplant?id=${encodeURIComponent(plant.id)}&keep=1`, { method: 'POST', headers: setupHeaders() }).catch(() => null);
+      tell('git-plant-problem', res && res.ok ? '' : await refusal(res, "That couldn't be kept."));
+      renderSandbox(true);
+    };
+    return button;
+  }
+
   function drawSandbox(s) {
     const here = !!s.here;
     $('step-sandbox').hidden = $('step-remote-login').hidden = $('step-database').hidden = !here;
     const plants = s.gitPlants || [];
     $('step-git-plants').hidden = !here || !plants.length;
     const plantList = $('git-plants');
-    // A setting by its name and value, a hook or a remote file by its path; each with why git runs it.
+    // A setting by its name and value, a hook, a remote file or one of git's substitutions by its path; each with
+    // why it's listed. A substitution says what its Remove runs, and can be kept, unless it's a replace ref that
+    // follows another ref: that one says which, and is only removed.
     if (!plantList.querySelector('button[data-sure="1"], button:disabled') && changed(plantList, plants)) {
-      plantList.replaceChildren(...plants.map((p) => sandboxDeskRow(p.key ? `${p.key} = ${p.value}` : p.file,
-        `${p.key ? `${p.file} · ` : ''}${p.why}${p.removable ? '' : ' Smolcorp can’t remove this one: look at it yourself.'}`,
-        p.removable ? gitPlantButton(p) : null)));
+      plantList.replaceChildren(...plants.map((p) => {
+        const buttons = document.createElement('span');
+        if (p.removable) buttons.append(gitPlantButton(p));
+        if (p.keepable) buttons.append(' ', gitKeepButton(p));
+        return sandboxDeskRow(p.key ? `${p.key} = ${p.value}` : p.follows ? `${p.file} → ${p.follows}` : p.file,
+          `${p.key ? `${p.file} · ` : ''}${p.why}${p.command ? ` Remove runs: ${p.command}` : ''}${p.removable ? '' : ' Smolcorp can’t remove this one: look at it yourself.'}`,
+          p.removable || p.held ? buttons : null);
+      }));
     }
     $('step-no-sandbox').hidden = here;
     const desks = s.desks || [];

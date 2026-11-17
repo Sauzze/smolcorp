@@ -74,8 +74,9 @@ type errSandboxNotMade struct{ words string }
 func (e *errSandboxNotMade) Error() string { return e.words }
 
 // makeDeskSandbox makes desk d's Places and Policy, and runs X12's start-time checks on them: the link check, whose
-// words refuse the start (checkLinks), and the old git plants, kept for Setup (findOldGitPlants). Nothing of the desk
-// runs yet. The sandbox is kept for the desk's stop (deskSandboxOf).
+// words refuse the start (checkLinks), and the old git plants, kept for Setup (findOldGitPlants), with git's
+// substitutions, whose words refuse the start until the owner removes or keeps each one (gitPlantsAt). Nothing of the
+// desk runs yet. The sandbox is kept for the desk's stop (deskSandboxOf).
 func makeDeskSandbox(d deskAt) (*deskSandbox, error) {
 	pl, err := deskPlaces(d)
 	if err != nil {
@@ -100,9 +101,12 @@ func makeDeskSandbox(d deskAt) (*deskSandbox, error) {
 		return nil, &errSandboxNotMade{sandboxNotMade}
 	}
 	if pl.GitDir != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-		keepOldGitPlants(d.ID, pl.GitDir, findOldGitPlants(ctx, pl.GitDir))
-		cancel()
+		// With git's substitutions there that the owner hasn't answered, the desk doesn't start (gitsubst.go).
+		listed, held := gitPlantsAt(pl.GitDir)
+		keepOldGitPlants(d.ID, pl.GitDir, listed)
+		if len(held) > 0 {
+			return nil, &errSandboxNotMade{gitSubstRefusal(held)}
+		}
 	}
 	s := &deskSandbox{at: d, places: pl, policy: pol}
 	deskStartListing(s)
