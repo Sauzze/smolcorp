@@ -635,6 +635,14 @@ jobs:
         run: |
           dir="$(scripts/fetch-js-tools.sh "$RUNNER_TEMP/js-tools" | tail -n 1)"
           echo "$dir" >> "$GITHUB_PATH"
+      # How a hire looks at a screen in a desk (T126HEADLESSSHELL1): Chrome.app's own headless mode doesn't start under a
+      # desk's profile, chrome-headless-shell does (with --single-process). Chrome for Testing's, pinned, checked against
+      # third_party/chrome-headless-shell/SHA256SUMS; a plain program, never an .app. The Chrome rows run on it.
+      - name: chrome-headless-shell, pinned by SHA-256
+        shell: bash
+        run: |
+          shell="$(scripts/fetch-headless-shell.sh "$RUNNER_TEMP/headless-shell" | tail -n 1)"
+          echo "SMOLCORP_TEST_CHROME=$shell" >> "$GITHUB_ENV"
       - name: The escape tables and the normal-work list ran and passed
         shell: bash
         env:
@@ -666,6 +674,8 @@ jobs:
             TestOnAMacTheShimsRunFirstInADeskAndNoDeskChangesThem
             TestOnAMacSwiftAndXcodebuildWorkInADeskThroughTheShims
             TestOnAMacNoDeskPlantsWhatAnotherDesksShimRuns
+            TestOnAMacHeadlessShellLooksAtAPageInADesk
+            TestOnAMacAHeadlessShellRunLeavesNothingBehind
           )
           # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
           set +e

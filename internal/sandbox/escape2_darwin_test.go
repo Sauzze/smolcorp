@@ -700,6 +700,15 @@ func normalWork(t *testing.T, iokit []IOKitClass) map[string]string {
 			required(t, "no Chrome here (SMOLCORP_TEST_CHROME names one): %v", err)
 		}
 		w := newWorkDesk(t, iokit)
+		// chrome-headless-shell runs in a desk as a hire's brief says, with its helpers inside it
+		// (headlessshell_darwin_test.go), and as that row runs it: its own process group, a watchdog, and pgrep after
+		// (CHROMEKILL1's rules, RT126HEADLESSSHELL1 nit 2). Chrome.app's headless mode has no such way.
+		if filepath.Base(chrome) == "chrome-headless-shell" {
+			if r := runHeadlessShell(t, w, w.profile, chrome, "--disable-gpu", "--dump-dom", "data:text/html,<p>in a desk</p>"); r.status != 0 || !strings.Contains(r.stdout, "<p>in a desk</p>") {
+				t.Fatalf("chrome-headless-shell --single-process under the desk's profile: status %d (%s)", r.status, tail(r.stderr))
+			}
+			return
+		}
 		// Never a window, never the Keychain (_rules.md): headless, a mock keychain, its own profile folder. Nothing to
 		// the network either: no background requests, no component updates.
 		dump := func(profile, folder string) ran {
@@ -720,7 +729,8 @@ func normalWork(t *testing.T, iokit []IOKitClass) map[string]string {
 			t.Errorf("headless Chrome fails in a desk for more than the Mach list: %+v", r)
 		} else {
 			t.Log("COST: headless Chrome here needs Mach services that stay off the list (the WindowServer's, LaunchServices'); " +
-				"it runs in a desk only once they are allowed: see T126SAM5-report, for SIERRA")
+				"it runs in a desk only once they are allowed: see T126SAM5-report, for SIERRA. chrome-headless-shell with " +
+				"--single-process runs in a desk with the lists as they are (T126HEADLESSSHELL1)")
 		}
 	})
 	return ended

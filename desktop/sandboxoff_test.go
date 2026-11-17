@@ -159,22 +159,81 @@ func TestEveryWrittenBriefSaysHowToTurnAToolsOwnSandboxOff(t *testing.T) {
 }
 
 // Swift's and Xcode's own sandboxes are the Mac's: a Mac's briefs name them, a Linux computer's (once its desks start
-// in their sandbox) doesn't. The headless browser's line is in every sandboxed system's. Where desks start in no
-// sandbox (Linux until SA-L4, Windows in 1.26), there is no section at all (RT126SAX14 B1).
+// in their sandbox) doesn't. So is chrome-headless-shell with --single-process, how a hire looks at a page in a Mac
+// desk (T126HEADLESSSHELL1): on a Mac that line takes the place of the headless browser line that ends every other
+// sandboxed system's. Where desks start in no sandbox (Linux until SA-L4, Windows in 1.26), there is no section at
+// all (RT126SAX14 B1).
 func TestOnlyAMacsBriefNamesSwiftAndXcode(t *testing.T) {
-	macOnly := []string{"`--disable-sandbox`", "`/usr/bin/swift`", "`ENABLE_USER_SCRIPT_SANDBOXING=NO`", "Xcode"}
+	macOnly := []string{"`--disable-sandbox`", "`/usr/bin/swift`", "`ENABLE_USER_SCRIPT_SANDBOXING=NO`", "Xcode", "`chrome-headless-shell`",
+		"`--no-sandbox --single-process --use-mock-keychain --password-store=basic`", "still being checked"}
 	for _, goos := range []string{"darwin", "linux", "windows"} {
 		if text := briefSandboxTools(goos, false); text != "" {
 			t.Errorf("%s, no sandbox: %q", goos, text)
 		}
 		text := briefSandboxTools(goos, true)
-		if !strings.HasPrefix(text, "\n## Tools with a sandbox of their own\n") || !strings.HasSuffix(text, "start it with `--no-sandbox`. Playwright already does.\n") {
+		end := "start it with `--no-sandbox`. Playwright already does.\n"
+		if goos == "darwin" {
+			end = "are still being checked here, so don't count on them.\n"
+		}
+		if !strings.HasPrefix(text, "\n## Tools with a sandbox of their own\n") || !strings.HasSuffix(text, end) {
 			t.Errorf("%s: %q", goos, text)
 		}
 		for _, line := range macOnly {
 			if strings.Contains(text, line) != (goos == "darwin") {
 				t.Errorf("%s: %s named: %v", goos, line, strings.Contains(text, line))
 			}
+		}
+	}
+}
+
+// RT126HEADLESSSHELL1 F1: a Mac's brief says only what was seen to work in a Mac desk. Chromium with --no-sandbox alone
+// hangs there, so no line may tell a hire that it's enough (the other systems' line, "start it with `--no-sandbox`.
+// Playwright already does.", is not in it); each `--no-sandbox` it names is with --single-process, or says it hangs
+// alone. One line is about Chrome, and it names Puppeteer, Playwright and a DevTools connection only as still being
+// checked: a CDP session in a desk was never run.
+func TestAMacsBriefNeverSaysNoSandboxAloneRunsChromium(t *testing.T) {
+	text := briefSandboxTools("darwin", true) // a Mac's desks start in their sandbox (deskSandboxed)
+	for _, said := range []string{"Playwright already does", "start it with `--no-sandbox`", "take both in the browser's launch arguments"} {
+		if strings.Contains(text, said) {
+			t.Errorf("a Mac's brief says %q:\n%s", said, text)
+		}
+	}
+	rest := strings.ReplaceAll(text, "`--no-sandbox --single-process --use-mock-keychain --password-store=basic`", "")
+	rest = strings.ReplaceAll(rest, "`--no-sandbox` alone hangs", "")
+	if strings.Contains(rest, "no-sandbox") {
+		t.Errorf("a Mac's brief names --no-sandbox without --single-process, or not as hanging alone:\n%s", text)
+	}
+	var chrome []string
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, "Chrom") || strings.Contains(line, "headless") {
+			chrome = append(chrome, line)
+		}
+	}
+	if len(chrome) != 1 {
+		t.Fatalf("a Mac's brief has %d lines about headless Chrome, not one:\n%s", len(chrome), strings.Join(chrome, "\n"))
+	}
+	line := chrome[0]
+	// The DOM's flag is pinned by its words here, not by its name: CHROMEKILL1's guard fails a browser's own flag in
+	// any string of this package's tests (headlesschrome_guard_test.go's browserFlags).
+	for _, said := range []string{"Google Chrome's own headless mode doesn't start", "print a page's DOM", "`--screenshot`", "not an app"} {
+		if !strings.Contains(line, said) {
+			t.Errorf("a Mac's headless Chrome line doesn't say %q: %s", said, line)
+		}
+	}
+	checked := strings.Index(line, "are still being checked here")
+	for _, way := range []string{"Puppeteer", "Playwright", "DevTools"} {
+		if at := strings.Index(line, way); at < 0 || checked < 0 || at > checked || strings.Count(line, way) != 1 {
+			t.Errorf("a Mac's headless Chrome line names %s other than as still being checked: %s", way, line)
+		}
+	}
+	// The lines below it: none on a Mac. The other systems' line stays theirs, where their desks start in a sandbox (with
+	// none, they have no section: TestOnlyAMacsBriefNamesSwiftAndXcode).
+	if !strings.HasSuffix(text, line+"\n") {
+		t.Errorf("a Mac's headless Chrome line isn't its brief's last:\n%s", text)
+	}
+	for _, goos := range []string{"linux", "windows"} {
+		if other := briefSandboxTools(goos, true); !strings.Contains(other, "start it with `--no-sandbox`. Playwright already does.") || strings.Contains(other, "single-process") {
+			t.Errorf("%s: %q", goos, other)
 		}
 	}
 }

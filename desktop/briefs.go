@@ -588,9 +588,14 @@ const (
 // one you edited or a file you picked): developer tools whose own sandbox can't start inside Smolcorp's, and the
 // switch that turns theirs off (SANDBOX-PLAN §A4.3, AQ9). A full path such as /usr/bin/swift is named too: no
 // wrapper on the desk's PATH would catch it. Swift's and Xcode's sandboxes are the Mac's, so only a Mac's briefs name
-// them. Setup's preview shows the brief as its template makes it, without these lines. Where no desk starts in a
-// sandbox (sandboxed false: Linux until SA-L4, and Windows, which has none in 1.26), there is none: no section,
-// nothing that says a desk runs inside Smolcorp's sandbox, and no tool's own sandbox turned off (RT126SAX14 B1).
+// them. A Mac's headless browser line is its own too, in place of the other systems': there, Chrome.app's headless
+// mode doesn't start in a desk, chrome-headless-shell with --no-sandbox alone hangs (its helpers' Mach lookups are
+// refused), and with --single-process too it gives a page's DOM and a screenshot from the command line
+// (T126HEADLESSSHELL1, internal/sandbox/headlessshell_darwin_test.go). That is all it says works: a session driven
+// through Puppeteer, Playwright or a DevTools connection is still being checked (RT126HEADLESSSHELL1 F1). Setup's
+// preview shows the brief as its template makes it, without these lines. Where no desk starts in a sandbox
+// (sandboxed false: Linux until SA-L4, and Windows, which has none in 1.26), there is none: no section, nothing that
+// says a desk runs inside Smolcorp's sandbox, and no tool's own sandbox turned off (RT126SAX14 B1).
 func briefSandboxTools(goos string, sandboxed bool) string {
 	if !sandboxed {
 		return ""
@@ -598,8 +603,12 @@ func briefSandboxTools(goos string, sandboxed bool) string {
 	text := "\n## Tools with a sandbox of their own\n" +
 		"A tool's own sandbox can't start inside Smolcorp's, so turn it off when you run one of these:\n"
 	if goos == "darwin" {
-		text += "- **Swift:** `swift build`, `swift test`, `swift run` and `swift package` take `--disable-sandbox`, also when you call swift by its full path (`/usr/bin/swift`).\n" +
-			"- **Xcode:** add `ENABLE_USER_SCRIPT_SANDBOXING=NO` to the `xcodebuild` line.\n"
+		return text + "- **Swift:** `swift build`, `swift test`, `swift run` and `swift package` take `--disable-sandbox`, also when you call swift by its full path (`/usr/bin/swift`).\n" +
+			"- **Xcode:** add `ENABLE_USER_SCRIPT_SANDBOXING=NO` to the `xcodebuild` line.\n" +
+			"- **Headless Chrome on this Mac:** Google Chrome's own headless mode doesn't start in Smolcorp's sandbox, and `chrome-headless-shell` with `--no-sandbox` alone hangs. " +
+			"What works: `chrome-headless-shell` (Chrome for Testing's headless build, a plain program, not an app) with `--no-sandbox --single-process --use-mock-keychain --password-store=basic`, " +
+			"to print a page's DOM (`--dump-dom`) or save a screenshot of it (`--screenshot`). " +
+			"Other ways (Puppeteer, Playwright, Electron's tests, a DevTools connection) are still being checked here, so don't count on them.\n"
 	}
 	return text + "- **Headless Chrome or Chromium** (Puppeteer, Electron's tests, a DevTools server): start it with `--no-sandbox`. Playwright already does.\n"
 }
