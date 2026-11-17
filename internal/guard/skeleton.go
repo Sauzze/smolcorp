@@ -433,6 +433,7 @@ type skTarget struct {
 	starts  []int
 	min     int
 	letters [utf8.RuneSelf]int
+	written []byte // the letters with a count in letters, each once: could reads only these (FXGUARDWIN)
 	hidden  bool
 }
 
@@ -459,6 +460,9 @@ func target(min int, pieces ...piece) skTarget {
 					t.hidden = true
 				}
 				if p.counted && r < utf8.RuneSelf {
+					if t.letters[r] == 0 {
+						t.written = append(t.written, byte(r))
+					}
 					t.letters[r]++
 				}
 				t.t, t.count = append(t.t, r), append(t.count, p.counted)
@@ -475,8 +479,8 @@ func (sk *skeleton) could(tg *skTarget) bool {
 		return false
 	}
 	have := 0
-	for r, n := range tg.letters {
-		have += min(n, sk.letters[r])
+	for _, r := range tg.written {
+		have += min(tg.letters[r], sk.letters[r])
 	}
 	return have >= tg.min
 }

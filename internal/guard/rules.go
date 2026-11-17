@@ -907,20 +907,32 @@ func tmuxFull(args []string) []string {
 			out[i] = full
 			continue
 		}
-		var found string
-		n := 0
-		for _, c := range tmuxCommands {
-			if c == a {
-				found, n = c, 1
-				break
-			}
-			if strings.HasPrefix(c, a) {
-				found, n = c, n+1
-			}
+		if tmuxCommandSet[a] {
+			continue
 		}
-		if n == 1 {
-			out[i] = found
+		if p := tmuxPrefixes[a]; p.n == 1 {
+			out[i] = p.full
 		}
 	}
 	return out
+}
+
+// tmuxCommandSet is tmuxCommands as a set, and tmuxPrefixes each start of one of them (the whole name too): how many
+// commands start so, and the last of them. tmuxFull reads every word of a tmux line, and a long line held it in a
+// loop over every command for each word (FXGUARDWIN).
+var tmuxCommandSet, tmuxPrefixes = func() (map[string]bool, map[string]tmuxPrefix) {
+	set, prefixes := map[string]bool{}, map[string]tmuxPrefix{}
+	for _, c := range tmuxCommands {
+		set[c] = true
+		for n := 1; n <= len(c); n++ {
+			p := prefixes[c[:n]]
+			prefixes[c[:n]] = tmuxPrefix{n: p.n + 1, full: c}
+		}
+	}
+	return set, prefixes
+}()
+
+type tmuxPrefix struct {
+	n    int
+	full string
 }

@@ -119,6 +119,11 @@ var gitRunVars = map[string]bool{
 
 // gitVarName is whether a variable's name (any case: PowerShell's and Windows' names have none) is one gitVarValue holds.
 func gitVarName(name string) bool {
+	// The shortest is PAGER. Each ASCII letter of an upper-case copy comes from at least one byte of the name (ı and
+	// ſ, two bytes, give I and S), so a shorter name is none of them; no copy is made for it (FXGUARDWIN).
+	if len(name) < len("PAGER") {
+		return false
+	}
 	n := strings.ToUpper(name)
 	return gitRunVars[n] || strings.HasSuffix(n, "ASKPASS") || strings.HasPrefix(n, "GIT_CONFIG_KEY_") ||
 		oneOf("GIT_CONFIG_PARAMETERS|GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|GIT_CONFIG|GIT_ALLOW_PROTOCOL", n)
@@ -133,7 +138,7 @@ func gitVarWhy(s string) string {
 			n++
 		}
 		name, rest := c[:n], c[n:]
-		if n == 0 || !gitVarName(name) || !(strings.HasPrefix(rest, "=") || strings.HasPrefix(rest, "+=") || strings.HasPrefix(rest, "[")) {
+		if n == 0 || !(strings.HasPrefix(rest, "=") || strings.HasPrefix(rest, "+=") || strings.HasPrefix(rest, "[")) || !gitVarName(name) {
 			continue
 		}
 		value, set := strings.CutPrefix(rest, "=")

@@ -4,10 +4,13 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // The merge and spend groups (1.26's FS3, the owner's answer to Q10): on for hires, the General Manager, an outside
@@ -54,6 +57,12 @@ const (
 
 // baseRule marks a rule that refuses only what lands on a base branch.
 const baseRule = "@base"
+
+// isBaseRule is whether rule is marked baseRule. mergePlace asks it of every rule for every command and redirection,
+// so the text is looked at before the cached words (FXGUARDWIN).
+func isBaseRule(rule Rule) bool {
+	return strings.Contains(string(rule), baseRule) && slices.Contains(ruleWords(rule), baseRule)
+}
 
 // GateGroups are the merge and spend groups, both on.
 func GateGroups() []Group {
@@ -104,10 +113,14 @@ type Place struct {
 	// config fetches into local branches (storedFetch).
 	cwd, gitDir, common string
 	fetchesHeads        bool
+
+	// Set by At: the folders above as gitFolderPath reads them, read once for a line.
+	folders *placeFolders
 }
 
 // At is groups as they are checked for a line run at place. Groups never placed are checked as at a place unknown.
 func At(groups []Group, place Place) []Group {
+	place.folders = readFolders(place)
 	out := slices.Clone(groups)
 	for i := range out {
 		p := place
@@ -1033,7 +1046,7 @@ var gitFolderReaders = map[string]bool{"cat": true, "head": true, "tail": true, 
 // mergePlace is the place of the merge group in groups when it is on (nil, and false, when it isn't).
 func mergePlace(groups []Group) (*Place, bool) {
 	for _, g := range groups {
-		if g.On && slices.ContainsFunc(g.Commands, func(r Rule) bool { return slices.Contains(ruleWords(r), baseRule) }) {
+		if g.On && slices.ContainsFunc(g.Commands, isBaseRule) {
 			if g.place == nil {
 				return &Place{}, true
 			}
@@ -1076,6 +1089,7 @@ func lessWrites(args []string) bool {
 // gitFolderPath is whether a word (or what follows an = in it: of=…, --output=…) names a path in a git folder at p.
 func gitFolderPath(word string, p *Place) bool {
 	low := Fold(strings.ReplaceAll(word, `\`, "/"))
+	var folders *placeFolders
 	candidates := []string{low}
 	for i := 0; i < len(low); i++ {
 		if low[i] == '=' {
@@ -1101,22 +1115,251 @@ func gitFolderPath(word string, p *Place) bool {
 		if p == nil || p.gitDir == "" || c == "" || strings.HasPrefix(c, "-") || strings.HasPrefix(c, "~") {
 			continue
 		}
-		abs := c
-		if !filepath.IsAbs(abs) {
-			if p.cwd == "" {
-				continue
+		if folders == nil {
+			if folders = p.folders; folders == nil {
+				folders = readFolders(*p)
 			}
-			abs = filepath.Join(Fold(p.cwd), abs)
 		}
-		abs = filepath.Clean(abs)
-		for _, dir := range []string{p.gitDir, p.common} {
-			if d := Fold(dir); abs == d || strings.HasPrefix(abs, d+"/") {
+		if inFolders(c, folders, windowsPaths) {
+			return true
+		}
+	}
+	return false
+}
+
+// windowsPaths says the computer's paths are Windows' (inFolders). Unlike onWindows, which is how a line is read and
+// which tests set, it is the computer the guard runs on.
+var windowsPaths = runtime.GOOS == "windows"
+
+// placeFolders is a place's folders as gitFolderPath compares a path with them, read once for a line (At) rather
+// than for every word (FXGUARDWINR1, P1): the call's folder and the git folders, folded, and as Windows reads them.
+type placeFolders struct {
+	cwd  string   // folded; "" when it isn't known
+	dirs []string // the git folder and the common folder, folded
+
+	here   *winAbs  // the call's folder as Windows reads it (nil when it isn't known)
+	win    []winAbs // dirs as Windows reads them
+	winBad bool     // a folder Windows' reading can't place: every path counts as in it
+}
+
+// readFolders reads p's folders (placeFolders).
+func readFolders(p Place) *placeFolders {
+	f := &placeFolders{cwd: Fold(p.cwd), dirs: []string{Fold(p.gitDir), Fold(p.common)}}
+	if here, ok := winPath(f.cwd, nil); ok && !here.anyOnDrive && !here.anywhere {
+		f.here = &here
+	}
+	for _, d := range f.dirs {
+		dir, ok := winPath(d, nil)
+		if !ok || dir.anyOnDrive || dir.anywhere {
+			f.winBad = true
+			continue
+		}
+		f.win = append(f.win, dir)
+	}
+	return f
+}
+
+// inFolders is whether a path (folded, / between its parts) is one of f's git folders or below one, read from the
+// call's folder (when it isn't known, a relative path is in none). On a Mac or Linux it is read as it was. On
+// Windows (windows) the place's folders are Windows paths, with \ between their parts: before FXGUARDWIN, a path
+// cleaned there (C:\x\store\HEAD) was compared with store+"/" and never matched, so cp x ../003/store/HEAD wrote a
+// worktree's git folder. There a path is read as Windows reads it (winPath): a drive, a drive alone, a / alone,
+// \\?\, \\.\ and \??\, UNC, Git Bash's /c/, a part's trailing dots and spaces and its :stream; and a short name
+// (STORE~1, RUNNER~1) may be any one part, on either side. What Windows' reading can't place (a device namespace
+// such as \\?\GLOBALROOT\, or a git folder it can't read) counts as in the folder.
+func inFolders(p string, f *placeFolders, windows bool) bool {
+	if !windows {
+		if !path.IsAbs(p) {
+			if f.cwd == "" {
+				return false
+			}
+			p = path.Join(f.cwd, p)
+		}
+		p = path.Clean(p)
+		for _, d := range f.dirs {
+			if p == d || strings.HasPrefix(p, d+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	if f.winBad {
+		return true
+	}
+	var readings [2]winAbs
+	for _, abs := range winReadings(p, f.here, readings[:0]) {
+		if abs.anywhere {
+			return true
+		}
+		for _, dir := range f.win {
+			if abs.anyOnDrive && abs.vol == dir.vol || !abs.anyOnDrive && winBelow(abs, dir) {
 				return true
 			}
 		}
 	}
 	return false
 }
+
+// winAbs is a Windows path read to its volume (c: or //server/share, folded) and its parts, cleaned. anyOnDrive is a
+// drive alone (d:x) on a drive the call's folder isn't on: that drive's own folder isn't known, so it may be anywhere
+// on it. anywhere is a device namespace the guard can't place (\\?\GLOBALROOT\…, \\?\Volume{…}\…): it may be any
+// folder at all.
+type winAbs struct {
+	vol        string
+	parts      []string
+	anyOnDrive bool
+	anywhere   bool
+}
+
+// winReadings appends to out each way Windows may read a path from the call's folder here: Git Bash's /c/x is C:\x,
+// and to cmd and PowerShell \c\x on the call's drive, so both are taken.
+func winReadings(p string, here *winAbs, out []winAbs) []winAbs {
+	p = strings.ReplaceAll(p, `\`, "/")
+	if len(p) >= 3 && p[0] == '/' && isDriveLetter(p[1]) && p[2] == '/' || len(p) == 2 && p[0] == '/' && isDriveLetter(p[1]) {
+		if a, ok := winPath(p[1:2]+":/"+strings.TrimPrefix(p[2:], "/"), here); ok {
+			out = append(out, a)
+		}
+	}
+	if a, ok := winPath(p, here); ok {
+		out = append(out, a)
+	}
+	return out
+}
+
+// winDevices are Win32's device spellings: \\?\ and \\.\, and \??\, the NT one Win32 passes through as it is.
+var winDevices = []string{"//?/", "//./", "/??/"}
+
+// winPath reads one Windows path from the call's folder here (winAbs; nil when it isn't known); ok is false when it
+// can't be read (relative, with no folder to read it from).
+func winPath(p string, here *winAbs) (winAbs, bool) {
+	p = strings.ReplaceAll(p, `\`, "/")
+	// \\?\C:\x, \\.\C:\x and \??\C:\x are C:\x, and \\?\UNC\server\share is \\server\share. Anything else after
+	// one (GLOBALROOT, Volume{…}, HarddiskVolume3, GLOBAL??) is a namespace the guard can't place: it fails closed.
+	for _, device := range winDevices {
+		if rest, ok := strings.CutPrefix(p, device); ok {
+			switch {
+			case strings.HasPrefix(rest, "unc/"):
+				p = "//" + rest[len("unc/"):]
+			case len(rest) >= 3 && isDriveLetter(rest[0]) && rest[1] == ':' && rest[2] == '/':
+				p = rest
+			default:
+				return winAbs{anywhere: true}, true
+			}
+			break
+		}
+	}
+	var vol, rest string
+	var base []string
+	switch {
+	case len(p) >= 2 && isDriveLetter(p[0]) && p[1] == ':':
+		vol, rest = p[:2], p[2:]
+		if !strings.HasPrefix(rest, "/") {
+			// A drive alone: from that drive's own folder, the call's when it is on that drive.
+			if here == nil || here.vol != vol {
+				return winAbs{vol: vol, anyOnDrive: true}, true
+			}
+			base = here.parts
+		}
+	case strings.HasPrefix(p, "//"):
+		f := strings.SplitN(p[2:], "/", 3)
+		if len(f) < 2 {
+			return winAbs{}, false
+		}
+		vol = "//" + f[0] + "/" + f[1]
+		if len(f) == 3 {
+			rest = f[2]
+		}
+	case here != nil:
+		vol, rest = here.vol, p
+		if !strings.HasPrefix(p, "/") {
+			base = here.parts
+		}
+	default:
+		return winAbs{}, false
+	}
+	parts := slices.Clone(base)
+	for _, part := range strings.Split(rest, "/") {
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if len(parts) > 0 {
+				parts = parts[:len(parts)-1]
+			}
+			continue
+		}
+		// Windows drops a part's :stream (store::$INDEX_ALLOCATION) and its trailing dots and spaces (store.).
+		part, _, _ = strings.Cut(part, ":")
+		if part = strings.TrimRight(part, ". "); part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return winAbs{vol: vol, parts: parts}, true
+}
+
+// winBelow is whether a is dir or below it: the same volume, and each of dir's parts the same, or one the other's
+// short name (winShortFor), on either side.
+func winBelow(a, dir winAbs) bool {
+	if a.vol != dir.vol || len(a.parts) < len(dir.parts) {
+		return false
+	}
+	for i, d := range dir.parts {
+		if a.parts[i] != d && !winShortFor(a.parts[i], d) && !winShortFor(d, a.parts[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// winShortName is a Windows short name (8.3), folded: up to six letters, ~ and a number, and up to three letters
+// of an extension (store~1, src~1.git, runner~1; and Windows' hashed form, two letters and four hex digits: st1a2b~1).
+// Letters, not bytes: a short name may hold a letter outside ASCII (hé1a2b~1).
+var winShortName = regexp.MustCompile(`^([^.~]{1,6})~[0-9]{1,6}(?:\.([^.]{1,3}))?$`)
+
+// winShortFor is whether short could be long's short name, read as Windows makes one: long's stem (before its last
+// dot, its dots and spaces dropped) starts with short's letters, or with their first two when they are six (the
+// hashed form), and its extension (its spaces dropped) with short's. A letter Windows can't keep in a short name it
+// writes as _, which is taken as any letter. HEAD~1 is no short name of .git (its stem, git, doesn't start with head).
+// It never says no when it can't tell: a long name with a letter outside ASCII (Łukasz, Hélène) takes any short name,
+// since Windows writes such a letter as _, drops it or writes one like it (Ł as L) by the computer's code page,
+// which the guard can't know (FXGUARDWINR1, B2).
+func winShortFor(short, long string) bool {
+	if long == short || !strings.Contains(short, "~") {
+		return false
+	}
+	m := winShortName.FindStringSubmatch(short)
+	if m == nil {
+		return false
+	}
+	for i := 0; i < len(long); i++ {
+		if long[i] >= utf8.RuneSelf {
+			return true
+		}
+	}
+	stem, ext := strings.TrimLeft(long, "."), ""
+	if i := strings.LastIndexByte(stem, '.'); i > 0 {
+		stem, ext = stem[:i], stem[i+1:]
+	}
+	stem, ext = strings.NewReplacer(".", "", " ", "").Replace(stem), strings.ReplaceAll(ext, " ", "")
+	starts := func(text, start string) bool {
+		if len(text) < len(start) {
+			return false
+		}
+		for i := 0; i < len(start); i++ {
+			if start[i] != '_' && start[i] != text[i] {
+				return false
+			}
+		}
+		return true
+	}
+	hashed := ""
+	if letters := []rune(m[1]); len(letters) == 6 {
+		hashed = string(letters[:2])
+	}
+	return (starts(stem, m[1]) || hashed != "" && starts(stem, hashed)) && starts(ext, m[2])
+}
+
+func isDriveLetter(c byte) bool { return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' }
 
 // gitShortName is .git's 8.3 name on Windows (GIT~1), folded.
 var gitShortName = regexp.MustCompile(`^git~[0-9]+$`)

@@ -229,6 +229,7 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // A Rule refuses one command: its name, then the words that must come
@@ -291,6 +292,9 @@ func (r *Refusal) Error() string {
 // settings, a program's name) is ASCII, so these never make one match or miss. A path or argument that isn't
 // written plainly (an accent typed apart, a ligature) is refused before any comparison (plain.go).
 func Fold(text string) string {
+	if low, ok := foldASCII(text); ok {
+		return low
+	}
 	return strings.Map(func(r rune) rune {
 		least := r
 		for other := unicode.SimpleFold(r); other != r; other = unicode.SimpleFold(other) {
@@ -298,6 +302,31 @@ func Fold(text string) string {
 		}
 		return unicode.ToLower(least)
 	}, fullFolds.Replace(text))
+}
+
+// foldASCII is Fold of text that is all ASCII, and true; false when it isn't. No ASCII letter is in fullFolds, and
+// the least member of an ASCII letter's simple folding is its ASCII capital (k's others are K and the Kelvin sign,
+// s's are S and ſ), so Fold of ASCII is its ASCII lower case. Fold runs on every word of a line, often a dozen times
+// (FXGUARDWIN: a 1 MB line took 10 s), and most lines are ASCII.
+func foldASCII(text string) (string, bool) {
+	upper := false
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if c >= utf8.RuneSelf {
+			return "", false
+		}
+		upper = upper || 'A' <= c && c <= 'Z'
+	}
+	if !upper {
+		return text, true
+	}
+	b := []byte(text)
+	for i, c := range b {
+		if 'A' <= c && c <= 'Z' {
+			b[i] = c + 'a' - 'A'
+		}
+	}
+	return string(b), true
 }
 
 // fullFolds are Unicode's full case folds of more than one letter where the letters are ASCII (as RWIN6 found them
@@ -330,11 +359,20 @@ var fullFolds = strings.NewReplacer(
 var always = []string{"gm-token", "SMOLCORP_GM_TOKEN", "disableAllHooks", "grants-key", "grants.jsonl",
 	"phones.json", "phones-seal", "claude-install", "push-key-kept", "gm-memory", "hold-key", "paste-hold"}
 
+// foldedAlways is always, each name folded once (Fold), as namesAlways compares them.
+var foldedAlways = func() []string {
+	out := make([]string, len(always))
+	for i, name := range always {
+		out[i] = Fold(name)
+	}
+	return out
+}()
+
 func namesAlways(text string) string {
 	low := Fold(text)
-	for _, name := range always {
-		if strings.Contains(low, Fold(name)) {
-			return name
+	for i, name := range foldedAlways {
+		if strings.Contains(low, name) {
+			return always[i]
 		}
 	}
 	return ""
@@ -473,7 +511,7 @@ func check(line string, groups []Group) *Refusal {
 	if i := slices.IndexFunc(groups, func(g Group) bool { return g.place != nil }); i >= 0 {
 		groups = At(groups, placeLine(all, *groups[i].place))
 	} else if slices.ContainsFunc(groups, func(g Group) bool {
-		return slices.ContainsFunc(g.Commands, func(r Rule) bool { return slices.Contains(ruleWords(r), baseRule) })
+		return slices.ContainsFunc(g.Commands, isBaseRule)
 	}) {
 		groups = At(groups, placeLine(all, Place{}))
 	}
@@ -673,7 +711,7 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 				continue
 			}
 			refusal := &Refusal{Group: g.Name, Rule: string(rule), Command: strings.Join(words, " ")}
-			if slices.Contains(ruleWords(rule), baseRule) {
+			if isBaseRule(rule) {
 				// Only what lands on a base branch, at the line's place (merge.go).
 				if refusal.Why = onBase(g.place, plain, depth); refusal.Why == "" {
 					continue

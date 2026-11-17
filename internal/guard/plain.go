@@ -306,7 +306,9 @@ func (l *lexer) judge(word []byte, unq []bool, ps bool) {
 		l.flag(plainEquals, s)
 		return
 	}
-	if gitRevisionWord(s, &l.skBudget) {
+	// Only a ^, ~ or # is flagged below, and a word with none of them is no pattern the revision check could spend
+	// the budget on: the regex is skipped (FXGUARDWIN).
+	if !strings.ContainsAny(s, "^~#") || gitRevisionWord(s, &l.skBudget) {
 		return
 	}
 	for i := 0; i < len(s); i++ {

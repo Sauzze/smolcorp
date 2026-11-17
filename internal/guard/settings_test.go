@@ -85,6 +85,9 @@ func TestTheGuardChecksTheDesksSettingsFileOnBothSidesOfACall(t *testing.T) {
 			text := `{"hooks":{},"sum":"` + SettingsSumBlank + `"}`
 			own, _ := SettingsSum([]byte(text))
 			must(t, os.WriteFile(path+".new", []byte(strings.ReplaceAll(text, SettingsSumBlank, own)), 0o400))
+			// Windows won't rename over a read-only file (0o400 is its read-only attribute), as it won't write one
+			// ("edited"): the hire clears it first.
+			must(t, os.Chmod(path, 0o600))
 			must(t, os.Rename(path+".new", path))
 		},
 		"taken away": func() { must(t, os.Remove(path)) },
