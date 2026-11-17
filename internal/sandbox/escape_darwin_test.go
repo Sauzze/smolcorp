@@ -304,11 +304,11 @@ type ran struct {
 }
 
 // inside runs program in the desk's sandbox, from its worktree, with a small environment and extra, for at most
-// twenty seconds. startRefusal comes first: nothing that opens or drives an app, or names an app bundle, but the Mac
-// Studio's (escape3_darwin_test.go).
+// twenty seconds. startRefusal comes first, told the start is in a desk: nothing that opens or drives an app, or names
+// an app bundle, but the Mac Studio's (escape3_darwin_test.go).
 func (d *escapeDesk) inside(t *testing.T, extra []string, program string, args ...string) ran {
 	t.Helper()
-	if err := startRefusal(program, args); err != nil {
+	if err := startRefusal(program, args, true); err != nil {
 		t.Fatal(err)
 	}
 	sandboxExec := sandboxExecOrSkip(t)

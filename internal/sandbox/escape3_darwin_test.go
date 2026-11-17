@@ -46,7 +46,7 @@ import (
 // load a stand-in job, set a variable in the session or open a stand-in app, the writes against a loaded job, and the
 // Apple Event row (which, were the sandbox not to stop it first, could ask for Automation), run only on the Mac Studio
 // runner, with SMOLCORP_STUDIO_ROWS=1. Two guards keep it so: TestOnAMacNoRowHereOpensAnAppUngated reads every test
-// file of the package as syntax, and startRefusal refuses at run time in runOutside and escapeDesk.inside.
+// file of the package as syntax, and startRefusal refuses at run time in every start helper (startFunnels).
 //
 // What a desk can still do, as these rows find (MACLAUNCH1's report): read the owner's GUI domain with `launchctl
 // print` (launchGaps; SIERRA, 15 Nov: a documented gap, pinned read-only), kickstart a running agent without -k (the
@@ -97,10 +97,10 @@ func plistOf(dict string) string {
 }
 
 // runOutside runs program as the core would, outside any sandbox, for at most twenty seconds. startRefusal comes
-// first.
+// first, told the start isn't in a desk.
 func runOutside(t *testing.T, program string, args ...string) ran {
 	t.Helper()
-	if err := startRefusal(program, args); err != nil {
+	if err := startRefusal(program, args, false); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -556,16 +556,34 @@ func appSpelling(text string) string {
 	return ""
 }
 
-// startRefusal is why a row here may not start program with args: the guard's run-time half, in runOutside and
-// escapeDesk.inside, which every start of these rows goes through. /usr/bin/open runs only as openApp runs it, on a
-// path openRefusal takes, on the Studio as well; anything else that names open, osascript or lsappinfo, or an app
-// bundle, in any word of the program or its arguments (launchctl asuser …, sh -c …), only on the Mac Studio
-// (SMOLCORP_STUDIO_ROWS=1).
-func startRefusal(program string, args []string) error {
-	if program == "/usr/bin/open" && len(args) == 4 && slices.Equal(args[:3], []string{"-g", "-j", "-a"}) {
+// startRefusal is why a row here may not start program with args: the guard's run-time half, first in every start
+// helper (startFunnels), which every start of these rows with a program not its own goes through. inDesk is whether
+// the start is in a desk's sandbox (work, inside). /usr/bin/open runs only as openApp runs it, on a path openRefusal
+// takes, on the Studio as well. In a desk only, two more forms: the rules' probe of open (`open -g -j -n <app> --args
+// <word>`), on a path probeRefusal takes, and headless Chrome (headlessChrome) from its bundle, with the words
+// chromeRefusal takes; outside a desk they are refused as before (RT126ESCAPE2REFUSAL B1). Anything else that names
+// open, osascript or lsappinfo, or an app bundle, in any word of the program or its arguments (launchctl asuser …,
+// sh -c …), only on the Mac Studio (SMOLCORP_STUDIO_ROWS=1).
+func startRefusal(program string, args []string, inDesk bool) error {
+	words := append([]string{program}, args...)
+	switch {
+	case program == "/usr/bin/open" && len(args) == 4 && slices.Equal(args[:3], []string{"-g", "-j", "-a"}):
 		return openRefusal(args[3])
+	case inDesk && program == "/usr/bin/open" && len(args) == 6 && slices.Equal(args[:3], []string{"-g", "-j", "-n"}) && args[4] == "--args":
+		if err := probeRefusal(args[3]); err != nil {
+			return err
+		}
+		words = args[5:]
+	case inDesk && program == headlessChrome() && chromeBundle(program):
+		if err := chromeRefusal(args); err != nil {
+			if os.Getenv(studioRowsVar) != "1" {
+				return err
+			}
+			break // the Studio's: as any other bundle
+		}
+		words = args
 	}
-	for _, word := range append([]string{program}, args...) {
+	for _, word := range words {
 		switch why := appSpelling(word); {
 		case why == "":
 		case why == "names open":
@@ -573,6 +591,82 @@ func startRefusal(program string, args []string) error {
 		case os.Getenv(studioRowsVar) != "1":
 			return fmt.Errorf("%s %q %s: only the Mac Studio's rows may (%s=1)", program, args, why, studioRowsVar)
 		}
+	}
+	return nil
+}
+
+// probeRefusal is why `open -g -j -n` may not take app: the rules' probe of open takes an absolute, clean path to an
+// app bundle in the system's temp folder, where the tests make theirs, that doesn't exist, so LaunchServices and
+// Gatekeeper have nothing to reach (TestOnAMacOpenInADeskLaunchesNothing). On the Mac Studio it may exist: the hire's
+// copy of the app (TestOnAMacAStandInWithAccessibilityCantUseItInADesk).
+func probeRefusal(app string) error {
+	switch {
+	case !filepath.IsAbs(app) || filepath.Clean(app) != app || filepath.Ext(app) != ".app":
+		return fmt.Errorf("%q isn't an absolute, clean path to an app bundle: open would look it up through LaunchServices", app)
+	case !inTempFolder(app):
+		return fmt.Errorf("%s isn't in the temp folder, where a test makes its own: only a row's probe path may be opened", app)
+	case os.Getenv(studioRowsVar) == "1":
+		return nil
+	}
+	if _, err := os.Lstat(app); !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%s exists (%v): opening it goes through LaunchServices and Gatekeeper, which only the Mac Studio's rows may (%s=1)", app, err, studioRowsVar)
+	}
+	return nil
+}
+
+// inTempFolder is whether path's folder is in the system's temp folder, links followed on both sides.
+func inTempFolder(path string) bool {
+	tmp, err := filepath.EvalSymlinks(os.TempDir())
+	dir, err2 := filepath.EvalSymlinks(filepath.Dir(path))
+	return err == nil && err2 == nil && strings.HasPrefix(dir, tmp+string(filepath.Separator))
+}
+
+// headlessFlags are what headless Chrome starts with, or startRefusal refuses it (_rules.md: never a window, never the
+// Keychain, no dialog), with a --user-data-dir of its own (chromeRefusal).
+var headlessFlags = []string{"--headless", "--use-mock-keychain", "--password-store=basic",
+	"--disable-features=DialMediaRouteProvider", "--no-first-run", "--no-default-browser-check"}
+
+// chromeBundle is whether program is the program of a Chrome's or a Chromium's own bundle, and of no other:
+// <folder>/<…Chrome….app or …Chromium….app>/Contents/MacOS/<name>, absolute and clean. Whatever SMOLCORP_TEST_CHROME
+// names gets the Chrome form only if it is one (RT126ESCAPE2REFUSAL N3); a program in no bundle needs no form.
+func chromeBundle(program string) bool {
+	macOS := filepath.Dir(program)
+	contents := filepath.Dir(macOS)
+	app := filepath.Base(filepath.Dir(contents))
+	bundles := 0
+	for _, part := range strings.Split(program, "/") {
+		if strings.HasSuffix(strings.ToLower(part), ".app") {
+			bundles++
+		}
+	}
+	return filepath.IsAbs(program) && filepath.Clean(program) == program && filepath.Base(macOS) == "MacOS" &&
+		filepath.Base(contents) == "Contents" && strings.HasSuffix(app, ".app") && bundles == 1 &&
+		(strings.Contains(app, "Chrome") || strings.Contains(app, "Chromium"))
+}
+
+// chromeRefusal is why headless Chrome may not start with args in a desk: every one of headlessFlags, and exactly one
+// profile folder, --user-data-dir=<folder>, absolute, clean, in the system's temp folder (inTempFolder) and no link,
+// so never the owner's own profile (RT126ESCAPE2REFUSAL B1). Chrome reads a switch with one dash or two, so any word
+// that names user-data-dir counts.
+func chromeRefusal(args []string) error {
+	if missing := slices.DeleteFunc(slices.Clone(headlessFlags), func(f string) bool { return slices.Contains(args, f) }); len(missing) > 0 {
+		return fmt.Errorf("headless Chrome %q without %q: the rules' flags are its only form", args, missing)
+	}
+	var profiles []string
+	for _, a := range args {
+		if strings.HasPrefix(strings.TrimLeft(a, "-"), "user-data-dir") {
+			profiles = append(profiles, a)
+		}
+	}
+	if len(profiles) != 1 || !strings.HasPrefix(profiles[0], "--user-data-dir=") {
+		return fmt.Errorf("headless Chrome %q: its form takes exactly one --user-data-dir=<folder>, not %q", args, profiles)
+	}
+	folder := strings.TrimPrefix(profiles[0], "--user-data-dir=")
+	if !filepath.IsAbs(folder) || filepath.Clean(folder) != folder || !inTempFolder(folder) {
+		return fmt.Errorf("headless Chrome's profile folder %q isn't an absolute, clean folder in the temp folder: only a row's own may be its profile", folder)
+	}
+	if info, err := os.Lstat(folder); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("headless Chrome's profile folder %s is a link: Chrome would follow it out of the temp folder", folder)
 	}
 	return nil
 }
@@ -588,7 +682,11 @@ var guardAllowed = map[string]string{
 	"escape3_darwin_test.go appleEvent":            "osascript, the Studio's: it fails the test without SMOLCORP_STUDIO_ROWS=1",
 	"escape3_darwin_test.go var appTools":          "the names the guard looks for",
 	"escape3_darwin_test.go appSpelling":           "the bundle parts the guard looks for",
-	"escape3_darwin_test.go startRefusal":          "the run-time gate: openApp's own form of a start",
+	"escape3_darwin_test.go startRefusal":          "the run-time gate: openApp's own form of a start, and the open probe's, in a desk only",
+	"escape3_darwin_test.go probeRefusal":          "the open probe's .app: takes a missing path in the temp folder only, an existing one on the Studio",
+	"escape3_darwin_test.go chromeBundle":          "the parts of a Chrome's bundle it takes in a program's path: words only, it starts nothing",
+	"escape3_darwin_test.go var deskFormRows":      "startRefusal's rows for its desk forms: given to it only, never run",
+	"escape3_darwin_test.go var refusalProbes":     "missing paths in a folder that isn't there, given to the start helpers, which refuse each before any start",
 	"escape3_darwin_test.go var guardDodges":       "the guard's self-test: sources it only parses, never compiled or run",
 	"escape3_darwin_test.go var refusalRows":       "openRefusal's and startRefusal's rows: given to them only, never run",
 
@@ -612,7 +710,7 @@ var guardAllowed = map[string]string{
 	"mask_test.go TestASocketTheOwnersAccountCantReachDecidesNothing":            "\"can't open\" in a row's name, words for a person: the row builds a start's words on a fake file system and runs nothing",
 	"reportsh_test.go TestTheAppsReportShIsReadOnlyToEveryDesk":                  "Smolcorp.app/Contents/Resources/{bin/smolcorp,report.sh}: shell-script stand-ins in the test's temp folder for the resolver and the Policy's Decide, never run",
 	"shims_test.go TestTheAppsShimsAreReadOnlyToEveryDesk":                       "Smolcorp.app/Contents/Resources/{bin/smolcorp,shims}: a shell-script stand-in and a folder in the test's temp folder for the resolver and the Policy's Decide, never run",
-	"escape2_darwin_test.go normalWork":                                          "the owner's installed Google Chrome (or SMOLCORP_TEST_CHROME), its program run directly in the desk, never through LaunchServices, headless with a mock keychain and basic password store (_rules.md); it skips where there is none. A signed app the rules allow headless (RT126MACLAUNCH1)",
+	"escape2_darwin_test.go headlessChrome":                                      "the owner's installed Google Chrome (or SMOLCORP_TEST_CHROME), its program run directly in the desk, never through LaunchServices, headless with a mock keychain and basic password store (_rules.md); it skips where there is none. A signed app the rules allow headless (RT126MACLAUNCH1)",
 	"escape2_darwin_test.go TestOnAMacOpenInADeskLaunchesNothing":                "open -g -j -n in a desk on Missing.app, checked missing before and after: the rules' probe of open on a missing path only, which leaves LaunchServices and Gatekeeper nothing to reach",
 	"escape2_darwin_test.go TestOnAMacAStandInWithAccessibilityCantUseItInADesk": "the hire's copy of the app, its open and its program: all after the row's SMOLCORP_STUDIO_ROWS=1 skip, which studioGated holds",
 
@@ -633,6 +731,7 @@ var studioGated = map[string]bool{
 var startSites = map[string]string{
 	"escape3_darwin_test.go runOutside":                                                       "the row's program, after startRefusal",
 	"escape_darwin_test.go (*escapeDesk).inside":                                              "sandbox-exec, from sandboxExecOrSkip; the program it runs in the sandbox has passed startRefusal",
+	"escape3_darwin_test.go TestOnAMacEachStartHelperRefusesBeforeItStarts":                   "the test binary, run again with one of refusalProbes",
 	"escape_darwin_test.go TestOnAMacAHireInALinkedWorktreeCantChangeWhatTheOwnersGitRuns":    "git, from gitOrSkip",
 	"enter_unix_test.go startEnter":                                                           "the test binary (os.Executable) as Start's words give it, after the row's wrapper",
 	"shims_test.go shimSays":                                                                  "the shim under test (swift, xcodebuild), copied from Resources/shims into a plain folder of the test's own (shimFolder, never inside an app), through disclaim.Cmd with a stand-in PATH, HOME and LANG",
@@ -664,9 +763,9 @@ var startSites = map[string]string{
 
 	// The stack's (MSYSTACK3).
 	"bwrap_test.go TestTheGitConfigCopyKeepsTheOwnersIdentityOrRefuses":             "git, from exec.LookPath, on the test's throwaway repo",
-	"escape2_darwin_test.go (*escapeDesk).work":                                     "sandbox-exec, from sandboxExecOrSkip; the program it runs in the sandbox is its caller's, spelled where the guard reads it",
-	"escape2_darwin_test.go outside":                                                "its caller's program, outside any sandbox (git, ps, cc, security, the TCC stand-in), spelled where the guard reads it",
-	"escape2_darwin_test.go startOutside":                                           "its caller's program, outside any sandbox (node, /bin/sleep), spelled where the guard reads it",
+	"escape2_darwin_test.go (*escapeDesk).work":                                     "sandbox-exec, from sandboxExecOrSkip; the program it runs in the sandbox is its caller's, after startRefusal",
+	"escape2_darwin_test.go outside":                                                "its caller's program, outside any sandbox (git, ps, cc, security, the TCC stand-in), after startRefusal",
+	"escape2_darwin_test.go startOutside":                                           "its caller's program, outside any sandbox (node, /bin/sleep), after startRefusal",
 	"escape2_darwin_test.go TestOnAMacAHireReadsTheItemsSecurityMadeAsTheOwnerDoes": "/usr/bin/security delete-keychain on the row's own keychain, only where SMOLCORP_TEST_KEYCHAIN=1",
 	"bwrap_linux_test.go TestTheLinuxViewStandIn":                                   "inside bwrap, the probe's own words and the paths the view must refuse, Linux only",
 	"bwrap_linux_test.go TestSmolcorpsBwrapMakesEveryNamespace":                     "bwrap (BwrapPath), Linux only",
@@ -683,24 +782,329 @@ var startSites = map[string]string{
 	"policy_fold_darwin_test.go TestOnAMacAFullyFoldedSpellingOfADeniedPlaceIsDeniedToo": "sandbox-exec under the row's profile, with the row's own words",
 }
 
+// startFunnels are the package's start helpers on a Mac (startHelpers), each with whether it starts in a desk's
+// sandbox: each hands a program of its caller's to a start, and calls startRefusal on it first, saying so. One not on
+// the list, one on it that doesn't refuse first, or one whose word to startRefusal isn't its own here fails the guard
+// (FXESCAPE2REFUSAL, after MSYSTACK3's Decision 3; the flag after RT126ESCAPE2REFUSAL B1).
+var startFunnels = map[string]bool{
+	"escape3_darwin_test.go runOutside":          false,
+	"escape_darwin_test.go (*escapeDesk).inside": true,
+	"escape2_darwin_test.go (*escapeDesk).work":  true,
+	"escape2_darwin_test.go outside":             false,
+	"escape2_darwin_test.go startOutside":        false,
+}
+
+// funnel is what the funnel check finds in a start helper. refused: its body opens, before any start, with
+// `if err := startRefusal(program, args, <true or false>); err != nil { …; t.Fatal… }` at the top level, program
+// and args being the parameters its starts take (args nil when they take none), neither changed after it. inDesk:
+// the flag it gives. sandboxed: every start's program is sandbox-exec, from sandboxExecOrSkip and nothing else.
+type funnel struct{ refused, inDesk, sandboxed bool }
+
+// startHelpers reads a test file's syntax (src, or the file when nil) and gives its start helpers, by declaration:
+// functions with a start whose program isn't spelled out (as guardFindings finds it) and whose words take one of the
+// function's string parameters; each with its funnel.
+func startHelpers(fset *token.FileSet, file string, src any) (map[string]funnel, error) {
+	f, err := parser.ParseFile(fset, file, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]funnel{}
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		params := map[string]string{} // a string parameter's name: its type
+		for _, field := range fn.Type.Params.List {
+			if typ := types.ExprString(field.Type); typ == "string" || typ == "[]string" || typ == "...string" {
+				for _, n := range field.Names {
+					params[n.Name] = typ
+				}
+			}
+		}
+		// sandbox-exec's names: set from sandboxExecOrSkip, and from nothing else.
+		sandboxes, others := map[string]bool{}, map[string]bool{}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if set, ok := n.(*ast.AssignStmt); ok {
+				for i, lhs := range set.Lhs {
+					id, ok := lhs.(*ast.Ident)
+					if !ok {
+						continue
+					}
+					if call, ok := set.Rhs[min(i, len(set.Rhs)-1)].(*ast.CallExpr); ok && len(set.Lhs) == len(set.Rhs) && types.ExprString(call.Fun) == "sandboxExecOrSkip" {
+						sandboxes[id.Name] = true
+					} else {
+						others[id.Name] = true
+					}
+				}
+			}
+			return true
+		})
+		var starts []token.Pos
+		inWords := map[string]bool{} // the parameters a start's words take
+		sandboxed := true
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			program := -1
+			switch types.ExprString(call.Fun) {
+			case "exec.Command", "os.StartProcess", "syscall.Exec", "syscall.ForkExec":
+				program = 0
+			case "exec.CommandContext":
+				program = 1
+			}
+			if program < 0 {
+				return true
+			}
+			starts = append(starts, call.Pos())
+			if program >= len(call.Args) {
+				sandboxed = false
+				return true
+			}
+			if id, ok := call.Args[program].(*ast.Ident); !ok || !sandboxes[id.Name] || others[id.Name] {
+				sandboxed = false
+			}
+			if _, spelled := folded(call.Args[program]); spelled {
+				return true
+			}
+			for _, a := range call.Args {
+				ast.Inspect(a, func(n ast.Node) bool {
+					if id, ok := n.(*ast.Ident); ok && params[id.Name] != "" {
+						inWords[id.Name] = true
+					}
+					return true
+				})
+			}
+			return true
+		})
+		if len(inWords) == 0 {
+			continue
+		}
+		var found funnel
+		for _, stmt := range fn.Body.List {
+			program, args, inDesk, ok := refusalGate(stmt)
+			if !ok {
+				continue
+			}
+			found.inDesk = inDesk
+			found.refused = params[program] == "string" && inWords[program] && !changedAfter(fn.Body, stmt.End(), program, args)
+			for name := range inWords {
+				if typ := params[name]; typ != "string" {
+					found.refused = found.refused && name == args
+				}
+			}
+			if args != "nil" {
+				found.refused = found.refused && params[args] != "" && params[args] != "string" && inWords[args]
+			}
+			for _, at := range starts {
+				found.refused = found.refused && stmt.Pos() < at
+			}
+			break
+		}
+		found.sandboxed = sandboxed && len(starts) > 0
+		out[declName(decl)] = found
+	}
+	return out, nil
+}
+
+// refusalGate reads stmt as `if err := startRefusal(program, args, inDesk); err != nil { …; t.Fatal… }`: the names
+// given (args may be "nil"), and the flag, true or false as written; ok is false for anything else.
+func refusalGate(stmt ast.Stmt) (program, args string, inDesk, ok bool) {
+	gate, ok := stmt.(*ast.IfStmt)
+	if !ok || gate.Else != nil || len(gate.Body.List) == 0 || types.ExprString(gate.Cond) != "err != nil" {
+		return "", "", false, false
+	}
+	init, ok := gate.Init.(*ast.AssignStmt)
+	if !ok || init.Tok != token.DEFINE || len(init.Lhs) != 1 || len(init.Rhs) != 1 || types.ExprString(init.Lhs[0]) != "err" {
+		return "", "", false, false
+	}
+	call, ok := init.Rhs[0].(*ast.CallExpr)
+	if !ok || types.ExprString(call.Fun) != "startRefusal" || len(call.Args) != 3 || call.Ellipsis.IsValid() {
+		return "", "", false, false
+	}
+	words := make([]string, 3)
+	for i, a := range call.Args {
+		id, ok := a.(*ast.Ident)
+		if !ok {
+			return "", "", false, false
+		}
+		words[i] = id.Name
+	}
+	if words[2] != "true" && words[2] != "false" {
+		return "", "", false, false
+	}
+	last, ok := gate.Body.List[len(gate.Body.List)-1].(*ast.ExprStmt)
+	if !ok {
+		return "", "", false, false
+	}
+	end, ok := last.X.(*ast.CallExpr)
+	if !ok {
+		return "", "", false, false
+	}
+	switch types.ExprString(end.Fun) {
+	case "t.Fatal", "t.Fatalf", "t.FailNow":
+		return words[0], words[1], words[2] == "true", true
+	}
+	return "", "", false, false
+}
+
+// changedAfter is whether body, after at, sets or declares any of names, in any part (args[0] = …, args = append(…),
+// program := … in a block, a range's, &program), so what a start takes may not be what startRefusal was given.
+func changedAfter(body *ast.BlockStmt, at token.Pos, names ...string) bool {
+	root := func(e ast.Expr) string {
+		for {
+			switch x := e.(type) {
+			case *ast.Ident:
+				return x.Name
+			case *ast.IndexExpr:
+				e = x.X
+			case *ast.SliceExpr:
+				e = x.X
+			case *ast.StarExpr:
+				e = x.X
+			case *ast.ParenExpr:
+				e = x.X
+			default:
+				return ""
+			}
+		}
+	}
+	changed := false
+	hit := func(e ast.Expr) {
+		if e != nil && slices.Contains(names, root(e)) {
+			changed = true
+		}
+	}
+	ast.Inspect(body, func(n ast.Node) bool {
+		if n == nil || n.Pos() < at {
+			return true
+		}
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			for _, lhs := range n.Lhs {
+				hit(lhs)
+			}
+		case *ast.RangeStmt:
+			hit(n.Key)
+			hit(n.Value)
+		case *ast.ValueSpec:
+			for _, id := range n.Names {
+				hit(id)
+			}
+		case *ast.UnaryExpr:
+			if n.Op == token.AND {
+				hit(n.X)
+			}
+		case *ast.FuncLit:
+			for _, field := range n.Type.Params.List {
+				for _, id := range field.Names {
+					hit(id)
+				}
+			}
+		}
+		return true
+	})
+	return changed
+}
+
+// helperSource is a test file of one function, a start helper or not, for the funnel's self-test: parsed, never
+// compiled or run.
+func helperSource(body string) string {
+	return "package sandbox\n\nfunc helper(t *testing.T, dir string, program string, args ...string) {\n" + body + "\n}\n"
+}
+
+// refuseFirst and refuseInADesk are a funnel's startRefusal, as the helpers write it, outside a desk and in one.
+const (
+	refuseFirst   = "\tif err := startRefusal(program, args, false); err != nil {\n\t\tt.Fatal(err)\n\t}\n"
+	refuseInADesk = "\tif err := startRefusal(program, args, true); err != nil {\n\t\tt.Fatal(err)\n\t}\n"
+	sandboxStart  = "\tsandboxExec := sandboxExecOrSkip(t)\n\texec.CommandContext(context.Background(), sandboxExec, append([]string{\"-f\", dir, program}, args...)...).Run()"
+)
+
+// funnelDodges are start helpers the funnel check must see, each with whether it is one and its funnel; the last
+// ones are its controls.
+var funnelDodges = []struct {
+	what, src string
+	helper    bool
+	want      funnel
+}{
+	{"a helper with no startRefusal (escape2's three before FXESCAPE2REFUSAL)", helperSource("\texec.Command(program, args...).Run()"), true, funnel{}},
+	{"startRefusal after the start", helperSource("\texec.Command(program, args...).Run()\n" + refuseFirst), true, funnel{}},
+	{"startRefusal between two starts", helperSource("\texec.Command(program).Run()\n" + refuseFirst + "\texec.Command(program, args...).Run()"), true, funnel{}},
+	{"startRefusal on a word of its own", helperSource("\tif err := startRefusal(\"/usr/bin/true\", nil, false); err != nil {\n\t\tt.Fatal(err)\n\t}\n\texec.Command(program, args...).Run()"), true, funnel{}},
+	{"startRefusal whose refusal goes on", helperSource("\tif err := startRefusal(program, args, false); err != nil {\n\t\tt.Log(err)\n\t}\n\texec.Command(program, args...).Run()"), true, funnel{}},
+	{"startRefusal inside a branch", helperSource("\tif dir != \"\" {\n" + refuseFirst + "\t}\n\texec.Command(program, args...).Run()"), true, funnel{}},
+	{"the caller's program in sandbox-exec's words", helperSource(sandboxStart), true, funnel{sandboxed: true}},
+	{"the caller's program under another name", "package sandbox\n\nfunc helper(t *testing.T, prog string) {\n\tos.StartProcess(prog, nil, nil)\n}\n", true, funnel{}},
+	// RT126ESCAPE2REFUSAL N1 (M5 and its kin): startRefusal must take the words the starts take.
+	{"startRefusal without the caller's words (the review's M5)", helperSource("\tif err := startRefusal(program, nil, false); err != nil {\n\t\tt.Fatal(err)\n\t}\n\texec.Command(program, args...).Run()"), true, funnel{}},
+	{"startRefusal on a parameter no start takes", helperSource("\tif err := startRefusal(dir, args, false); err != nil {\n\t\tt.Fatal(err)\n\t}\n\texec.Command(program, args...).Run()"), true, funnel{}},
+	{"startRefusal with program and args swapped", helperSource("\tif err := startRefusal(args, program, false); err != nil {\n\t\tt.Fatal(err)\n\t}\n\texec.Command(program, args...).Run()"), true, funnel{}},
+	{"the program set after the gate", helperSource(refuseFirst + "\tprogram = \"/usr/bin/true\"\n\texec.Command(program, args...).Run()"), true, funnel{}},
+	{"the words added to after the gate", helperSource(refuseFirst + "\targs = append(args, \"x\")\n\texec.Command(program, args...).Run()"), true, funnel{}},
+	{"a word set after the gate", helperSource(refuseFirst + "\targs[0] = \"x\"\n\texec.Command(program, args...).Run()"), true, funnel{}},
+	{"the program declared again in a block after the gate", helperSource(refuseFirst + "\t{\n\t\tprogram := \"/usr/bin/true\"\n\t\texec.Command(program, args...).Run()\n\t}"), true, funnel{}},
+	{"the program's address given away after the gate", helperSource(refuseFirst + "\tset(&program)\n\texec.Command(program, args...).Run()"), true, funnel{}},
+	{"a second []string parameter in the words", "package sandbox\n\nfunc helper(t *testing.T, more []string, program string, args ...string) {\n" + refuseFirst + "\texec.Command(program, append(more, args...)...).Run()\n}\n", true, funnel{}},
+	{"startRefusal's old form, without the flag", helperSource("\tif err := startRefusal(program, args); err != nil {\n\t\tt.Fatal(err)\n\t}\n\texec.Command(program, args...).Run()"), true, funnel{}},
+	// RT126ESCAPE2REFUSAL B1: the flag is written out, and a desk's start is sandbox-exec's.
+	{"the flag a variable", helperSource("\tif err := startRefusal(program, args, dir != \"\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\texec.Command(program, args...).Run()"), true, funnel{}},
+	{"in a desk, said of a start outside one", helperSource(refuseInADesk + "\texec.Command(program, args...).Run()"), true, funnel{refused: true, inDesk: true}},
+	{"in a desk, sandbox-exec's name set again", helperSource(refuseInADesk + "\tsandboxExec := sandboxExecOrSkip(t)\n\tsandboxExec = program\n\texec.CommandContext(context.Background(), sandboxExec, append([]string{\"-f\", dir, program}, args...)...).Run()"), true, funnel{refused: true, inDesk: true}},
+	// RT126ESCAPE2REFUSAL N2: names taken from the parameters hide a helper; the static half still holds its start (startSites).
+	{"the caller's program and words under new names", helperSource("\tp, a := program, args\n\texec.Command(p, a...).Run()"), false, funnel{}},
+
+	{"control: a funnel as the helpers write it", helperSource(refuseFirst + "\texec.Command(program, args...).Run()"), true, funnel{refused: true}},
+	{"control: a funnel into sandbox-exec", helperSource(refuseInADesk + sandboxStart), true, funnel{refused: true, inDesk: true, sandboxed: true}},
+	{"control: a funnel of a program alone", "package sandbox\n\nfunc helper(t *testing.T, prog string) {\n\tif err := startRefusal(prog, nil, false); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tos.StartProcess(prog, nil, nil)\n}\n", true, funnel{refused: true}},
+	{"control: the profile, a string of the caller's, in sandbox-exec's words", helperSource(refuseInADesk + "\tif dir == \"\" {\n\t\tdir = \"x\"\n\t}\n" + sandboxStart), true, funnel{refused: true, inDesk: true, sandboxed: true}},
+	{"control: a program spelled out, with the caller's words", helperSource("\texec.Command(\"/usr/bin/git\", args...).Run()"), false, funnel{}},
+	{"control: a program of the row's own", helperSource("\tgit := gitOrSkip(t)\n\texec.Command(git, \"--version\").Run()"), false, funnel{}},
+}
+
 // guardFinding is one thing the guard holds against a test file: at a line, in a declaration, what. start is a start
-// whose program isn't spelled out (startSites), else a spelling (guardAllowed). gated is whether it comes after its
-// declaration's Studio gate (studioGate).
+// whose program isn't spelled out (startSites), chrome a use of headlessChrome (chromeCallers), else a spelling
+// (guardAllowed). gated is whether it comes after its declaration's Studio gate (studioGate).
 type guardFinding struct {
 	file, at, decl, what string
-	start, gated         bool
+	start, chrome, gated bool
+}
+
+// list is the name of the guard's list the finding's declaration must be on.
+func (g guardFinding) list() string {
+	switch {
+	case g.start:
+		return "startSites"
+	case g.chrome:
+		return "chromeCallers"
+	}
+	return "guardAllowed"
 }
 
 // allowed is whether the finding's declaration is on its list, and, for a studioGated one, whether the finding comes
 // after its gate.
 func (g guardFinding) allowed() (key string, ok bool) {
 	key = g.file + " " + g.decl
-	if g.start {
+	switch g.list() {
+	case "startSites":
 		_, ok = startSites[key]
-	} else {
+	case "chromeCallers":
+		_, ok = chromeCallers[key]
+	default:
 		_, ok = guardAllowed[key]
+		ok = ok && (!studioGated[key] || g.gated)
 	}
-	return key, ok && (g.start || !studioGated[key] || g.gated)
+	return key, ok
+}
+
+// chromeCallers are the declarations that may use headlessChrome, each with why. A use of it is Chrome's program in
+// its bundle, which the guard holds as it holds a literal path of it (RT126ESCAPE2REFUSAL B1): without this list, any
+// row could start the owner's Chrome without spelling it.
+var chromeCallers = map[string]string{
+	"escape2_darwin_test.go normalWork":                           "its headless Chrome row, through w.work in a desk, with the rules' flags and a profile folder of the row's in the temp folder",
+	"escape3_darwin_test.go startRefusal":                         "the run-time gate: the Chrome form, in a desk only",
+	"escape3_darwin_test.go TestOnAMacNoRowHereOpensAnAppUngated": "the refusal rows' <chrome>, a stand-in path set in SMOLCORP_TEST_CHROME: words given to startRefusal only, never run",
 }
 
 // messageSinks are the calls whose string arguments are words for a person (a test's message, an error's): they
@@ -750,10 +1154,13 @@ func studioGate(decl ast.Decl) token.Pos {
 	return token.NoPos
 }
 
+// usesChrome is the guard's finding for a use of headlessChrome, called or not.
+const usesChrome = "uses headlessChrome, the program of Chrome's bundle"
+
 // guardFindings reads a test file's syntax (src, or the file when nil) and gives, declaration by declaration, every
 // string literal, in any quoting, and every sum of literals, folded, that names an app tool or an app bundle
-// (appSpelling), but a message's; and every exec.Command, exec.CommandContext, os.StartProcess, syscall.Exec or
-// syscall.ForkExec whose program isn't a literal.
+// (appSpelling), but a message's; every use of headlessChrome but its own declaration; and every exec.Command,
+// exec.CommandContext, os.StartProcess, syscall.Exec or syscall.ForkExec whose program isn't a literal.
 func guardFindings(fset *token.FileSet, file string, src any) ([]guardFinding, error) {
 	f, err := parser.ParseFile(fset, file, src, parser.SkipObjectResolution)
 	if err != nil {
@@ -764,7 +1171,7 @@ func guardFindings(fset *token.FileSet, file string, src any) ([]guardFinding, e
 	var gate token.Pos
 	add := func(n ast.Node, decl, what string, start bool) {
 		g := guardFinding{file: filepath.Base(file), at: fset.Position(n.Pos()).String(), decl: decl, what: what, start: start,
-			gated: gate.IsValid() && n.Pos() > gate}
+			chrome: what == usesChrome, gated: gate.IsValid() && n.Pos() > gate}
 		if k := g.at + g.what; !seen[k] {
 			seen[k] = true
 			out = append(out, g)
@@ -776,6 +1183,10 @@ func guardFindings(fset *token.FileSet, file string, src any) ([]guardFinding, e
 		}
 		name := declName(decl)
 		gate = studioGate(decl)
+		var own *ast.Ident
+		if fn, ok := decl.(*ast.FuncDecl); ok {
+			own = fn.Name
+		}
 		message := map[ast.Expr]bool{}
 		var markMessage func(ast.Expr)
 		markMessage = func(e ast.Expr) {
@@ -794,6 +1205,10 @@ func guardFindings(fset *token.FileSet, file string, src any) ([]guardFinding, e
 		}
 		ast.Inspect(decl, func(n ast.Node) bool {
 			switch n := n.(type) {
+			case *ast.Ident:
+				if n.Name == "headlessChrome" && n != own {
+					add(n, name, usesChrome, false)
+				}
 			case *ast.CallExpr:
 				sel, ok := n.Fun.(*ast.SelectorExpr)
 				if !ok {
@@ -952,6 +1367,10 @@ var guardDodges = []struct {
 	{"a gate that lets the test go on", gatedSource("\tif os.Getenv(studioRowsVar) != \"1\" {\n\t\tt.Log(\"x\")\n\t}\n\texec.Command(\"/usr/bin/open\", \"-a\", d.label)"), true},
 	{"a gate on another variable", gatedSource("\tif os.Getenv(\"SMOLCORP_TEST_CHROME\") != \"1\" {\n\t\tt.Skip(\"x\")\n\t}\n\texec.Command(\"/usr/bin/open\", \"-a\", d.label)"), true},
 	{"a gate inside another block", gatedSource("\tif d != nil {\n" + studioSkip + "\t}\n\texec.Command(\"/usr/bin/open\", \"-a\", d.label)"), true},
+	// RT126ESCAPE2REFUSAL B1: headlessChrome is Chrome's program in its bundle, held as a literal path of it is.
+	{"runOutside on headlessChrome with an outside profile (the review's M8 stand-in)", guardSource("\trunOutside(t, headlessChrome(), append(slices.Clone(headlessFlags), \"--user-data-dir=/nonexistent-rt126/Library/Chrome\")...)"), true},
+	{"headlessChrome taken, not called", guardSource("\tchrome := headlessChrome\n\td.inside(t, nil, chrome())"), true},
+	{"headlessChrome in a var", "package sandbox\n\nvar chrome = headlessChrome()\n", true},
 
 	{"control: openApp itself", "package sandbox\n\nfunc (d *launchDesk) openApp(t *testing.T, inside bool, app string) ran {\n" +
 		"\treturn d.inside(t, nil, \"/usr/bin/open\", \"-g\", \"-j\", \"-a\", app)\n}\n", false},
@@ -962,6 +1381,8 @@ var guardDodges = []struct {
 	{"control: a log line checked by strings.Contains", guardSource(`if !strings.Contains(app, "can't open "+base+",") { t.Errorf("%s", app) }`), false},
 	{"control: a bundle after the Studio gate", gatedSource(studioSkip + "\tmustWrite(t, \"/x/StandIn.app/Contents/MacOS/StandIn\", \"\")"), false},
 	{"control: open after a Studio skip, the variable spelled out", gatedSource("\tif os.Getenv(\"SMOLCORP_STUDIO_ROWS\") != \"1\" {\n\t\tt.Skip(\"x\")\n\t}\n\texec.Command(\"/usr/bin/open\", \"-a\", d.label)"), false},
+	{"control: headlessChrome's own declaration", "package sandbox\n\nfunc headlessChrome() string { return os.Getenv(\"SMOLCORP_TEST_CHROME\") }\n", false},
+	{"control: headlessChrome by name in a message", guardSource("\tt.Log(\"headlessChrome is normalWork's\")"), false},
 }
 
 // refusalRows are what openRefusal and startRefusal must say to a start: given to them only, never run. A "<missing>"
@@ -1002,11 +1423,67 @@ var refusalRows = []struct {
 	{"/stand-in", []string{`[{"Op":"create","At":"/h/Library/LaunchAgents/x.plist"}]`}, false, false},
 }
 
+// deskFormRows are what startRefusal must say to its two forms that hold in a desk only, in a desk and outside one
+// (RT126ESCAPE2REFUSAL B1): given to it only, never run. chrome is SMOLCORP_TEST_CHROME for the row ("" for the
+// installed Google Chrome's path), and "<chrome>" in program what headlessChrome then gives; "<there>" is a temp
+// folder of the row's, holding "link", a link out of the temp folder. Each pair is {this Mac, the Studio}: refused?
+var deskFormRows = []struct {
+	chrome, program string
+	args            []string
+	inDesk, outside [2]bool
+}{
+	// The rules' probe of open (FXESCAPE2REFUSAL): -g -j -n on a missing .app in a folder of the temp folder, one word
+	// after --args; an existing one on the Studio only (its hire's copy of the app). Outside a desk, never.
+	{"", "/usr/bin/open", []string{"-g", "-j", "-n", "<there>/Missing.app", "--args", "<there>/opened.json"}, [2]bool{false, false}, [2]bool{true, true}},
+	{"", "/usr/bin/open", []string{"-g", "-j", "-n", "<existing>", "--args", "<there>/opened.json"}, [2]bool{true, false}, [2]bool{true, true}},
+	{"", "/usr/bin/open", []string{"-g", "-j", "-n", "<there>/../Missing.app", "--args", "x"}, [2]bool{true, true}, [2]bool{true, true}},
+	{"", "/usr/bin/open", []string{"-g", "-j", "-n", "<missing>", "--args", "x"}, [2]bool{true, true}, [2]bool{true, true}},
+	{"", "/usr/bin/open", []string{"-g", "-j", "-n", "Missing.app", "--args", "x"}, [2]bool{true, true}, [2]bool{true, true}},
+	{"", "/usr/bin/open", []string{"-g", "-j", "-n", "/nonexistent-rt126/Missing.app", "--args", "x"}, [2]bool{true, true}, [2]bool{true, true}},
+	{"", "/usr/bin/open", []string{"-g", "-j", "-n", "/System/Applications/Calculator.app", "--args", "x"}, [2]bool{true, true}, [2]bool{true, true}},
+	{"", "/usr/bin/open", []string{"-g", "-j", "-n", "<there>/Missing", "--args", "x"}, [2]bool{true, true}, [2]bool{true, true}},
+	{"", "/usr/bin/open", []string{"-g", "-j", "-n", "<there>/Missing.app", "--args", "/usr/bin/open"}, [2]bool{true, true}, [2]bool{true, true}},
+	{"", "/usr/bin/open", []string{"-g", "-j", "-n", "<there>/Missing.app", "--args"}, [2]bool{true, true}, [2]bool{true, true}},
+	{"", "/usr/bin/open", []string{"-n", "<there>/Missing.app", "--args", "x"}, [2]bool{true, true}, [2]bool{true, true}},
+	{"", "/usr/bin/open", []string{"-g", "-j", "-n", "<there>/Missing.app", "--args", "x", "y"}, [2]bool{true, true}, [2]bool{true, true}},
+	// Headless Chrome from its bundle (normalWork), in a desk, with the rules' flags and one profile folder in the temp
+	// folder; outside a desk, a bundle as any other: the Studio's.
+	{"", "<chrome>", []string{"--headless", "--no-sandbox", "--use-mock-keychain", "--password-store=basic",
+		"--disable-features=DialMediaRouteProvider", "--user-data-dir=<there>/chrome", "--no-first-run",
+		"--no-default-browser-check", "--dump-dom", "data:text/html,<p>x</p>"}, [2]bool{false, false}, [2]bool{true, false}},
+	{"", "<chrome>", []string{"--no-sandbox", "--use-mock-keychain", "--password-store=basic",
+		"--disable-features=DialMediaRouteProvider", "--user-data-dir=<there>/chrome", "--no-first-run", "--no-default-browser-check"}, [2]bool{true, false}, [2]bool{true, false}},
+	{"", "<chrome>", []string{"--headless", "--use-mock-keychain", "--password-store=basic",
+		"--disable-features=DialMediaRouteProvider", "--no-first-run", "--no-default-browser-check"}, [2]bool{true, false}, [2]bool{true, false}},
+	{"", "/Applications/Safari.app/Contents/MacOS/Safari", []string{"--headless", "--use-mock-keychain", "--password-store=basic",
+		"--disable-features=DialMediaRouteProvider", "--user-data-dir=<there>/chrome", "--no-first-run", "--no-default-browser-check"}, [2]bool{true, false}, [2]bool{true, false}},
+	{"", "<chrome>", []string{"--headless", "--use-mock-keychain", "--password-store=basic", "--disable-features=DialMediaRouteProvider",
+		"--user-data-dir=<there>/chrome", "--no-first-run", "--no-default-browser-check", "/usr/bin/open"}, [2]bool{true, true}, [2]bool{true, true}},
+	// RT126ESCAPE2REFUSAL B1: the profile folder is exactly one, and the row's own, in the temp folder (the review's
+	// M8 probe first: a profile folder outside it).
+	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=/nonexistent-rt126/Library/Chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/x/../chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/gone/chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/link"), [2]bool{true, false}, [2]bool{true, false}},
+	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome", "--user-data-dir=/nonexistent-rt126/Library/Chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome", "-user-data-dir=/nonexistent-rt126/Library/Chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir", "<there>/chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir="), [2]bool{true, false}, [2]bool{true, false}},
+	// RT126ESCAPE2REFUSAL N3: SMOLCORP_TEST_CHROME gets the form only for a Chrome's or a Chromium's own bundle.
+	{"/Applications/Chromium.app/Contents/MacOS/Chromium", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome"), [2]bool{false, false}, [2]bool{true, false}},
+	{"/System/Applications/Calculator.app/Contents/MacOS/Calculator", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"/Applications/Other.app/Contents/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"/Applications/Google Chrome.app/Contents/MacOS/../MacOS/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome"), [2]bool{true, false}, [2]bool{true, false}},
+	{"<there>/chrome-headless-shell", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=/nonexistent-rt126/Library/Chrome"), [2]bool{false, false}, [2]bool{false, false}},
+}
+
 // The guard (VICTOR, 15 Nov; made structural after RT126MACLAUNCH1 B1): no row of the package's tests runs open,
 // osascript or lsappinfo, or builds or names an app bundle, but in a declaration on guardAllowed, each Studio-gated or
 // a path only, a Studio-gated one's spellings after its gate (studioGated); no start's program goes unspelled but on
-// startSites; the guard holds every dodge the review found; and the run-time half, startRefusal, is in both places
-// every start of these rows goes through, before the start.
+// startSites; the guard holds every dodge the review found; and the run-time half, startRefusal, is first in every
+// start helper, each on startFunnels.
 func TestOnAMacNoRowHereOpensAnAppUngated(t *testing.T) {
 	fset := token.NewFileSet()
 	for _, c := range guardDodges {
@@ -1029,7 +1506,7 @@ func TestOnAMacNoRowHereOpensAnAppUngated(t *testing.T) {
 	if err != nil || len(files) == 0 {
 		t.Fatalf("the package's tests: %v %v", files, err)
 	}
-	used := map[string]bool{}
+	used := map[string]bool{} // by list and key
 	for _, file := range files {
 		found, err := guardFindings(fset, file, nil)
 		if err != nil {
@@ -1038,24 +1515,20 @@ func TestOnAMacNoRowHereOpensAnAppUngated(t *testing.T) {
 		for _, g := range found {
 			key, ok := g.allowed()
 			if ok {
-				used[key] = true
+				used[g.list()+" "+key] = true
 				continue
 			}
-			list := "guardAllowed"
-			if g.start {
-				list = "startSites"
-			}
-			if _, on := guardAllowed[key]; on && !g.start {
+			if _, on := guardAllowed[key]; on && g.list() == "guardAllowed" {
 				t.Errorf("%s, in %s: %s, before the declaration's %s gate (studioGate): a Studio row's spelling goes after it", g.at, g.decl, g.what, studioRowsVar)
 				continue
 			}
-			t.Errorf("%s, in %s: %s; only a declaration on %s may, with its reason", g.at, g.decl, g.what, list)
+			t.Errorf("%s, in %s: %s; only a declaration on %s may, with its reason", g.at, g.decl, g.what, g.list())
 		}
 	}
-	for _, list := range []map[string]string{guardAllowed, startSites} {
+	for name, list := range map[string]map[string]string{"guardAllowed": guardAllowed, "startSites": startSites, "chromeCallers": chromeCallers} {
 		for key, why := range list {
-			if !used[key] || why == "" {
-				t.Errorf("%q (%s) is on the guard's lists with nothing of its own to allow, or no reason: take it off", key, why)
+			if !used[name+" "+key] || why == "" {
+				t.Errorf("%q (%s) is on %s with nothing of its own to allow, or no reason: take it off", key, why, name)
 			}
 		}
 	}
@@ -1065,31 +1538,47 @@ func TestOnAMacNoRowHereOpensAnAppUngated(t *testing.T) {
 		}
 	}
 
-	// startRefusal, before the start, in both of the places every start here goes through.
-	for file, decl := range map[string]string{"escape3_darwin_test.go": "runOutside", "escape_darwin_test.go": "(*escapeDesk).inside"} {
-		f, err := parser.ParseFile(fset, file, nil, parser.SkipObjectResolution)
+	// startRefusal, before every start, in every start helper here (startFunnels), which the guard finds itself.
+	for _, c := range funnelDodges {
+		helpers, err := startHelpers(fset, "escape3_darwin_test.go", c.src)
+		if err != nil {
+			t.Fatalf("%s: %v", c.what, err)
+		}
+		got, helper := helpers["helper"]
+		if helper != c.helper || got != c.want {
+			t.Errorf("the funnel check on %s: a helper %v, %+v; want %v, %+v", c.what, helper, got, c.helper, c.want)
+		}
+	}
+	funnels := map[string]bool{}
+	for _, file := range files {
+		if !strings.HasSuffix(file, "_darwin_test.go") {
+			continue
+		}
+		helpers, err := startHelpers(fset, file, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		var gate, start token.Pos
-		for _, d := range f.Decls {
-			if declName(d) != decl {
-				continue
+		for decl, got := range helpers {
+			key := file + " " + decl
+			funnels[key] = true
+			inDesk, on := startFunnels[key]
+			if !on {
+				t.Errorf("%s hands a program of its caller's to a start: only a declaration on startFunnels may, with startRefusal first", key)
 			}
-			ast.Inspect(d, func(n ast.Node) bool {
-				if call, ok := n.(*ast.CallExpr); ok {
-					switch fn := types.ExprString(call.Fun); {
-					case fn == "startRefusal" && !gate.IsValid():
-						gate = call.Pos()
-					case fn == "exec.CommandContext" && !start.IsValid():
-						start = call.Pos()
-					}
-				}
-				return true
-			})
+			if !got.refused {
+				t.Errorf("%s: startRefusal, given its caller's program and words and failing the test, isn't the first thing before each of its starts, or they change after it", key)
+			}
+			if on && got.inDesk != inDesk {
+				t.Errorf("%s tells startRefusal it starts in a desk: %v; startFunnels says %v", key, got.inDesk, inDesk)
+			}
+			if got.inDesk && !got.sandboxed {
+				t.Errorf("%s tells startRefusal it starts in a desk, but a start of its isn't sandbox-exec's (sandboxExecOrSkip)", key)
+			}
 		}
-		if !start.IsValid() || !gate.IsValid() || gate > start {
-			t.Errorf("%s %s: startRefusal isn't called before its exec.CommandContext", file, decl)
+	}
+	for key := range startFunnels {
+		if !funnels[key] {
+			t.Errorf("%q is on startFunnels but hands no program of its caller's to a start: take it off", key)
 		}
 	}
 
@@ -1100,21 +1589,28 @@ func TestOnAMacNoRowHereOpensAnAppUngated(t *testing.T) {
 	if err := os.Mkdir(existing, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Symlink("/nonexistent-rt126", filepath.Join(there, "link")); err != nil {
+		t.Fatal(err)
+	}
 	fill := strings.NewReplacer("/tmp/../<missing>", "/tmp/../"+strings.TrimPrefix(missing, "/"), "<missing>", missing,
-		"<existing>", existing, "<pid>", strconv.Itoa(os.Getpid()))
-	studio := os.Getenv(studioRowsVar) == "1"
+		"<existing>", existing, "<pid>", strconv.Itoa(os.Getpid()), "<there>", there)
+	studio := 0
+	if os.Getenv(studioRowsVar) == "1" {
+		studio = 1
+	}
 	for _, row := range refusalRows {
 		args := make([]string, len(row.args))
 		for i, a := range row.args {
 			args[i] = fill.Replace(a)
 		}
 		want := row.refused
-		if studio {
+		if studio == 1 {
 			want = row.studio
 		}
-		err := startRefusal(row.program, args)
-		if (err != nil) != want {
-			t.Errorf("startRefusal(%s %q) = %v, want refused %v", row.program, args, err, want)
+		for _, inDesk := range []bool{true, false} {
+			if err := startRefusal(row.program, args, inDesk); (err != nil) != want {
+				t.Errorf("startRefusal(%s %q, in a desk %v) = %v, want refused %v", row.program, args, inDesk, err, want)
+			}
 		}
 		if row.program == filepath.Join("/usr/bin", appTools[0]) && len(args) == 4 {
 			if err := openRefusal(args[3]); (err != nil) != want {
@@ -1122,6 +1618,128 @@ func TestOnAMacNoRowHereOpensAnAppUngated(t *testing.T) {
 			}
 		}
 	}
+	for _, row := range deskFormRows {
+		t.Setenv("SMOLCORP_TEST_CHROME", fill.Replace(row.chrome))
+		program := strings.ReplaceAll(row.program, "<chrome>", headlessChrome())
+		args := make([]string, len(row.args))
+		for i, a := range row.args {
+			args[i] = fill.Replace(a)
+		}
+		for inDesk, want := range map[bool]bool{true: row.inDesk[studio], false: row.outside[studio]} {
+			if err := startRefusal(program, args, inDesk); (err != nil) != want {
+				t.Errorf("startRefusal(%s %q, in a desk %v) = %v, want refused %v", program, args, inDesk, err, want)
+			}
+		}
+	}
+}
+
+// refusalProbeVar makes the test binary, run again by TestOnAMacEachStartHelperRefusesBeforeItStarts, give one
+// probe to one start helper: "<helper>|<probe>|<folder>".
+const refusalProbeVar = "SMOLCORP_REFUSAL_PROBE"
+
+// refusalProbes are starts every start helper must refuse before it starts anything (the review's M6 and M8, as
+// rows): each program a missing path in <gone>, a folder that isn't there, so were a refusal missing, the start could
+// only fail, "no such file". chrome is SMOLCORP_TEST_CHROME for the probe; outsideOnly is a form a desk may start
+// (so a desk's helper isn't given it); studio whether the Studio refuses it too; said what the refusal says.
+var refusalProbes = []struct {
+	chrome, program     string
+	args                []string
+	outsideOnly, studio bool
+	said                string
+}{
+	{"", "<gone>/open", []string{"-a", "x"}, false, true, "open runs only as openApp runs it"},
+	{"", "<gone>/Y.app/Contents/MacOS/Y", nil, false, false, "names an app bundle (Y.app): only the Mac Studio's rows may"},
+	{"<gone>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=/nonexistent-rt126/Library/Chrome"), false, false, "/nonexistent-rt126/Library/Chrome"},
+	{"<gone>/Google Chrome.app/Contents/MacOS/Google Chrome", "<chrome>", append(slices.Clone(headlessFlags), "--user-data-dir=<there>/chrome"), true, false, "names an app bundle (Chrome.app): only the Mac Studio's rows may"},
+}
+
+// refusalProbeHelpers are startFunnels' helpers, each given a probe's program and words, and whether it starts in a
+// desk. A helper that gives back has started its program.
+var refusalProbeHelpers = map[string]struct {
+	inDesk bool
+	run    func(t *testing.T, folder, program string, args []string)
+}{
+	"runOutside": {false, func(t *testing.T, folder, program string, args []string) { runOutside(t, program, args...) }},
+	"inside": {true, func(t *testing.T, folder, program string, args []string) {
+		(&escapeDesk{root: folder}).inside(t, nil, program, args...)
+	}},
+	"work": {true, func(t *testing.T, folder, program string, args []string) {
+		(&escapeDesk{}).work(t, "", folder, 5*time.Second, nil, program, args...)
+	}},
+	"outside": {false, func(t *testing.T, folder, program string, args []string) { outside(t, folder, nil, program, args...) }},
+	"startOutside": {false, func(t *testing.T, folder, program string, args []string) {
+		startOutside(t, folder, nil, program, args...)
+	}},
+}
+
+// Each start helper on startFunnels refuses, at run time, before it starts anything: an app tool, an app bundle,
+// headless Chrome with a profile folder outside the temp folder, and, outside a desk, headless Chrome at all
+// (RT126ESCAPE2REFUSAL B1, M6 and M8). Each probe runs in the test binary run again, so a helper's t.Fatal is that
+// run's alone; its program is missing, so nothing could start were a refusal gone.
+func TestOnAMacEachStartHelperRefusesBeforeItStarts(t *testing.T) {
+	if probe := os.Getenv(refusalProbeVar); probe != "" {
+		words := strings.SplitN(probe, "|", 3)
+		if len(words) != 3 {
+			t.Fatalf("no such probe: %q", probe)
+		}
+		helper := refusalProbeHelpers[words[0]]
+		n, err := strconv.Atoi(words[1])
+		if helper.run == nil || err != nil || n < 0 || n >= len(refusalProbes) {
+			t.Fatalf("no such probe: %q", probe)
+		}
+		folder := words[2]
+		p := refusalProbes[n]
+		fill := strings.NewReplacer("<gone>", filepath.Join(folder, "gone"), "<there>", folder)
+		t.Setenv("SMOLCORP_TEST_CHROME", fill.Replace(p.chrome))
+		args := make([]string, len(p.args))
+		for i, a := range p.args {
+			args[i] = fill.Replace(a)
+		}
+		helper.run(t, folder, strings.ReplaceAll(fill.Replace(p.program), "<chrome>", os.Getenv("SMOLCORP_TEST_CHROME")), args)
+		t.Errorf("REACHED THE START in %s", words[0])
+		return
+	}
+	if len(refusalProbeHelpers) != len(startFunnels) {
+		t.Errorf("the probes' helpers (%d) aren't startFunnels' (%d): give each one its probes", len(refusalProbeHelpers), len(startFunnels))
+	}
+	for key, inDesk := range startFunnels {
+		name := key[strings.LastIndex(key, " ")+1:]
+		name = name[strings.LastIndex(name, ".")+1:]
+		if h, ok := refusalProbeHelpers[name]; !ok || h.inDesk != inDesk {
+			t.Errorf("%s (in a desk %v) has no probe helper of its own kind", key, inDesk)
+		}
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	studio := os.Getenv(studioRowsVar) == "1"
+	probes := 0
+	for name, helper := range refusalProbeHelpers {
+		for n, p := range refusalProbes {
+			if p.outsideOnly && helper.inDesk || studio && !p.studio {
+				continue
+			}
+			probes++
+			folder := t.TempDir()
+			cmd := disclaim.Cmd(exec.Command(self, "-test.run=^TestOnAMacEachStartHelperRefusesBeforeItStarts$", "-test.count=1", "-test.v"))
+			cmd.Env = append(os.Environ(), fmt.Sprintf("%s=%s|%d|%s", refusalProbeVar, name, n, folder))
+			out, err := cmd.CombinedOutput()
+			said := string(out)
+			switch {
+			case err == nil:
+				t.Errorf("%s, probe %d: the run passed, so nothing was refused:\n%s", name, n, said)
+			case strings.Contains(said, "REACHED THE START"), strings.Contains(said, "no such file"), strings.Contains(said, "fork/exec"):
+				t.Errorf("%s, probe %d: its start was reached:\n%s", name, n, said)
+			case !strings.Contains(said, p.said):
+				t.Errorf("%s, probe %d: refused, but not by startRefusal (%q):\n%s", name, n, p.said, said)
+			}
+			if _, err := os.Stat(filepath.Join(folder, "gone")); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("%s, probe %d: the missing folder is there (%v)", name, n, err)
+			}
+		}
+	}
+	t.Logf("%d probes run, each in its own run of the test binary", probes)
 }
 
 // sandboxDenials is what the sandbox logged it refused process (by name) since since: its "deny(1) …" lines.

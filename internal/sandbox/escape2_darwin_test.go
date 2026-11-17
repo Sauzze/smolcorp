@@ -164,9 +164,12 @@ func (d *escapeDesk) appended(t *testing.T, name, rule string) string {
 }
 
 // work runs program in the desk's sandbox (under profile, d.profile when ""), in dir, with HOME and env, for at most
-// limit.
+// limit. startRefusal comes first, as in inside (escape3_darwin_test.go), told the start is in a desk.
 func (d *escapeDesk) work(t *testing.T, profile, dir string, limit time.Duration, env []string, program string, args ...string) ran {
 	t.Helper()
+	if err := startRefusal(program, args, true); err != nil {
+		t.Fatal(err)
+	}
 	sandboxExec := sandboxExecOrSkip(t)
 	if profile == "" {
 		profile = d.profile
@@ -192,9 +195,13 @@ func (d *escapeDesk) work(t *testing.T, profile, dir string, limit time.Duration
 	return r
 }
 
-// outside runs program as the owner would, outside any sandbox, and fails the test if it fails.
+// outside runs program as the owner would, outside any sandbox, and fails the test if it fails. startRefusal comes
+// first, told the start isn't in a desk.
 func outside(t *testing.T, dir string, env []string, program string, args ...string) string {
 	t.Helper()
+	if err := startRefusal(program, args, false); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cmd := disclaim.Cmd(exec.CommandContext(ctx, program, args...))
@@ -223,8 +230,12 @@ func worked(t *testing.T, what string, r ran) {
 }
 
 // startOutside starts a program of the owner's outside any sandbox, its words in files, and stops it at the end.
+// startRefusal comes first, told the start isn't in a desk.
 func startOutside(t *testing.T, base string, env []string, program string, args ...string) (cmd *exec.Cmd, stdout, stderr string) {
 	t.Helper()
+	if err := startRefusal(program, args, false); err != nil {
+		t.Fatal(err)
+	}
 	o, err := os.CreateTemp(base, "out")
 	if err != nil {
 		t.Fatal(err)
@@ -514,6 +525,16 @@ func (w *workDesk) startAgent(t *testing.T) {
 
 func TestOnAMacNormalWorkRunsInADesksSandbox(t *testing.T) { normalWork(t, IOKitClasses()) }
 
+// headlessChrome is the Chrome program normal work runs headless: SMOLCORP_TEST_CHROME, or the owner's installed
+// Google Chrome. startRefusal lets it start in a desk only, with the words chromeRefusal takes; only the declarations
+// on chromeCallers may call it (TestOnAMacNoRowHereOpensAnAppUngated).
+func headlessChrome() string {
+	if chrome := os.Getenv("SMOLCORP_TEST_CHROME"); chrome != "" {
+		return chrome
+	}
+	return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+}
+
 // normalWork runs the normal-work list, each row in a desk whose IOKit list is iokit, and says how each row ended:
 // "passed", "failed" or "skipped", by its name.
 func normalWork(t *testing.T, iokit []IOKitClass) map[string]string {
@@ -692,10 +713,7 @@ func normalWork(t *testing.T, iokit []IOKitClass) map[string]string {
 		worked(t, "swift test --disable-sandbox", w.work(t, "", dir, 10*time.Minute, env, swift, "test", "--disable-sandbox"))
 	})
 	row("headless Chrome with --no-sandbox", func(t *testing.T) {
-		chrome := os.Getenv("SMOLCORP_TEST_CHROME")
-		if chrome == "" {
-			chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-		}
+		chrome := headlessChrome()
 		if _, err := os.Stat(chrome); err != nil {
 			required(t, "no Chrome here (SMOLCORP_TEST_CHROME names one): %v", err)
 		}
