@@ -178,6 +178,31 @@ func TestARowAddedToThePolicyOnlyAddsLinesToTheProfile(t *testing.T) {
 				t.Errorf("%s: no %s", s.name, want)
 			}
 		}
+
+		// FXTMUXDIR: tmux's own folder, one final deny (and any guard it needs); nothing else changes, nothing is lost.
+		before = profileSections(profileWithout(t, p, svc, func(r Rule) bool { return r.Row == rowTmuxFolder }))
+		for i := range 3 {
+			if !slices.Equal(after[i], before[i]) {
+				t.Errorf("%s: tmux's own folder's row changes section %d", s.name, i)
+			}
+		}
+		added = slices.Clone(after[3])
+		for _, line := range before[3] {
+			if at := slices.Index(added, line); at < 0 {
+				t.Errorf("%s: tmux's own folder's row takes out %s", s.name, line)
+			} else {
+				added = slices.Delete(added, at, at+1)
+			}
+		}
+		want := `(deny file-write* file-link (subpath "` + s.pl.TmuxFolder + `")) ; tmux's own folder`
+		if !slices.Contains(added, want) {
+			t.Errorf("%s: no %s", s.name, want)
+		}
+		for _, line := range added {
+			if line != want && !(strings.HasPrefix(line, "(deny ") && strings.HasSuffix(line, " ; "+rowAbove)) {
+				t.Errorf("%s: tmux's own folder's row adds %s", s.name, line)
+			}
+		}
 	}
 }
 

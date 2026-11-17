@@ -234,6 +234,9 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 	}
 	start := deskStartSocket()
 	pl.DeskStart = filepath.Join(physical(filepath.Dir(start)), filepath.Base(start))
+	// tmux's own folder (FXTMUXDIR), spelled as the kernel checks it even before tmux has made it: its parent resolved.
+	tmux := tmuxSocketFolder()
+	pl.TmuxFolder = filepath.Join(physical(filepath.Dir(tmux)), filepath.Base(tmux))
 	if testCopyPort() != 0 {
 		// A test copy's desks are denied the owner's own folder with no exception.
 		if base, err := os.UserConfigDir(); err == nil {

@@ -117,6 +117,22 @@ runtime_check() {
   err="$(cat guard.err)"
   [ "$status" = 98 ] && grep -q "smolcorp guard: server pid $pid, not" <<<"$err" ||
     { runtime_cleanup; echo "On $label a client given another PID didn't stop (status $status): $err" >&2; return 1; }
+  # Unchecked but for the desks' servers (FXTMUXDIR): a server on the list stops the client (98), one off it is
+  # talked to, and a list that isn't one stops it too.
+  # shellcheck disable=SC2086
+  status=0; SMOLCORP_TMUX_SERVER="unchecked:$((pid + 100000)),$pid" $arch_cmd "$tmux" -S p.sock has-session 2>guard.err || status=$?
+  err="$(cat guard.err)"
+  [ "$status" = 98 ] && grep -q "smolcorp guard: server pid $pid is a desk's" <<<"$err" ||
+    { runtime_cleanup; echo "On $label an unchecked client didn't stop at a desk's server (status $status): $err" >&2; return 1; }
+  # shellcheck disable=SC2086
+  status=0; SMOLCORP_TMUX_SERVER="unchecked:$((pid + 100000))" $arch_cmd "$tmux" -S p.sock has-session -t proof 2>guard.err || status=$?
+  [ "$status" = 0 ] ||
+    { runtime_cleanup; echo "On $label an unchecked client stopped at a server off its list (status $status): $(cat guard.err)" >&2; return 1; }
+  # shellcheck disable=SC2086
+  status=0; SMOLCORP_TMUX_SERVER="unchecked:$pid," $arch_cmd "$tmux" -S p.sock has-session 2>guard.err || status=$?
+  err="$(cat guard.err)"
+  [ "$status" = 98 ] && grep -q "smolcorp guard: the desks' servers aren't a list of pids" <<<"$err" ||
+    { runtime_cleanup; echo "On $label an unchecked client given a bad list didn't stop (status $status): $err" >&2; return 1; }
   # shellcheck disable=SC2086
   SMOLCORP_TMUX_SERVER=off $arch_cmd "$tmux" -S p.sock set-hook -g after-capture-pane "load-buffer -b guardcheck $RC_DIR/canary"
   # shellcheck disable=SC2086
@@ -128,8 +144,8 @@ runtime_check() {
   [ "$status" = 97 ] && grep -q 'smolcorp guard: refused a file opened by name' <<<"$err" ||
     { echo "On $label a guarded client didn't refuse a file read (status $status): $err" >&2; return 1; }
   case "$out" in *guardcheck*) echo "On $label the server read the file through a guarded client." >&2; return 1 ;; esac
-  echo "  $label: the pane says what was sent; no PID and another PID stop a client; a file read is refused;" \
-    "server $pid ended (killed by PID)"
+  echo "  $label: the pane says what was sent; no PID and another PID stop a client; a desk's server stops an unchecked" \
+    "one; a file read is refused; server $pid ended (killed by PID)"
 }
 
 # Runs the slices that can run here: this Mac's own, and Intel's under Rosetta when it has it.

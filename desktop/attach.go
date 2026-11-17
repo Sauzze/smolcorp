@@ -168,7 +168,7 @@ func attachClient(program, guard string, args ...string) (attaching, error) {
 	if err != nil {
 		return attaching{}, errors.New("there's no tmux here to show it with")
 	}
-	cmd.Env = withTmuxGuard(attachEnvironment(), guard)
+	cmd.Env = withTmuxGuard(attachEnvironment(), clientGuard(guard))
 	return attaching{cmd: cmd, done: cancel}, nil
 }
 

@@ -192,10 +192,12 @@ func TestNoExecOfTheBundledTmuxWithoutSmolcorpTmuxServer(t *testing.T) {
 	driveEveryTmuxSite(t, sandboxed, old)
 	runs := record()
 	// Each site ran, and each run was told what the core gave it: a start "off", a sandboxed desk's call its checked
-	// server, any other call "unchecked" or the grid's own server; one-shot calls with a clean environment and stdin
-	// from /dev/null, but for a paste's buffer.
+	// server, any other call unchecked but for the sandboxed desk's server (FXTMUXDIR: "unchecked:5151", as its row
+	// records it) or the grid's own server; one-shot calls with a clean environment and stdin from /dev/null, but for a
+	// paste's buffer.
 	clean := []string{"LANG", "PATH", tmuxGuardVariable, "TERM"}
-	for _, want := range []string{"5151", tmuxUnchecked, "off", "5252"} {
+	unchecked := tmuxUnchecked + ":5151"
+	for _, want := range []string{"5151", unchecked, "off", "5252"} {
 		if !slices.ContainsFunc(runs, func(r tmuxGateRun) bool { return r.guard == want }) {
 			t.Errorf("no run was told %q: %+v", want, runs)
 		}
@@ -207,6 +209,8 @@ func TestNoExecOfTheBundledTmuxWithoutSmolcorpTmuxServer(t *testing.T) {
 			t.Errorf("a start told %q: %q", run.guard, run.args)
 		case !start && run.guard == "off":
 			t.Errorf("a one-shot call told off: %q", run.args)
+		case run.guard == tmuxUnchecked:
+			t.Errorf("a call told plain unchecked while a sandboxed desk's server is recorded: %q", run.args)
 		case !start && !slices.Equal(run.env, clean):
 			// Only the names that differ: the core's whole environment would bury them (RT126SAM7 nit 7).
 			more := slices.DeleteFunc(slices.Clone(run.env), func(name string) bool { return slices.Contains(clean, name) })
@@ -216,7 +220,7 @@ func TestNoExecOfTheBundledTmuxWithoutSmolcorpTmuxServer(t *testing.T) {
 			t.Errorf("a one-shot call without -f /dev/null: %q", run.args)
 		case strings.Contains(run.args, sandboxed.TmuxSocket) && !start && run.guard != "5151":
 			t.Errorf("a sandboxed desk's call told %q: %q", run.guard, run.args)
-		case strings.Contains(run.args, old.TmuxSocket+" ") && !strings.Contains(run.args, "smolcorp-team") && run.guard != tmuxUnchecked:
+		case strings.Contains(run.args, old.TmuxSocket+" ") && !strings.Contains(run.args, "smolcorp-team") && run.guard != unchecked:
 			t.Errorf("an old desk's call told %q: %q", run.guard, run.args)
 		}
 		if (run.stdin == "stream") != strings.Contains(run.args, "load-buffer") {

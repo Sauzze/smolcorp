@@ -65,6 +65,49 @@ func TestTmuxClientRunsOnlyWithAGuardOfTheCores(t *testing.T) {
 	}
 }
 
+// FXTMUXDIR: an unchecked client is told the server pids the rows record for the desks in their sandbox, which the
+// guard then never talks to: a one-shot call's and an attach's alike. A desk outside the sandbox (its socket in
+// tmux's own folder, its tabs driven unchecked) isn't one; a gone desk's server still is; a checked guard is as it is.
+func TestAnUncheckedClientIsToldTheDesksServers(t *testing.T) {
+	shortSupport(t)
+	program, log := tmuxGateStandIn(t)
+	deskSockets(t)
+	if got := clientGuard(tmuxUnchecked); got != tmuxUnchecked {
+		t.Fatalf("with no desk recorded: %q", got)
+	}
+	writeRegistryHires(t,
+		Hire{ID: "cd34", State: "working", TmuxSocket: deskSocketPath("cd34", 0), TmuxServer: 4242, Sandboxed: true},
+		Hire{ID: "ef56", State: "gone", TmuxSocket: deskSocketPath("ef56", 0), TmuxServer: 6464, Sandboxed: true},
+		Hire{ID: "ab12", State: "working", TmuxSocket: filepath.Join(tmuxSocketFolder(), "smolcorp-ab12"), TmuxServer: 5353},
+		Hire{ID: "gh78", State: "working", TmuxSocket: deskSocketPath("gh78", 0), TmuxServer: 1},
+		Hire{ID: "ij90", State: "working", TmuxSocket: filepath.Join(deskSocketParent(), "ij90", "t"), TmuxServer: 7575})
+	if got := clientGuard(tmuxUnchecked); got != "unchecked:4242,6464" {
+		t.Errorf("the unchecked guard is %q, want unchecked:4242,6464", got)
+	}
+	if got := clientGuard("5151"); got != "5151" {
+		t.Errorf("a checked guard is %q", got)
+	}
+	cmd, cancel, err := tmuxClient(tmuxCallWait, program, tmuxUnchecked, "-S", "/x", "has-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if runs := tmuxGateRuns(t, log, 0); len(runs) != 1 || runs[0].guard != "unchecked:4242,6464" {
+		t.Errorf("the one-shot call ran %+v", runs)
+	}
+	a, err := attachClient(program, tmuxUnchecked, "-S", "/x", "attach-session", "-t", "=s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.done()
+	if !slices.Contains(a.cmd.Env, tmuxGuardVariable+"=unchecked:4242,6464") {
+		t.Errorf("the attach's environment is %q", a.cmd.Env)
+	}
+}
+
 // tmuxPickers say which tmux to run. tmuxPickedIn is every function that may use one, with what it does with it: run
 // it only through tmuxClient or tmuxStartCall, record it, or say whether there is one. No window's or pane's line names
 // a tmux: each runs `smolcorp attach` (SA-M8), which runs it through tmuxClient, or in the desk's sandbox.

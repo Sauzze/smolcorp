@@ -234,6 +234,11 @@ type Places struct {
 	HiresFolder, GMFolder string
 	// SocketParent is /tmp/smolcorp-<uid>; OwnSockets the desk's own folder in it.
 	SocketParent, OwnSockets string
+	// TmuxFolder is tmux's own folder for this user, as the core works it out ($TMUX_TMPDIR or /tmp, then tmux-<uid>),
+	// resolved: the plain hires' servers, the team grid's, the desks' started outside the sandbox, the owner's own
+	// `default`, and the desk-start socket when its path is too long elsewhere. On a Mac a desk can't write, link or
+	// bind anything below it (FXTMUXDIR); a Linux desk's view has a /tmp of its own.
+	TmuxFolder string
 	// Accounts are the confirmed Claude account folders besides ~/.claude.
 	Accounts []string
 	// InstallRoots are Smolcorp's install and the whole install roots of the programs the core and the app resolved.
@@ -334,6 +339,7 @@ const (
 	rowOtherDesks = "other desks' places"
 	rowCheckout   = "the owner's checkout"
 	rowSockets    = "the socket folder"
+	rowTmuxFolder = "tmux's own folder"
 	// rowOwnSockets is the desk's own socket folder: its own socket must be in it (sbpl.go's serviceRules).
 	rowOwnSockets = "its own socket folder"
 	rowSupport    = "the support folder, whole"
@@ -581,6 +587,13 @@ func build(pl Places) (*Policy, error) {
 		if pl.OwnSockets != "" {
 			b.add(Rule{Row: rowOwnSockets, Path: pl.OwnSockets, Below: true, Read: Allow, Write: Allow, Opens: []string{rowSockets}})
 		}
+	}
+	// tmux's own folder (FXTMUXDIR), whole, as the socket folder is but with no exception: no socket made, removed,
+	// renamed or bound there, and no link, so no server of a desk's takes a name the core, the Mac app or the owner's
+	// own tmux connects to by its path, and no path there is made to lead to a desk's socket. The desk-start socket
+	// may be in it: connecting is another operation, which its own row allows.
+	if goos == "darwin" && pl.TmuxFolder != "" {
+		b.add(Rule{Row: rowTmuxFolder, Path: pl.TmuxFolder, Below: true, Write: Deny})
 	}
 
 	// The support folder, whole, with the desk's own exceptions in its core's. Another support folder has none.

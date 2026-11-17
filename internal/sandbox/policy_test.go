@@ -23,6 +23,7 @@ const (
 	hires       = home + "/Projects/app-hires"
 	gmDir       = home + "/Projects/app-gm"
 	sockets     = "/private/tmp/smolcorp-501"
+	tmuxFolder  = "/private/tmp/tmux-501"
 )
 
 // setup is one column: a desk's places, and what its placeholders stand for.
@@ -39,7 +40,7 @@ func (s setup) path(p string) string {
 func hirePlaces(support string) Places {
 	return Places{GOOS: "darwin", Subject: Hire, Home: home, Support: support, OwnID: "h1", DeskStart: support + "/desk-start",
 		Root: hires + "/h1", Checkout: repo, GitDir: gitDir, OwnWorktree: "h1", OtherWorktrees: []string{"h1", "h2", "gm"},
-		DefaultBranch: "develop", HiresFolder: hires, GMFolder: gmDir, SocketParent: sockets, OwnSockets: sockets + "/h1",
+		DefaultBranch: "develop", HiresFolder: hires, GMFolder: gmDir, SocketParent: sockets, OwnSockets: sockets + "/h1", TmuxFolder: tmuxFolder,
 		Accounts: []string{home + "/.claude-work"}, InstallRoots: []string{"/Applications/Smolcorp.app", "/opt/homebrew/Cellar/tmux"},
 		GitConfigs: []string{"/opt/homebrew/etc/gitconfig", home + "/.xdg/git/config"}, RemoteLogin: true,
 		GitHooks: []string{hires + "/h1/.husky/_", hires + "/h1/.husky", home + "/.githooks", home + "/dotfiles/hooklib"},
@@ -221,6 +222,12 @@ var rows = []row{
 	all(sockets+"/h2/s", Write, D), all(sockets+"/$ID/s", Write, A), all(sockets+"/link", Write, D),
 	all(sockets+"/link", Link, D), all(sockets+"/$ID/a-link", Link, D), all(sockets+"/$ID/s", Link, D), all(sockets+"/h2/a-link", Link, D),
 	all("$ROOT/a-link", Link, A), all("$G/hooks/a-link", Link, D), all("$S/hires/$ID/claude/a-link", Link, A),
+	// tmux's own folder (FXTMUXDIR), whole and with no exception: nothing made, removed, renamed or linked there, the
+	// folder itself included; read as normal work. Beside it, normal work.
+	all(tmuxFolder+"/default", Write, D), all(tmuxFolder+"/smolcorp-h2", Write, D), all(tmuxFolder+"/smolcorp-h2", Link, D),
+	all(tmuxFolder+"/smolcorp-h2", Move, D), all(tmuxFolder+"/new/s", Write, D), all(tmuxFolder, Write, D), all(tmuxFolder, Move, D),
+	all(tmuxFolder, Link, D), all(tmuxFolder+"/default", Read, A), all("/private/tmp/tmux-5010/default", Write, A),
+	all("/private/tmp/tmux-501-x", Link, A),
 	// The folders above a denied place can't be removed or renamed away (RT126SAX1 B1): the shared .git, its refs,
 	// a submodule's folders, ~/.ssh, the other agents' and the config folders, the account folders, the desk's own
 	// Claude folder. Files and folders are still made inside them.
@@ -355,6 +362,7 @@ func TestARootInsideOrContainingTheSupportFolderIsRefused(t *testing.T) {
 		{"an install root not whole", func(p *Places) { p.InstallRoots = []string{"Applications"} }, ErrNotWhole},
 		{"a git config not whole", func(p *Places) { p.GitConfigs = []string{"etc/gitconfig"} }, ErrNotWhole},
 		{"own sockets not whole", func(p *Places) { p.OwnSockets = "smolcorp-501/h1" }, ErrNotWhole},
+		{"tmux's own folder not whole", func(p *Places) { p.TmuxFolder = "tmux-501" }, ErrNotWhole},
 		{"own sockets the socket folder", func(p *Places) { p.OwnSockets = sockets }, ErrOwnSockets},
 		{"own sockets outside it", func(p *Places) { p.OwnSockets = home + "/.ssh" }, ErrOwnSockets},
 		{"own sockets above it", func(p *Places) { p.OwnSockets = "/private/tmp" }, ErrOwnSockets},
@@ -919,6 +927,26 @@ func TestEveryFolderAboveADeniedPatternPlaceIsHeldOrDenied(t *testing.T) {
 		}
 		if checked < 200 {
 			t.Errorf("%s: only %d folders checked", s.name, checked)
+		}
+	}
+}
+
+// FXTMUXDIR: tmux's own folder is a Mac row. A Linux desk's view has a /tmp of its own (bwrap.go's tmpfs), so the
+// owner's tmux folder isn't in it, and the Policy gives no row there that the view would bind in.
+func TestTmuxsOwnFolderIsAMacRow(t *testing.T) {
+	mac := hirePlaces(realSupport)
+	if v, r := mustNew(t, mac).Decide(tmuxFolder+"/smolcorp-h2", Write); v != Deny || r.Row != rowTmuxFolder {
+		t.Errorf("on a Mac, a write in tmux's own folder: %v by %q", v, r.Row)
+	}
+	mac.TmuxFolder = ""
+	if v, _ := mustNew(t, mac).Decide(tmuxFolder+"/smolcorp-h2", Write); v != Allow {
+		t.Errorf("with no tmux folder given, a write there: %v", v)
+	}
+	linux := linuxPlaces(lHome + "/.local/share/smolcorp")
+	linux.TmuxFolder = "/tmp/tmux-1001"
+	for _, r := range mustNew(t, linux).Rules() {
+		if r.Row == rowTmuxFolder {
+			t.Errorf("a Linux Policy has a row in tmux's own folder: %+v", r)
 		}
 	}
 }

@@ -1,16 +1,18 @@
 --- a/client.c
 +++ b/client.c
-@@ -68,8 +68,168 @@
- static void		 client_dispatch_attached(struct imsg *);
- static void		 client_dispatch_wait(struct imsg *);
+@@ -70,6 +70,215 @@
  static const char	*client_exit_message(void);
-+
-+/*
+ 
+ /*
 + * Smolcorp's guard. SMOLCORP_TMUX_SERVER names the only server this client
 + * may talk to: the pid Smolcorp checked when that server started, or
 + * "unchecked" for a desk with no checked pid (the refusals stay on), or "off"
 + * for stock tmux, which only the client starting a desk's server inside its
-+ * sandbox uses. Unset or anything else, and the client stops before it
++ * sandbox uses. "unchecked:" and a list of pids, a comma between each, is
++ * unchecked but for the servers it names, which it never talks to: the
++ * sandboxed desks' servers, as Smolcorp recorded them, so a path an unchecked
++ * client is given that leads to one of them by a link is refused at the
++ * connect. Unset or anything else, and the client stops before it
 + * connects. A guarded client never starts a server, sends no environment,
 + * and takes from the server only the messages a client of its kind needs:
 + * anything else (a program to run, a file to open by name, the screen to
@@ -20,7 +22,36 @@
 +#define GUARD_PEER	98
 +static int		 guard_on = 1;
 +static pid_t		 guard_pid;	/* 0 is unchecked */
++static pid_t		*guard_not;	/* unchecked: servers it never talks to */
++static u_int		 guard_nnot;
++#define GUARD_NOT_MAX	4096
 +static int		 guard_attach;	/* may become an attached client */
++
++/*
++ * Reads the servers an unchecked client never talks to: pids above 1, a comma
++ * between each. Anything else (an empty one, too many) stops the client.
++ */
++static void
++guard_setup_not(const char *list)
++{
++	char		*copy, *next, *s;
++	const char	*errstr;
++	pid_t		 pid;
++
++	copy = next = xstrdup(list);
++	while ((s = strsep(&next, ",")) != NULL) {
++		pid = strtonum(s, 2, INT_MAX, &errstr);
++		if (errstr != NULL || guard_nnot == GUARD_NOT_MAX) {
++			fprintf(stderr, "smolcorp guard: the desks' servers "
++			    "aren't a list of pids (SMOLCORP_TMUX_SERVER)\n");
++			exit(GUARD_PEER);
++		}
++		guard_not = xreallocarray(guard_not, guard_nnot + 1,
++		    sizeof *guard_not);
++		guard_not[guard_nnot++] = pid;
++	}
++	free(copy);
++}
 +
 +/* Reads SMOLCORP_TMUX_SERVER, or stops the client. */
 +static void
@@ -34,6 +65,10 @@
 +	}
 +	if (s != NULL && strcmp(s, "unchecked") == 0)
 +		return;
++	if (s != NULL && strncmp(s, "unchecked:", 10) == 0) {
++		guard_setup_not(s + 10);
++		return;
++	}
 +	if (s != NULL)
 +		guard_pid = strtonum(s, 1, INT_MAX, &errstr);
 +	if (guard_pid == 0) {
@@ -48,7 +83,8 @@
 + * the user it listened as must be this one (LOCAL_PEERCRED on a Mac,
 + * SO_PEERCRED on Linux), and its pid the one given (LOCAL_PEERPID on a Mac,
 + * which names the process holding the server's socket now, the same pid
-+ * across an exec; SO_PEERCRED's on Linux).
++ * across an exec; SO_PEERCRED's on Linux). Unchecked, its pid must be none of
++ * the desks' servers it was given, and known when it was given any.
 + */
 +static void
 +guard_check_peer(int fd)
@@ -57,6 +93,7 @@
 +	gid_t		gid;
 +	pid_t		pid = -1;
 +	socklen_t	len;
++	u_int		i;
 +#if !defined(LOCAL_PEERPID) && defined(SO_PEERCRED)
 +	struct ucred	uc;
 +#endif
@@ -66,7 +103,7 @@
 +		    "user's\n");
 +		exit(GUARD_PEER);
 +	}
-+	if (guard_pid == 0)
++	if (guard_pid == 0 && guard_nnot == 0)
 +		return;
 +#if defined(LOCAL_PEERPID)
 +	len = sizeof pid;
@@ -77,6 +114,16 @@
 +	if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &uc, &len) == 0)
 +		pid = uc.pid;
 +#endif
++	if (guard_pid == 0) {
++		for (i = 0; i < guard_nnot; i++) {
++			if (pid == -1 || pid == guard_not[i]) {
++				fprintf(stderr, "smolcorp guard: server pid %ld "
++				    "is a desk's, or unknown\n", (long)pid);
++				exit(GUARD_PEER);
++			}
++		}
++		return;
++	}
 +	if (pid != guard_pid) {
 +		fprintf(stderr, "smolcorp guard: server pid %ld, not %ld\n",
 +		    (long)pid, (long)guard_pid);
@@ -100,7 +147,7 @@
 +	}
 +	return (0);
 +}
- 
++
 +static __dead void
 +guard_refuse(const char *what, u_int type)
 +{
@@ -109,7 +156,7 @@
 +	exit(GUARD_REFUSED);
 +}
 +
- /*
++/*
 + * The messages a guarded client takes, per state. Waiting (every one-shot
 + * client): the exit messages, the flags, the version, and streams on 0, 1
 + * and 2; MSG_READY too if the command can attach. Attached: the exit
@@ -169,7 +216,7 @@
   * Get server create lock. If already held then server start is happening in
   * another client, so block until the lock is released and return -2 to
   * retry. Return -1 on failure to continue and start the server anyway.
-@@ -244,6 +404,8 @@
+@@ -244,6 +453,8 @@
  	u_int			 ncaps = 0;
  	struct args_value	*values;
  
@@ -178,7 +225,7 @@
  	/* Set up the initial command. */
  	if (shell_command != NULL) {
  		msg = MSG_SHELL;
-@@ -251,6 +413,7 @@
+@@ -251,6 +462,7 @@
  	} else if (argc == 0) {
  		msg = MSG_COMMAND;
  		flags |= CLIENT_STARTSERVER;
@@ -186,7 +233,7 @@
  	} else {
  		msg = MSG_COMMAND;
  
-@@ -264,6 +427,7 @@
+@@ -264,6 +476,7 @@
  		if (pr->status == CMD_PARSE_SUCCESS) {
  			if (cmd_list_any_have(pr->cmdlist, CMD_STARTSERVER))
  				flags |= CLIENT_STARTSERVER;
@@ -194,7 +241,7 @@
  			cmd_list_free(pr->cmdlist);
  		} else
  			free(pr->error);
-@@ -275,6 +439,12 @@
+@@ -275,6 +488,12 @@
  	client_proc = proc_start("client");
  	proc_set_signals(client_proc, client_signal);
  
@@ -207,7 +254,7 @@
  	/* Save the flags. */
  	client_flags = flags|CLIENT_WRITE_ACK;
  	log_debug("flags are %#llx", (unsigned long long)client_flags);
-@@ -297,6 +467,8 @@
+@@ -297,6 +516,8 @@
  		}
  		return (1);
  	}
@@ -216,7 +263,7 @@
  	client_peer = proc_add_peer(client_proc, fd, client_dispatch, NULL);
  
  	/* Save these before pledge(). */
-@@ -477,7 +649,7 @@
+@@ -477,7 +698,7 @@
  	pid = getpid();
  	proc_send(client_peer, MSG_IDENTIFY_CLIENTPID, -1, &pid, sizeof pid);
  
@@ -225,7 +272,7 @@
  		sslen = strlen(*ss) + 1;
  		if (sslen > MAX_IMSGSIZE - IMSG_HEADER_SIZE)
  			continue;
-@@ -585,6 +757,8 @@
+@@ -585,6 +806,8 @@
  		return;
  	}
  

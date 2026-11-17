@@ -300,6 +300,53 @@ func TestUncheckedModeSkipsOnlyThePid(t *testing.T) {
 	}
 }
 
+// Unchecked but for the desks' servers (FXTMUXDIR): "unchecked:" and the pids the core recorded for its sandboxed
+// desks. A server holding one of them is never sent anything, whatever path led there (here a link, as a desk could
+// flip a plain hire's socket in tmux's own folder into); a server off the list is talked to as unchecked; a list that
+// isn't one stops the client before it connects. A stock client ignores the variable: only the guard closes this.
+func TestUncheckedModeRefusesTheDesksServers(t *testing.T) {
+	guarded := clients()[1]
+	guarded.need(t)
+	dir := shortDir(t)
+	srv := listen(t, dir, Step{After: MsgCommand, Send: []Message{Exit(0)}})
+	link := filepath.Join(dir, "plain")
+	if err := os.Symlink(srv.Path, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, guard := range []string{"unchecked:" + ownPid, "unchecked:2147483646," + ownPid} {
+		for _, at := range []string{srv.Path, link} {
+			r := guarded.run(t, at, guard, "", nil, "has-session")
+			if r.status != 98 || !strings.Contains(r.stderr, "smolcorp guard: server pid "+ownPid+" is a desk's") {
+				t.Errorf("%s through %s: the client should have stopped at the desk's server: %+v", guard, filepath.Base(at), r)
+			}
+		}
+	}
+	time.Sleep(100 * time.Millisecond)
+	for _, s := range srv.Sessions() {
+		if len(s.Received) != 0 {
+			t.Fatalf("the desk's server was sent %d messages", len(s.Received))
+		}
+	}
+	connections := len(srv.Sessions())
+	for _, guard := range []string{"unchecked:", "unchecked:,", "unchecked:12,", "unchecked:1", "unchecked:abc", "unchecked:12;13", "unchecked: 12x"} {
+		r := guarded.run(t, link, guard, "", nil, "has-session")
+		if r.status != 98 || !strings.Contains(r.stderr, "smolcorp guard: the desks' servers aren't a list of pids") {
+			t.Errorf("SMOLCORP_TMUX_SERVER=%q should stop the client: %+v", guard, r)
+		}
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := len(srv.Sessions()); n != connections {
+		t.Errorf("a client with a bad list connected: %d connections, not %d", n, connections)
+	}
+
+	// Off the list, the same server is talked to as unchecked.
+	dir = shortDir(t)
+	srv = listen(t, dir, Step{After: MsgCommand, Send: []Message{Exit(0)}})
+	if r := guarded.run(t, srv.Path, "unchecked:2147483646,3", "", nil, "has-session"); r.status != 0 || !session(t, srv).Has(MsgCommand) {
+		t.Fatalf("a server off the list should be talked to: %+v", r)
+	}
+}
+
 // A guarded client never starts a server, even for new-session or a bare `tmux`.
 func TestAGuardedClientNeverStartsAServer(t *testing.T) {
 	guarded := clients()[1]

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -273,6 +274,10 @@ func newSandboxRig(t *testing.T) *sandboxRig {
 
 func TestEveryEngineDeskStartsInItsSandboxAndItsServerIsRecorded(t *testing.T) {
 	r := newSandboxRig(t)
+	// tmux's own folder (FXTMUXDIR) as the core works it out, through a link in its spelling (the temp folder's /var on
+	// a Mac) and not yet made: its place is spelled resolved all the same.
+	tmuxBase := t.TempDir()
+	t.Setenv("TMUX_TMPDIR", tmuxBase)
 	hire, err := runManagedHire(r.request("janitor"), r.o)
 	if err != nil {
 		t.Fatal(err)
@@ -293,6 +298,9 @@ func TestEveryEngineDeskStartsInItsSandboxAndItsServerIsRecorded(t *testing.T) {
 		pl.GitDir != physical(filepath.Join(r.repo, ".git")) || pl.OwnWorktree == "" || pl.Support != physical(supportDir) ||
 		pl.HiresFolder != physical(hiresFolder(r.repo, r.o.Worktrees)) || pl.Home != physical(homeDir) || pl.DeskStart == "" || len(pl.InstallRoots) == 0 {
 		t.Errorf("its places: %+v", pl)
+	}
+	if want := filepath.Join(physical(tmuxBase), "tmux-"+strconv.Itoa(os.Getuid())); pl.TmuxFolder != want {
+		t.Errorf("its tmux folder is %q, want %q", pl.TmuxFolder, want)
 	}
 	if kept, ok := deskSandboxOf(hire.ID); !ok || kept != r.desks[0] {
 		t.Error("its sandbox isn't kept for its stop")

@@ -162,6 +162,7 @@
 (deny file-write* file-link (literal "/")) ; a desk's place and the folders above it can't be moved or removed
 (deny file-link (subpath "/private/tmp/smolcorp-501")) ; no links anywhere in the socket folder
 (deny file-write-create (require-all (subpath "/private/tmp/smolcorp-501") (vnode-type SYMLINK))) ; no links anywhere in the socket folder
+(deny file-write* file-link (subpath "/private/tmp/tmux-501")) ; tmux's own folder
 (deny file-write* file-link (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/BRIEF[^/]*\\.md$")) ; its brief and its fence
 (deny file-write* file-link (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/settings\\.json$")) ; its brief and its fence
 (deny file-write* file-link (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/sandbox\\.sb$")) ; its brief and its fence
@@ -403,6 +404,8 @@
 (deny file-write-create (require-all (literal "/private/tmp/smolcorp-501") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-link (literal "/private/tmp")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/private/tmp") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/private/tmp/tmux-501")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/private/tmp/tmux-501") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/hires")) ; the folders above a denied place can't be moved or removed

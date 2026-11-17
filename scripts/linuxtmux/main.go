@@ -60,6 +60,7 @@ var targets = map[string]struct {
 var guardMessages = []string{
 	"smolcorp guard: no server pid given (SMOLCORP_TMUX_SERVER)",
 	"smolcorp guard: server pid %ld, not %ld",
+	"smolcorp guard: server pid %ld is a desk's, or unknown",
 	"smolcorp guard: refused %s (message %u)",
 }
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -88,12 +89,14 @@ func TestAnAttachOutsideTheSandboxRunsOnlyThroughTheHelper(t *testing.T) {
 		return status, out.String(), runs
 	}
 	clean := []string{"LANG", "PATH", tmuxGuardVariable, "TERM"}
+	// An unchecked attach is told the sandboxed desks' servers, which it never talks to (FXTMUXDIR): here ab12's alone.
+	unlisted := tmuxUnchecked + ":" + strconv.Itoa(sandboxed.TmuxServer)
 	for words, want := range map[string]tmuxGateRun{
-		"cd34":             {guard: tmuxUnchecked, args: "-f /dev/null -S " + old.TmuxSocket + " attach-session -t =hire"},
-		"old":              {guard: tmuxUnchecked, args: "-f /dev/null -S " + old.TmuxSocket + " attach-session -t =hire"},
-		"--read-only cd34": {guard: tmuxUnchecked, args: "-f /dev/null -S " + old.TmuxSocket + " attach-session -r -t =hire"},
-		"--session smolcorp-0a1b2c3d --socket /t/default": {guard: tmuxUnchecked, args: "-f /dev/null -S /t/default attach-session -t =smolcorp-0a1b2c3d"},
-		"--session hire --socket /t/plain":                {guard: tmuxUnchecked, args: "-f /dev/null -S /t/plain attach-session -t =hire"},
+		"cd34":             {guard: unlisted, args: "-f /dev/null -S " + old.TmuxSocket + " attach-session -t =hire"},
+		"old":              {guard: unlisted, args: "-f /dev/null -S " + old.TmuxSocket + " attach-session -t =hire"},
+		"--read-only cd34": {guard: unlisted, args: "-f /dev/null -S " + old.TmuxSocket + " attach-session -r -t =hire"},
+		"--session smolcorp-0a1b2c3d --socket /t/default": {guard: unlisted, args: "-f /dev/null -S /t/default attach-session -t =smolcorp-0a1b2c3d"},
+		"--session hire --socket /t/plain":                {guard: unlisted, args: "-f /dev/null -S /t/plain attach-session -t =hire"},
 		"--team-grid 5252":                                {guard: "5252", args: "-f /dev/null -S " + teamGridSocket(0) + " attach-session -r -t =team"},
 	} {
 		status, said, runs := attach(strings.Fields(words)...)
