@@ -771,6 +771,7 @@ func TestAGMThatNeverStartsOrWhoseWindowWontOpenTakesItsTokenAway(t *testing.T) 
 	if r.d.gmTokenNow() != "" {
 		t.Error("a GM that never started kept its token")
 	}
+	stopDecksOf(t)
 	r2 := newLRig(t)
 	r2.o.Open = func([]string, string) error { return os.ErrPermission }
 	if status, _, _ := r2.manage("gm"); status != http.StatusInternalServerError {
@@ -893,6 +894,7 @@ func TestAFireLooksAgainJustBeforeStoppingAndStopsAtAQuestionThatCameUpMeanwhile
 
 func TestForceSkipsOnlyADraftBusyOrUncommittedFilesAndNothingIsEverTyped(t *testing.T) {
 	for _, shows := range []string{"draft", "busy-1"} {
+		stopDecksOf(t)
 		r := newLRig(t)
 		r.shows = shows
 		h, w := r.hire("janitor")
@@ -1108,6 +1110,7 @@ func TestALauncherThatConnectedAgainIsNeverFiredByAPlainStopAndStillCountsAsTheG
 	}
 
 	// The GM: a second one is refused while the reconnected GM window is up.
+	stopDecksOf(t)
 	r2 := newLRig(t)
 	gm, gmWindow := r2.hire("gm")
 	gmToken := flagAfter(r2.opened[0], "--hire")

@@ -625,6 +625,7 @@ func redactionProblems(t *testing.T, hideNames bool) []string {
 
 func TestTheViewerIsSentNothingThatMustNotLeave(t *testing.T) {
 	for _, hide := range []bool{false, true} {
+		stopDecksOf(t)
 		if problems := redactionProblems(t, hide); len(problems) > 0 {
 			t.Errorf("with names hidden %v: %s", hide, strings.Join(problems, "; "))
 		}

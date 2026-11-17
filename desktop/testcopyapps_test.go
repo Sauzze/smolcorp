@@ -527,6 +527,7 @@ func TestATestCopyLeavesLoginAndInstallToTheSmolcorpInUse(t *testing.T) {
 		}
 	}
 	// Under the Mac app the login item is asked of the app, which keeps it for the Smolcorp in use (SelfTest.testCopyLogin).
+	stopDecksOf(t)
 	mac := withMac(t)
 	d = newTestDeck(t)
 	if status, _ := d.fix(fixLogin); status != http.StatusNoContent || len(mac.requests("login-item")) != 1 {
@@ -583,6 +584,7 @@ func TestATestCopysFixesOffTheMacSpeakOfThisComputer(t *testing.T) {
 	if status, why := d.fix(fixAccessibility); status != http.StatusBadRequest || why != errUnknownFix.Error() {
 		t.Errorf("Accessibility off the Mac: %d %q", status, why)
 	}
+	stopDecksOf(t)
 	withMac(t)
 	d = newTestDeck(t)
 	if status, why := d.fix(fixFirewall); status != http.StatusConflict || why != testCopyKeepsFixes {

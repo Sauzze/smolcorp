@@ -51,6 +51,7 @@ func TestTheGMsStartMessageIsNeverTheOwners(t *testing.T) {
 		if noted != 0 {
 			t.Error("another hire's start message was noted")
 		}
+		stopDecksOf(t)
 		d, r, _ := engineDeck(t)
 		d.engine.HeardFrom = func(Hire) bool { return true }
 		if status, message := d.Perform("hire", "", url.Values{"role": {"gm"}}); status != http.StatusNoContent {

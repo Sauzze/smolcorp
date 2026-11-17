@@ -343,6 +343,7 @@ func TestTheGMPreflightUnderTheMacAppIsNotReadyWithoutTmux(t *testing.T) {
 		t.Skip("no tmux hires here")
 	}
 	for _, inTmux := range []bool{false, true} {
+		stopDecksOf(t)
 		d, _, _, _ := preflightDeck(t)
 		underTheMacApp(t)
 		hasProgram = func(string) bool { return false }
@@ -380,6 +381,7 @@ func TestTheGMPreflightUnderTheMacAppWithABundledTmuxIsReady(t *testing.T) {
 		want = "tmux comes with Smolcorp."
 	}
 	for _, inTmux := range []bool{false, true} {
+		stopDecksOf(t)
 		d, _, _, _ := preflightDeck(t)
 		underTheMacApp(t)
 		hasProgram = func(name string) bool { return name == "brew" } // an install command there to leave out
@@ -600,6 +602,7 @@ func TestTheGMHireWithDefaultsStartsTheGMRoleInTheHiresFolder(t *testing.T) {
 // With no folder for your hires, the GM isn't hired in your home folder: refused, and nothing switched on.
 func TestTheGMHireWithoutAHiresFolderIsRefused(t *testing.T) {
 	for _, folder := range []string{"", filepath.Join(t.TempDir(), "gone")} {
+		stopDecksOf(t)
 		d, h, _, _ := preflightDeck(t)
 		d.config.HireFolder = folder
 		code, text := pageCall(t, d, "POST", "/setup/hire/gm")
@@ -622,6 +625,7 @@ func TestTheGMHireTurnsHiringOnAndBackOffIfItFails(t *testing.T) {
 	if !d.config.HiringEnabled || !loadConfig().HiringEnabled {
 		t.Error("the GM hire left hiring off")
 	}
+	stopDecksOf(t)
 	d, h, _, _ = preflightDeck(t)
 	d.config.HiringEnabled = false
 	h.missing = "claude isn't installed here."

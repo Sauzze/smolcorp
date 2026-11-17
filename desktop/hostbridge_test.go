@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 )
@@ -26,8 +27,9 @@ func (f *fakeHost) call(request bridgeRequest) (bridgeAnswer, error) {
 // withHost puts a fake Mac app in place for one test.
 func withHost(t *testing.T, answer bridgeAnswer) *fakeHost {
 	t.Helper()
+	noDeckRunning(t, "withHost()")
 	saved := host
-	t.Cleanup(func() { host = saved })
+	t.Cleanup(func() { noDeckAtPutBack(t, "withHost()'s app"); host = saved })
 	fake := &fakeHost{answer: answer}
 	host = fake
 	return fake
@@ -35,6 +37,8 @@ func withHost(t *testing.T, answer bridgeAnswer) *fakeHost {
 
 func TestNoHostKeepsTheTabsAsTheyAre(t *testing.T) {
 	d := newTestDeck(t)
+	// No Mac app after the deck has started: it stops first, and still answers (FXPUMPCLASS).
+	stopDeck(d)
 	saved := host
 	host = nil
 	t.Cleanup(func() { host = saved })
@@ -48,6 +52,7 @@ func TestNoHostKeepsTheTabsAsTheyAre(t *testing.T) {
 
 func TestTheMacAppDrivesItsOwnTerminals(t *testing.T) {
 	d := newTestDeck(t)
+	stopDecksOf(t)
 	fake := withHost(t, bridgeAnswer{OK: true})
 	tab := d.tab("tty:/dev/ttys003")
 	mac, ok := tab.(macTab)
@@ -97,6 +102,7 @@ func TestTheMacAppDrivesItsOwnTerminals(t *testing.T) {
 
 func TestAPaneKeepsItsKeysAndTheAppBringsItForward(t *testing.T) {
 	d := newTestDeck(t)
+	stopDecksOf(t)
 	fake := withHost(t, bridgeAnswer{OK: true, Fired: "fired"})
 	tab := d.tab("tmux:%3@/tmp/tmux-501/default")
 	pane, ok := paneOf(tab)
@@ -117,6 +123,7 @@ func TestAPaneKeepsItsKeysAndTheAppBringsItForward(t *testing.T) {
 func TestCloseSaysWhatTheAppDid(t *testing.T) {
 	d := newTestDeck(t)
 	for fired, want := range map[string]error{"fired": nil, "not-stopped": errNotStopped} {
+		stopDecksOf(t)
 		withHost(t, bridgeAnswer{OK: true, Fired: fired})
 		if err := d.tab("iterm:BD2206F6-EE01").Close(Claude); !errors.Is(err, want) {
 			t.Errorf("%s: got %v, want %v", fired, err, want)
@@ -265,16 +272,42 @@ func TestWithoutTheMacAppAWatchOnlyDeskIsAsItWas(t *testing.T) {
 	}
 }
 
+// typesKept is a Mac app stand-in that answers every request, and keeps what it is asked about the desk's tab under
+// a lock, whatever the action: a deck's own rounds ask it too, of no tab.
+type typesKept struct {
+	tab   string
+	mu    sync.Mutex
+	typed []bridgeRequest
+}
+
+func (k *typesKept) call(request bridgeRequest) (bridgeAnswer, error) {
+	if request.Tab == k.tab {
+		k.mu.Lock()
+		k.typed = append(k.typed, request)
+		k.mu.Unlock()
+	}
+	return bridgeAnswer{OK: true}, nil
+}
+
 // A queued effort is typed by one of the deck's rounds, so a test's deck, stopped as the test ends, waits for it: it
 // never runs into the next test, where its look at the GM's role reads the folders that test puts in (FXMEM3RACE).
 func TestStoppingADeckWaitsForTheEffortItQueued(t *testing.T) {
-	w := newWatchOnly(t)
-	fake := withHost(t, bridgeAnswer{OK: true})
+	// The app is in place before the deck starts, never put in under it (FXPUMPCLASS), so the desk is one in a terminal
+	// it drives. The deck's own start asks it too, from its rounds, of no tab: what it is asked of the desk's tab is
+	// kept under a lock, and that is only the effort typed (RT126PUMPCLASS (b)).
+	noDeckRunning(t, "host =")
+	saved := host
+	t.Cleanup(func() { host = saved })
+	app := &typesKept{tab: "tty:/dev/ttys011"}
+	host = app
+	d := newTestDeck(t)
+	hookOn(d, "typed", "SessionStart", "/work/typed", "tty:/dev/ttys011", "/work/typed", 1793500000003)
+	w := watchOnly{d: d, phone: pair(t, d)}
 	// The key worker is kept busy, so the effort waits behind it.
 	underWay, finish := make(chan struct{}), make(chan struct{})
 	w.d.work <- func() { close(underWay); <-finish }
 	<-underWay
-	if status, said := w.post(t, "/act", "action=effort&level=high&session=watch"); status != http.StatusNoContent || said != "" {
+	if status, said := w.post(t, "/act", "action=effort&level=high&session=typed"); status != http.StatusNoContent || said != "" {
 		t.Fatalf("effort: %d %q", status, said)
 	}
 	stopped := make(chan struct{})
@@ -290,11 +323,13 @@ func TestStoppingADeckWaitsForTheEffortItQueued(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the deck did not stop")
 	}
-	if len(fake.asked) != 1 || fake.asked[0].Action != "type" || fake.asked[0].Text != "/effort high" {
-		t.Errorf("asked %+v, want /effort high typed before the stop's end", fake.asked)
+	app.mu.Lock()
+	if len(app.typed) != 1 || app.typed[0].Action != "type" || app.typed[0].Text != "/effort high" {
+		t.Errorf("typed %+v, want /effort high typed before the stop's end, and nothing else asked of the desk", app.typed)
 	}
+	app.mu.Unlock()
 	w.d.mu.Lock()
-	effort := w.d.sessions.Get("watch").Effort
+	effort := w.d.sessions.Get("typed").Effort
 	w.d.mu.Unlock()
 	if effort != "high" {
 		t.Errorf("the effort: %q", effort)

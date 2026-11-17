@@ -106,6 +106,7 @@ func TestAChosenDeskIsKeptAcrossARestartAndForgottenWithItsSession(t *testing.T)
 	}
 	// An app that starts again: the same sessions come back on their saved places. With the lock held, as
 	// the app holds it: the restore asks for a save, which reads the sessions and desks a moment later.
+	stopDecksOf(t)
 	again := newTestDeck(t)
 	again.mu.Lock()
 	defer again.mu.Unlock()

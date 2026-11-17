@@ -67,8 +67,15 @@ func fakeHiring(t *testing.T, tmux string) *hiring {
 // hiringDeck is a deck with hiring on and a folder for new hires.
 func hiringDeck(t *testing.T, tmux string) (*Deck, *hiring, string) {
 	t.Helper()
+	return hiringDeckAfter(t, tmux, func() {})
+}
+
+// hiringDeckAfter is hiringDeck, with before run once the stand-ins and the folders are in, before the deck starts
+// (hooksOff's home, say): never under the running deck (FXPUMPCLASS).
+func hiringDeckAfter(t *testing.T, tmux string, before func()) (*Deck, *hiring, string) {
+	t.Helper()
 	h := fakeHiring(t, tmux)
-	d := newTestDeck(t)
+	d := newTestDeckAfter(t, before)
 	folder := t.TempDir()
 	d.config.HiringEnabled = true
 	d.config.HireFolder = folder
@@ -552,12 +559,14 @@ func TestTheSetupPageSaysHiredOnlyOnceTheHireIsAtADesk(t *testing.T) {
 }
 
 // hooksOff points the real hooks check at a temporary HOME with Claude Code's
-// folder but no hooks, so hires must be refused.
-func hooksOff(t *testing.T) {
+// folder but no hooks, so hires must be refused. It changes the home folder a deck's rounds read, so it goes in
+// before the deck starts (hiringDeckAfter), never under it (FXPUMPCLASS).
+func hooksOff(t testing.TB) {
 	t.Helper()
+	noDeckRunning(t, "hooksOff()")
 	saved := homeDir
 	homeDir = t.TempDir()
-	t.Cleanup(func() { homeDir = saved })
+	t.Cleanup(func() { noDeckAtPutBack(t, "hooksOff()'s home"); homeDir = saved })
 	if err := os.MkdirAll(agentFolder(Claude), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -565,8 +574,7 @@ func hooksOff(t *testing.T) {
 }
 
 func TestAHireWithoutHooksConnectedIsRefusedAndOpensNothing(t *testing.T) {
-	d, h, _ := hiringDeck(t, "")
-	hooksOff(t)
+	d, h, _ := hiringDeckAfter(t, "", func() { hooksOff(t) })
 	for name, hire := range map[string]func() (int, string){
 		"office": func() (int, string) { return d.Perform("hire", "", url.Values{}) },
 		"floor":  func() (int, string) { return d.Perform("hire", "", url.Values{"floor": {"1"}, "desk": {"0"}}) },
@@ -583,9 +591,10 @@ func TestAHireWithoutHooksConnectedIsRefusedAndOpensNothing(t *testing.T) {
 }
 
 func TestAHireWithHooksConnectedGoesAhead(t *testing.T) {
-	d, h, _ := hiringDeck(t, "")
-	hooksOff(t)
-	hooksNotConnected = func(Agent) string { return "" }
+	d, h, _ := hiringDeckAfter(t, "", func() {
+		hooksOff(t)
+		hooksNotConnected = func(Agent) string { return "" }
+	})
 	if status, message := d.hireFromSetup("gm"); status != http.StatusNoContent {
 		t.Fatalf("hire with hooks connected: %d %s", status, message)
 	}
@@ -608,8 +617,7 @@ func hooksOn(t *testing.T) {
 }
 
 func TestAClaudeHireGoesAheadWhileAnotherAgentIsntHooked(t *testing.T) {
-	d, h, _ := hiringDeck(t, "")
-	hooksOn(t)
+	d, h, _ := hiringDeckAfter(t, "", func() { hooksOn(t) })
 	if isConnected(Codex) {
 		t.Fatal("Codex's empty folder counts as connected")
 	}
@@ -622,8 +630,7 @@ func TestAClaudeHireGoesAheadWhileAnotherAgentIsntHooked(t *testing.T) {
 }
 
 func TestAHireOfAnUnhookedAgentIsRefusedThoughAnotherIsHooked(t *testing.T) {
-	d, h, _ := hiringDeck(t, "")
-	hooksOn(t)
+	d, h, _ := hiringDeckAfter(t, "", func() { hooksOn(t) })
 	d.config.HireAgent = string(Codex)
 	status, message := d.hireFromSetup("")
 	if status != http.StatusConflict || !strings.HasPrefix(message, "Connect your agents first") || !strings.Contains(message, "Codex") {
@@ -635,8 +642,7 @@ func TestAHireOfAnUnhookedAgentIsRefusedThoughAnotherIsHooked(t *testing.T) {
 }
 
 func TestAnAgentNotInstalledIsSaidSoBeforeHooksNotConnected(t *testing.T) {
-	d, h, _ := hiringDeck(t, "")
-	hooksOff(t)
+	d, h, _ := hiringDeckAfter(t, "", func() { hooksOff(t) })
 	h.missing = "Can't hire: your login shell (bash), where hires start, doesn't find claude."
 	status, message := d.hireFromSetup("gm")
 	if status != http.StatusConflict || message != h.missing || strings.Contains(message, "Connect your agents first") {
@@ -691,8 +697,7 @@ func TestAFloorWithItsOwnFolderIsHiredOntoWithNoFolderForNewHires(t *testing.T) 
 // An agent with no settings folder yet can't be connected, so its hire isn't
 // refused for that: its terminal says what's missing, as on the Mac.
 func TestAHireOfAnAgentWithNoSettingsFolderIsNotRefusedForHooks(t *testing.T) {
-	hiringDeck(t, "")
-	hooksOff(t)
+	hiringDeckAfter(t, "", func() { hooksOff(t) })
 	if why := hooksRefusal(Codex); why != "" {
 		t.Errorf("Codex, never run here: %q, want no refusal", why)
 	}
@@ -833,6 +838,7 @@ func TestTheOfficesHireWindowIsTheOfficesOwnWindowsOnly(t *testing.T) {
 func TestHiringAtAnEmptyDeskWithHiringOffIsRefusedAsHiringOff(t *testing.T) {
 	for _, mac := range []bool{false, true} {
 		if mac {
+			stopDecksOf(t)
 			withMac(t)
 		}
 		d := newTestDeck(t)

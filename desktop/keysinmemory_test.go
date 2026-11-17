@@ -309,6 +309,7 @@ func TestTheFirstUserOfALinkCantHideItFromTheOwner(t *testing.T) {
 	}
 
 	// Under the Mac app, the Settings window's own session clears it, never a browser's.
+	stopDecksOf(t)
 	d = newMacTestDeck(t)
 	d.mu.Lock()
 	d.access.noteUsedFirst([]string{"changed scroll in Setup"})
@@ -603,6 +604,7 @@ func TestGMLoginGivesANewTokenOnceAllowedInTheWindow(t *testing.T) {
 	if code, _ := askFromTerminal(t, d, askGM, "/work"); code != http.StatusForbidden {
 		t.Errorf("a GM's login off a Mac: %d", code)
 	}
+	stopDecksOf(t)
 	isolate(t)
 	withMac(t)
 	d = startDeck(t)

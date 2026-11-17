@@ -73,6 +73,7 @@ func TestTheGMHireAnswersAndRefusesAsTheFixtureDoes(t *testing.T) {
 		t.Fatalf("hire.json: %d refusals, %v", len(f.Refusals), err)
 	}
 	for _, c := range f.Refusals {
+		stopDecksOf(t)
 		d, r, h, token := gmHireDeck(t)
 		if c.Status == http.StatusConflict {
 			d.config.HireFolder = ""
@@ -83,6 +84,7 @@ func TestTheGMHireAnswersAndRefusesAsTheFixtureDoes(t *testing.T) {
 		}
 		nothingMade(t, r, h)
 	}
+	stopDecksOf(t)
 	d, r, _, token := gmHireDeck(t)
 	code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor"}`)
 	var got map[string]any
@@ -161,6 +163,7 @@ func TestTheGMHireFolder(t *testing.T) {
 		{"spaces for the one set up, which is home", "~", "   ", 400}, {"spaces for the one set up, outside home", outside, "   ", 400}, {"spaces for the one set up", "~/proj", "   ", 200}, {"outside home", "~/proj", outside, 400}, {"/etc", "~/proj", "/etc", 400},
 		{"the home folder", "~/proj", "~", 400}, {"home spelt out", "~/proj", "~/proj/../.", 400}, {"a link out of home", "~/proj", "~/escape", 400},
 	} {
+		stopDecksOf(t)
 		d, r, h, token := gmHireDeck(t)
 		os.MkdirAll(filepath.Join(homeDir, "other"), 0o755)
 		os.Symlink(outside, filepath.Join(homeDir, "escape"))
@@ -277,6 +280,7 @@ func TestTheGMHireOnAFloorWithItsOwnFolderIsRefusedAndOpensNothing(t *testing.T)
 		{"the floor's folder, the folder left out", `{"role":"janitor","floor":1}`},
 		{"the floor's folder, named", `{"role":"janitor","floor":1,"folder":"~/other"}`},
 	} {
+		stopDecksOf(t)
 		d, r, h, token := gmHireDeck(t)
 		other := filepath.Join(homeDir, "other")
 		os.MkdirAll(other, 0o755)
@@ -292,6 +296,7 @@ func TestTheGMHireOnAFloorWithItsOwnFolderIsRefusedAndOpensNothing(t *testing.T)
 // A floor with every desk taken is 409 with the office's words and nothing made, never a desk that doesn't exist.
 func TestTheGMHireWithEveryDeskTaken(t *testing.T) {
 	for floor, want := range []string{"Every desk on the ground floor is taken. Fire someone there, or free a desk, to make room.", checkedFloors(nil)[1].Name + " is full."} {
+		stopDecksOf(t)
 		d, r, h, token := gmHireDeck(t)
 		running(d, 9)
 		for i, s := range d.sessions.All() {
@@ -324,6 +329,7 @@ func TestTheGMHireHonoursTheHiringSwitch(t *testing.T) {
 // With no tmux and managed windows switched on, still "Install tmux": only Windows hires through the launcher.
 func TestTheGMHireNeverOpensAPlainTerminal(t *testing.T) {
 	for _, c := range []struct{ name, want string }{{"no tmux", "Install tmux: "}, {"no tmux, managed windows on", "Install tmux: "}, {"another agent", "only Claude roles"}} {
+		stopDecksOf(t)
 		d, r, h, token := gmHireDeck(t)
 		role := "janitor"
 		if strings.HasPrefix(c.name, "no tmux") {
@@ -341,6 +347,7 @@ func TestTheGMHireNeverOpensAPlainTerminal(t *testing.T) {
 			t.Errorf("%s, from the office: %d %q, %d windows, want what it did before", c.name, status, message, len(h.windows))
 		}
 	}
+	stopDecksOf(t)
 	d, r, _, token := gmHireDeck(t)
 	d.config.HireInTmux = false
 	if code, _ := postGMHire(t, d, asGMCaller, token, `{"role":"janitor"}`); code != http.StatusOK || !r.tmux.ran("new-session") {

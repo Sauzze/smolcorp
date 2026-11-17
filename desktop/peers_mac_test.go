@@ -100,8 +100,10 @@ type twoMacs struct {
 // newTwoMacs starts the two, the home's connections coming from remote to local (a Tailscale pair, or Wi-Fi).
 func newTwoMacs(t *testing.T, remote, local string) *twoMacs {
 	t.Helper()
+	noDeckRunning(t, "newTwoMacs()")
 	savedHost, savedAddresses, savedDial, savedGap, savedName := host, tailscaleAddresses, dialPeer, peerCodeTryGap, peerMachineName
 	t.Cleanup(func() {
+		noDeckAtPutBack(t, "newTwoMacs()'s app")
 		host, tailscaleAddresses, dialPeer, peerCodeTryGap, peerMachineName = savedHost, savedAddresses, savedDial, savedGap, savedName
 		peerClient.CloseIdleConnections()
 	})
@@ -109,6 +111,9 @@ func newTwoMacs(t *testing.T, remote, local string) *twoMacs {
 	tailscaleAddresses = func() []string { return []string{tailHome} }
 	peerMachineName = func() string { return "Studio" }
 	m := &twoMacs{home: newTestDeck(t), seen: &crossed{}, kept: map[string]string{}}
+	// The joining Mac's isolate() changes the package's folders: the home Mac's deck stops first, and still answers
+	// what it is asked, so none of its own rounds reads the folders as they change (FXPUMPCLASS).
+	stopDeck(m.home)
 	m.joiner = newTestDeck(t)
 	m.joiner.mu.Lock()
 	m.joiner.peerKeys = peerKeyStore{

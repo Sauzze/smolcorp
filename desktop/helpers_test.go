@@ -20,8 +20,10 @@ func modeIs(info os.FileInfo, want os.FileMode) bool {
 // the real paired phones or an agent's real settings. It returns the home.
 func isolate(t *testing.T) string {
 	t.Helper()
+	noDeckRunning(t, "isolate()")
 	saved := []string{supportDir, phonesFile, configFile, hookKeyFile, setupKeyFile, homeDir, windowKeyFile, sessionsFile}
 	t.Cleanup(func() {
+		noDeckAtPutBack(t, "isolate()'s folders")
 		supportDir, phonesFile, configFile, hookKeyFile, setupKeyFile, homeDir, windowKeyFile = saved[0], saved[1], saved[2], saved[3], saved[4], saved[5], saved[6]
 		sessionsFile = saved[7]
 	})

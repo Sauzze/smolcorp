@@ -45,6 +45,7 @@ func TestAGMBriefRefusesEveryRowOfBriefJSONAndTheGMAndABriefThatIsNoPlainFileAnd
 func TestAGMBriefAddsADatedPartAndMailsTheHireThenItIsFiredWithoutAnythingTyped(t *testing.T) {
 	fixture := decodedFixture(t, "brief.json")
 	for _, asGM := range []bool{true, false} {
+		stopDecksOf(t)
 		g := newGMRig(t, "Rex")
 		file := gmBriefFile(t, g)
 		w := g.post(t, asGM, "/setup/gm/brief", g.with(map[string]any{"text": "  Also check the exporter. "}))

@@ -92,6 +92,7 @@ func TestAScopedGMHiresOnTheAccountItWasHiredOn(t *testing.T) {
 		}
 	}
 	// A GM on the default account: its hires are on the default one, and another is refused, as before.
+	stopDecksOf(t)
 	d, _, _, token, project = scopedGM(t)
 	body, _ := json.Marshal(map[string]any{"role": "janitor", "folder": project, "account": "work"})
 	if code, text := scopedCall(t, d, token, "POST", "/setup/gm/hire", string(body)); !scopeRefused(code, text) ||
@@ -100,6 +101,7 @@ func TestAScopedGMHiresOnTheAccountItWasHiredOn(t *testing.T) {
 	}
 	// With two accounts saved, the route asks which of a hire that names none (C3 A2); a GM on the default one
 	// has it filled in by name, so its hire as the demo's task writes it (no account) isn't asked.
+	stopDecksOf(t)
 	d, r, _, token, project = scopedGMOn(t, claudeDefaultName, withWork)
 	body, _ = json.Marshal(map[string]any{"role": "janitor", "folder": project})
 	if code, text := scopedCall(t, d, token, "POST", "/setup/gm/hire", string(body)); code != http.StatusOK {
@@ -112,6 +114,7 @@ func TestAScopedGMHiresOnTheAccountItWasHiredOn(t *testing.T) {
 	}
 	// A test copy on a Mac (never the default account there): its GM on the test account hires on it.
 	if runtime.GOOS == "darwin" {
+		stopDecksOf(t)
 		onPort(t, portFromEnvironment("")+1)
 		d, _, _, token, project = scopedGMOn(t, "work", withWork)
 		body, _ := json.Marshal(map[string]any{"role": "janitor", "folder": project})
@@ -125,6 +128,7 @@ func TestAScopedGMHiresOnTheAccountItWasHiredOn(t *testing.T) {
 // the scope follows the row, so a token left working would be unscoped.
 func TestTheOwnersRegistryEditTakesAGMsTokenAway(t *testing.T) {
 	for _, state := range []string{"failed", "fired"} {
+		stopDecksOf(t)
 		d, r, _, token, project := scopedGM(t)
 		r.tmux.up = false // its session ended first: the edit never marks a running desk gone (gonedesk.go)
 		gm := registered(t)[0]
@@ -144,6 +148,7 @@ func TestTheOwnersRegistryEditTakesAGMsTokenAway(t *testing.T) {
 		}
 	}
 	// A nickname or notes edit keeps the token.
+	stopDecksOf(t)
 	d, _, _, token, _ := scopedGM(t)
 	body, _ := json.Marshal(map[string]any{"id": registered(t)[0].ID, "notes": "planning"})
 	serve(t, d, call{method: "POST", target: "/setup/gm/registry", host: "localhost", from: thisComputer, body: string(body),

@@ -273,6 +273,7 @@ func TestTheGMHireOnTheLauncherStartsItsWindowWithTheGuardOfAHireFromTheOffice(t
 	for _, role := range []string{"janitor", "gm"} {
 		var first string
 		for i, groups := range cases {
+			stopDecksOf(t)
 			w := newWinRig(t)
 			// A hire keeps its brief in the support folder's briefs (M4a), and the deny rules list the folders
 			// found there before the ones only known: made first, so both hires find the same folders.
@@ -377,6 +378,7 @@ func TestTheGMFireOnTheLauncherKeepsTheCleanWorktreeUnlessAskedToRemoveIt(t *tes
 		extra  map[string]any
 		remove bool
 	}{{map[string]any{}, false}, {map[string]any{"removeWorktree": false}, false}, {map[string]any{"removeWorktree": true}, true}} {
+		stopDecksOf(t)
 		w := newWinRig(t)
 		h, asked := w.standInWorktree(w.hire("janitor"))
 		body := map[string]any{"id": h.ID}
@@ -396,6 +398,7 @@ func TestTheGMFireOnTheLauncherKeepsTheCleanWorktreeUnlessAskedToRemoveIt(t *tes
 // Fire ends only the recorded launcher of the hire asked for, found by registry id, and types nothing, with or without force.
 func TestTheGMFireOnTheLauncherEndsOnlyTheHiresOwnLauncherAndTypesNothing(t *testing.T) {
 	for _, force := range []bool{false, true} {
+		stopDecksOf(t)
 		w := newWinRig(t)
 		a, b := w.hire("janitor"), w.hire("janitor")
 		if status, text := w.post("/setup/gm/fire", map[string]any{"id": a.ID, "force": force}, winAsGM); status != http.StatusNoContent {
@@ -436,6 +439,7 @@ func TestTheGMFireOnTheLauncherRefusesFromTheLaunchersStateAndAnUnknownIdAndEnds
 		{"unreadable, forced", PaneIdle, true, true, 409, "Couldn't tell"},
 		{"busy, forced", PaneBusy, false, true, 204, ""},
 	} {
+		stopDecksOf(t)
 		w := newWinRig(t)
 		w.shows = c.shows
 		h := w.hire("janitor")
@@ -448,6 +452,7 @@ func TestTheGMFireOnTheLauncherRefusesFromTheLaunchersStateAndAnUnknownIdAndEnds
 			t.Errorf("%s: %d %q, stops %d, typed %q %q, want %d %q", c.name, status, text, stops, typed, pasted, c.want, c.says)
 		}
 	}
+	stopDecksOf(t)
 	w := newWinRig(t)
 	h := w.hire("janitor")
 	for _, c := range []struct {

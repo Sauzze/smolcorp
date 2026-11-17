@@ -268,6 +268,7 @@ func TestTheCleanUpSwitch(t *testing.T) {
 		t.Errorf("the office's dictation: %v", dictation)
 	}
 
+	stopDecksOf(t)
 	saved := host
 	host = nil
 	t.Cleanup(func() { host = saved })

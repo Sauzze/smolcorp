@@ -124,6 +124,7 @@ func counting(n *int) func() bool { return func() bool { *n++; return true } }
 
 func TestIdleWindowIsPastedThenEnterAndNothingElse(t *testing.T) {
 	for _, bracketed := range []bool{true, false} {
+		stopDecksOf(t)
 		d := newTestDeck(t)
 		f := newFakeLauncher(t, d, "L1", "/work/api", "", "idle-empty", bracketed)
 		f.react = takesTheDraft(t)
@@ -154,6 +155,7 @@ func TestMultiLineGoesWholeInABracketAndAsOneLineWithoutOne(t *testing.T) {
 		t.Errorf("bracketed paste wrote %q", got[0])
 	}
 
+	stopDecksOf(t)
 	d = newTestDeck(t)
 	off := newFakeLauncher(t, d, "L1", "/work/api", "", "idle-empty", false)
 	off.react = takesTheDraft(t)
@@ -168,6 +170,7 @@ func TestMultiLineGoesWholeInABracketAndAsOneLineWithoutOne(t *testing.T) {
 
 func TestOnlyAnIdleWindowIsTypedInto(t *testing.T) {
 	for name, shows := range map[string]string{"busy": "busy-1", "menu": "permission-menu", "trust menu": "trust-menu", "draft": "draft"} {
+		stopDecksOf(t)
 		d := newTestDeck(t)
 		f := newFakeLauncher(t, d, "L1", "/work/api", "", shows, true)
 		commits := 0
@@ -177,6 +180,7 @@ func TestOnlyAnIdleWindowIsTypedInto(t *testing.T) {
 		}
 	}
 	// A screen the launcher can't read (the alternate screen) is unknown, which waits too.
+	stopDecksOf(t)
 	d := newTestDeck(t)
 	f := newFakeLauncher(t, d, "L1", "/work/api", "", "idle-empty", true)
 	f.screen.Write([]byte("\x1b[?1049h"))
@@ -203,6 +207,7 @@ func TestIfTheBoxDoesNotHoldADraftAfterThePasteNoEnterIsSent(t *testing.T) {
 		},
 		"busy": func(f *fakeLauncher, _ string) { f.show("", pane(t, "busy-1")) },
 	} {
+		stopDecksOf(t)
 		d := newTestDeck(t)
 		f := newFakeLauncher(t, d, "L1", "/work/api", "", "idle-empty", true)
 		f.react = react
@@ -217,6 +222,7 @@ func TestIfTheBoxDoesNotHoldADraftAfterThePasteNoEnterIsSent(t *testing.T) {
 		}
 	}
 	// The deck beginning to ask during the settle blocks Return as well.
+	stopDecksOf(t)
 	d := newTestDeck(t)
 	f := newFakeLauncher(t, d, "L1", "/work/api", "", "idle-empty", true)
 	asked := false

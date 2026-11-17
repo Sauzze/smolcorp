@@ -200,6 +200,7 @@ func TestSeveralQuestionsOrAMultiSelectOrTooManyOptionsAreNotPickable(t *testing
 		"no options":        {talkQuestionOf("Anything?", false)},
 		"ten options":       {talkQuestionOf("Which?", false, many...)},
 	} {
+		stopDecksOf(t)
 		d := newTestDeck(t)
 		talkAskQuestion(d, "s1", 1761000541000, questions...)
 		asking, _ := talkCardOf(t, d, "s1")["asking"].(map[string]any)
@@ -211,12 +212,14 @@ func TestSeveralQuestionsOrAMultiSelectOrTooManyOptionsAreNotPickable(t *testing
 		}
 	}
 	// Nine is the most a menu takes by digit.
+	stopDecksOf(t)
 	d := newTestDeck(t)
 	talkAskQuestion(d, "s1", 1761000541000, talkQuestionOf("Which?", false, many[:9]...))
 	if asking, _ := talkCardOf(t, d, "s1")["asking"].(map[string]any); asking["pickable"] != true {
 		t.Errorf("nine options: %v", asking)
 	}
 	// A question's input that isn't what AskUserQuestion sends: no questions, the four keys, no crash.
+	stopDecksOf(t)
 	d = newTestDeck(t)
 	talkHook(d, 1761000541000, map[string]any{"hook_event_name": "PreToolUse", "session_id": "s1", "cwd": "/work/s1", "tool_name": "AskUserQuestion",
 		"tool_input": map[string]any{"questions": "not a list"}})

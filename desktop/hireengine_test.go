@@ -466,6 +466,7 @@ func TestHireHeardFromIsAClaudeSessionInItsFolderSinceItWasHired(t *testing.T) {
 	if !d.hireHeardFrom(hire) {
 		t.Error("not heard from a Claude session inside its folder, started at the same millisecond")
 	}
+	stopDecksOf(t)
 	d2 := newTestDeck(t)
 	d2.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "s", "cwd": folder}, Claude, "tmux:s", "", 6000)
 	if !d2.hireHeardFrom(hire) {

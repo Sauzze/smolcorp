@@ -52,6 +52,7 @@ func TestARefusedGMHireLeavesTheManagerOffAndSavesNothing(t *testing.T) {
 
 func TestAGMHireThatFailsPutsTheOldSwitchBack(t *testing.T) {
 	for _, before := range []bool{false, true} {
+		stopDecksOf(t)
 		d, h, _ := hiringDeck(t, "")
 		d.config.ManagerEnabled = before
 		h.missing = "claude isn't installed here."

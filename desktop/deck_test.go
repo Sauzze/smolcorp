@@ -169,6 +169,7 @@ func TestATapThatLandsTwiceSendsReturnOnce(t *testing.T) {
 // before the ✗, arriving late, doesn't bring the prompt back. As the Mac app.
 func TestRejectingFromThePhoneLeavesTheSessionFree(t *testing.T) {
 	for _, action := range []string{"reject", "esc"} {
+		stopDecksOf(t)
 		d, tab := madeButtonDeck(t)
 		d.sessions.Apply(map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s1", "tool_name": "Bash"}, Claude, "launcher:L1", "", 200)
 		if status, _ := d.Perform(action, "s1", url.Values{}); status != http.StatusNoContent || *sent(t, tab).Press != press(Escape) {

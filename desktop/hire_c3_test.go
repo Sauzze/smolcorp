@@ -33,6 +33,7 @@ const askWhichAccount = "Say which Claude account to hire on: default, work."
 // A1: Start here's GM hire reads account= and worktree=1 as the Mac's DeckRouter does, and passes them on.
 func TestStartHeresGMHireTakesTheAccountAndTheWorktreeAsTheMacs(t *testing.T) {
 	for _, worktree := range []bool{false, true} {
+		stopDecksOf(t)
 		d, r, _ := engineDeck(t)
 		d.engine.HeardFrom = func(Hire) bool { return true }
 		work := twoAccounts(t, d)
@@ -187,6 +188,7 @@ func TestAFireEndsTheServerWhenTheSessionDoesntEndAndTypesNothingWhereItMayNot(t
 		"scrolled back": {pane(t, "idle-empty"), "1", false},
 		"busy, forced":  {pane(t, "busy-1"), "0", true},
 	} {
+		stopDecksOf(t)
 		_, r, hire := hiredForFire(t, "")
 		windowShows(r, c.capture, true)
 		pasted := exitingPane(r, c.mode, true)
@@ -413,6 +415,7 @@ func TestTheMacsWordsUnderTheMacApp(t *testing.T) {
 			t.Errorf("without the Mac app, %s %s: %d", c.method, c.path, code)
 		}
 	}
+	stopDecksOf(t)
 	mac := withMac(t)
 	mac.screens = []macScreen{builtIn}
 	d = newTestDeck(t)

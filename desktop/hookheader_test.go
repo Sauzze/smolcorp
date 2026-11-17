@@ -144,6 +144,7 @@ func hookWith(t *testing.T, d *Deck, headers map[string][]string) int {
 func TestAHookHeaderSentTwiceIsRefused(t *testing.T) {
 	for _, mac := range []bool{false, true} {
 		if mac {
+			stopDecksOf(t)
 			withMac(t)
 		}
 		d := newTestDeck(t)

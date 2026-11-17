@@ -217,6 +217,7 @@ func TestOnAMacWhileTheKeyIsUnreadableWhatTakesNothingAwayIsTaken(t *testing.T) 
 	}
 	// With hiring and the apps keys may go to on in the file, off in memory (their safe defaults): hiring's agent
 	// changed alone, and an app added in this run taken off again, take nothing the file holds.
+	stopDecksOf(t)
 	run := startHeld(t)
 	if code, _, body := fromPage(t, run.held, http.MethodPost, "/setup/hiring?agent=codex", nil); code != http.StatusOK {
 		t.Errorf("hiring's agent changed while the key can't be read: %d %s", code, body)

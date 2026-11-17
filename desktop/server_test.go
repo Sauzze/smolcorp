@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -68,7 +69,16 @@ func serve(t *testing.T, d *Deck, c call) *httptest.ResponseRecorder {
 
 func newTestDeck(t *testing.T) *Deck {
 	t.Helper()
+	return newTestDeckAfter(t, func() {})
+}
+
+// newTestDeckAfter is newTestDeck, with before run on the test's own folders before its deck starts: a folder its
+// rounds read (the home folder, say) is changed there, never under the running deck (FXPUMPCLASS). Its put-back,
+// registered before the deck starts, runs once the deck has stopped.
+func newTestDeckAfter(t *testing.T, before func()) *Deck {
+	t.Helper()
 	isolate(t)
+	before()
 	d := startDeck(t)
 	// No coding agent is looked for: the tests' own say which are here.
 	d.summaryProviders.set(map[summaryProvider]providerState{})
@@ -85,36 +95,44 @@ func newTestDeck(t *testing.T) *Deck {
 func startDeck(t *testing.T) *Deck {
 	t.Helper()
 	d := NewDeck()
-	t.Cleanup(func() {
-		d.mu.Lock()
-		if d.saveTimer != nil {
-			d.saveTimer.Stop()
-		}
-		d.savePending = true
-		// A save whose timer has already gone off may be waiting for the lock, or past it and about to write: the
-		// first to a folder that isn't there, the second waited for, so the folder is empty when the test removes it.
-		d.sessionsFile = filepath.Join(filepath.Dir(d.sessionsFile), "no-such-folder", "sessions.json")
-		d.mu.Unlock()
-		d.saveMu.Lock()
-		d.saveMu.Unlock() // only waiting for a save that is under way
-	})
-	t.Cleanup(d.stopWatchers)
-	// A cloud bot's desk plans its next change on a timer of its own (cloudDesks.update), which stopWatchers doesn't
-	// end: it is stopped with the deck, so it never fires in a later test and reads the folders that test put in
-	// (it did). One already gone off and waiting for the lock finds it isn't the one planned, and does nothing.
-	t.Cleanup(func() {
-		d.mu.Lock()
-		if d.cloud.expiry != nil {
-			d.cloud.expiry.Stop()
-			d.cloud.expiry = nil
-		}
-		d.mu.Unlock()
-	})
-	// A hire still being watched as the test ends would go on reading and writing the folders isolate puts back
-	// (STUDIO23: a launcher hire's watch, on its real 45 s wait, wrote the registry in a later test's folder). So
-	// every test ends the watches it starts and waits for them; one left running fails the test that left it, here,
-	// before its deck stops.
-	t.Cleanup(func() { watchesEnded(t, d, watchLeftWait) })
+	// Its stop, run once at the test's end or earlier by stopDeck, and only then is the deck no longer counted as
+	// running (livedecks_test.go): every step waits for what it ends.
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			// A hire still being watched as the test ends would go on reading and writing the folders isolate puts
+			// back (STUDIO23: a launcher hire's watch, on its real 45 s wait, wrote the registry in a later test's
+			// folder). So every test ends the watches it starts and waits for them; one left running fails the test
+			// that left it, here, before its deck stops.
+			watchesEnded(t, d, watchLeftWait)
+			// A cloud bot's desk plans its next change on a timer of its own (cloudDesks.update), which stopWatchers
+			// doesn't end: it is stopped with the deck, so it never fires in a later test and reads the folders that
+			// test put in (it did). One already gone off and waiting for the lock finds it isn't the one planned, and
+			// does nothing.
+			d.mu.Lock()
+			if d.cloud.expiry != nil {
+				d.cloud.expiry.Stop()
+				d.cloud.expiry = nil
+			}
+			d.mu.Unlock()
+			// The mail pump, the rounds and the watchers' loops, each waited for.
+			d.stopWatchers()
+			d.mu.Lock()
+			if d.saveTimer != nil {
+				d.saveTimer.Stop()
+			}
+			d.savePending = true
+			// A save whose timer has already gone off may be waiting for the lock, or past it and about to write: the
+			// first to a folder that isn't there, the second waited for, so the folder is empty when the test removes it.
+			d.sessionsFile = filepath.Join(filepath.Dir(d.sessionsFile), "no-such-folder", "sessions.json")
+			d.mu.Unlock()
+			d.saveMu.Lock()
+			d.saveMu.Unlock() // only waiting for a save that is under way
+			deckStopped(d)
+		})
+	}
+	deckStarted(d, t.Name(), stop)
+	t.Cleanup(stop)
 	return d
 }
 

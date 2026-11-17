@@ -253,9 +253,10 @@ func standInFacts(t *testing.T) macFacts {
 // withMac puts the stand-in Mac app in place for one test.
 func withMac(t *testing.T) *macStandIn {
 	t.Helper()
+	noDeckRunning(t, "withMac()")
 	mac := &macStandIn{facts: standInFacts(t), abilities: tabAbilities{Keys: true, Text: true, Fire: true, Screen: true}}
 	saved := host
-	t.Cleanup(func() { host = saved })
+	t.Cleanup(func() { noDeckAtPutBack(t, "withMac()'s app"); host = saved })
 	host = mac
 	return mac
 }

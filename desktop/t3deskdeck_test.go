@@ -20,7 +20,18 @@ import (
 // t3DeckRig is a started deck with T3 Code on, the fake t3 its machine, and a stand-in guard.
 func t3DeckRig(t *testing.T, flags ...string) (*t3Rig, *Deck) {
 	t.Helper()
+	return t3DeckRigHome(t, false, flags...)
+}
+
+// t3DeckRigHome is t3DeckRig, with the rig's home as the home folder when atHome (a hire's folder must be inside it,
+// and the fence denies its ~/.claude): set before the deck starts, since one changed under a running deck is read by
+// its rounds as it changes (FXPUMPCLASS).
+func t3DeckRigHome(t *testing.T, atHome bool, flags ...string) (*t3Rig, *Deck) {
+	t.Helper()
 	r := newT3Rig(t)
+	if atHome {
+		homeDir = r.home // isolate (newT3Rig) puts it back
+	}
 	r.fake(flags...)
 	keptMachine, keptStand := newT3Machine, t3Stand
 	newT3Machine = r.machine
@@ -32,9 +43,9 @@ func t3DeckRig(t *testing.T, flags ...string) (*t3Rig, *Deck) {
 	t3Kept.Lock()
 	t3Kept.status, t3Kept.at = t3Status{}, time.Time{}
 	t3Kept.Unlock()
-	d := startDeck(t)
-	// Put back once the deck has stopped (cleanups run last first).
+	// Put back once the deck has stopped (cleanups run last first): so registered before it starts.
 	t.Cleanup(func() { newT3Machine, t3Stand = keptMachine, keptStand })
+	d := startDeck(t)
 	d.summaryProviders.set(map[summaryProvider]providerState{})
 	d.mu.Lock()
 	d.config.T3CodeEnabled = true
@@ -174,9 +185,8 @@ func t3GMCall(d *Deck, target, body string) call {
 // /setup/gm/hire does: into the folder for new hires, with the answer of any setup hire. The GM-token rule comes
 // first, and hiring off and the hooks are refused in the lane's own words, before anything is made.
 func TestT3TheGMsHireWithEngineT3HiresIntoT3Code(t *testing.T) {
-	r, d := t3DeckRig(t)
+	r, d := t3DeckRigHome(t, true)
 	repo := r.repo()
-	homeDir = r.home // the folder must be inside the home folder, and the fence denies this home's ~/.claude
 	d.mu.Lock()
 	d.config.Roles = []Role{{ID: "reviewer", Name: "Reviewer", Agent: "claude", Brief: &RoleBrief{Kind: "library", ID: "tester"}}, {ID: "gm", Name: "General Manager", Agent: "claude"}}
 	d.config.HireFolder = repo
@@ -362,9 +372,8 @@ func jsonText(s string) string {
 // answer for any setup hire, the folder put first among the recent ones; an account, the API-key account,
 // hiring off and the hooks each refused in their own words, before anything is made.
 func TestT3SetupsHireSheetHiresIntoT3Code(t *testing.T) {
-	r, d := t3DeckRig(t)
+	r, d := t3DeckRigHome(t, true)
 	repo := r.repo()
-	homeDir = r.home // the folder must be inside the home folder, and the fence denies this home's ~/.claude
 	reviewer := Role{ID: "reviewer", Name: "Reviewer", Agent: "claude", Brief: &RoleBrief{Kind: "library", ID: "tester"}}
 	d.mu.Lock()
 	d.config.Roles = []Role{reviewer}
@@ -440,9 +449,8 @@ func TestT3SetupsHireSheetHiresIntoT3Code(t *testing.T) {
 // transcripts, as the Mac's HireSettings.forHire: one inside the home folder and one outside it. A badly formed
 // entry gets no rule. With nothing saved, the fence denies the default account alone, as the Mac's fixture has it.
 func TestT3TheFenceDeniesEverySavedAccount(t *testing.T) {
-	r, d := t3DeckRig(t)
+	r, d := t3DeckRigHome(t, true)
 	repo := r.repo()
-	homeDir = r.home // the folder must be inside the home folder
 	if got := claudeDenyProfiles(nil); !reflect.DeepEqual(got, []claudeProfile{{Name: "default", Dir: filepath.Join(homeDir, ".claude")}}) {
 		t.Errorf("with nothing saved: %+v", got)
 	}

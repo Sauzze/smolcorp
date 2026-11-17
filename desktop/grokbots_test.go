@@ -184,6 +184,7 @@ func TestAGrokBotAppThatCantBeReadChangesNothing(t *testing.T) {
 	if !slices.Equal(got, []string{"old"}) || !slices.Contains(mac.actions(), "bots-roster") {
 		t.Errorf("unreadable: %v, asked %v", got, mac.actions())
 	}
+	stopDecksOf(t)
 	host = nil
 	elsewhere := newTestDeck(t)
 	elsewhere.discoverBots(false)

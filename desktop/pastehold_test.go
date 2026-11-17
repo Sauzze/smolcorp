@@ -357,6 +357,7 @@ func TestAHoldNotSealedWithTheKeyHoldsNothing(t *testing.T) {
 	}
 
 	// Off a Mac: no key made, and a hold sealed as the Mac's would be holds nothing there.
+	stopDecksOf(t)
 	w, f := windowDeck(t)
 	w.rounds.stop()
 	if w.hold.key != "" {

@@ -78,6 +78,7 @@ func TestAutoShowsAKeyPerSessionUpToNine(t *testing.T) {
 		// sessions running still get one each.
 		{2, 6, 7}, {2, 0, 3}, {1, 0, 2},
 	} {
+		stopDecksOf(t)
 		d := newTestDeck(t)
 		running(d, c.sessions)
 		if c.pinned >= 0 {

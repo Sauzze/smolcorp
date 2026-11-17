@@ -241,14 +241,23 @@ func (m *phoneMac) actions() []string {
 // tty:/dev/ttys003, under the stand-in Mac app.
 func phoneDeck(t *testing.T) (*Deck, *phoneMac) {
 	t.Helper()
-	mac := &phoneMac{answer: bridgeAnswer{OK: true, Pasted: "pasted"}}
-	saved, settle := host, phoneTextSettle
-	t.Cleanup(func() { host, phoneTextSettle = saved, settle })
-	host, phoneTextSettle = mac, time.Millisecond
+	mac := phoneMacIn(t)
 	d := newTestDeck(t)
 	d.Ingest(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": "/work/api"}, "claude", "tty:/dev/ttys003", "", 10)
 	d.Ingest(map[string]any{"hook_event_name": "Stop", "session_id": "s1", "cwd": "/work/api"}, "claude", "tty:/dev/ttys003", "", 20)
 	return d, mac
+}
+
+// phoneMacIn puts phoneDeck's stand-in Mac app in, before its deck starts: never under a running deck, whose rounds
+// ask the app from their own goroutines (FXPUMPCLASS). It is put back once the deck has stopped.
+func phoneMacIn(t testing.TB) *phoneMac {
+	t.Helper()
+	noDeckRunning(t, "phoneDeck()")
+	mac := &phoneMac{answer: bridgeAnswer{OK: true, Pasted: "pasted"}}
+	saved, settle := host, phoneTextSettle
+	t.Cleanup(func() { noDeckAtPutBack(t, "phoneDeck()'s app"); host, phoneTextSettle = saved, settle })
+	host, phoneTextSettle = mac, time.Millisecond
+	return mac
 }
 
 func asksPermission(d *Deck, at float64) {
@@ -517,6 +526,7 @@ func TestAFailureAfterTheWordsMayHaveLandedAnswers502(t *testing.T) {
 			"deadline":  os.ErrDeadlineExceeded,
 			"asked two": errors.New("the Mac app asked twice"),
 		} {
+			stopDecksOf(t)
 			d, mac := phoneDeck(t)
 			mac.mu.Lock()
 			mac.broken = broken
@@ -549,6 +559,7 @@ func TestAFailureAfterTheWordsMayHaveLandedAnswers502(t *testing.T) {
 		host, phoneTextSettle = nil, time.Millisecond
 		t.Cleanup(func() { host, phoneTextSettle = saved, settle })
 		for id, tab := range map[string]string{"t": "tmux:%1@" + filepath.Join(dir, "sock"), "w": "wezterm:3@" + filepath.Join(dir, "wez"), "k": "kitty:4@unix:" + filepath.Join(dir, "kit")} {
+			stopDecksOf(t)
 			d := newTestDeck(t)
 			d.Ingest(map[string]any{"hook_event_name": "Stop", "session_id": id, "cwd": "/work/api"}, "claude", tab, "", 20)
 			status, message := d.TypePhoneText("hello there", id, sendIt())
@@ -707,6 +718,7 @@ func TestTheLauncherPastesThePhonesTextAndSaysSo(t *testing.T) {
 	t.Cleanup(func() { host, phoneTextSettle = saved, settle })
 	text := "Deux lignes :\n    « ça marche » 👩‍💻 fin;"
 	for _, bracketed := range []bool{true, false} {
+		stopDecksOf(t)
 		d := newTestDeck(t)
 		f := newFakeLauncherAs(t, d, "L1", "/work/api", "", "", "idle-empty", bracketed)
 		d.Ingest(map[string]any{"hook_event_name": "Stop", "session_id": "s1", "cwd": "/work/api"}, "claude", "launcher:L1", "", 20)
@@ -1216,6 +1228,7 @@ func TestSeveralLinesReachATmuxPaneThatAskedForBracketedPasteByteForByte(t *test
 func TestThePhonesTextToAT3DeskGetsTheT3Sentence(t *testing.T) {
 	for _, mac := range []bool{false, true} {
 		if mac {
+			stopDecksOf(t)
 			withMac(t)
 		}
 		d, _ := t3Deck(t, Hire{ID: t3DeskTestID})

@@ -283,6 +283,7 @@ func TestOnAMacTheRotationIsCrashSafeAtEachStep(t *testing.T) {
 		d.mu.Unlock()
 		rotationStep = saved
 	}()
+	stopDecksOf(t) // the deck above, started on t, is done with before each step's own
 	if len(steps) < 4 || steps[0] != "add" || steps[len(steps)-1] != "retire" {
 		t.Fatalf("a rotation's steps: %q", steps)
 	}

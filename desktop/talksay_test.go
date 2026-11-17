@@ -205,6 +205,7 @@ func TestTheWindowIsToldWhereADeskTakesNoText(t *testing.T) {
 		t.Errorf("T3's card: %+v", typing)
 	}
 
+	stopDecksOf(t)
 	d = newTestDeck(t)
 	headless(d, 1)
 	if status, says := d.TypeWindowText("one line", "h0", nil); status != http.StatusConflict || says != headlessNoControls {
@@ -248,6 +249,7 @@ func TestTheWindowIsToldOfATerminalThatTakesOneLine(t *testing.T) {
 			t.Errorf("%s: the card says %+v", id, typing)
 		}
 	}
+	stopDecksOf(t)
 	d, _ = windowDeck(t)
 	if typing, _ := d.windowTyping("s1"); typing != (deskTyping{OK: true, Lines: true}) {
 		t.Errorf("a launcher's card: %+v", typing)

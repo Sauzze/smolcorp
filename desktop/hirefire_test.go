@@ -474,6 +474,7 @@ func TestAFireWritesTheRecapAndAnUnreadableOneSaysSo(t *testing.T) {
 		t.Errorf("mode %v", info.Mode().Perm())
 	}
 	// A hire with no brief, status or cost.
+	stopDecksOf(t)
 	_, r, hire = hiredForFire(t, "")
 	windowShows(r, pane(t, "idle-empty"), true)
 	if _, err := fireEngineHire(hire, 0, r.o, false); err != nil {

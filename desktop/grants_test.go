@@ -1139,6 +1139,7 @@ func TestAPhoneOverTailscaleAndTheWindowAnswer(t *testing.T) {
 	}
 	// Each says who answered, and a no is a no.
 	for who, caller := range map[string]string{"phone": "phone-wireguard", "window": "window-mac-app"} {
+		stopDecksOf(t)
 		d, phoneKey, id := deckWithAnAsk(t)
 		if status, _ := probeRoute(t, d, "POST", "/grants/answer?id="+id+"&answer=no", phoneKey, ownerCall(caller)); status != http.StatusNoContent {
 			t.Fatalf("%s: %d", who, status)
@@ -1151,6 +1152,7 @@ func TestAPhoneOverTailscaleAndTheWindowAnswer(t *testing.T) {
 		}
 	}
 	// A wrong word, no id, an unknown id.
+	stopDecksOf(t)
 	d, phoneKey, id := deckWithAnAsk(t)
 	for target, want := range map[string]int{
 		"/grants/answer?id=" + id + "&answer=maybe": http.StatusBadRequest,
@@ -1258,6 +1260,7 @@ func TestTheAsksShowInTheApprovalsLists(t *testing.T) {
 // which reads the office, but its key is never the owner's tap: off a Mac, and under the Mac app alike.
 func TestTheTraysLinkRedeemedByALocalProgramAnswersNothing(t *testing.T) {
 	for _, underMacApp := range []bool{false, true} {
+		stopDecksOf(t)
 		d, _, id := deckWithAnAsk(t)
 		d.mu.Lock()
 		if underMacApp {

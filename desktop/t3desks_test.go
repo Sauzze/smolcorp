@@ -357,6 +357,7 @@ func TestT3DeskOnlyAWorktreeWhereHiresAreMadeCounts(t *testing.T) {
 func TestT3DeskItsControlsAreAbsentAndRefusedNotBroken(t *testing.T) {
 	d, _ := t3Deck(t, Hire{ID: t3DeskTestID})
 	desk := t3DeskID(t3DeskTestID)
+	stopDecksOf(t)
 	withMac(t) // under the Mac app too, where a terminal's desk has its controls on
 	var shown map[string]any
 	for _, one := range officeDesks(t, d) {

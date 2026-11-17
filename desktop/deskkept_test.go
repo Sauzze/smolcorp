@@ -189,6 +189,7 @@ func TestAFireWhosePutBackFailsIsRefusedWithWordsOnYourCard(t *testing.T) {
 		t.Fatalf("once nothing was in the way: %d %q", status, said)
 	}
 
+	stopDecksOf(t)
 	d, r, hire = hiredForFire(t, "Rex")
 	keptHire(t, hire)
 	writeKept(t, filepath.Join(sandbox.KeptFolder(supportDir, hire.ID), "kept.json"), "{")
@@ -387,8 +388,7 @@ func TestT3TakeOversRouteSaysWhatWasPutBack(t *testing.T) {
 	t3Kept.Lock()
 	t3Kept.status, t3Kept.at = t3Status{}, time.Time{}
 	t3Kept.Unlock()
-	d := newTestDeck(t)
-	k.ownersHome(t)
+	d := newTestDeckAfter(t, func() { k.ownersHome(t) })
 	d.mu.Lock()
 	d.config.T3CodeEnabled = true
 	d.mu.Unlock()

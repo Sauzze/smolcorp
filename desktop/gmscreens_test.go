@@ -145,6 +145,7 @@ func TestTheGMScreensRoutesUnderTheMacApp(t *testing.T) {
 	if code, _, _ := fromPage(t, d, http.MethodGet, "/setup/gm/screens", nil); code != http.StatusNotFound {
 		t.Errorf("without the Mac app: %d", code)
 	}
+	stopDecksOf(t)
 	mac := withMac(t)
 	mac.screens = []macScreen{builtIn, tallLeft}
 	d = newTestDeck(t)

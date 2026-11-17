@@ -9,6 +9,7 @@ import (
 // The phone's sentences in the Mac's words under the Mac app, as the Swift engine says them; elsewhere "computer".
 func TestUnderTheMacAppThePhoneHearsTheMacsWords(t *testing.T) {
 	for _, mac := range []bool{false, true} {
+		stopDecksOf(t)
 		saved := host
 		host = nil
 		if mac {
@@ -44,6 +45,7 @@ func TestUnderTheMacAppThePhoneHearsTheMacsWords(t *testing.T) {
 		if got := inMacWords(errSummaryOff.Message); got != errSummaryOff.Message {
 			t.Errorf("mac %v: %q", mac, got)
 		}
+		stopDecksOf(t)
 		host = saved
 	}
 }

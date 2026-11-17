@@ -377,6 +377,7 @@ func TestAnEngineDesksClaudeFolderIsMadeAtItsStartAndGoesAtItsFire(t *testing.T)
 	_ = d
 
 	// A start that never reports.
+	stopDecksOf(t)
 	r2 := newEngineRig(t)
 	late, err := runManagedHire(r2.request("janitor"), r2.o)
 	if err != nil {

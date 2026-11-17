@@ -26,6 +26,9 @@ func ownWindowHire(t *testing.T, tab, closed string) (*Deck, *gmRig, *fakeHost) 
 	started := float64(time.Now().Add(-time.Minute).UnixMilli()) // hired a minute ago; its session started since
 	g.changeRow(func(h *Hire) { h.TmuxSocket, h.State, h.Started = "", "working", started })
 	g.hire.TmuxSocket, g.hire.Started = "", started
+	// The Mac app is put in after the deck has started, which only knew none: its deck stops first, and still
+	// answers, so none of its own rounds reads the app as it changes (FXPUMPCLASS).
+	stopDeck(g.d)
 	fake := withHost(t, bridgeAnswer{OK: true, Fired: closed})
 	if tab != "" {
 		g.d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "rex-1",
@@ -255,6 +258,7 @@ func TestATestCopyNeverClosesTheTabOfAHireInAWindowOfItsOwn(t *testing.T) {
 // the Swift engine's Deck.pruneClosedPanes did; once, or unknown, isn't enough.
 func TestATabWhoseAgentHasLeftItIsDroppedAtTheSecondLook(t *testing.T) {
 	d := newTestDeck(t)
+	stopDecksOf(t)
 	fake := withHost(t, bridgeAnswer{OK: true, Ended: []bool{true}})
 	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s-1", "cwd": t.TempDir()},
 		Claude, "tty:/dev/ttys005", "", nowMillis())
@@ -293,6 +297,9 @@ func (f hostAnswering) call(request bridgeRequest) (bridgeAnswer, error) { retur
 func TestASessionThatTookTheTabWhileTheMacAppLookedKeepsItsDesk(t *testing.T) {
 	d := newTestDeck(t)
 	looks := 0
+	// The Mac app after the deck has started: it stops first, so its own prune never reads host as it changes; the
+	// test's prunes are its own (FXPUMPCLASS).
+	stopDeck(d)
 	saved := host
 	t.Cleanup(func() { host = saved })
 	host = hostAnswering(func(asked bridgeRequest) (bridgeAnswer, error) {

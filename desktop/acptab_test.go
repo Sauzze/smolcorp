@@ -457,6 +457,7 @@ func TestTheDeckFindsAnACPDesksTabAndNoTerminal(t *testing.T) {
 	if unknown != nil {
 		t.Errorf("an acp: name with no desk: %T", unknown)
 	}
+	stopDecksOf(t)
 	withHost(t, bridgeAnswer{OK: true})
 	if tab := hostTab(id, "acp", strings.TrimPrefix(id, acpDeskPrefix), ""); tab != nil {
 		t.Errorf("the Mac app was given an ACP desk: %T", tab)

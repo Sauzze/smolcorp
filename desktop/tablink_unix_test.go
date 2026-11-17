@@ -257,7 +257,10 @@ func TestATabThroughALinkToADesksSocketIsNeverDriven(t *testing.T) {
 		t.Errorf("typing into a card on %s, pointing at ab12's own folder: %v", linked, err)
 	}
 
-	// Under the Mac app: focus, fire and close aren't asked of it for that tab.
+	// Under the Mac app: focus, fire and close aren't asked of it for that tab. It is put in after the deck has
+	// started: the deck stops first, and still answers, so none of its own rounds reads the app as it changes
+	// (FXPUMPCLASS).
+	stopDeck(d)
 	mac := withMac(t)
 	relink(t, link, filepath.Dir(cd.socket))
 	d.mu.Lock()
@@ -415,6 +418,8 @@ func TestAfterALinkIsRepointedADesksCardIsDrivenOnItsOwnServer(t *testing.T) {
 		t.Errorf("ab12's card on %q is driven with guard %q, not its recorded server %d", socket, guard, ab.server)
 	}
 
+	// The Mac app after the deck has started: it stops first, and still answers (FXPUMPCLASS).
+	stopDeck(d)
 	mac := withMac(t)
 	d.mu.Lock()
 	tab := d.tab(kept)

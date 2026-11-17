@@ -187,8 +187,10 @@ func probeAnswerWith(t *testing.T, d *Deck, method, target, body, phoneKey strin
 // (SECWIFI's switch, off by default, is signed_test.go's).
 func probeDeck(t *testing.T) (*Deck, string) {
 	t.Helper()
+	noDeckRunning(t, "probeDeck()")
 	savedHost, savedMac, savedLinux, savedWindows, savedAddresses, savedOpen, savedPeer := host, macTailscale, linuxTailscale, windowsTailscale, tailscaleAddresses, openSetupPage, servedUnrecorded
 	t.Cleanup(func() {
+		noDeckAtPutBack(t, "probeDeck()'s app")
 		host, macTailscale, linuxTailscale, windowsTailscale, tailscaleAddresses, openSetupPage, servedUnrecorded = savedHost, savedMac, savedLinux, savedWindows, savedAddresses, savedOpen, savedPeer
 	})
 	host = nil

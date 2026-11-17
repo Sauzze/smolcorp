@@ -312,8 +312,8 @@ func TestSetupKeepsTheHireFolderFromStartHere(t *testing.T) {
 func TestASetupHireWithNoHiresFolderIsRefusedNotStartedAtHome(t *testing.T) {
 	for _, folder := range []string{"", filepath.Join(t.TempDir(), "gone")} {
 		for _, role := range []string{"", "reviewer", "gm"} {
-			d, h, _ := hiringDeck(t, "")
-			hooksOn(t)
+			stopDecksOf(t)
+			d, h, _ := hiringDeckAfter(t, "", func() { hooksOn(t) })
 			d.config.HireFolder = folder
 			status, message := d.hireFromSetup(role)
 			if status != http.StatusConflict || message != "Choose the folder for your hires first: it's the first step of Start here." {
@@ -325,8 +325,8 @@ func TestASetupHireWithNoHiresFolderIsRefusedNotStartedAtHome(t *testing.T) {
 		}
 	}
 	// With the folder set, the same hire goes ahead there.
-	d, h, folder := hiringDeck(t, "")
-	hooksOn(t)
+	stopDecksOf(t)
+	d, h, folder := hiringDeckAfter(t, "", func() { hooksOn(t) })
 	if status, message := d.hireFromSetup(""); status != http.StatusNoContent || len(h.windows) != 1 {
 		t.Fatalf("hire into %s: %d %q, windows %q", folder, status, message, h.windows)
 	}

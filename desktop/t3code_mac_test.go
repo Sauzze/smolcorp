@@ -49,8 +49,9 @@ func (m *t3MacStandIn) actions() []string {
 
 func withT3Mac(t *testing.T, app bool) *t3MacStandIn {
 	t.Helper()
+	noDeckRunning(t, "withT3Mac()")
 	saved := host
-	t.Cleanup(func() { host = saved })
+	t.Cleanup(func() { noDeckAtPutBack(t, "withT3Mac()'s app"); host = saved })
 	mac := &t3MacStandIn{app: app}
 	host = mac
 	return mac

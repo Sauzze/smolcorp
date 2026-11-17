@@ -73,6 +73,7 @@ func TestAnotherHiresProjectIsNotWhereItWorks(t *testing.T) {
 		t.Errorf("a window in a's folder, with b in its own worktree: %q %v", id, ok)
 	}
 	// A window in b's worktree is still never a's.
+	stopDecksOf(t)
 	d2 := newTestDeck(t)
 	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
 		t.Fatal(err)

@@ -195,6 +195,7 @@ func TestANewGMTokenStopsTheOldOneAndNoFileHoldsIt(t *testing.T) {
 // token never works, setting on or off (1.26, SK2).
 func TestAnOldTokenFileIsTakenAwayUnread(t *testing.T) {
 	for _, byHand := range []bool{true, false} {
+		stopDecksOf(t)
 		isolate(t)
 		withMac(t)
 		config := loadConfig()

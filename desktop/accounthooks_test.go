@@ -273,7 +273,9 @@ func TestAnAccountsUnreadableSettingsAreLeftUntouchedAndSaidInSetup(t *testing.T
 // that only looks like an account, not one in Smolcorp's own folder, and none at all in a test copy.
 func TestTheStartRefreshesEveryConfirmedAccountAndNoOther(t *testing.T) {
 	d, _ := accountMacDeck(t)
-	// Smolcorp's own folder in the home folder, as it is on a Mac: an account confirmed in it is never refreshed.
+	// Smolcorp's own folder in the home folder, as it is on a Mac: an account confirmed in it is never refreshed. The
+	// deck stops first, and still answers, so its own rounds never read supportDir as it changes (FXPUMPCLASS).
+	stopDeck(d)
 	saved := supportDir
 	supportDir = filepath.Join(homeDir, "Library", "Smolcorp")
 	t.Cleanup(func() { supportDir = saved })

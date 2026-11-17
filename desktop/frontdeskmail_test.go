@@ -350,6 +350,7 @@ func TestThePageIsNotRefusedTheGMHireAndThePageAloneStartsOne(t *testing.T) {
 
 func TestAGMOrHireKeyDoesNotCompleteSetup(t *testing.T) {
 	for _, who := range []string{"gm", "hire"} {
+		stopDecksOf(t)
 		d := newTestDeck(t)
 		d.config.HasCompletedSetup = false
 		headers := map[string]string{}
@@ -370,6 +371,7 @@ func TestAGMOrHireKeyDoesNotCompleteSetup(t *testing.T) {
 			t.Errorf("a %s caller marked setup as done", who)
 		}
 	}
+	stopDecksOf(t)
 	d := newTestDeck(t)
 	d.config.HasCompletedSetup = false
 	d.mu.Lock()

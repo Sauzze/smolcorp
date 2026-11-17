@@ -52,6 +52,7 @@ cat "` + says + `"
 }
 
 func paneDeck(t *testing.T) *Deck {
+	stopDecksOf(t)
 	d := newTestDeck(t)
 	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "p1", "cwd": "/work/api"},
 		Claude, "tmux:%1@/tmp/tmux-sock", "", 100)

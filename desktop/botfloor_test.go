@@ -321,6 +321,7 @@ func TestAPersonSentOnFromAFullFloorKeepsTheirDeskAsBotsComeAndGo(t *testing.T) 
 		t.Errorf("a new bot came: the run is at %v and the bot at %v, want the run at its desk and the bot at the next", seats["h9"], seats["cloud-new"])
 	}
 
+	stopDecksOf(t)
 	d = newTestDeck(t)
 	fullSecondFloor(t, d)
 	part := standardCloudBotNamed("part", "Part")
@@ -577,6 +578,7 @@ func TestABotGetsTheDeskItHadBackAfterARestart(t *testing.T) {
 // all, goes where there's room among the bots.
 func TestABotThatWasUpstairsStaysOnTheFloorItSatOnAsTheAppStarts(t *testing.T) {
 	start := func(saved string) *Deck {
+		stopDecksOf(t)
 		isolate(t)
 		config := `{"cloudBots": [{"id": "up", "name": "Up", "floor": "upstairs"}, {"id": "other", "name": "Other", "floor": "upstairs"}]}`
 		if os.WriteFile(configFile, []byte(config), 0o600) != nil || saved != "" && os.WriteFile(sessionsFile, []byte(saved), 0o600) != nil {

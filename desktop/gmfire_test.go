@@ -85,6 +85,7 @@ func gmRefusals(t *testing.T, fixture, path string, rows []gmRow, check func(i i
 		t.Fatalf("%s has %d refusals, the test knows %d", fixture, len(refusals), len(rows))
 	}
 	for i, row := range rows {
+		stopDecksOf(t)
 		g := newGMRig(t, "Rex")
 		request, status := row.request, row.status
 		if i < len(refusals) {
@@ -141,6 +142,7 @@ func TestAGMFireKeepsTheCleanWorktreeUnlessAskedToRemoveIt(t *testing.T) {
 		kept  bool
 	}{{nil, false, true}, {map[string]any{"removeWorktree": false}, false, true}, {map[string]any{"removeWorktree": true}, false, false},
 		{map[string]any{"force": true}, true, true}} {
+		stopDecksOf(t)
 		g := newGMRig(t, "Rex")
 		if c.dirty {
 			os.WriteFile(filepath.Join(g.hire.Worktree, "new.txt"), []byte("x"), 0o644)
@@ -156,6 +158,7 @@ func TestAGMFireKeepsTheCleanWorktreeUnlessAskedToRemoveIt(t *testing.T) {
 func TestAGMFireNeverTypesWithOrWithoutForceAndTouchesOnlyTheHiresOwnSocket(t *testing.T) {
 	for _, shown := range []string{"permission-menu", "busy-1", "draft", "idle-empty"} {
 		for _, force := range []bool{false, true} {
+			stopDecksOf(t)
 			g := newGMRig(t, "")
 			g.showing(t, shown)
 			g.fire(t, true, map[string]any{"force": force})
@@ -168,6 +171,7 @@ func TestAGMFireNeverTypesWithOrWithoutForceAndTouchesOnlyTheHiresOwnSocket(t *t
 	}
 	// Another socket, or a launcher hire with no window: nothing is asked, ended or removed.
 	for _, change := range []func(*Hire){func(h *Hire) { h.TmuxSocket = filepath.Join(t.TempDir(), "other") }, func(h *Hire) { h.ViaLauncher = true }} {
+		stopDecksOf(t)
 		g := newGMRig(t, "Rex")
 		g.changeRow(change)
 		w := g.fire(t, true, map[string]any{"force": true})

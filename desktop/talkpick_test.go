@@ -384,6 +384,7 @@ func TestAPickWithNoMenuOnItsScreenPressesNothingAndStopsAsking(t *testing.T) {
 		"Yes in its terminal, then No":         {talkToolRuns, func(d *Deck) { talkPermission(d, 200) }, "2", Thinking},
 		"a question put away, then its choice": {talkInputBox, func(d *Deck) { talkAsksColor(d, 200, false) }, "2", Idle},
 	} {
+		stopDecksOf(t)
 		d, tab := madeButtonDeck(t)
 		show := talkScreenShows(t, permissionMenu("touch x"))
 		c.ask(d)
@@ -409,6 +410,7 @@ func TestAPickWithNoMenuOnItsScreenPressesNothingAndStopsAsking(t *testing.T) {
 // A file's menu (Write, Edit), not Bash's: Yes is its digit 1 too (RT126P3b B1, 3).
 func TestAPickAnswersAFilesMenu(t *testing.T) {
 	for _, edit := range []bool{false, true} {
+		stopDecksOf(t)
 		d, tab := madeButtonDeck(t)
 		talkScreenShows(t, fileMenu(edit))
 		tool := map[bool]string{false: "Write", true: "Edit"}[edit]
@@ -449,6 +451,7 @@ func TestAFileCardPicksOnlyItsOwnMenu(t *testing.T) {
 		"a Bash card, no command":      {permissionMenu("touch x"), writeCard("Bash", map[string]any{}), "1", talkUseTheKeys},
 		"a tool it can't tell, a menu": {permissionMenu("touch x"), writeCard("WebFetch", map[string]any{"url": "https://example.com"}), "1", talkUseTheKeys},
 	} {
+		stopDecksOf(t)
 		d, tab := madeButtonDeck(t)
 		talkScreenShows(t, c.screen)
 		c.ask(d)
@@ -467,6 +470,7 @@ func TestAFileCardPicksOnlyItsOwnMenu(t *testing.T) {
 // look (a parallel prompt's) that lands after it isn't dropped as older: asking comes back, the safe side.
 func TestAPickThatClearsAskingKeepsTheTimeOfTheLastEvent(t *testing.T) {
 	for name, screen := range map[string]string{"waiting": talkInputBox, "working": talkToolRuns} {
+		stopDecksOf(t)
 		d, tab := madeButtonDeck(t)
 		show := talkScreenShows(t, permissionMenu("touch x"))
 		talkPermission(d, 200)
@@ -508,6 +512,7 @@ func TestAPickOfAScreenItCantMakeOutPressesNothingAndStillAsks(t *testing.T) {
 		"an unknown footer word, No":         {strings.Replace(permissionMenu("touch x"), "Esc to cancel", "Esc to dismiss", 1), func(d *Deck) { talkPermission(d, 200) }, "2"},
 		"neither a footer nor the input box": {talkTop + "✻ Sautéed for 0s · done 1:45 AM\n", func(d *Deck) { talkPermission(d, 200) }, "1"},
 	} {
+		stopDecksOf(t)
 		d, tab := madeButtonDeck(t)
 		show := talkScreenShows(t, permissionMenu("touch x"))
 		c.ask(d)
@@ -537,6 +542,7 @@ func TestAPickOfAnotherPromptsMenuPressesNothing(t *testing.T) {
 		"a question for a permission":   {questionMenu("Which color?", "Red", "Green", "Blue"), func(d *Deck) { talkPermission(d, 200) }, "1"},
 		"a permission for the question": {permissionMenu("touch x"), func(d *Deck) { talkAsksColor(d, 200, false) }, "1"},
 	} {
+		stopDecksOf(t)
 		d, tab := madeButtonDeck(t)
 		talkScreenShows(t, c.screen)
 		c.ask(d)

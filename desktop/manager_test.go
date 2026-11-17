@@ -217,6 +217,7 @@ func TestTheVersionListsExactlyWhatIsServed(t *testing.T) {
 		t.Errorf("features %v, want [events team]", list)
 	}
 	// Under the Mac app, a new token and the screens and tiling too, in the Mac's words.
+	stopDecksOf(t)
 	withMac(t)
 	d = newTestDeck(t)
 	_, got = managerCall(t, d, "GET", "/setup/gm/version", false)

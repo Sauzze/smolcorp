@@ -29,6 +29,7 @@ func TestPairingAndRefusalsSayMacUnderTheMacApp(t *testing.T) {
 	for _, mac := range []bool{false, true} {
 		word := map[bool]string{false: "computer", true: "Mac"}[mac]
 		if mac {
+			stopDecksOf(t)
 			withMac(t)
 		}
 		d := newTestDeck(t)
@@ -130,6 +131,7 @@ func TestADeliverysTimeIsTheMacsUnderTheMacApp(t *testing.T) {
 	if got := describedDelivery("204", plain.deliveryClock); !strings.HasPrefix(got, "Sent: 204 at ") || strings.Contains(got, "M") {
 		t.Errorf("without the Mac app: %q, want 24-hour", got)
 	}
+	stopDecksOf(t)
 	withMac(t)
 	d := newTestDeck(t)
 	if got := describedDelivery("204", d.deliveryClock); !strings.HasPrefix(got, "Sent: 204 at ") || !strings.HasSuffix(got, "M") {
@@ -211,6 +213,7 @@ func TestSetupSendsNoLauncherUnderTheMacApp(t *testing.T) {
 		t.Errorf("without the Mac app the launcher is %v, want its command", elsewhere["launcher"])
 	}
 	for _, answering := range []bool{true, false} {
+		stopDecksOf(t)
 		mac := withMac(t)
 		if !answering {
 			mac.refusing(map[string]string{"facts": "The app is busy."})

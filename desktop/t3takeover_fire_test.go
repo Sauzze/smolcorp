@@ -16,6 +16,7 @@ func TestT3AHireWaitingForHandBackIsntFiredThroughTheRoute(t *testing.T) {
 	// Through the route, as the page (Setup) and the GM call it, force or not: refused, nothing asked of tmux, and the
 	// hire stays, Hand back still offered.
 	for _, asGM := range []bool{false, true} {
+		stopDecksOf(t)
 		g := newGMRig(t, "Rex")
 		g.changeRow(func(h *Hire) { h.T3Session = t3TakeOverSession })
 		w := g.fire(t, asGM, map[string]any{"force": true})

@@ -225,6 +225,7 @@ func TestABoxAndATabRecordingAreEachOwn(t *testing.T) {
 	eventually(t, "stopped", func() bool { return len(askedFor(mac, "dictation-stop")) == 1 })
 
 	// The other way: a tab's recording, on a desk the mic dictates for, isn't ended by the window's stop.
+	stopDecksOf(t)
 	d2, mac2, tab := dictationDeck(t)
 	if status, _ := d2.PerformFrom("phone-1", "mic", "codex-1", map[string][]string{"phase": {"down"}}); status != http.StatusNoContent {
 		t.Fatalf("the mic held: %d", status)

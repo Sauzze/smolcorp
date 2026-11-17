@@ -48,7 +48,7 @@ func TestLiveWindow(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	isolate(t)
-	deck := NewDeck()
+	deck := startDeck(t)
 	router := &router{deck: deck}
 	hits := make(chan string, 256)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +141,7 @@ func TestLiveOpenTwice(t *testing.T) {
 		t.Skip("set SMOLCORP_LIVE_WINDOW=1 to open the window")
 	}
 	isolate(t)
-	deck := NewDeck()
+	deck := startDeck(t)
 	deck.openOffice()
 	deadline := time.Now().Add(20 * time.Second)
 	var hwnd uintptr

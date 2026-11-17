@@ -45,8 +45,9 @@ func (m *processesMac) requests() []bridgeRequest {
 // withProcessesMac puts the stand-in Mac app in place for one test.
 func withProcessesMac(t *testing.T, answers ...bridgeAnswer) *processesMac {
 	t.Helper()
+	noDeckRunning(t, "withProcessesMac()")
 	saved := host
-	t.Cleanup(func() { host = saved })
+	t.Cleanup(func() { noDeckAtPutBack(t, "withProcessesMac()'s app"); host = saved })
 	mac := &processesMac{answers: answers}
 	host = mac
 	return mac
@@ -132,6 +133,7 @@ func TestT3OnAMacTheGoCoreAsksTheMacAppWhichProcessesWork(t *testing.T) {
 func TestT3OnAMacLetGoAndTakeOverLookThroughTheMacApp(t *testing.T) {
 	d := newTestDeck(t)
 	wt := t.TempDir()
+	stopDecksOf(t)
 	mac := withProcessesMac(t, macFound(4242))
 	if pids, looked := defaultT3Leaving().Working(wt); !looked || !slices.Equal(pids, []int{4242}) {
 		t.Errorf("Let go: %v %v", pids, looked)
