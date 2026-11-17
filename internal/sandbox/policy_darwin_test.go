@@ -290,11 +290,12 @@ func TestOnAMacAHiresPythonAndWriteToolCantMoveTheBaseBranches(t *testing.T) {
 				t.Fatalf("%s moved %s aside", how, at)
 			}
 		}
-		tags := ref("refs/tags")
-		if out, err := sandboxed(nil, move(tags, tags+"-aside")...); err != nil {
-			t.Errorf("%s refs/tags, a folder above nothing denied: %v %q (the stand-in must still work)", how, err, out)
-		} else if out, err := sandboxed(nil, move(tags+"-aside", tags)...); err != nil {
-			t.Fatalf("%s didn't put refs/tags back: %v %q", how, err, out)
+		// refs/remotes: refs/tags holds since FXBASEHEADS (a base branch's tag is denied in it).
+		remotes := ref("refs/remotes")
+		if out, err := sandboxed(nil, move(remotes, remotes+"-aside")...); err != nil {
+			t.Errorf("%s refs/remotes, a folder above nothing denied: %v %q (the stand-in must still work)", how, err, out)
+		} else if out, err := sandboxed(nil, move(remotes+"-aside", remotes)...); err != nil {
+			t.Fatalf("%s didn't put refs/remotes back: %v %q", how, err, out)
 		}
 	}
 	for name, text := range files {

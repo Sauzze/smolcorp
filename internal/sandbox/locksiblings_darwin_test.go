@@ -679,3 +679,107 @@ func TestOnAMacADesksPerlPiChangesItsOwnFilesBesideWhatGitsConfigNames(t *testin
 		})
 	}
 }
+
+// RT126LOCKSIBLINGSR3's F1, the reviewer's setup: `~/Projects` is a link to `../real`, a desk works at the project
+// `real/app` (its Root resolved, as deskPlaces gives it), and the repo's config has `include.path =
+// ~/Projects/app/.gitconfig.local`, spelled through the link. ReadGitConfig names that file both ways, and followLinks
+// held the names perl -i and install(1) write in its folder where the spelling leads, the desk's root, so a desk's perl
+// -pi of its own package.json did nothing. Neither name is a row there now, in the Policy nor under the real profile;
+// the named file and the names beside it stay denied. The skip goes no further: git's other config spelled through
+// `~/dotlink`, a link to a folder no desk works in (an $XDG_CONFIG_HOME given that way), keeps both names where it
+// leads, which only followLinks puts there; so does an include through that link; and an include through a link to the
+// home folder keeps install(1)'s there but not perl -i's (SIERRA's ruling on RT126LOCKSIBLINGSR2's B2).
+func TestOnAMacADesksPerlPiChangesItsOwnFilesWhenGitsConfigNamesOneThroughALink(t *testing.T) {
+	git := gitOrSkip(t)
+	sandboxExecOrSkip(t)
+	d := newEscapeDesk(t)
+	app, dots := filepath.Join(d.base, "real", "app"), filepath.Join(d.base, "dots")
+	const named, other = "plants the owner's programs run later: what git's config names", "plants the owner's programs run later: git's other config"
+	mine := map[string]string{filepath.Join(app, "package.json"): `{"version": "1.0.0"}` + "\n",
+		filepath.Join(app, "sub", "notes.txt"): "1.0.0\n"}
+	theirs := map[string]string{filepath.Join(app, ".gitconfig.local"): "[alias]\n\tv = 1.0.0\n",
+		filepath.Join(dots, "extra.inc"): "[alias]\n\tw = 1.0.0\n", filepath.Join(d.home, ".gitconfig-home"): "[alias]\n\tx = 1.0.0\n",
+		filepath.Join(dots, "git", "config"): "[alias]\n\ty = 1.0.0\n"}
+	for _, files := range []map[string]string{mine, theirs} {
+		for at, text := range files {
+			mustWrite(t, at, text)
+		}
+	}
+	for link, to := range map[string]string{filepath.Join(d.home, "Projects"): "../real", filepath.Join(d.home, "dotlink"): "../dots",
+		filepath.Join(d.base, "homelink"): "h"} {
+		if err := os.Symlink(to, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	env := append([]string{"HOME=" + d.home}, gitTestEnv(git)...)
+	outside(t, app, env, git, "init", "-q", "-b", "main")
+	for _, include := range []string{"~/Projects/app/.gitconfig.local", "~/dotlink/extra.inc", filepath.Join(d.base, "homelink", ".gitconfig-home")} {
+		outside(t, app, env, git, "config", "--add", "include.path", include)
+	}
+	d.root = app
+	d.pl.Root, d.pl.Checkout, d.pl.OwnWorktree, d.pl.GitDir, d.pl.OtherWorktrees = app, "", "", filepath.Join(app, ".git"), nil
+	d.pl.GitConfigs = []string{filepath.Join(d.home, "dotlink", "git", "config")}
+	hooks, names, err := ReadGitConfig(context.Background(), git, env, d.pl)
+	if err != nil {
+		t.Fatalf("ReadGitConfig: %v", err)
+	}
+	for _, at := range []string{filepath.Join(d.home, "Projects", "app", ".gitconfig.local"), filepath.Join(d.home, "dotlink", "extra.inc"),
+		filepath.Join(d.base, "homelink", ".gitconfig-home")} {
+		if !slices.Contains(names, at) {
+			t.Fatalf("ReadGitConfig named %q, not %s: the row's setup isn't the one it means", names, at)
+		}
+	}
+	d.pl.GitHooks, d.pl.GitNamed = hooks, names
+
+	p := mustNew(t, d.pl)
+	for _, r := range p.Rules() {
+		if slices.Contains(ownersInFolder, filepath.Base(r.Tail)) && under(key("darwin", r.Path), key("darwin", app)) {
+			t.Errorf("a row of an owner's tool's name in the desk's root: %+v", r)
+		}
+	}
+	profile := profileOf(p, p.Exception)
+	for _, c := range []struct {
+		at  string
+		v   Verdict
+		row string
+	}{
+		{app + "/XXNu6Xnm", A, ""}, {app + "/INS@q4Ontc", A, ""}, {app + "/sub/XXNu6Xnm", A, ""},
+		{app + "/.gitconfig.local", D, named}, {app + "/.!9!.gitconfig.local", D, named}, {app + "/.gitconfig.local.lock", D, named},
+		{dots + "/extra.inc", D, named}, {dots + "/XXNu6Xnm", D, named}, {dots + "/INS@q4Ontc", D, named},
+		{dots + "/git/config", D, other}, {dots + "/git/XXNu6Xnm", D, other}, {dots + "/git/INS@q4Ontc", D, other},
+		{d.home + "/.gitconfig-home", D, named}, {d.home + "/XXNu6Xnm", A, ""}, {d.home + "/INS@q4Ontc", D, ""},
+	} {
+		if v, r := p.Decide(c.at, Write); v != c.v || c.row != "" && r.Row != c.row {
+			t.Errorf("write %s: %v by %q, want %v by %q", strings.TrimPrefix(c.at, d.base), v, r.Row, c.v, c.row)
+		}
+		if got := profile.says(c.at, Write); got != c.v {
+			t.Errorf("write %s: the profile says %v, want %v", strings.TrimPrefix(c.at, d.base), got, c.v)
+		}
+	}
+
+	d.prepare(t)
+	for at, text := range mine {
+		r := d.inside(t, nil, "/usr/bin/perl", "-pi", "-e", `s/1\.0\.0/1.0.1/`, at)
+		want := strings.Replace(text, "1.0.0", "1.0.1", 1)
+		if data, _ := os.ReadFile(at); r.status != 0 || r.stderr != "" || string(data) != want {
+			t.Errorf("the desk's perl -pi of %s: exit %d, %q, the file %q, want %q", strings.TrimPrefix(at, d.base), r.status,
+				strings.TrimSpace(r.stderr), data, want)
+		}
+	}
+	for at := range theirs {
+		before, _ := os.ReadFile(at)
+		d.inside(t, nil, "/usr/bin/perl", "-pi", "-e", `s/1\.0\.0/1.0.1/`, at)
+		if data, _ := os.ReadFile(at); string(data) != string(before) {
+			t.Errorf("the desk's perl -pi of %s, which git's config names, changed it: %q", strings.TrimPrefix(at, d.base), data)
+		}
+	}
+	// perl -i's name where the folders no desk works in are: still the owner's, under the real profile too.
+	for _, at := range []string{filepath.Join(dots, "XXabcdef"), filepath.Join(dots, "git", "XXabcdef")} {
+		if r := d.inside(t, nil, "/usr/bin/touch", at); r.status == 0 {
+			t.Errorf("the desk's touch of %s: exit 0, want refused", strings.TrimPrefix(at, d.base))
+		}
+		if _, err := os.Lstat(at); !os.IsNotExist(err) {
+			t.Errorf("%s was made (%v)", strings.TrimPrefix(at, d.base), err)
+		}
+	}
+}

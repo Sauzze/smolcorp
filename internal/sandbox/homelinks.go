@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -95,6 +96,11 @@ func (b *builder) followLinks(first int, home string, owned []string) {
 		at := r.Path
 		if len(hops) > 0 && key(b.goos, real) != r.key {
 			hold(hops)
+			// A writer's own name in a folder goes where ownName would put it, no further: not into a place the desk
+			// works in, nor perl -i's into the home folder itself, when the folder as spelled leads there (F1).
+			if slices.Contains(ownersInFolder, path.Base(r.Tail)) && b.leavesOut(key(b.goos, real), r.Tail) {
+				continue
+			}
 			if !b.heldAlready(r, real) {
 				moved := r
 				moved.Path = real

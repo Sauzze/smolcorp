@@ -188,7 +188,7 @@ var rows = []row{
 	// …and the entries that make the shared .git a git folder (RT126SAX1R5 B3): their mode, ACL or name, so git never
 	// walks past it to one a desk made above the checkout, which it may. What git makes inside them is still its work.
 	all("$G", Write, D), all("$G/objects", Write, D), all("$G/refs", Write, D), all("$G", Read, A), all("$G/refs", Read, A),
-	all("$G/ORIG_HEAD", Write, A), all("$G/objects/ab", Write, A), all("$G/refs/tags/v1", Write, A),
+	all("$G/ORIG_HEAD", Write, D), all("$G/objects/ab", Write, A), all("$G/refs/tags/v1", Write, A),
 	all("$H/.git/config", Write, A), all("$H/Projects/config", Write, A), all("$H/Projects/HEAD", Write, A),
 	// …and the owner's rebase state, whose todo lists hold exec lines; the desk's own is in its registration.
 	all("$G/rebase-merge", Write, D), all("$G/rebase-merge/git-rebase-todo", Write, D), all("$G/rebase-apply/next", Write, D),
@@ -255,8 +255,9 @@ var rows = []row{
 	all("$G/modules/sub/logs/HEAD", Write, D), all("$G/modules/third_party/bar/config", Write, D),
 	all("$G/modules/sub/objects/x", Write, D), all("$G/modules/sub/objects", Write, D), all("$G/modules/sub/HEAD", Write, D),
 	all("$G/modules/sub/objects/ab", Move, D), all("$G/modules/sub/objects/ab/cdef", Read, A),
-	// …and a folder above nothing denied moves as before.
-	all("$G/refs/tags", Move, A), all("$G/refs/heads/topic", Move, A), all("$G/worktrees/$WT/logs", Move, A),
+	// …and a folder above nothing denied moves as before. refs/tags holds now: a base branch's tag is denied in it
+	// (FXBASEHEADS, SIERRA's ruling #2).
+	all("$G/refs/tags", Move, D), all("$G/refs/heads/topic", Move, A), all("$G/worktrees/$WT/logs", Move, A),
 	all("$H/.config/nvim", Move, A), all("$ROOT/pkg", Move, A), all(sockets+"/$ID/sub", Move, A),
 	// Its own place, and normal work.
 	all("$ROOT/main.go", Write, A), all("$ROOT/main.go", Read, A), all("$H/Library/Caches/x", Write, A),
@@ -868,12 +869,15 @@ func TestNoDeskMakesTheSharedGitStopBeingAGitFolder(t *testing.T) {
 		p := mustNew(t, s.pl)
 		profile := profileOf(p, p.Exception)
 		for _, c := range probes {
-			at := gitDir + c.at
-			if got, by := p.Decide(at, Write); got != c.want {
-				t.Errorf("%s: write %s: %v by %q, want %v", s.name, at, got, by.Row, c.want)
+			at, want := gitDir+c.at, c.want
+			if c.at == "/ORIG_HEAD" && s.pl.Checkout != "" {
+				want = D // the owner checkout's, no desk's in its own worktree (FXBASEHEADS, ruling #3); a desk at the project keeps it
 			}
-			if got := profile.says(at, Write); got != c.want {
-				t.Errorf("%s: write %s: the profile says %v, want %v", s.name, at, got, c.want)
+			if got, by := p.Decide(at, Write); got != want {
+				t.Errorf("%s: write %s: %v by %q, want %v", s.name, at, got, by.Row, want)
+			}
+			if got := profile.says(at, Write); got != want {
+				t.Errorf("%s: write %s: the profile says %v, want %v", s.name, at, got, want)
 			}
 		}
 	}
@@ -1195,6 +1199,103 @@ func TestTheOwnersToolsNamesInAFolderAreNoRowWhereADeskWorksOnAMac(t *testing.T)
 		} {
 			if v, r := p.Decide(c.path, Write); v != c.v || c.row != "" && r.Row != c.row {
 				t.Errorf("%s: write %s: %v by %q, want %v by %q", s.name, c.path, v, r.Row, c.v, c.row)
+			}
+		}
+	}
+}
+
+// FXBASEHEADS (SIERRA's rulings #2 and #3): on a Mac no desk writes a base branch's name where the owner's git looks
+// before refs/heads (`$G/main`, `refs/main`, `refs/tags/main`, and `release/…` in each), nor git's lock beside one, and
+// refs/tags holds against a move. A desk in its own worktree doesn't write the owner checkout's merge, pick, revert or
+// rebase in progress, nor their locks; a desk at the project keeps them, its own. Both are read in Decide and in the
+// profile read as Seatbelt reads it. A desk's own tags, its own worktree's state, and what the rulings didn't name stay
+// its work.
+func TestABaseBranchsNameElsewhereAndTheOwnersStateAreNoDesksOnAMac(t *testing.T) {
+	type c struct {
+		path string
+		op   Op
+		v    Verdict
+		row  string
+	}
+	const rebase = "the shared git places: the owner's rebase"
+	var names []c
+	for _, b := range []string{"main", "master", "develop"} {
+		for _, at := range []string{"$G/", "$G/refs/", "$G/refs/tags/"} {
+			names = append(names, c{at + b, Write, D, rowBaseNames}, c{at + b + ".lock", Write, D, rowBaseNames})
+		}
+	}
+	names = append(names,
+		c{"$G/release/1.26", Write, D, rowBaseNames}, c{"$G/refs/release/1.26", Write, D, rowBaseNames},
+		c{"$G/refs/tags/release/1.26", Write, D, rowBaseNames}, c{"$G/refs/tags/release/1.26.lock", Write, D, rowBaseNames},
+		c{"$G/refs/tags/release", Write, D, rowBaseNames}, c{"$G/release", Write, D, rowBaseNames},
+		c{"$G/refs/tags/MAIN", Write, D, rowBaseNames}, c{"$G/Refs/Tags/Main.Lock", Write, D, rowBaseNames},
+		c{"$G/Main", Write, D, rowBaseNames},
+		// refs/tags holds, or a desk moves it aside, writes main there, and moves it back.
+		c{"$G/refs/tags", Move, D, rowAbove}, c{"$G/refs/tags", Link, D, rowAbove},
+		// A desk still tags any other name.
+		c{"$G/refs/tags/v2", Write, A, ""}, c{"$G/refs/tags/v2.lock", Write, A, ""}, c{"$G/refs/tags/mainline", Write, A, ""},
+		c{"$G/refs/tags/h1-main", Write, A, ""}, c{"$G/refs/tags/v/main", Write, A, ""}, c{"$G/refs/tags/releases", Write, A, ""},
+		c{"$G/refs/tags/h1/release/1.26", Write, A, ""}, c{"$G/refs/mainline", Write, A, ""}, c{"$G/mainline", Write, A, ""},
+		c{"$G/refs/tags", Write, A, ""}, c{"$G/refs/remotes/origin/main", Write, A, ""}, c{"$G/refs/notes/main", Write, A, ""},
+	)
+	var state, ownState []c
+	for _, name := range []string{"MERGE_HEAD", "ORIG_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "AUTO_MERGE"} {
+		state = append(state, c{"$G/" + name, Write, D, rowOwnersState}, c{"$G/" + name + ".lock", Write, D, rowOwnersState})
+		ownState = append(ownState, c{"$G/worktrees/$WT/" + name, Write, A, ""}, c{"$G/worktrees/$WT/" + name + ".lock", Write, A, ""})
+	}
+	state = append(state, c{"$G/merge_head", Write, D, rowOwnersState},
+		// The rebase folders: the shared git places' already, for every desk (RT126SAX1R5).
+		c{"$G/rebase-merge/git-rebase-todo", Write, D, rebase}, c{"$G/rebase-merge/done", Write, D, rebase},
+		c{"$G/rebase-apply/next", Write, D, rebase}, c{"$G/rebase-merge", Write, D, rebase})
+	ownState = append(ownState, c{"$G/worktrees/$WT/rebase-merge/git-rebase-todo", Write, A, ""},
+		c{"$G/worktrees/$WT/rebase-apply/next", Write, A, ""},
+		// What the rulings didn't name stays as it was.
+		c{"$G/MERGE_MSG", Write, A, ""}, c{"$G/MERGE_MODE", Write, A, ""}, c{"$G/FETCH_HEAD", Write, A, ""})
+	check := func(t *testing.T, s setup, cases []c) {
+		t.Helper()
+		p := mustNew(t, s.pl)
+		profile := profileOf(p, p.Exception)
+		for _, c := range cases {
+			at := s.path(c.path)
+			v, r := p.Decide(at, c.op)
+			if v != c.v || c.row != "" && r.Row != c.row {
+				t.Errorf("%s: %v %s: %v by %q, want %v by %q", s.name, c.op, c.path, v, r.Row, c.v, c.row)
+			}
+			if c.op == Write {
+				if got := profile.says(at, Write); got != c.v {
+					t.Errorf("%s: write %s: the profile says %v, want %v", s.name, c.path, got, c.v)
+				}
+			}
+		}
+	}
+	t.Run("a base branch's name elsewhere", func(t *testing.T) {
+		for _, s := range setups() {
+			check(t, s, names)
+		}
+	})
+	t.Run("the owner checkout's state, for a desk in its own worktree", func(t *testing.T) {
+		for _, s := range setups() {
+			check(t, s, append(state, ownState...))
+		}
+	})
+	t.Run("a desk at the project keeps its own", func(t *testing.T) {
+		atProject := setup{"a desk at the project", hirePlaces(realSupport)}
+		atProject.pl.Root, atProject.pl.Checkout, atProject.pl.OwnWorktree = repo, "", ""
+		var keeps []c
+		for _, s := range state {
+			if s.row == rowOwnersState {
+				keeps = append(keeps, c{s.path, Write, A, ""})
+			}
+		}
+		check(t, atProject, append(keeps, c{"$G/rebase-merge/git-rebase-todo", Write, D, rebase}, c{"$G/refs/tags/main", Write, D, rowBaseNames}))
+	})
+	// Linux's view and Windows' jail are made from other rows (the report lists them for the VM).
+	for _, pl := range []Places{linuxPlaces(lHome + "/.local/share/smolcorp"), {GOOS: "windows", Subject: Hire, Home: `C:\Users\ada`,
+		Support: `C:\Users\ada\AppData\Roaming\Smolcorp`, OwnID: "h1", Root: `C:\Users\ada\Projects\app-hires\h1`,
+		Checkout: `C:\Users\ada\Projects\app`, GitDir: `C:\Users\ada\Projects\app\.git`, OwnWorktree: "h1"}} {
+		for _, r := range mustNew(t, pl).Rules() {
+			if r.Row == rowBaseNames || r.Row == rowOwnersState {
+				t.Errorf("a %s Policy has a row of a base branch's name elsewhere or the owner's state: %+v", pl.GOOS, r)
 			}
 		}
 	}

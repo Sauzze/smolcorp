@@ -367,6 +367,14 @@ const (
 	rowBaseReflogs   = "the base branches: their reflogs"
 )
 
+// rowBaseNames is the Mac's row of a base branch's name in the places the owner's git looks before refs/heads, and
+// rowOwnersState of the owner checkout's merge, pick or rebase in progress, for a desk in its own worktree
+// (FXBASEHEADS, SIERRA's rulings #2 and #3).
+const (
+	rowBaseNames   = "the base branches: their names elsewhere"
+	rowOwnersState = "the owner's checkout: its merge, pick or rebase in progress"
+)
+
 // New makes the Policy for a desk at pl. A desk whose root (or checkout, hires folder or GM folder) is inside a
 // support folder, or contains one, is refused: no exception could then keep the folder whole. So is one whose root is
 // or contains the hires folder, or contains the owner's checkout (RT126SAX1R2 B2′): it would work in other desks'
@@ -549,6 +557,17 @@ func build(pl Places) (*Policy, error) {
 		for _, folder := range []string{"rebase-merge", "rebase-apply", "sequencer"} {
 			b.add(Rule{Row: "the shared git places: the owner's rebase", Path: join(git, folder), Below: true, Write: Deny})
 		}
+		// …and, on a Mac, what else the owner checkout's git keeps of a merge, pick, revert or rebase in progress, for a
+		// desk in its own worktree (FXBASEHEADS, SIERRA's ruling #3): a MERGE_HEAD of a desk's commit makes the owner's
+		// next `git commit` on main a merge of it, real history then, which no read-around undoes; the others are what
+		// the owner's `reset --hard ORIG_HEAD`, `--continue` and `--abort` take. A desk in its own worktree loses
+		// nothing: git keeps its own in its registration, worktrees/<id>/. A desk at the project keeps them, its own.
+		// Each is written through its lock (MERGE_HEAD in place, its lock denied all the same).
+		if goos == "darwin" && pl.Checkout != "" && key(goos, pl.Checkout) != key(goos, pl.Root) {
+			for _, name := range []string{"MERGE_HEAD", "ORIG_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "AUTO_MERGE"} {
+				b.beside(Rule{Row: rowOwnersState, Path: join(git, name), Write: Deny}, gitLock)
+			}
+		}
 		// The submodules' git folders, whole, for every desk (RT126SAX1R4 B1‴): any folder in there, brought in whole by
 		// a rename with its config and hooks inside, the owner's git could later take for a submodule's, once the desk
 		// had broken the git folder above it with one write (its HEAD). A desk in its own worktree loses nothing by it:
@@ -613,6 +632,21 @@ func build(pl Places) (*Policy, error) {
 				}
 			}
 			b.add(Rule{Row: rowBaseReflogs, Path: join(git, "logs/refs/heads/release"), Below: true, Write: Deny})
+			// A base branch's name elsewhere (FXBASEHEADS, SIERRA's ruling #2): the owner's git looks for `main` as
+			// `$G/main`, `refs/main` and `refs/tags/main` before `refs/heads/main`, and takes the first it finds with only a
+			// warning, in its show, merge, log and worktree add of main; `release/1.26` the same. So none of them is a
+			// desk's, nor their locks (`git tag main` writes refs/tags/main.lock), and refs/tags holds against a move
+			// (denyAbove), or a desk would move it aside, write, and move it back. A desk still tags any other name.
+			for _, branch := range []string{"main", "master", pl.DefaultBranch} {
+				if branch != "" {
+					for _, at := range []string{"", "refs", "refs/tags"} {
+						b.beside(Rule{Row: rowBaseNames, Path: join(git, at, branch), Write: Deny}, gitLock)
+					}
+				}
+			}
+			for _, at := range []string{"", "refs", "refs/tags"} {
+				b.add(Rule{Row: rowBaseNames, Path: join(git, at, "release"), Below: true, Write: Deny})
+			}
 		}
 		// The old remote files (RT126GITCFG2's note 3; SIERRA, 14 Nov): `branches/<name>` and `remotes/<name>` give a
 		// remote config doesn't name an address, which the owner's fetch, pull and push use, and an address can name a
@@ -872,12 +906,7 @@ func (b *builder) ownName(r Rule, name string) {
 		s.Path, s.Tail = path.Dir(r.Path), name
 	}
 	folder := key(b.goos, s.Path)
-	for _, w := range b.work {
-		if under(folder, w) {
-			return
-		}
-	}
-	if folder == b.home && path.Dir(s.Tail) == "." && slices.Contains(ownersNotInHome, name) {
+	if b.leavesOut(folder, s.Tail) {
 		return
 	}
 	k := [2]string{folder, foldName(b.goos, s.Tail)}
@@ -888,6 +917,19 @@ func (b *builder) ownName(r Rule, name string) {
 		b.inFolder[k] = true
 		b.add(s)
 	}
+}
+
+// leavesOut is whether a row of a writer's own name in a folder (ownersInFolder), its Tail tail, is left out of folder,
+// a key: at or under a place the desk works in, or one of ownersNotInHome directly in the home folder. ownName asks it
+// of the folder as spelled, and followLinks of the folder it leads to (RT126LOCKSIBLINGSR3's F1: a git config value
+// spelled through `~/Projects`, a link to the folder that holds the desk's root, put perl -i's name back in the root).
+func (b *builder) leavesOut(folder, tail string) bool {
+	for _, w := range b.work {
+		if under(folder, w) {
+			return true
+		}
+	}
+	return folder == b.home && slices.Contains(ownersNotInHome, tail)
 }
 
 // fail keeps err as the Policy's error, unless an earlier one is kept already.

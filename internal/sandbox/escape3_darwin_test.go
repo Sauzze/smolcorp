@@ -787,6 +787,9 @@ var startSites = map[string]string{
 
 	// FXLOCKSIBLINGSR1's. The owner's tools go through outside (escape2_darwin_test.go), a funnel.
 	"locksiblings_darwin_test.go TestOnAMacADeskCantTakeTheOwnersToolsNamesBesideAPlant": "sandbox-exec under the desk's profile (ownersToolsDesk), then python3 with the row's own spin, which only opens a stand-in's name (by itself, its upper-case name, /.vol or a hard link in its worktree) or renames or swaps its own file onto it",
+
+	// FXBASEHEADS'. Its git rows start through (*escapeDesk).inside and outside, funnels.
+	"baseheads_darwin_test.go TestOnAMacTheProfileKeepsABaseBranchsNameAndTheOwnersStateFromADesk": "sandbox-exec under each of the row's two profiles, then python3 with the row's probe",
 }
 
 // startFunnels are the package's start helpers on a Mac (startHelpers), each with whether it starts in a desk's
