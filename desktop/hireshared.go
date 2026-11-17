@@ -79,6 +79,9 @@ type engineRequest struct {
 	Scope string
 	// ScopeRoles: the roles a GM held to a demo's project may hire, kept in its registry row; nil for any other.
 	ScopeRoles string
+	// Held: the scope of the GM whose route asked for this hire, when it is held to one: the place is made only in
+	// a folder it still holds (prepareHire). nil for any other.
+	Held *gmScope
 }
 
 // engineAutoMode is whether an engine hire's settings put it in auto mode: on

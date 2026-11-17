@@ -122,11 +122,15 @@ func gitWritesThrough(args []string) bool {
 	return false
 }
 
-// gitWorktreeAdded is the new worktree's path in `worktree add [-q] -b <branch> <path>`.
+// gitWorktreeAdded is the new worktree's path in `worktree add [-q] -b <branch> <path> [<commit>]`: a commit only as
+// its whole object name (a scoped GM's hire from one of the project's worktrees, made from the project, FXGMSCOPEPINR1).
 func gitWorktreeAdded(args []string) (string, bool) {
 	rest := args[2:]
 	if len(rest) > 0 && rest[0] == "-q" {
 		rest = rest[1:]
+	}
+	if len(rest) == 4 && gitObjectID(rest[3]) {
+		rest = rest[:3]
 	}
 	if len(rest) != 3 || rest[0] != "-b" || strings.HasPrefix(rest[1], "-") || !filepath.IsAbs(rest[2]) {
 		return "", false
@@ -206,9 +210,9 @@ func gitFilesThroughFolder(ctx context.Context, dir, gitDir, top string, args []
 }
 
 // gitWriteThroughFolder runs args, which write (gitWritesThrough), on the repo dir is in, through a git folder of the
-// core's own, and carries the one branch they changed into the repo; for a new worktree (made from the repo's HEAD),
-// its registration too. Nothing is carried when git says no. gitDir, top and common name the repo when the caller
-// knows them (a desk's tree, by the registry), "" asks git.
+// core's own, and carries the one branch they changed into the repo; for a new worktree (made from the repo's HEAD, or
+// from the commit named), its registration too. Nothing is carried when git says no. gitDir, top and common name the
+// repo when the caller knows them (a desk's tree, by the registry), "" asks git.
 func gitWriteThroughFolder(ctx context.Context, dir, gitDir, top, common string, args []string) (int, string, error) {
 	tree := ""
 	if args[0] == "worktree" {

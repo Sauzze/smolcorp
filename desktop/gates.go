@@ -130,6 +130,9 @@ type verdict struct {
 	what   string
 	amount string // an amount the owner is asked to allow, as it reads, if any
 	body   any
+	// A route held to a GM's scope: the scope as the GM's row keeps it (gmScopeOf), and the query as checked and
+	// encoded (a pin's folder as the scope resolved it), which the route is given. "" for any other.
+	heldScope, heldRoles, query string
 }
 
 func allow() verdict { return verdict{kind: verdictAllow} }
@@ -241,6 +244,10 @@ func (d *Deck) decideRoute(a actor, r routeAsk) verdict {
 	}
 	v := allow()
 	v.body = body
+	v.heldScope, v.heldRoles = gm.Scope, gm.ScopeRoles
+	if r.query != nil {
+		v.query = r.query.Encode()
+	}
 	return v
 }
 

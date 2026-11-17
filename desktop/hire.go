@@ -522,6 +522,9 @@ type hireSpec struct {
 	// The GM route's task, into the hire's brief as the Mac's BriefContext.task ("" for none); setup's sheet
 	// says its own in extra.
 	task string
+	// The scope of a GM held to one project, which the GM route checked folder against: its place is made only in
+	// that folder, still held where it is made (prepareHire). nil for none.
+	held *gmScope
 }
 
 // fenceRefusal is why a fenced hire of program can't be made, or "": a plain terminal has no guard.
@@ -687,8 +690,11 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 	// What the engine is told of an account, a worktree or a task that setup's sheet didn't send (Start here's,
 	// the GM route's).
 	engineExtra := extra
-	if extra == nil && (account != "" || s.worktree != nil || s.task != "") {
-		engineExtra = &setupHire{Account: account, configDir: configDir, Worktree: s.worktree == nil || *s.worktree, Task: s.task}
+	if extra == nil && (account != "" || s.worktree != nil || s.task != "" || s.held != nil) {
+		engineExtra = &setupHire{Account: account, configDir: configDir, Worktree: s.worktree == nil || *s.worktree, Task: s.task, held: s.held}
+	} else if s.held != nil {
+		// Only the GM route holds a hire to a scope, and it sends no setup sheet: one that did would drop the scope.
+		return http.StatusConflict, gmScopeNeedsEngine
 	}
 	// T721, on every hire route, before anything is made or the cooldown is spent (a test copy never hires
 	// on the default account).

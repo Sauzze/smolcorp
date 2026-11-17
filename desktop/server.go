@@ -226,6 +226,8 @@ type request struct {
 	// ownWindow is whether the key is the Mac app's own office window's, under the Mac app: the one office window
 	// whose key never passes through a browser's address, and so the only one that is the owner's tap.
 	ownWindow bool
+	// heldTo is the GM's scope a setup route is held to (gmscope.go), as the gate checked the request: nil for none.
+	heldTo *gmScope
 }
 
 // caller is who is asking for setup: the page, a tool of yours, or no one.
@@ -412,6 +414,13 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		if v.body != nil {
 			data, _ := json.Marshal(v.body)
 			r.Body = io.NopCloser(bytes.NewReader(data))
+		}
+		if v.heldScope != "" {
+			if v.query != r.URL.Query().Encode() {
+				r.URL.RawQuery = v.query
+			}
+			held := gmScopeOf(Hire{Scope: v.heldScope, ScopeRoles: v.heldRoles})
+			r.heldTo = &held
 		}
 		// What a page's session changes, and a read that hands it a key, is kept with it, for the "used first"
 		// report (setuplink.go).

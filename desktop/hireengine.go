@@ -152,7 +152,7 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if r.APIKeyText != "" {
 		key = func() string { return r.APIKeyText } // the key the Mac app gave for this hire
 	}
-	place, err := prepareHire(hireRequest{HireID: id, Name: name, Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir,
+	place, err := prepareHire(hireRequest{HireID: id, Name: name, Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir, Held: r.Held,
 		APIKey: r.APIKey, Worktree: !r.NoWorktree},
 		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: o.Git, PortFree: o.PortFree, Key: key})
 	if err != nil {

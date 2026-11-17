@@ -3,9 +3,11 @@ package desktop
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -152,7 +154,116 @@ func (s gmScope) place(folder string) (string, bool) {
 	lines := strings.Split(out, "\n")
 	held := ok && status == 0 && len(lines) == 2 && physical(strings.TrimSpace(lines[0])) == real &&
 		physical(strings.TrimSpace(lines[1])) == filepath.Join(s.root, ".git")
-	return real, held
+	return real, held && s.registered(real)
+}
+
+// registered is whether the project's git made a worktree at real, a folder with links followed: its registration
+// in the project's .git names it (FXGMSCOPEPIN). A desk can't write those (the Policy's "a worktree's registration"
+// rows), so a folder the GM made to pass as a worktree (its .git a file naming the project's) isn't held, and can't
+// be swapped for a link once it has passed.
+func (s gmScope) registered(real string) bool { _, ok := s.registration(real); return ok }
+
+// registration is the name of the project's registration of a worktree at real. It is read as files, through a root
+// that leads no link out of the project's .git: the owner's git has no `worktree list` (ownergit.go), and this needs
+// no git at all (FXGMSCOPEPINR1). git keeps the worktree's place with links followed, so it is compared as written,
+// never followed: a registered folder swapped for a link leads elsewhere, and isn't real.
+func (s gmScope) registration(real string) (string, bool) {
+	root, err := os.OpenRoot(filepath.Join(s.root, ".git"))
+	if err != nil {
+		return "", false
+	}
+	defer root.Close()
+	folder, err := root.Open("worktrees")
+	if err != nil {
+		return "", false
+	}
+	entries, err := folder.ReadDir(-1)
+	folder.Close()
+	if err != nil {
+		return "", false
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		at, ok := gitRegistrationFile(root, entry.Name(), "gitdir")
+		if !ok {
+			continue
+		}
+		if !filepath.IsAbs(at) { // worktree.useRelativePaths: from the registration's own folder
+			at = filepath.Join(s.root, ".git", "worktrees", entry.Name(), at)
+		}
+		if at = filepath.Clean(at); filepath.Base(at) == ".git" && filepath.Dir(at) == real {
+			return entry.Name(), true
+		}
+	}
+	return "", false
+}
+
+// commitOf is the commit the project's worktree at real (a folder with links followed, held) is on, by its
+// registration's HEAD, as the project's git names it: what a hire's worktree from it starts from, made from the
+// project itself (FXGMSCOPEPINR1). The project is its own HEAD's. "" when it can't be told.
+func (s gmScope) commitOf(real string) string {
+	head := "HEAD"
+	if real != s.root {
+		name, ok := s.registration(real)
+		if !ok {
+			return ""
+		}
+		root, err := os.OpenRoot(filepath.Join(s.root, ".git"))
+		if err != nil {
+			return ""
+		}
+		value, ok := gitRegistrationFile(root, name, "HEAD")
+		root.Close()
+		ref, isRef := strings.CutPrefix(value, "ref: ")
+		switch {
+		case !ok:
+			return ""
+		case isRef && gitBranchFile(ref):
+			head = ref
+		case !isRef && gitObjectID(value):
+			head = value
+		default:
+			return ""
+		}
+	}
+	status, out, ok := s.git(s.root, "rev-parse", "--verify", "-q", head+"^{commit}")
+	if out = strings.TrimSpace(out); !ok || status != 0 || !gitObjectID(out) {
+		return ""
+	}
+	return out
+}
+
+// gitRegistrationFile is a small file of the worktree registration name, under root (a repo's common .git), trimmed.
+func gitRegistrationFile(root *os.Root, name, file string) (string, bool) {
+	f, err := root.Open(path.Join("worktrees", name, file))
+	if err != nil {
+		return "", false
+	}
+	defer f.Close()
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	data, err := io.ReadAll(io.LimitReader(f, 4096))
+	value := strings.TrimSpace(string(data))
+	return value, err == nil && value != "" && !strings.ContainsAny(value, "\n\x00")
+}
+
+// gitObjectID is whether id is a whole object name as git writes one: 40 (sha1) or 64 (sha256) lower-case hex digits.
+func gitObjectID(id string) bool {
+	if len(id) != 40 && len(id) != 64 {
+		return false
+	}
+	return strings.Trim(id, "0123456789abcdef") == ""
+}
+
+// hiresOnly is the scope's refusal of a hire's folder, as its sentence goes on after "This General Manager".
+func (s gmScope) hiresOnly() string {
+	if s.demo != "" {
+		return "hires only into " + s.root + " or the top of one of its worktrees in " + s.demo + ", a folder that is there."
+	}
+	return "hires only into " + s.root + " or the top of one of its worktrees, a folder that is there."
 }
 
 // pinned is whether a desk's pin, as config.json keeps it, is held.
@@ -224,7 +335,8 @@ const gmScopeBody = 1 << 20
 
 // gmScopeRefusal is why a request made with the GM's token (raw, its body) goes beyond gm's scope: a status
 // and one sentence, or 0 to go on. It decides only; body is what was checked, which the route is given in
-// place of what was sent (gates.go writes it back), nil when nothing was checked.
+// place of what was sent (gates.go writes it back), nil when nothing was checked. A pin's folder is set in query
+// as checked, which the route is given too.
 func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, raw []byte) (status int, why string, body any) {
 	root := gm.Scope
 	if !gmScopeHolds(gm, method) {
@@ -282,12 +394,10 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 		folder, why := gmHireFolder(asked["folder"])
 		real, held := s.place(folder)
 		if why != "" || !held {
-			if s.demo != "" {
-				return refuse("hires only into " + root + " or the top of one of its worktrees in " + s.demo + ", a folder that is there.")
-			}
-			return refuse("hires only into " + root + " or the top of one of its worktrees, a folder that is there.")
+			return refuse(s.hiresOnly())
 		}
-		// The route hires into the folder as checked, links followed, never the words it was sent.
+		// The route hires into the folder as checked, links followed, never the words it was sent; it resolves it
+		// again, and the hire's place once more, and each must still be this folder, held (gates.go hands on s).
 		asked["folder"] = real
 	case post && path == "/setup/gm/send":
 		if to := mailAsked(text("to")); to != "gm" && to != "the gm" && !s.named(text("to")) {
@@ -307,9 +417,15 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 			Name   *string `json:"name"`
 		}
 		_ = json.Unmarshal(raw, &given)
-		if given.Folder == nil || !s.holds(strings.TrimSpace(*given.Folder)) {
+		if given.Folder == nil {
 			return refuse("names only who works" + where + " or its worktrees.")
 		}
+		real, held := s.place(strings.TrimSpace(*given.Folder))
+		if !held {
+			return refuse("names only who works" + where + " or its worktrees.")
+		}
+		// The route names whoever works in the folder as checked, links followed, never the words it was sent.
+		given.Folder = &real
 		body = given
 	case post && (path == "/setup/pin" || path == "/setup/unpin"):
 		// The desk on whichever floor it's named on, as the route reads it (pinDesk).
@@ -321,12 +437,18 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 		}
 		d.mu.Unlock()
 		folder, _ := existingFolder(query.Get("folder"))
-		if pinned != nil && !s.pinned(*pinned) || path == "/setup/pin" && !s.holds(folder) {
+		real, held := s.place(folder)
+		if pinned != nil && !s.pinned(*pinned) || path == "/setup/pin" && !held {
 			return refuse("pins only" + where + " and its worktrees, never over another desk's pin.")
 		}
 		// A pin upstairs moves the folder's sessions to that floor: only to a floor the GM already has.
 		if ok && floor > 0 && path == "/setup/pin" && !s.hasFloor(d, floor) {
 			return refuse("pins only on the ground floor or a floor where its own sessions sit or it has a pin" + where + ".")
+		}
+		// The route pins the folder as checked, links followed, never the words it was sent (gates.go writes the
+		// query back).
+		if path == "/setup/pin" {
+			query.Set("folder", real)
 		}
 	case post && path == "/setup/gm/watch":
 		// Read as the route reads it (watchers.add): the hire by id, nickname or name; a file by its full path,

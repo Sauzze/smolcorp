@@ -124,6 +124,16 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 		reply(http.StatusBadRequest, why)
 		return
 	}
+	// A GM held to one project hires into the folder its scope checked, as the gate handed it on: resolved again
+	// here, it is still that folder and still held, or nothing is made. The hire's place checks it once more where
+	// it is made (prepareHire), and is made in it as resolved there (FXGMSCOPEPIN).
+	if s := r.heldTo; s != nil {
+		text, _ := given.(string)
+		if real, held := s.place(folder); !held || real != folder || folder != text {
+			reply(http.StatusForbidden, "This General Manager "+s.hiresOnly())
+			return
+		}
+	}
 	// The account, as the Mac's: one of your Claude accounts by name, as text. Left out (or "") is the only one,
 	// and with more than one saved hireWith asks which; a GM held to one project has its own account filled in
 	// (gmScopeRefusal).
@@ -146,7 +156,7 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 	// The account goes to hireWith, which asks which with more than one saved (as the Mac's route), and finds
 	// its folder; a GM held to one project has its own filled in (gmScopeRefusal).
 	if status, text := d.hireWith(hireSpec{roleID: role, floor: int(floor), fromSetup: true, folder: folder, fenced: true, seat: &seat,
-		account: named, task: briefTask(task)}); status != http.StatusNoContent {
+		account: named, task: briefTask(task), held: r.heldTo}); status != http.StatusNoContent {
 		reply(status, text)
 		return
 	}

@@ -112,7 +112,7 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 		return Hire{}, "", &hireRefusal{Status: http.StatusInternalServerError, Message: "The hire's window can't be opened here."}
 	}
 	id := strings.ToLower(newID())[:12]
-	place, err := prepareHire(hireRequest{HireID: id, Name: r.Role.Name, Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir,
+	place, err := prepareHire(hireRequest{HireID: id, Name: r.Role.Name, Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir, Held: r.Held,
 		APIKey: r.APIKey, Worktree: true},
 		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: o.Git, PortFree: o.PortFree, Key: o.Key})
 	if err != nil {

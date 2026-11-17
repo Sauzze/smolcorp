@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -56,6 +57,9 @@ type hireRequest struct {
 	ConfigDir string // the account's config folder; "" is ~/.claude's
 	APIKey    bool   // the API-key account was picked
 	Worktree  bool   // a repo gets a worktree for it
+	// Held is the scope of a GM held to one project, whose hire this is: Folder is the folder it checked, links
+	// followed, and the place is made only while it is still that folder, held, and its checkout's top. nil for none.
+	Held *gmScope
 }
 
 // hirePlaceOptions are what prepareHire needs from outside, each with a test stand-in.
@@ -93,6 +97,13 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 		repo = physical(out)
 	}
 	given := physical(r.Folder)
+	// A scoped GM's hire (FXGMSCOPEPIN): resolved here, before anything is read or made there, the folder is still
+	// the one its scope checked, and that scope still holds it; what follows acts on that folder alone.
+	if r.Held != nil {
+		if real, held := r.Held.place(r.Folder); !held || real != r.Folder || given != r.Folder || repo != r.Folder {
+			return hirePlace{}, &hireRefusal{Status: http.StatusForbidden, Message: "This General Manager " + r.Held.hiresOnly()}
+		}
+	}
 	configDir := r.ConfigDir
 	file := claudeJSON(configDir)
 	var tail *string
@@ -143,17 +154,43 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 		name := hireSlug(r.Name) + "-" + firstRunes(hireSlug(r.HireID), 6)
 		parent := hiresFolder(repo, o.Worktrees)
 		path, branch := filepath.Join(parent, name), hireBranch(r.HireID, name)
+		// A scoped GM's hire (FXGMSCOPEPINR1): git is never driven by the folder's path again once it was checked,
+		// as the GM can swap it for a link to a repo of its own. The worktree is made from the project, whose path
+		// the GM can't change, on the commit the project's own registration of that worktree names.
+		from, add := repo, []string{"worktree", "add", "-b", branch, path}
+		if r.Held != nil {
+			from = r.Held.root
+			if repo != from {
+				commit := r.Held.commitOf(repo)
+				if commit == "" {
+					return hirePlace{}, &hireRefusal{Status: http.StatusForbidden, Message: "This General Manager " + r.Held.hiresOnly()}
+				}
+				add = append(add, commit)
+			}
+		}
 		_ = os.MkdirAll(parent, 0o755)
-		status, out, ok := git(repo, "worktree", "add", "-b", branch, path)
+		status, out, ok := git(from, add...)
 		if !ok || status != 0 {
 			// No answer: git was stopped for taking too long, and may have left a half-made worktree.
 			if !ok {
-				discardHalfMade(repo, parent, path, branch, git)
+				discardHalfMade(from, parent, path, branch, git)
+				if r.Held != nil {
+					r.Held.discardMade(branch, git)
+				}
 				out = "git didn't answer"
 			}
 			return hirePlace{}, &hireRefusal{Status: 409, Message: "Couldn't make the hire's worktree: " + firstRunes(out, 200)}
 		}
 		place.Repo, place.Branch, place.Worktree = repo, branch, physical(path)
+		// A scoped GM's hire: the worktree git made is the project's, and the folder asked for is still the one checked
+		// (a hire's row keeps it); else the worktree is taken away again, from the project, and nothing starts in it.
+		if r.Held != nil {
+			if real, held := r.Held.place(r.Folder); !held || real != r.Folder || !r.Held.holds(place.Worktree) {
+				removeWorkspace(from, place.Worktree, place.Branch, git)
+				r.Held.discardMade(place.Branch, git)
+				return hirePlace{}, &hireRefusal{Status: http.StatusForbidden, Message: "This General Manager " + r.Held.hiresOnly()}
+			}
+		}
 		place.Folder = place.Worktree
 		// By this system's separator: on Windows, given is C:\…\repo\sub.
 		if rest, found := strings.CutPrefix(given, repo+string(filepath.Separator)); found {
@@ -209,6 +246,29 @@ func discardHalfMade(repo, parent, worktree, branch string, git gitRunner) {
 	os.RemoveAll(worktree)
 	git(repo, "worktree", "prune")
 	git(repo, "branch", "-D", branch)
+}
+
+// discardMade takes away what is still in the project of a scoped GM's hire refused once its worktree was made
+// (FXRELPATHS, RT126GMSCOPEPINR2 F2), after the worktree's own removal (removeWorkspace, discardHalfMade). That one
+// goes by the folder, and is refused when the folder is no longer the hire's tree (the GM can swap it for a link), so
+// this goes by the project's own registration: the one whose HEAD is on the hire's branch, which the core carried
+// moments ago (the branch is new, and no desk writes a registration). It is removed through a root that leads no
+// link out of the project's .git, and the folder it names is never followed or touched: what is there now may not be
+// the hire's. Then the branch, whatever it holds, as a stopped hire's: the hire never started.
+func (s gmScope) discardMade(branch string, git gitRunner) {
+	if root, err := os.OpenRoot(filepath.Join(s.root, ".git")); err == nil {
+		if folder, err := root.Open("worktrees"); err == nil {
+			entries, _ := folder.ReadDir(-1)
+			folder.Close()
+			for _, entry := range entries {
+				if head, ok := gitRegistrationFile(root, entry.Name(), "HEAD"); entry.IsDir() && ok && head == "ref: refs/heads/"+branch {
+					_ = root.RemoveAll(filepath.ToSlash(filepath.Join("worktrees", entry.Name())))
+				}
+			}
+		}
+		root.Close()
+	}
+	git(s.root, "branch", "-D", branch)
 }
 
 // strictlyInside is whether path, resolved and without "..", is below parent

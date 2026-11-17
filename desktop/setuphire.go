@@ -52,6 +52,8 @@ type setupHire struct {
 	// byGM: the request came with the GM's token (set by the route, never read from the body), so an ACP role is
 	// refused in the fence's sentence (acpHireRefusal).
 	byGM bool
+	// held: the GM route's hire by a GM held to one project, its scope (hireSpec.held); nil for any other.
+	held *gmScope
 }
 
 // apply puts what setup asked for into an engine hire's request. Its worktree
@@ -63,6 +65,7 @@ func (h *setupHire) apply(r *engineRequest, managerOn bool) {
 	r.Nickname = h.Nickname
 	r.AccountName = h.Account
 	r.Scope, r.ScopeRoles = h.Scope, h.ScopeRoles
+	r.Held = h.held
 	if h.Model != "" {
 		r.Role.Model = h.Model
 	}

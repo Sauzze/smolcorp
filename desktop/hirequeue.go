@@ -72,6 +72,10 @@ type hireStep struct {
 	Brief   string `json:"brief,omitempty"`
 	Account string `json:"account,omitempty"`
 	Floor   int    `json:"floor,omitempty"`
+	// Scope and ScopeRoles are what the GM that proposed a night job was held to (NightJob's own), "" for none: its
+	// hire is held to them where it is made, as the GM route's is, kept with the run (FXGMSCOPEPINR1).
+	Scope      string `json:"scope,omitempty"`
+	ScopeRoles string `json:"scopeRoles,omitempty"`
 
 	State   string  `json:"state,omitempty"`
 	Why     string  `json:"why,omitempty"`
@@ -521,9 +525,19 @@ func (d *Deck) hireQueueRole(s hireStep) (int, string) {
 	if why != "" {
 		return http.StatusBadRequest, why
 	}
+	// A scoped GM's night job (FXGMSCOPEPINR1): held as the GM route holds its hire. Resolved again here, it is still
+	// the folder approved and still held, and the place is made only in it, checked once more there (prepareHire).
+	var held *gmScope
+	if s.Scope != "" {
+		scope := gmScopeOf(Hire{Scope: s.Scope, ScopeRoles: s.ScopeRoles})
+		if real, ok := scope.place(folder); !ok || real != folder || folder != s.Folder {
+			return http.StatusForbidden, "This General Manager " + scope.hiresOnly()
+		}
+		held = &scope
+	}
 	seat := -1
 	return d.hireWith(hireSpec{roleID: s.Role, floor: s.Floor, fromSetup: true, folder: folder, fenced: true, seat: &seat,
-		account: s.Account, task: briefTask(s.Brief)})
+		account: s.Account, task: briefTask(s.Brief), held: held})
 }
 
 // hireGMFromSetup is Start here's Hire your General Manager (POST /setup/hire/gm), once the route has judged its

@@ -849,9 +849,10 @@ func (n *nightShift) heldAs(a actor) (Hire, bool) {
 	return Hire{Role: gmRole, Scope: j.Scope, ScopeRoles: j.ScopeRoles, Account: j.Account}, true
 }
 
-// nightStep is the one hire a hire's job makes: its role, in its folder, with its brief, on its proposer's account.
+// nightStep is the one hire a hire's job makes: its role, in its folder, with its brief, on its proposer's account,
+// held to what its proposer was held to.
 func (j NightJob) nightStep() hireStep {
-	return hireStep{Role: j.Role, Folder: j.Folder, Brief: j.Brief, Account: j.Account}
+	return hireStep{Role: j.Role, Folder: j.Folder, Brief: j.Brief, Account: j.Account, Scope: j.Scope, ScopeRoles: j.ScopeRoles}
 }
 
 // approvesHire is whether the job a acts as approves steps (Q-F1 (a): the owner's approval of the job covers its
