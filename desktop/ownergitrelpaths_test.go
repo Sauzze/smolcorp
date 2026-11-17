@@ -13,6 +13,9 @@ import (
 // is carried into the repo registered as the repo's own git registers one, in the form the owner chose
 // (worktree.useRelativePaths): relative between the real places when it is on, whole when it is off or not set. Never
 // relative to the core's folder, which is elsewhere, at any depth, and removed once the carry is done.
+// FXRELPATHSR1: "as the repo's own git" holds for the git at hand. Git reads the key only from 2.48 on, and an older
+// git (2.43 on Ubuntu 24.04) writes whole paths whatever it says. So the form each row wants is the one a plain
+// `worktree add` of the test's own git writes with the same setting, in a stand-in repo, before the hire is made.
 
 // relpathsBlock is what `worktree list --porcelain` says of the worktree at tree ("" when it isn't listed).
 func relpathsBlock(list, tree string) string {
@@ -33,6 +36,34 @@ func relpathsRead(t *testing.T, file string) string {
 	return string(data)
 }
 
+// relpathsControl says whether the test's own git writes a worktree's two links relative when the repo's
+// worktree.useRelativePaths is setting ("" for not set): a plain `worktree add` in a stand-in repo, in the test's
+// environment. It fails if git wrote one link relative and not the other, or a form its version can't have chosen:
+// relative exactly when the setting is true and git is 2.48 or later.
+func relpathsControl(t *testing.T, setting string) bool {
+	t.Helper()
+	repo := placeRepo(t)
+	if setting != "" {
+		gitOut(t, repo, "config", "worktree.useRelativePaths", setting)
+	}
+	tree := filepath.Join(filepath.Dir(repo), "control")
+	gitOut(t, repo, "worktree", "add", "-q", "-b", "control", tree)
+	gitdir := relpathsRead(t, filepath.Join(repo, ".git", "worktrees", "control", "gitdir"))
+	dotGit := relpathsRead(t, filepath.Join(tree, ".git"))
+	relative := !filepath.IsAbs(strings.TrimSpace(gitdir))
+	if filepath.IsAbs(strings.TrimSpace(strings.TrimPrefix(dotGit, "gitdir: "))) == relative {
+		t.Fatalf("the control's git wrote gitdir %q and .git %q, one relative and one not", gitdir, dotGit)
+	}
+	version := gitOut(t, repo, "version")
+	if want := setting == "true" && gitVersionAtLeast(version, 2, 48); relative != want {
+		t.Fatalf("the control's git (%s) wrote relative = %v with useRelativePaths %q, want %v", version, relative, setting, want)
+	}
+	if setting == "true" && !relative {
+		t.Logf("%s doesn't read worktree.useRelativePaths (2.48 and later only): its own worktree add writes whole paths, so whole paths are wanted", version)
+	}
+	return relative
+}
+
 func TestACarriedWorktreeIsRegisteredAsTheReposOwnGitWouldRegisterIt(t *testing.T) {
 	for _, setting := range []string{"true", "false", ""} {
 		for _, support := range []string{"as the tests have it", "deeper", "removed after the carry"} {
@@ -41,6 +72,7 @@ func TestACarriedWorktreeIsRegisteredAsTheReposOwnGitWouldRegisterIt(t *testing.
 				// The test's own git and the core's read no system or user config: the setting is the repo's alone.
 				t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 				t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+				relative := relpathsControl(t, setting)
 				if support == "deeper" {
 					supportDir = filepath.Join(supportDir, "a", "b", "c", "d", "e", "f", "g")
 				}
@@ -69,9 +101,8 @@ func TestACarriedWorktreeIsRegisteredAsTheReposOwnGitWouldRegisterIt(t *testing.
 				if got := gitOut(t, place.Worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"); got != filepath.Join(repo, ".git") {
 					t.Errorf("the hire's worktree resolves to %s, want %s", got, filepath.Join(repo, ".git"))
 				}
-				relative := setting == "true"
 				if filepath.IsAbs(strings.TrimSpace(gitdir)) == relative || filepath.IsAbs(strings.TrimSpace(strings.TrimPrefix(dotGit, "gitdir: "))) == relative {
-					t.Errorf("relative = %v, and the core wrote gitdir %q, .git %q", relative, gitdir, dotGit)
+					t.Errorf("the control's git wrote relative = %v, and the core wrote gitdir %q, .git %q", relative, gitdir, dotGit)
 				}
 
 				// Byte for byte as the repo's own git writes them at that same place: it removes the worktree and makes

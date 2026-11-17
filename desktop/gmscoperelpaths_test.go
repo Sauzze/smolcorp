@@ -5,7 +5,6 @@ package desktop
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +13,8 @@ import (
 // FXRELPATHS (RT126GMSCOPEPINR2 F2, SIERRA's ruling, part 2): a scoped GM's hire in a project whose git writes
 // relative paths is made and held like any other, and a scoped GM's hire that is refused once its worktree is made
 // leaves no hire/* branch and no worktree of its own in the project, whatever form the project's git writes.
+// FXRELPATHSR1: the form is the one the project's own git writes, as relpathsControl finds it (whole paths on a git
+// older than 2.48, which doesn't read the key).
 
 // relpathsLeft is what a refused hire left in project, which had trees worktrees before it ("" for nothing).
 func relpathsLeft(t *testing.T, project string, trees int) string {
@@ -51,6 +52,7 @@ func relpathsAfterAdd(t *testing.T, d *Deck, silent bool, swap func(path string)
 func TestAScopedGMsHireInAProjectWithRelativePathsIsMadeAndHeld(t *testing.T) {
 	d, _, _, token, project := scopedGM(t)
 	gitOut(t, project, "config", "worktree.useRelativePaths", "true")
+	relative := relpathsControl(t, "true")
 	code, text := rtHire(t, d, token, project)
 	d.watching.Wait()
 	if code != http.StatusOK {
@@ -68,8 +70,23 @@ func TestAScopedGMsHireInAProjectWithRelativePathsIsMadeAndHeld(t *testing.T) {
 	if block := relpathsBlock(gitOut(t, project, "worktree", "list", "--porcelain"), tree); block == "" || strings.Contains(block, "prunable") {
 		t.Errorf("the project's git lists the hire's worktree as %q", block)
 	}
-	if data, err := os.ReadFile(filepath.Join(tree, ".git")); err != nil || !strings.HasPrefix(string(data), "gitdir: ../") {
-		t.Errorf("the hire's .git is %q (%v), want it relative as the project's git writes it", data, err)
+	if got := gitOut(t, tree, "rev-parse", "--path-format=absolute", "--git-common-dir"); got != filepath.Join(project, ".git") {
+		t.Errorf("the hire's worktree resolves to %s, want %s", got, filepath.Join(project, ".git"))
+	}
+	registration := filepath.Join(project, ".git", "worktrees", filepath.Base(tree))
+	gitdir := relpathsRead(t, filepath.Join(registration, "gitdir"))
+	dotGit := relpathsRead(t, filepath.Join(tree, ".git"))
+	if filepath.IsAbs(strings.TrimSpace(gitdir)) == relative || filepath.IsAbs(strings.TrimSpace(strings.TrimPrefix(dotGit, "gitdir: "))) == relative {
+		t.Errorf("the control's git wrote relative = %v, and the hire has gitdir %q, .git %q", relative, gitdir, dotGit)
+	}
+	// Byte for byte as the project's own git writes them at that same place, under the same registration name.
+	gitOut(t, project, "worktree", "remove", "--force", tree)
+	gitOut(t, project, "worktree", "add", "-q", "-b", "control", tree)
+	if want := relpathsRead(t, filepath.Join(registration, "gitdir")); gitdir != want {
+		t.Errorf("the hire's gitdir is %q, the project's git's own %q", gitdir, want)
+	}
+	if want := relpathsRead(t, filepath.Join(tree, ".git")); dotGit != want {
+		t.Errorf("the hire's .git is %q, the project's git's own %q", dotGit, want)
 	}
 }
 
