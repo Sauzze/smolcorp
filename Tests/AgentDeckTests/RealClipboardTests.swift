@@ -87,17 +87,19 @@ final class ClipboardWatch: NSObject, XCTestObservation {
     /// The changes seen, with the type names then on it.
     var seenChanges: [Change] { lock.withLock { changes } }
 
-    /// Looks at the count; moved since the last look, keeps the type names on it now, with the test running.
-    /// An office paste stays on it for `ClipboardPaste.hold` (0.4 s) at least before what was there comes back.
+    /// Looks at the count; moved since the last look, keeps the type names on it now, with the test running,
+    /// and at the same count, the latest names on it. An office paste stays on it for `ClipboardPaste.hold`
+    /// (0.4 s) at least before what was there comes back.
     func look() {
         lock.withLock {
             let count = clipboard.changeCount()
             guard count != seen else {
-                // Seen emptied for new contents, before they were written (a paste's put does both in turn):
-                // the types written to it since, at the same count.
-                guard let last = changes.last, last.count == count, last.types.isEmpty else { return }
+                // Seen emptied for new contents, or partway through writing them (a paste's put empties it, then
+                // writes its types one after another, all at one count): at the same count it only gets
+                // further, so the names on it now replace the ones kept.
+                guard let last = changes.last, last.count == count else { return }
                 let types = clipboard.typeNames()
-                if !types.isEmpty { changes[changes.count - 1] = Change(count: count, during: last.during, types: types) }
+                if types != last.types { changes[changes.count - 1] = Change(count: count, during: last.during, types: types) }
                 return
             }
             seen = count
@@ -421,8 +423,10 @@ final class RealClipboardTests: XCTestCase {
         XCTAssertEqual(watch.changedIn, [])
     }
 
-    /// Looking on its own, off the main thread, the watch sees the office's text while it's there (at least
-    /// `ClipboardPaste.hold`), before what was there comes back.
+    /// Looking on its own, off the main thread, with nobody calling `look()`, the watch sees each move of the
+    /// count during a test: the office's put and its put-back, held apart as the office holds a paste
+    /// (`ClipboardPaste.hold`). Which type names a look finds depends on where it lands in the put's write, so
+    /// they're the scripted row's below, not this one's.
     func testTheWatchLooksOnItsOwnBetweenTheStartAndTheEndOfATest() throws {
         let pasteboard = standInPasteboard()
         let office = SystemClipboard(pasteboard)
@@ -434,18 +438,42 @@ final class RealClipboardTests: XCTestCase {
             let until = Date().addingTimeInterval(5)
             while !done(), Date() < until { Thread.sleep(forTimeInterval: 0.01) }
         }
-        XCTAssertNotNil(office.put("fake-note-7f3", read: {}))
-        // A put empties it (the count moves) and then writes, at the same count: hold the office's text until the
-        // watch has seen what was written, as the office holds a paste (ClipboardPaste.hold), before putting back.
-        waitUntil { !(watch.seenChanges.first?.types ?? []).isEmpty }
+        let put = try XCTUnwrap(office.put("fake-note-7f3", read: {}))
+        // Held until the watch has seen the count move, so the put-back is a move of its own.
+        waitUntil { watch.seenChanges.count >= 1 }
         office.restore(.items([]))
         waitUntil { watch.seenChanges.count >= 2 }
         watch.stopLooking()
 
-        XCTAssertEqual(watch.seenChanges.count, 2, "\(watch.seenChanges)")
+        XCTAssertEqual(watch.seenChanges.map(\.count), [put, pasteboard.changeCount], "\(watch.seenChanges)")
+        XCTAssertEqual(watch.seenChanges.map(\.during), [name, name])
+    }
+
+    /// A put writes its types one after another at one count (the Studio's 19:50 run caught it with the text's
+    /// types and no markers yet): the watch keeps the finished list, not the first it saw. Scripted, no timer:
+    /// each step is what the clipboard holds next, and the watch looks once after each.
+    func testTheWatchKeepsTheFinishedTypesAtACount() throws {
+        let text = [NSPasteboard.PasteboardType.string.rawValue, "NSStringPboardType"]
+        let steps: [(count: Int, types: [String])] = [
+            (0, ["com.example.fake-type"]),
+            (1, []),
+            (1, text),
+            (1, text + Self.markers),
+            (2, []),
+        ]
+        var step = 0
+        let watch = ClipboardWatch(WatchedClipboard(changeCount: { steps[step].count }, typeNames: { steps[step].types }))
+        watch.testCaseWillStart(self)
+        while step < steps.count - 1 {
+            step += 1
+            watch.look()
+        }
+        watch.testCaseDidFinish(self)
+
+        XCTAssertEqual(watch.seenChanges.map(\.count), [1, 2], "\(watch.seenChanges)")
         XCTAssertTrue(Set(watch.seenChanges.first?.types ?? []).isSuperset(of: Self.markers), "\(watch.seenChanges)")
         XCTAssertEqual(watch.seenChanges.last?.types, [])
-        let failure = try XCTUnwrap(watch.failure(at: pasteboard.changeCount))
+        let failure = try XCTUnwrap(watch.failure(at: 2))
         XCTAssertTrue(failure.contains("Likely source: " + ClipboardWatch.officePaste + "."), failure)
     }
 }
