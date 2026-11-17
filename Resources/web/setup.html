@@ -1252,6 +1252,7 @@
           <div class="text">
             <div class="title">Start desks in their sandbox</div>
             <div class="detail" data-pending="Off: the desks you start now run without their sandbox, each tagged No sandbox, and can read Smolcorp's keys. The General Manager is told when it starts. Desks already running stay as they are." data-done="Each desk starts in a sandbox of its own: it can't read Smolcorp's keys, or change another desk's work or your own checkout. Turning this off changes no desk that's running."></div>
+            <p class="choice-line" id="sandbox-dotfiles">While hires are working, don't edit your shell or git dotfiles in your home folder, or your project's git settings and hook scripts, with any tool; fire the hires first. Tools that save through a temporary file give a hire a moment to change that file.</p>
             <p class="choice-line" id="sandbox-count" role="status"></p>
             <div id="sandbox-desks"></div>
             <p class="choice-line" id="sandbox-restart-line" hidden>A restart ends the desk's conversation and starts it fresh, in its sandbox, in the same worktree and on the same branch: its files and commits stay. Only an idle desk with nothing typed is restarted. Smolcorp never restarts a desk by itself.

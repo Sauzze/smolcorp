@@ -380,6 +380,36 @@ func TestOffAMacTheSwitchClaimsNoSandboxAndTurnsNothing(t *testing.T) {
 	}
 }
 
+// FXSETUPHELPLIMITS (SIERRA's R1 ruling, a known limit for 1.26): Setup's sandbox row tells you not to edit your
+// dotfiles while hires work, in SIERRA's words, and why in one line. It sits in the row that says what a desk in its
+// sandbox can't change, shown only where desks start in one.
+func TestSetupsSandboxRowSaysNotToEditYourDotfilesWhileHiresWork(t *testing.T) {
+	d := newTestDeck(t)
+	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
+	start := strings.Index(page, `<div class="step" id="step-sandbox"`)
+	end := strings.Index(page, `<div class="step" id="step-remote-login"`)
+	if start < 0 || end < start {
+		t.Fatal("the setup page has no sandbox row before Remote Login's")
+	}
+	row := page[start:end]
+	at := strings.Index(row, `<p class="choice-line" id="sandbox-dotfiles">`)
+	if at < 0 {
+		t.Fatal("the sandbox row has no dotfiles line")
+	}
+	line := row[at : at+strings.Index(row[at:], "</p>")]
+	for _, said := range []string{
+		"While hires are working, don't edit your shell or git dotfiles in your home folder, or your project's git settings and hook scripts, with any tool; fire the hires first.",
+		"Tools that save through a temporary file give a hire a moment to change that file.",
+	} {
+		if !strings.Contains(line, said) {
+			t.Errorf("the line doesn't say %q: %s", said, line)
+		}
+	}
+	if !strings.Contains(page, "$('step-sandbox').hidden = $('step-remote-login').hidden = $('step-database').hidden = !here;") {
+		t.Error("the sandbox row isn't shown only where desks start in a sandbox")
+	}
+}
+
 // A message queued while both ends were on one side is looked at again at each try: its desk started again in its
 // sandbox meanwhile, and it fails with the words, never typed.
 func TestQueuedMailIsLookedAtAgainWhenItsDeskStartsOnTheOtherSide(t *testing.T) {
