@@ -9,7 +9,8 @@
 // opened up (every interface, hiring, the manager, a webhook), and a phone, paired through 1.24's own pairing flow.
 // With -seed strict, the security settings are at their strictest instead (Tailscale only, hiring, the manager and
 // the webhook off, every guard group on), so any change 1.26 makes to them is a loosening.
-// Fake keys only. It quits that 1.24, puts this build's program in its place, as an owner who downloads 1.26 does,
+// Fake keys only. It quits that 1.24 (`smolcorp quit` on Linux, Ctrl+Break on Windows: stop_windows.go), puts this
+// build's program in its place, as an owner who downloads 1.26 does,
 // starts it headless, and checks:
 //
 //   - what should carry did: the team, its accounts and contacts, the guard, the office and the settings;
@@ -381,6 +382,7 @@ func (o *office) start(which string) {
 	check(err)
 	o.cmd = exec.Command(o.program, "serve")
 	o.cmd.Env, o.cmd.Stdout, o.cmd.Stderr, o.cmd.Dir = o.env, out, out, o.home
+	inItsOwnGroup(o.cmd)
 	check(o.cmd.Start())
 	o.done = make(chan error, 1)
 	go func() { o.done <- o.cmd.Wait(); out.Close() }()
@@ -406,16 +408,15 @@ func (o *office) start(which string) {
 	}
 }
 
-// quit stops it as an owner does, `smolcorp quit`, and waits for it to end.
+// quit stops it as an owner without a tray does, and waits for it to end: `smolcorp quit` on Linux, Ctrl+Break on
+// Windows (askToQuit).
 func (o *office) quit(which string) {
-	quit := exec.Command(o.program, "quit")
-	quit.Env, quit.Dir = o.env, o.home
-	output, err := quit.CombinedOutput()
+	how, output, err := o.askToQuit()
 	select {
 	case <-o.done:
 	case <-time.After(30 * time.Second):
 		o.stop()
-		fail("%s didn't stop after smolcorp quit (%v): %s", which, err, output)
+		fail("%s didn't stop after %s (%v): %s", which, how, err, output)
 	}
 	say("%s quit", which)
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"debug/elf"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,6 +56,67 @@ func TestOnlyPublicGlibcVersionsUpTo235FromGlibcPass(t *testing.T) {
 		if newest != row.newest || (row.problem == "") != (got == "") || !strings.Contains(got, row.problem) {
 			t.Errorf("%v: newest %q, problems %q; want %q and %q", row.versions, newest, got, row.newest, row.problem)
 		}
+	}
+}
+
+// FXTMUXARM64, on the facts alone (no stand-in built): an arm64 glibc program loads its own loader, from which
+// Ubuntu's gcc takes the stack protector's __stack_chk_guard@GLIBC_2.17, as CI's arm64 tmux did. That loader and its
+// public versions up to 2.35 pass for arm64 only; any other library, another processor's loader, and the loader's
+// private or newer versions are still refused, and amd64 still refuses its own loader.
+func TestOnlyArm64LoadsItsOwnLoader(t *testing.T) {
+	text := []byte(strings.Join(guardMessages, "\x00"))
+	program := func(arch string, libraries, versions []string) facts {
+		target := targets[arch]
+		return facts{class: elf.ELFCLASS64, machine: target.machine, loader: target.loader, libraries: libraries,
+			versions: versions, stripped: true, text: text}
+	}
+	arm64 := []string{"libc.so.6", "libm.so.6", "libresolv.so.2", "ld-linux-aarch64.so.1"}
+	arm64Versions := []string{"libc.so.6 GLIBC_2.17", "libc.so.6 GLIBC_2.34", "libresolv.so.2 GLIBC_2.17", "ld-linux-aarch64.so.1 GLIBC_2.17"}
+	amd64 := []string{"libc.so.6", "libm.so.6", "libresolv.so.2"}
+	amd64Versions := []string{"libc.so.6 GLIBC_2.2.5", "libc.so.6 GLIBC_2.34"}
+	for _, row := range []struct {
+		name, arch          string
+		libraries, versions []string
+		newest              string
+		want                []string
+	}{
+		{"arm64 with its loader", "arm64", arm64, arm64Versions, "2.34", nil},
+		{"arm64 without its loader", "arm64", amd64, arm64Versions[:3], "2.34", nil},
+		{"arm64 with a library of its own", "arm64", append(arm64[:4:4], "libtinfo.so.6"), append(arm64Versions[:4:4], "libtinfo.so.6 NCURSES6_TINFO_5.0.19991023"), "2.34",
+			[]string{"it loads libtinfo.so.6: only libc, libm and libresolv are allowed", "it needs NCURSES6_TINFO_5.0.19991023 from libtinfo.so.6, which isn't allowed"}},
+		{"arm64 with amd64's loader", "arm64", append(arm64[:4:4], "ld-linux-x86-64.so.2"), append(arm64Versions[:4:4], "ld-linux-x86-64.so.2 GLIBC_2.3"), "2.34",
+			[]string{"it loads ld-linux-x86-64.so.2", "it needs GLIBC_2.3 from ld-linux-x86-64.so.2, which isn't allowed"}},
+		{"arm64's loader, a private version", "arm64", arm64, append(arm64Versions[:4:4], "ld-linux-aarch64.so.1 GLIBC_PRIVATE"), "2.34",
+			[]string{"it needs GLIBC_PRIVATE from ld-linux-aarch64.so.1, which isn't a public glibc version"}},
+		{"arm64's loader, a newer glibc", "arm64", arm64, append(arm64Versions[:4:4], "ld-linux-aarch64.so.1 GLIBC_2.36"), "2.36",
+			[]string{"it needs GLIBC_2.36 from ld-linux-aarch64.so.1, newer than glibc 2.35"}},
+		{"amd64", "amd64", amd64, amd64Versions, "2.34", nil},
+		{"amd64 with its loader", "amd64", append(amd64[:3:3], "ld-linux-x86-64.so.2"), append(amd64Versions[:2:2], "ld-linux-x86-64.so.2 GLIBC_2.3"), "2.34",
+			[]string{"it loads ld-linux-x86-64.so.2: only libc, libm and libresolv are allowed", "it needs GLIBC_2.3 from ld-linux-x86-64.so.2, which isn't allowed"}},
+		{"amd64 with arm64's loader", "amd64", append(amd64[:3:3], "ld-linux-aarch64.so.1"), append(amd64Versions[:2:2], "ld-linux-aarch64.so.1 GLIBC_2.17"), "2.34",
+			[]string{"it loads ld-linux-aarch64.so.1", "it needs GLIBC_2.17 from ld-linux-aarch64.so.1, which isn't allowed"}},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			problems, newest := judge(program(row.arch, row.libraries, row.versions), row.arch)
+			got := strings.Join(problems, "\n")
+			if newest != row.newest {
+				t.Errorf("newest glibc %q, want %q", newest, row.newest)
+			}
+			if row.want == nil && got != "" {
+				t.Errorf("should pass:\n%s", got)
+			}
+			for _, want := range row.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("no %q among:\n%s", want, got)
+				}
+			}
+			if len(problems) != len(row.want) {
+				t.Errorf("%d problems, want %d:\n%s", len(problems), len(row.want), got)
+			}
+		})
+	}
+	if allowedLibraries["ld-linux-aarch64.so.1"] || len(allowedLibraries) != 3 {
+		t.Errorf("arm64's loader leaked into every processor's list: %v", allowedLibraries)
 	}
 }
 

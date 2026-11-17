@@ -5,8 +5,9 @@
 //
 //   - an ELF program for the processor named, started by the system's own loader, and stripped;
 //
-//   - it loads only glibc's libc, libm and libresolv, and needs no glibc newer than Ubuntu 22.04's, so it was
-//     built without systemd (a tmux built with it starts a server of its own when LISTEN_FDS is set);
+//   - it loads only glibc's libc, libm and libresolv (and, on arm64, glibc's own loader), and needs no glibc newer
+//     than Ubuntu 22.04's, so it was built without systemd (a tmux built with it starts a server of its own when
+//     LISTEN_FDS is set);
 //
 //   - it carries the guard's messages;
 //
@@ -30,6 +31,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -46,13 +48,31 @@ var newestGlibc = [2]int{2, 35}
 // The libraries it may load: glibc's own. libm is asked for by tmux's configure (fmod), libresolv for b64_ntop.
 var allowedLibraries = map[string]bool{"libc.so.6": true, "libm.so.6": true, "libresolv.so.2": true}
 
-// Each processor's ELF machine, and the loader glibc puts in every program built for it.
+// Each processor's ELF machine, the loader glibc puts in every program built for it, and whether a program built
+// for it loads that loader as a library too. On arm64 it does: Ubuntu's gcc builds with the stack protector on, and
+// there its guard value is __stack_chk_guard@GLIBC_2.17, which the loader itself gives (FXTMUXARM64). On amd64 the
+// guard is read from the thread, and a tmux that loads the loader there is refused as before.
 var targets = map[string]struct {
-	machine elf.Machine
-	loader  string
+	machine      elf.Machine
+	loader       string
+	loaderNeeded bool
 }{
-	"amd64": {elf.EM_X86_64, "/lib64/ld-linux-x86-64.so.2"},
-	"arm64": {elf.EM_AARCH64, "/lib/ld-linux-aarch64.so.1"},
+	"amd64": {elf.EM_X86_64, "/lib64/ld-linux-x86-64.so.2", false},
+	"arm64": {elf.EM_AARCH64, "/lib/ld-linux-aarch64.so.1", true},
+}
+
+// librariesFor is the libraries a tmux for arch may load: glibc's own, and that processor's loader where its
+// programs load it (targets' loaderNeeded), by the name the program asks for it (ld-linux-aarch64.so.1).
+func librariesFor(arch string) map[string]bool {
+	target := targets[arch]
+	if !target.loaderNeeded {
+		return allowedLibraries
+	}
+	allowed := map[string]bool{path.Base(target.loader): true}
+	for lib := range allowedLibraries {
+		allowed[lib] = true
+	}
+	return allowed
 }
 
 // guardMessages are what the guard says when it stops a client (the patch's fprintf texts, as the compiler
@@ -207,17 +227,18 @@ func judge(f facts, arch string) ([]string, string) {
 	if !f.stripped {
 		problems = append(problems, "it isn't stripped (it has a symbol table)")
 	}
+	allowed := librariesFor(arch)
 	libs := map[string]bool{}
 	for _, lib := range f.libraries {
 		libs[lib] = true
-		if !allowedLibraries[lib] {
+		if !allowed[lib] {
 			problems = append(problems, fmt.Sprintf("it loads %s: only libc, libm and libresolv are allowed", lib))
 		}
 	}
 	if !libs["libc.so.6"] {
 		problems = append(problems, "it doesn't load glibc's libc.so.6")
 	}
-	newest, versionProblems := newestNeeded(f.versions, f.versionsErr)
+	newest, versionProblems := newestNeededFrom(f.versions, f.versionsErr, allowed)
 	problems = append(problems, versionProblems...)
 	for _, message := range guardMessages {
 		if !bytes.Contains(f.text, []byte(message)) {
@@ -231,6 +252,12 @@ func judge(f facts, arch string) ([]string, string) {
 // none listed (a program built against glibc always lists them), one from a library that isn't allowed, glibc's
 // private ones, or one newer than newestGlibc.
 func newestNeeded(versions []string, readErr error) (string, []string) {
+	return newestNeededFrom(versions, readErr, allowedLibraries)
+}
+
+// newestNeededFrom is newestNeeded with the libraries a version may come from: a processor's own (librariesFor).
+// The loader's versions, where it's allowed, are held to the same rules as glibc's other libraries.
+func newestNeededFrom(versions []string, readErr error, allowed map[string]bool) (string, []string) {
 	if readErr != nil || len(versions) == 0 {
 		return "", []string{fmt.Sprintf("it names no glibc versions (%v): a program built against glibc does", readErr)}
 	}
@@ -239,7 +266,7 @@ func newestNeeded(versions []string, readErr error) (string, []string) {
 	sort.Strings(versions)
 	for _, v := range versions {
 		lib, version, _ := strings.Cut(v, " ")
-		if !allowedLibraries[lib] {
+		if !allowed[lib] {
 			problems = append(problems, fmt.Sprintf("it needs %s from %s, which isn't allowed", version, lib))
 			continue
 		}

@@ -197,6 +197,10 @@ jobs:
       # lipo here), renamed or left out of the build fails the step instead of passing unseen. They check
       # check-runtime.sh itself (an unhardened file and each opening entitlement fail it), a library injected into a
       # hardened stand-in, build-app.sh's signing and its dry run, the core's instance lock and the Keychain scan.
+      # One exception: GitHub's Mac runners run with System Integrity Protection off, where the system doesn't strip
+      # DYLD_ variables from a hardened program, so the injected-library row skips there, saying so, when csrutil
+      # status says SIP is disabled. That skip, with its own words, counts here; any other skip or a FAIL doesn't. The
+      # Studio (SIP on) runs the row and proves it.
       - name: SK3's Mac rows ran and passed
         shell: bash
         run: |
@@ -218,10 +222,17 @@ jobs:
           set -e
           missing=0
           for name in "${names[@]}"; do
-            if ! grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/sk3-tests.txt"; then
-              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
-              missing=1
+            if grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/sk3-tests.txt"; then
+              continue
             fi
+            if [ "$name" = TestAnInjectedLibraryIsNotLoadedIntoAHardenedProgram ] &&
+              grep -qE "^--- SKIP: $name \(" "$RUNNER_TEMP/sk3-tests.txt" &&
+              grep -qF 'SKIPPED, System Integrity Protection is off on this Mac, so DYLD_ variables reach a hardened program (csrutil status says "System Integrity Protection status: disabled.")' "$RUNNER_TEMP/sk3-tests.txt"; then
+              echo "::warning::$name skipped: csrutil status says SIP is off on this runner; the Studio runs it"
+              continue
+            fi
+            echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+            missing=1
           done
           [ "$status" -eq 0 ] && [ "$missing" -eq 0 ]
       # The app as scripts/release.sh builds it before signing it again with the Developer ID: both processors, ad hoc.

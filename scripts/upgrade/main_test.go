@@ -9,11 +9,55 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
+
+// TestMain: with SMOLCORP_UPGRADE_STANDIN set to a folder, this test program is a stand-in smolcorp for
+// TestEachVersionIsQuitTheWayItsSystemStopsIt, its first argument the command.
+func TestMain(m *testing.M) {
+	if dir := os.Getenv("SMOLCORP_UPGRADE_STANDIN"); dir != "" && len(os.Args) > 1 {
+		os.Exit(standInSmolcorp(dir, os.Args[1]))
+	}
+	os.Exit(m.Run())
+}
+
+// standInSmolcorp is serve as it stops (desktop/app.go, stopPortableOnSignalNow: on os.Interrupt or SIGTERM, its
+// clean stop, then exit 1), saying it's ready and which signal stopped it; or quit off Windows, which asks the pid
+// serve wrote with SIGTERM, as desktop/quit.go does.
+func standInSmolcorp(dir, command string) int {
+	switch command {
+	case "serve":
+		stopped := make(chan os.Signal, 1)
+		signal.Notify(stopped, os.Interrupt, syscall.SIGTERM)
+		_ = os.WriteFile(filepath.Join(dir, "pid"), []byte(strconv.Itoa(os.Getpid())), 0o600)
+		_ = os.WriteFile(filepath.Join(dir, "ready"), nil, 0o600)
+		select {
+		case got := <-stopped:
+			_ = os.WriteFile(filepath.Join(dir, "stopped"), []byte(got.String()), 0o600)
+			return 1
+		case <-time.After(time.Minute):
+			return 3
+		}
+	case "quit":
+		data, _ := os.ReadFile(filepath.Join(dir, "pid"))
+		pid, _ := strconv.Atoi(string(data))
+		process, err := os.FindProcess(pid)
+		if err != nil || pid <= 1 || process.Signal(syscall.SIGTERM) != nil {
+			return 1
+		}
+		return 0
+	}
+	return 2
+}
 
 // The pins: a line for each 1.24 download the job installs, a SHA-256 each, and a download that isn't the one kept,
 // or has no line, stops the job before anything of it runs.
@@ -237,6 +281,60 @@ func TestEachOfficeIsSeededAsItsLegSays(t *testing.T) {
 		if deployOn := bytes.Contains(s.guard, []byte(`{"commands":[],"name":"deploy","on":true}`)); deployOn != strict {
 			t.Errorf("strict %v: deploy's guard on is %v: %s", strict, deployOn, s.guard)
 		}
+	}
+}
+
+// FXUPGRADEWIN: each version is stopped the way its system allows, on this test's own program as a stand-in serve
+// that stops as serve does: on Windows, Ctrl+Break to the process group serve was started in (smolcorp quit there
+// only names the tray); off Windows, `smolcorp quit` with the office's environment, as before. Either way the
+// stand-in ends through its signal handler, serve's clean stop, not killed.
+func TestEachVersionIsQuitTheWayItsSystemStopsIt(t *testing.T) {
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	o := &office{home: dir, program: program, env: append(os.Environ(), "SMOLCORP_UPGRADE_STANDIN="+dir)}
+	o.cmd = exec.Command(o.program, "serve")
+	o.cmd.Env, o.cmd.Dir = o.env, o.home
+	inItsOwnGroup(o.cmd)
+	if err := o.cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	o.done = make(chan error, 1)
+	go func() { o.done <- o.cmd.Wait() }()
+	t.Cleanup(func() {
+		_ = o.cmd.Process.Kill()
+		<-o.done
+	})
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if _, err := os.Stat(filepath.Join(dir, "ready")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stand-in serve didn't start")
+		}
+	}
+	how, output, err := o.askToQuit()
+	if err != nil {
+		t.Fatalf("%s: %v %s", how, err, output)
+	}
+	select {
+	case err := <-o.done:
+		o.done <- err
+		if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 {
+			t.Errorf("the stand-in serve ended with %v, not its clean stop's exit 1", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatalf("the stand-in serve didn't stop after %s: %s", how, output)
+	}
+	stopped, _ := os.ReadFile(filepath.Join(dir, "stopped"))
+	wantHow, wantSignal := "smolcorp quit", syscall.SIGTERM.String()
+	if runtime.GOOS == "windows" {
+		wantHow, wantSignal = "Ctrl+Break to its process group", os.Interrupt.String()
+	}
+	if how != wantHow || string(stopped) != wantSignal {
+		t.Errorf("stopped by %s with %q, want %s with %q", how, stopped, wantHow, wantSignal)
 	}
 }
 

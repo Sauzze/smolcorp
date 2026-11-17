@@ -176,9 +176,16 @@ func TestAnEntitlementOnOneProcessorOnlyFailsTheCheck(t *testing.T) {
 }
 
 // K6 on a stand-in: a library put in with DYLD_INSERT_LIBRARIES runs in a program without the hardened runtime, and
-// isn't loaded into the same program with it.
+// isn't loaded into the same program with it. With System Integrity Protection off (GitHub's Mac runners), the
+// system no longer strips DYLD_ variables from a hardened program, so there is nothing to prove: the row skips,
+// saying so, only when csrutil itself says SIP is disabled (FXHARDENEDSIP). Where csrutil can't be read, it runs.
 func TestAnInjectedLibraryIsNotLoadedIntoAHardenedProgram(t *testing.T) {
 	needTools(t, "codesign", "cc")
+	if out, err := exec.Command("/usr/bin/csrutil", "status").Output(); err == nil && sipDisabled(string(out)) {
+		t.Skipf("%s %q)", sipOffSkip, strings.TrimSpace(string(out)))
+	} else {
+		t.Logf("csrutil status: %q (%v): the row runs", strings.TrimSpace(string(out)), err)
+	}
 	folder := t.TempDir()
 	write := func(name, text string) string {
 		path := filepath.Join(folder, name)
@@ -214,6 +221,40 @@ func TestAnInjectedLibraryIsNotLoadedIntoAHardenedProgram(t *testing.T) {
 	adHoc(t, program, "--options", "runtime")
 	if out := run(); strings.Contains(out, "INJECTED") || !strings.Contains(out, "standin ran") {
 		t.Errorf("with the runtime the library ran: %q", out)
+	}
+}
+
+// sipOffSkip begins the row's skip when SIP is off; CI's hardened job accepts that skip, and only that one, by these
+// words (.github/workflows/ci.yml).
+const sipOffSkip = "SKIPPED, System Integrity Protection is off on this Mac, so DYLD_ variables reach a hardened program (csrutil status says"
+
+// sipDisabled is whether csrutil status's output says SIP is disabled: its status line, and nothing else, reads
+// "disabled.". Enabled, a custom configuration, or output it doesn't know is not disabled.
+func sipDisabled(status string) bool {
+	for _, line := range strings.Split(status, "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "System Integrity Protection status:"); ok {
+			return strings.TrimSpace(rest) == "disabled."
+		}
+	}
+	return false
+}
+
+// csrutil status's own words, each way: only "disabled." skips the injected-library row.
+func TestTheInjectedLibraryRowSkipsOnlyWhenCsrutilSaysSIPIsOff(t *testing.T) {
+	for _, row := range []struct {
+		status   string
+		disabled bool
+	}{
+		{"System Integrity Protection status: disabled.\n", true},
+		{"System Integrity Protection status: enabled.\n", false},
+		{"System Integrity Protection status: unknown (Custom Configuration).\n\nConfiguration:\n\tKext Signing: disabled\n", false},
+		{"Kext Signing: disabled\n", false},
+		{"csrutil: failed\n", false},
+		{"", false},
+	} {
+		if got := sipDisabled(row.status); got != row.disabled {
+			t.Errorf("%q: disabled %v, want %v", row.status, got, row.disabled)
+		}
 	}
 }
 
