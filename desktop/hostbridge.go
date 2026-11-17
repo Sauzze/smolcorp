@@ -868,6 +868,11 @@ func paneOf(tab Tab) (commandTab, bool) {
 func (t macTab) do(request bridgeRequest) (bridgeAnswer, error) {
 	request.Tab = t.name
 	if t.pane != nil && t.pane.kind == "tmux" {
+		// The app is never asked to follow a link to a desk's socket: deskOfPane would name the desk it leads to
+		// now, and the app's own tmux would follow it too (FXTABLINK).
+		if linkedDeskSocket(t.pane.socket) {
+			return bridgeAnswer{}, errTabThroughLink
+		}
 		request.Desk = paneDesk(t.pane.socket)
 	}
 	return ask(t.host, request)

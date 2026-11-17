@@ -17,7 +17,9 @@ import (
 func keyedOffice(t *testing.T) (d *Deck, keys, sockets map[string]string) {
 	t.Helper()
 	d = newTestDeck(t)
-	dir := t.TempDir()
+	// Its links resolved, as the core spells a sandboxed desk's socket: a desk's tab through a link (the Mac's
+	// /var, here) counts only as the core recorded it (FXTABLINK).
+	dir := physical(t.TempDir())
 	keys, sockets = map[string]string{}, map[string]string{}
 	var hires []Hire
 	for _, id := range []string{"aaa111", "bbb222", "ccc333"} {

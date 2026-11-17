@@ -120,7 +120,7 @@ func (k hookDesks) deskOfTab(tab string) string {
 // names no tab only goes on with a session already its own. The owner's key reaches no desk with a key.
 func (k hookDesks) allows(desk, tab string, session *Session) bool {
 	mine := func(t string) bool {
-		return k.deskOfTab(t) == desk || desk != "" && isHeadless(t)
+		return !tabThroughLink(desk, t) && (k.deskOfTab(t) == desk || desk != "" && isHeadless(t))
 	}
 	if session != nil && !mine(session.Tab) {
 		return false
@@ -129,6 +129,36 @@ func (k hookDesks) allows(desk, tab string, session *Session) bool {
 		return desk == "" || session != nil
 	}
 	return mine(tab)
+}
+
+// tabThroughLink is whether tab is refused for going through a link (FXTABLINK, tablink.go), for an event with desk's
+// key ("" for the owner's sessions'): a desk's tmux tab with a link anywhere on its socket's path, but for the core's
+// own spelling of a hire's socket (coreSpelt); anyone's whose link leads to a desk's socket. The owner's other tabs
+// are taken as before: a socket tmux was given through a link of the system's (/tmp on a Mac) is still the owner's.
+func tabThroughLink(desk, tab string) bool {
+	kind, _, socket := splitTab(tab)
+	if kind != "tmux" || !filepath.IsAbs(socket) || !socketThroughLink(socket) {
+		return false
+	}
+	if desk != "" {
+		return socketThroughOthersLink(socket, readRegistry(registryPath(), false).hires)
+	}
+	return linkedDeskSocket(socket)
+}
+
+// resolvedTab is tab as the core checks, keeps and drives it for an event with desk's key: a desk's tmux tab with its
+// socket's path resolved, once (FXTABLINK), or, when it is a hire's socket as the core spelt it (coreSpelt), that
+// spelling, which the core's own lists match by (hiredRoleAt). What is kept is never a spelling a desk chose, nor one
+// a link could later turn elsewhere. The owner's key's tabs are kept as they come, as tmux spells them.
+func resolvedTab(desk, tab string) string {
+	kind, id, socket := splitTab(tab)
+	if desk == "" || kind != "tmux" || !filepath.IsAbs(socket) {
+		return tab
+	}
+	if coreSpelt(socket, readRegistry(registryPath(), false).hires) {
+		return kind + ":" + id + "@" + filepath.Clean(socket)
+	}
+	return kind + ":" + id + "@" + socketPlace(socket)
 }
 
 // deskWorks is works for pairing a live session with hire h, keyed being the registry's hook keys: a desk with a key

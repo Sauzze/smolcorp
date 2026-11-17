@@ -100,6 +100,9 @@ func (t commandTab) outputWith(input io.Reader, args ...string) ([]byte, error) 
 	var cancel context.CancelFunc
 	switch t.kind {
 	case "tmux":
+		if linkedDeskSocket(t.socket) {
+			return nil, errTabThroughLink // never a desk's server through a link (FXTABLINK)
+		}
 		program, guard := tmuxFor(t.socket)
 		var err error
 		if cmd, cancel, err = tmuxClient(terminalTimeout, program, guard, append([]string{"-S", t.socket}, args...)...); err != nil {
@@ -515,6 +518,9 @@ func frontOf(lines string, own int) inFront {
 func (t commandTab) alive() bool {
 	switch t.kind {
 	case "tmux":
+		if linkedDeskSocket(t.socket) {
+			return true // not asked through a link to a desk's server (FXTABLINK): unknown
+		}
 		program, guard := tmuxFor(t.socket)
 		cmd, cancel, err := tmuxClient(terminalTimeout, program, guard, "-S", t.socket, "display-message", "-p", "-t", t.id, "#{pane_id}")
 		if err != nil {

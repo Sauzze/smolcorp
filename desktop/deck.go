@@ -552,7 +552,12 @@ func (d *Deck) ingestAs(desks hookDesks, desk string, event map[string]any, repo
 		// (Sessions.apply): it is checked as the session it would be.
 		session = d.sessions.Revivable(id)
 	}
-	if !desks.allows(desk, tab, session) {
+	// A tab through a link is refused before anything else; a desk's is then resolved once, and checked and kept as
+	// resolved (FXTABLINK, tablink.go).
+	if tabThroughLink(desk, tab) {
+		return false
+	}
+	if tab = resolvedTab(desk, tab); !desks.allows(desk, tab, session) {
 		return false
 	}
 	// A hire in T3 Code's own Claude Code, heard through your hooks: never a desk, nor anyone else's. Its events
