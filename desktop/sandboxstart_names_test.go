@@ -250,7 +250,10 @@ func TestTheLinkCheckCountsNamesThroughALinkedParent(t *testing.T) {
 			}
 			got, err := checkLinks(lt.policy(t), lt.places())
 			if probe {
-				if err == nil || !strings.Contains(err.Error(), "doesn't look in") || len(got) != 0 || !oneFile(t, guard, other) {
+				// The Policy holds the home folder's places where the link above them leads too (FXHOMELINKS), so the
+				// check may meet the transcript there and name it.
+				refused := err != nil && (strings.Contains(err.Error(), "doesn't look in") || strings.Contains(err.Error(), "which desks can't read"))
+				if !refused || len(got) != 0 || !oneFile(t, guard, other) {
 					t.Fatalf("checkLinks: %v, replaced %v; want the start refused and the guard file left", err, got)
 				}
 				return

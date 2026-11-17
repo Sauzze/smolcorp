@@ -119,6 +119,19 @@ func TestOnAMacUsrBinsToolsAreDeniedWithTheDeveloperFolderTheyHandOnTo(t *testin
 	if _, err := ResolvePrograms(Finding{GOOS: "darwin", Home: s.home, DeveloperDir: s.at("Xcode.app/Contents/Developer")}); err == nil {
 		t.Error("the real /usr/bin/git resolved with no place for xcrun's cache")
 	}
+	// The developer folder named through a link (an Xcode.app that leads to Xcode-16.app, as the Xcodes app keeps
+	// them): the link is denied as well as where it leads, so no desk points it at a folder of its own
+	// (RT126RESOLVESWEEP S2c).
+	onlyPrograms(t, ProgramName{Name: "git", Places: []string{"/usr/bin/git"}, Why: "a stand-in"})
+	s.program("Xcode-16.app/Contents/Developer/usr/bin/git", "#!/bin/sh\n")
+	if err := os.Symlink("Xcode-16.app", s.at("Linked.app")); err != nil {
+		t.Fatal(err)
+	}
+	ps = mustResolve(t, Finding{GOOS: "darwin", Home: s.home, DeveloperDir: s.at("Linked.app/Contents/Developer"), UserTemp: temp})
+	denied(t, ps, "darwin", map[string]bool{s.at("Linked.app"): true, s.at("Xcode-16.app/Contents/Developer/usr/bin/git"): true})
+	if root, hops, err := developerPlace(s.at("Linked.app/Contents/Developer")); err != nil || root != s.at("Xcode-16.app") || len(hops) != 1 {
+		t.Errorf("the developer folder through a link: %q %q %v", root, hops, err)
+	}
 	// /usr/bin/env is no developer tool: it needs no cache.
 	onlyPrograms(t, ProgramName{Name: "env", Places: []string{"/usr/bin/env"}, Why: "a stand-in"})
 	mustResolve(t, Finding{GOOS: "darwin", Home: s.home, DeveloperDir: s.at("Xcode.app/Contents/Developer")})

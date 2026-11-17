@@ -251,11 +251,7 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 			pl.GMFolder = physical(startedIn(h))
 		}
 	}
-	for _, account := range d.Accounts {
-		if account.Dir != "" && physical(account.Dir) != physical(filepath.Join(homeDir, ".claude")) {
-			pl.Accounts = append(pl.Accounts, physical(account.Dir))
-		}
-	}
+	pl.Accounts = deskAccounts(runtime.GOOS, d.Accounts)
 	if err := deskGitPlaces(d, &pl); err != nil {
 		return pl, err
 	}
@@ -275,6 +271,25 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 	defer cancel()
 	pl.GitHooks, pl.GitNamed, err = sandbox.ReadGitConfig(ctx, git, nil, pl)
 	return pl, err
+}
+
+// deskAccounts are the Claude account folders besides ~/.claude, for Places.Accounts on goos: each resolved, and on a
+// Mac one kept as a link as it is spelled too (RT126RESOLVESWEEP S2b), so the Policy holds the link itself, which no
+// desk can then point elsewhere for the owner's later sessions, as well as where it leads. On Linux the view already
+// makes such a link again, read-only, in the covered home folder and covers where it leads whole; given as spelled, it
+// would be a place the view must hold that is a link, and every start would fail (RT126HOMELINKS B3).
+func deskAccounts(goos string, accounts []claudeProfile) []string {
+	var dirs []string
+	for _, account := range accounts {
+		if account.Dir == "" || physical(account.Dir) == physical(filepath.Join(homeDir, ".claude")) {
+			continue
+		}
+		dirs = append(dirs, physical(account.Dir))
+		if spelled, err := filepath.Abs(account.Dir); goos == "darwin" && err == nil && spelled != physical(account.Dir) {
+			dirs = append(dirs, spelled)
+		}
+	}
+	return dirs
 }
 
 // deskOwnID is the id desk id's sandbox knows it by (Places.OwnID): its own folder hires/<id>, and on Linux its kept

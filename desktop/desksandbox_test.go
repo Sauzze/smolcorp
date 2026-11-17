@@ -389,3 +389,33 @@ func TestADeskThatNeverReportsLetsGoOfItsSandbox(t *testing.T) {
 
 // takenPlace stands in for a runner's refusal, as the Mac's says it (sandbox.NotOurServerRefusal).
 const takenPlace = "Something else was already using this hire's place, so Smolcorp didn't start it. Quit other copies of Smolcorp and try again."
+
+// RT126RESOLVESWEEP S2b, with a stand-in home folder: on a Mac an extra account folder kept as a link is given to the
+// Policy as spelled as well as resolved, so its link is held too; on Linux resolved only, as before, since the view
+// makes the link again read-only and covers where it leads whole (RT126HOMELINKS B3: spelled, it failed every start).
+// ~/.claude itself, and an account folder that isn't a link, once each as before.
+func TestAnAccountFolderKeptAsALinkIsGivenAsSpelledToo(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := homeDir
+	homeDir = filepath.Join(base, "home")
+	t.Cleanup(func() { homeDir = saved })
+	for _, folder := range []string{".claude", ".claude-plain", "dotfiles/claude-x"} {
+		if err := os.MkdirAll(filepath.Join(homeDir, folder), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("dotfiles/claude-x", filepath.Join(homeDir, ".claude-x")); err != nil {
+		t.Fatal(err)
+	}
+	accounts := []claudeProfile{{Dir: filepath.Join(homeDir, ".claude")}, {Dir: filepath.Join(homeDir, ".claude-plain")},
+		{Dir: filepath.Join(homeDir, ".claude-x")}, {Dir: ""}}
+	resolved := []string{filepath.Join(homeDir, ".claude-plain"), filepath.Join(homeDir, "dotfiles", "claude-x")}
+	for goos, want := range map[string][]string{"darwin": append(slices.Clone(resolved), filepath.Join(homeDir, ".claude-x")), "linux": resolved} {
+		if got := deskAccounts(goos, accounts); !slices.Equal(got, want) {
+			t.Errorf("the account folders on %s: %q, want %q", goos, got, want)
+		}
+	}
+}

@@ -294,11 +294,14 @@ func TestTheLinkCheckFailsClosed(t *testing.T) {
 		}
 		tr := newLinkTree(t)
 		shut := filepath.Join(tr.home, ".config", "git")
+		// The Policy is made first: made after, it refuses itself, as it can't tell where links in there lead
+		// (FXHOMELINKS, sandbox's TestTheOwnersPlacesAreHeldWhereTheirLinksLead).
+		p := tr.policy(t)
 		if err := os.Chmod(shut, 0); err != nil {
 			t.Fatal(err)
 		}
 		defer os.Chmod(shut, 0o700)
-		_, err := checkLinks(tr.policy(t), tr.places())
+		_, err := checkLinks(p, tr.places())
 		if err == nil || !strings.Contains(err.Error(), "couldn't check "+shut) {
 			t.Fatalf("checkLinks: %v", err)
 		}

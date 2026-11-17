@@ -181,7 +181,10 @@ func ResolvePrograms(f Finding) (*Programs, error) {
 		}
 	}
 	if goos == "darwin" {
-		r.devRoot = developerRoot(f.DeveloperDir)
+		var err error
+		if r.devRoot, r.devHops, err = developerPlace(f.DeveloperDir); err != nil {
+			return nil, fmt.Errorf("%w: the developer folder: %w", ErrPrograms, err)
+		}
 		for _, db := range []string{f.XcrunDB, filepath.Join(f.UserTemp, "xcrun_db")} {
 			if filepath.IsAbs(db) {
 				r.xcrunDBs = append(r.xcrunDBs, filepath.Clean(db))
@@ -227,6 +230,8 @@ func ResolvePrograms(f Finding) (*Programs, error) {
 
 type resolver struct {
 	goos, home, devRoot string
+	// devHops are the links on the way to the developer folder (developerPlace), denied with it.
+	devHops []string
 	// volume is the folder taken as the top of the volume: "" for the real one. A test's temp folder stands in for it
 	// to lay out a merged /usr (FXSAL1VM1 B1).
 	volume           string
@@ -388,6 +393,9 @@ func (r *resolver) program(p, exe string) error {
 		if tool := filepath.Join(dev, "usr", "bin", filepath.Base(real)); runnable(r.goos, tool) {
 			if err := r.program(tool, ""); err != nil {
 				return err
+			}
+			for _, hop := range r.devHops {
+				r.deny(hop)
 			}
 		}
 	}
@@ -731,6 +739,14 @@ func envProgram(words []string) string {
 // developerRoot is a Mac's developer folder, as DEVELOPER_DIR or xcode-select names it (its link, read: nothing
 // runs), else the command line tools': the .app it is in, for Xcode.
 func developerRoot(given string) string {
+	root, _, _ := developerPlace(given)
+	return root
+}
+
+// developerPlace is developerRoot, with every link met on the way to it, each at the place it was met (linkHops): a
+// desk that could point one elsewhere would choose the developer folder /usr/bin's tools hand on to (RT126RESOLVESWEEP
+// S2c). err is a link loop, or a place on the way that can't be read; root is then as given.
+func developerPlace(given string) (root string, hops []string, err error) {
 	dir := given
 	if !filepath.IsAbs(dir) {
 		if to, err := os.Readlink("/var/db/xcode_select_link"); err == nil && filepath.IsAbs(to) {
@@ -739,13 +755,14 @@ func developerRoot(given string) string {
 			dir = "/Library/Developer/CommandLineTools"
 		}
 	}
-	if real, err := resolve(filepath.Clean(dir)); err == nil {
+	hops, real, err := linkHops(filepath.Clean(dir))
+	if err == nil {
 		dir = real
 	}
 	if i := strings.Index(strings.ToLower(dir), ".app/"); i >= 0 {
-		return dir[:i+len(".app")]
+		return dir[:i+len(".app")], hops, err
 	}
-	return dir
+	return dir, hops, err
 }
 
 // linkHops is where p ends, as the system walks it (as resolve does), and every link met on the way, each at the

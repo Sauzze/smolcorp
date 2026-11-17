@@ -637,6 +637,7 @@ var startSites = map[string]string{
 	"enter_unix_test.go startEnter":                                                           "the test binary (os.Executable) as Start's words give it, after the row's wrapper",
 	"shims_test.go shimSays":                                                                  "the shim under test (swift, xcodebuild), copied from Resources/shims into a plain folder of the test's own (shimFolder, never inside an app), through disclaim.Cmd with a stand-in PATH, HOME and LANG",
 	"gitconfig_test.go (*gitStandin).run":                                                     "the stand-in's git, with its own -c words",
+	"homelinks_darwin_test.go TestOnAMacAHomePlaceKeptAsALinkIsHeldWhereItLeads":              "sandbox-exec under the row's profile, with the row's own words",
 	"plant_darwin_test.go TestOnAMacAPlantAtTheProjectIsHeldBeforeTheOwnersGitRuns":           "git, and sandbox-exec under the row's profile, with the row's own words",
 	"policy_darwin_test.go TestOnAMacAHiresPythonAndWriteToolCantMoveTheBaseBranches":         "sandbox-exec under the row's profile, with the row's own words",
 	"policy_darwin_test.go TestOnAMacAMissingFolderAboveADeniedPlaceCantBeBroughtInWhole":     "sandbox-exec under the row's profile, with the row's own words",

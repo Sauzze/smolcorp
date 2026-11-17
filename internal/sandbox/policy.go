@@ -325,6 +325,7 @@ var (
 	ErrBadName        = errors.New("sandbox: a desk's id, a worktree's or the default branch's name isn't plain")
 	ErrDeskStart      = errors.New("sandbox: the desk-start socket is in a support folder, and isn't its core's")
 	ErrOwnSockets     = errors.New("sandbox: a desk's own socket folder isn't a folder inside the socket folder")
+	ErrHomeLinks      = errors.New("sandbox: a home place's links can't be told whole")
 )
 
 // The rows exceptions open, by name.
@@ -413,7 +414,8 @@ func build(pl Places) (*Policy, error) {
 	}
 	home := pl.Home
 
-	// The owner's own places in the home folder.
+	// The owner's own places in the home folder, held where their links lead too (followLinks, FXHOMELINKS).
+	owners := len(b.rules)
 	if pl.RemoteLogin {
 		b.add(Rule{Row: rowSSH, Path: join(home, ".ssh"), Tail: "*", Below: true, Read: Deny, Write: Deny, Wide: true})
 		for _, tail := range []string{"*.pub", "known_hosts*", "config"} {
@@ -464,6 +466,7 @@ func build(pl Places) (*Policy, error) {
 			}
 		}
 	}
+	b.followLinks(owners, home, pl.Accounts)
 	for _, root := range pl.InstallRoots {
 		b.add(Rule{Row: "programs that run outside", Path: root, Below: true, Write: Deny})
 	}
