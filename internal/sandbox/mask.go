@@ -26,8 +26,10 @@ import (
 // so, fails the start (ErrNoSocketList). The kernel writes a name byte for byte, a newline too, so each socket is
 // checked against the kernel's own dump (NETLINK_SOCK_DIAG, with each name's length and the inode of the file it is
 // bound to): a name that differs between the two fails the start, and so does a socket whose name no longer leads to
-// its file (moved, removed or replaced: B4) where the desk could have changed the way to it (ErrSocketMoved). A
-// socket closed between the two reads is gone.
+// its file (moved, removed or replaced: B4) where the desk could have changed the way to it (ErrSocketMoved, which
+// says which check failed and whose the folder is). A folder only a system account can change, in one no desk changes
+// (chrony's /run/chrony, _chrony's: systemHeld), is one no desk moved a socket out of, as root's is (FXCHRONYSOCK): the
+// start goes on, and the log says so. A socket closed between the two reads is gone.
 //
 // The sockets Smolcorp always masks (SA-X2's LinuxMasked: the system D-Bus, Docker's, containerd's, Podman's) are
 // masked whether or not they listen at the start, whatever the list says, and the folders they are in, or would be
@@ -330,6 +332,55 @@ func (b *viewBuilder) changeable(folder string) bool {
 	return err != nil || !(st.uid == 0 && st.mode.Perm()&0o022 == 0)
 }
 
+// sysUIDMax is the last uid of a system account (login.defs' SYS_UID_MAX on Debian, Ubuntu and Fedora): chrony's
+// _chrony, systemd's, a package's own. People's accounts, the owner's and any a desk could ever run as, start above it.
+const sysUIDMax = 999
+
+// systemAccountFolder is whether st, a folder's, is one only a system account can change a name in (FXCHRONYSOCK):
+// a folder, a system account's (sysUIDMax), not the owner's (ownerUID, known), and writable by no group nor other. A
+// POSIX ACL that lets any other account write it shows as the group's write bit (the ACL's mask), so that rules it
+// out too. Root's is one: fixed already counts it as no desk's.
+func systemAccountFolder(st viewStat, ownerUID int64) bool {
+	return st.mode.IsDir() && ownerUID >= 0 && st.uid >= 0 && st.uid <= sysUIDMax && st.uid != ownerUID &&
+		st.mode.Perm()&0o022 == 0
+}
+
+// systemHeld is whether no desk can have moved a socket out of folder, as the view sees it on the disk (links
+// resolved): only a system account can change a name in it (systemAccountFolder), and no desk can change one above it
+// (fixed: the folder can't be renamed, nor another put in its place). has says whose the folder is, for the start's
+// error or log.
+//
+// Why a desk can't (chrony's /run/chrony, _chrony's, 0750, in root's /run): a desk runs as the owner's uid, in bwrap's
+// own user namespace, where only that uid and its group are mapped. Changing a name in a folder takes write on it.
+// The folder's owner bits are another account's; its group and other bits give no write, nor can an ACL entry
+// (above). bwrap isn't setuid here and drops every capability before the desk's program runs. A capability a process
+// of the namespace did hold would act on a file only when its owner and group are mapped there
+// (capable_wrt_inode_uidgid), and _chrony's aren't. Nor can the desk rename /run/chrony, or put another in its
+// place: that takes write on /run, root's alone.
+func (b *viewBuilder) systemHeld(folder string) (held bool, has string) {
+	st, err := b.sys.stat(folder, false)
+	if err != nil {
+		return false, fmt.Sprintf("its folder %s can't be looked at (%v)", folder, err)
+	}
+	has = fmt.Sprintf("its folder %s is uid %d's, %v (the owner is uid %d)", folder, st.uid, st.mode, b.ownerUID)
+	return folder != "/" && systemAccountFolder(st, b.ownerUID) && b.fixed(path.Dir(folder)), has
+}
+
+// movedWhy says which of the moved socket's checks failed: its name isn't there (or can't be looked at), isn't a
+// socket, or is another file than the kernel's dump binds it to.
+func movedWhy(st viewStat, err error, socket bool, d diagSocket) string {
+	switch {
+	case err != nil:
+		return fmt.Sprintf("its name can't be looked at (%v)", err)
+	case !socket:
+		return fmt.Sprintf("its name is no socket (%v)", st.mode)
+	case !d.file:
+		return "the kernel's dump binds it to no file"
+	default:
+		return fmt.Sprintf("its name is inode %d, the kernel's dump binds it to %d", st.ino, d.vfs)
+	}
+}
+
 // closedAbove is the folder the owner's account can't open that err, a refusal (EACCES) to look at at, comes from: the
 // nearest folder from at up that can be looked at. It is closed when it is root's, a folder, writable by no group nor
 // other, and fixed: no desk can change a name in it or above it (it can't be renamed into place, nor replaced). A desk
@@ -502,8 +553,14 @@ func (b *viewBuilder) mask(at string, d diagSocket, listed map[string]bool, own 
 	}
 	socket := err == nil && st.mode&fs.ModeSocket != 0
 	if !socket || !d.file || uint32(st.ino) != d.vfs {
-		if !trustedWay || !b.fixed(folder) {
-			return fmt.Errorf("%w: %s", ErrSocketMoved, at)
+		// FXCHRONYSOCK: a folder only a system account can change (chrony's /run/chrony) is one no desk moved it from.
+		fixed := b.fixed(folder)
+		held, has := b.systemHeld(folder)
+		if !trustedWay || !fixed && !held {
+			return fmt.Errorf("%w: %s: %s; %s", ErrSocketMoved, at, movedWhy(st, err, socket, d), has)
+		}
+		if !fixed {
+			b.logf("sandbox: a socket that listens at %s isn't where it was made (%s); %s, so no desk moved it: the start goes on", at, movedWhy(st, err, socket, d), has)
 		}
 	}
 	if socket {
