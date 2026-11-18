@@ -94,8 +94,10 @@ func TestSessionsInPanesAreBackOnTheirKeysAfterARestart(t *testing.T) {
 	}
 	after.mu.Lock()
 	defer after.mu.Unlock()
+	// config.json's fixed count is read but not kept (as the Mac's Layout): with as many keys as sessions, s2 is
+	// next after s0, in the order they had.
 	keys, _ := after.layout()
-	if keys[0].session == nil || keys[0].session.ID != "s0" || keys[4].session == nil || keys[4].session.ID != "s2" ||
+	if len(keys) < 2 || keys[0].session == nil || keys[0].session.ID != "s0" || keys[1].session == nil || keys[1].session.ID != "s2" ||
 		after.sessions.Get("s1") != nil {
 		t.Errorf("after a restart the keys are %+v", keys)
 	}

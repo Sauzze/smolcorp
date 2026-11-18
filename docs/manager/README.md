@@ -22,12 +22,12 @@ Tell it the goal. It answers with a plan and waits for your OK. After that it ch
 - Hire an employee (its own worktree and branch), send it a brief, fire it.
 - Send a message to a hire, and read the replies in its inbox.
 - Ask Smolcorp to watch a file, a time, or a hire going idle, and be told when it happens.
-- Tile the team's windows on a screen.
+- Tile the team's windows on a screen (on the Mac).
 - Keep notes on each employee.
 
 ## What the GM can't do
 
-The GM can't push, publish, deploy or use cloud tools: the same guard as hires (with its own `smolcorp gm` actions allowed). It never answers a permission prompt (no route does).
+The GM can't push, publish, deploy, use cloud tools, merge onto a base branch or spend money: the same guard as hires (with its own `smolcorp gm` actions allowed). It never answers a permission prompt (no route does).
 
 **Never, by the app:**
 - **Answer a permission prompt.** No tool, command or route does this, for the GM or for anyone it hires. Only you, in the window that asks. If a hire is stuck on a prompt, the GM tells you.

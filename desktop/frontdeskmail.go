@@ -138,6 +138,11 @@ func setContacts(path string, body []byte) ([]Contact, *refusal) {
 		}
 	}
 	oneWay, removing := flags[0], flags[1]
+	// A pair taken away while the records' key can't be read would come back at the restart: the core holds no
+	// contact from the file then, so the file's stays (records.go's refusedWhileHeld, RT126SK1R4 follow-up 2).
+	if removing && recordsHeldOnly() {
+		return nil, &refusal{http.StatusConflict, recordsHeldAnswer}
+	}
 	frontDeskMu.Lock()
 	defer frontDeskMu.Unlock()
 	file := readRegistry(path, true)
@@ -181,15 +186,25 @@ func setContacts(path string, body []byte) ([]Contact, *refusal) {
 	return file.contactsJSON(), nil
 }
 
-// The GM's token is kept in memory only, on the Deck: no file, no secret store.
+// The GM's token is kept in memory, on the Deck, and between runs in the Mac's
+// Keychain or this computer's secret store (gmtokenstore.go); under the Mac app
+// also in a file while a GM started by hand is allowed (gmbyhand.go).
 // The hire engine makes one when it hires or replaces the GM (newGMToken), and
-// takes it away when the GM goes (clearGMToken). Until then nobody is the GM.
+// takes it away when the GM goes (clearGMToken). Until then nobody is the GM,
+// but for one started by hand with the setting on, which always has a token.
 
-// newGMToken makes a fresh token and makes it the only valid one.
+// newGMToken makes a fresh token and makes it the only valid one. It is kept for the next run before it is given,
+// as rotate does: written to the store at once, without d.mu, and "" if that fails, so the hire is refused and a
+// GM hired after one that was fired can't leave the fired GM's token as the one kept (RTOK2 B1). Never call it
+// with d.mu held.
 func (d *Deck) newGMToken() string {
 	token := randomKey()
+	if d.gmKept.writeNow(gmVerifierForm(hashKey(token))) != nil {
+		return ""
+	}
 	d.mu.Lock()
 	d.gmToken = token
+	d.gmTokenChanged()
 	d.mu.Unlock()
 	return token
 }
@@ -198,6 +213,7 @@ func (d *Deck) newGMToken() string {
 func (d *Deck) clearGMToken() {
 	d.mu.Lock()
 	d.gmToken = ""
+	d.gmTokenChanged()
 	d.mu.Unlock()
 }
 
@@ -205,16 +221,27 @@ func (d *Deck) clearGMToken() {
 // failed or was fired takes its own token away, never a newer GM's.
 func (d *Deck) clearGMTokenIf(token string) {
 	d.mu.Lock()
-	if token != "" && constantTimeEqual(d.gmToken, token) {
+	if check := d.gmCheck(); token != "" && check != "" && constantTimeEqual(hashKey(token), check) {
 		d.gmToken = ""
+		d.gmTokenChanged()
 	}
 	d.mu.Unlock()
 }
 
-// isGMToken says whether a header's value is the GM's token. It never makes
-// one: with no token yet, nobody is the GM. The caller holds d.mu.
+// isGMToken says whether a header's value is the GM's token, by its verifier (gmCheck): the core keeps no GM token
+// between runs, only its hash. It never makes one: with no token yet, nobody is the GM. The caller holds d.mu.
 func (d *Deck) isGMToken(candidate string) bool {
-	return candidate != "" && d.gmToken != "" && constantTimeEqual(candidate, d.gmToken)
+	check := d.gmCheck()
+	return candidate != "" && check != "" && constantTimeEqual(hashKey(candidate), check)
+}
+
+// gmCheck is what the GM's token is checked against: the hash of the token made in this run, else the verifier
+// kept from the last, else "" (no GM). The caller holds d.mu.
+func (d *Deck) gmCheck() string {
+	if d.gmToken != "" {
+		return hashKey(d.gmToken)
+	}
+	return d.gmVerifier
 }
 
 // The two texts the GM's token gets when it asks to hire the General Manager

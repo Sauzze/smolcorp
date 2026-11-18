@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -26,6 +25,9 @@ import (
 // hireStartPath is where a launcher asks for its start environment.
 const hireStartPath = "/launcher/start"
 
+// gmTokenEnvironment is the variable the General Manager's token is in, on its agent's process alone.
+const gmTokenEnvironment = "SMOLCORP_GM_TOKEN"
+
 // hireStartEnv is what the launcher sets on the agent, and nowhere else.
 type hireStartEnv struct {
 	// Set are variables to set (the hire's send key, its ports, the GM's token, a named account).
@@ -35,6 +37,13 @@ type hireStartEnv struct {
 	Unset []string `json:"unset,omitempty"`
 	// PathFirst is a folder to put first on the agent's PATH: the app's own smolcorp.
 	PathFirst string `json:"pathFirst,omitempty"`
+	// Message is the agent's first message when the app wrote the hire a brief:
+	// to read it, and where it is. Empty, the launcher makes the role's own.
+	Message string `json:"message,omitempty"`
+	// Settings are an engine hire's Claude Code settings file, as writeHireSettings writes it, and SettingsSum its
+	// seal: the launcher checks the file against it and names it in the agent's command line (--settings <file>).
+	Settings    string `json:"settings,omitempty"`
+	SettingsSum string `json:"settingsSum,omitempty"`
 }
 
 // startEnvironment is base with env applied: unset names removed, set names
@@ -74,13 +83,15 @@ func startEnvironment(base []string, env hireStartEnv, caseless bool) []string {
 
 // takeStartEnv gives the start environment of the engine hire hireID to the
 // launcher that proves it with token, once: the token must be a hire's, made
-// for exactly that hire, fresh, and not used. status says why not.
+// for exactly that hire, fresh, and not used. status says why not. A General
+// Manager hired the plain way (hire.go) is asked for with no id, and its
+// environment is its token alone (GMTOKENWIN1); no other plain hire has one.
 func (d *Deck) takeStartEnv(token, hireID string) (env *hireStartEnv, status int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	pending, ok := d.hires[token]
 	switch {
-	case !ok || !hireToken.MatchString(token) || pending.hireID == "":
+	case !ok || !hireToken.MatchString(token) || pending.hireID == "" && !pending.plainGM:
 		return nil, http.StatusForbidden
 	case pending.hireID != hireID:
 		return nil, http.StatusForbidden
@@ -89,17 +100,42 @@ func (d *Deck) takeStartEnv(token, hireID string) (env *hireStartEnv, status int
 		return nil, http.StatusGone
 	case pending.env == nil:
 		return nil, http.StatusGone // used already
+	case pending.hireID != "" && !hireRowOpen(hireID):
+		// Marked gone before its window asked: nothing starts behind a gone row (gonedesk.go, RT126GMEDIT1 B1).
+		delete(d.hires, token)
+		return nil, http.StatusConflict
 	}
 	env, pending.env = pending.env, nil
 	return env, http.StatusOK
 }
 
+// A start the app refuses with a 409 says why in one word, so the launcher can tell the owner which it was: the
+// hire's row was marked gone before its window asked (gonedesk.go), or its settings file isn't the one Smolcorp
+// sealed (settingsfile.go). Both start nothing, and both spend the start.
+const (
+	startRefusedGone     = "gone"
+	startRefusedSettings = "settings"
+)
+
 // startEnvRoute answers GET /launcher/start?hire=<token>&id=<hire id>. The
 // caller has checked it is local and carries the hook key.
 func (d *Deck) startEnvRoute(w http.ResponseWriter, query url.Values) {
 	env, status := d.takeStartEnv(query.Get("hire"), query.Get("id"))
+	why := ""
+	if status == http.StatusConflict {
+		why = startRefusedGone
+	}
+	// Its settings file, as Smolcorp sealed it (settingsfile.go): a changed one starts nothing, and the start is spent.
+	// A plain GM's (no id) has none: its start is its token alone, and its launcher takes nothing else from it.
+	if env != nil && query.Get("id") != "" && (sealedSettings{Path: env.Settings, Sum: env.SettingsSum}).refusal() != nil {
+		env, status, why = nil, http.StatusConflict, startRefusedSettings
+	}
 	if env == nil {
+		if why != "" {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		}
 		w.WriteHeader(status)
+		_, _ = io.WriteString(w, why)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -114,6 +150,19 @@ var hireStartTimeout = 10 * time.Second
 // takes the call and never answers must not hold the window for good.
 func hireStartClient() *http.Client {
 	return &http.Client{Timeout: hireStartTimeout}
+}
+
+// startRefusal is the launcher's words for the app's 409, by the reason its body gives (startRefusedGone,
+// startRefusedSettings). One it doesn't know still starts nothing.
+func startRefusal(body io.Reader) error {
+	why, _ := io.ReadAll(io.LimitReader(body, 64))
+	switch strings.TrimSpace(string(why)) {
+	case startRefusedGone:
+		return errors.New("this hire was marked gone before its window opened, so nothing was started")
+	case startRefusedSettings:
+		return errors.New("this hire's settings file isn't the one Smolcorp wrote: something on this computer changed or replaced it. Hire again")
+	}
+	return errors.New("Smolcorp refused this hire's start, so nothing was started. Hire again")
 }
 
 // fetchHireStartEnv is the launcher's side: it asks the app at base for the
@@ -137,20 +186,15 @@ func fetchHireStartEnv(client *http.Client, base, hookKey, token, hireID string)
 	case http.StatusOK:
 	case http.StatusGone:
 		return env, errors.New("this hire's start settings were taken already, or too long ago. Hire again")
+	case http.StatusConflict:
+		return env, startRefusal(response.Body)
 	case http.StatusForbidden, http.StatusUnauthorized, http.StatusNotFound:
 		return env, errors.New("Smolcorp doesn't know this hire. Hire again")
 	default:
 		return env, fmt.Errorf("Smolcorp answered %d", response.StatusCode)
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<16)).Decode(&env); err != nil {
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&env); err != nil {
 		return hireStartEnv{}, errors.New("Smolcorp's answer couldn't be read")
 	}
 	return env, nil
-}
-
-// settingsArgument is the one extra argument a hire's launcher takes after its
-// role: the hire's own Claude Code settings file, by an absolute path.
-func settingsArgument(arg string) bool {
-	path, ok := strings.CutPrefix(arg, "--settings=")
-	return ok && filepath.IsAbs(path) && !strings.ContainsAny(path, "\x00\r\n")
 }

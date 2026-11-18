@@ -4,8 +4,12 @@ package desktop
 
 import (
 	"context"
+	"errors"
+	"log"
 	"os"
 	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -58,10 +62,14 @@ func inLoginShell(command []string) []string {
 	return []string{loginShell(), "-lic", "exec " + strings.Join(quoted, " ")}
 }
 
-// loginShell is your shell, as a terminal starts it.
+// loginShell is your shell, as a terminal starts it: with no SHELL, the
+// Mac's own (macShell), elsewhere bash where there is one.
 func loginShell() string {
 	if shell := os.Getenv("SHELL"); shell != "" {
 		return shell
+	}
+	if runtime.GOOS == "darwin" {
+		return macShell
 	}
 	if found, err := exec.LookPath("bash"); err == nil {
 		return found
@@ -85,9 +93,8 @@ var findInLoginShell = func(program string) (found string, known bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), loginShellWait)
 	defer cancel()
 	args := inLoginShell([]string{"/bin/sh", "-c", `printf '\n%s%s\n' "$1" "$(command -v -- "$2")"`, "sh", foundMarker, program})
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = homeDir
-	cmd.Env = hireEnvironment()
+	// Nothing of Smolcorp's in it: the lookup's own environment (opencode.go).
+	cmd := lookupCommand(ctx, args[0], args[1:]...)
 	cmd.WaitDelay = time.Second // what the shell's files started in the background mustn't hold it
 	output, _ := cmd.Output()
 	for _, line := range strings.Split(string(output), "\n") {
@@ -113,3 +120,89 @@ func hireAgentMissing(program string) string {
 
 // prepareHireWindow: a window here is the terminal's own to open.
 func prepareHireWindow(*exec.Cmd, string) {}
+
+// windowScriptLines are a window's few lines: remove the script, point the
+// `smolcorp` command at a test copy (its port and folder; the terminal's
+// environment is its own, not this program's), then run command, each word
+// quoted so it's only ever itself.
+func windowScriptLines(command []string, testPort int, testSupport string) (string, error) {
+	if len(command) == 0 {
+		return "", errors.New("nothing to run")
+	}
+	quoted := make([]string, len(command))
+	for i, word := range command {
+		quoted[i] = shellQuoted(word)
+	}
+	lines := "#!/bin/sh\nrm -f -- \"$0\"\n"
+	if testPort != 0 {
+		lines += "export SMOLCORP_PORT=" + shellQuoted(strconv.Itoa(testPort)) + "\n" +
+			"export SMOLCORP_TEST_SUPPORT_DIR=" + shellQuoted(testSupport) + "\n"
+	}
+	return lines + "exec " + strings.Join(quoted, " ") + "\n", nil
+}
+
+// writeWindowScript writes a window's script into folder (made 0700 if need
+// be), only yours to read or run, as the bridge's open requires.
+func writeWindowScript(folder string, command []string, testPort int, testSupport string) (string, error) {
+	lines, err := windowScriptLines(command, testPort, testSupport)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		return "", err
+	}
+	file, err := os.CreateTemp(folder, "window-*.sh")
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	if err := file.Chmod(0o700); err != nil {
+		os.Remove(file.Name())
+		return "", err
+	}
+	if _, err := file.WriteString(lines); err != nil {
+		os.Remove(file.Name())
+		return "", err
+	}
+	return file.Name(), nil
+}
+
+// plainHireTmux is a plain hire's own tmux server (SA-M10), on a socket named for id in tmux's own folder, as a desk's
+// outside the sandbox is (newHireTmux): never the owner's default server, whose start file, other sessions and clients
+// are the owner's (RT126SG2R2 N3). Its start runs with the guard off for that call alone and reads no start file; every
+// other call is a one-shot client's (tmuxClient), with no pid to check on that server. nil when there's no tmux or no
+// safe folder for its socket. A variable, for the tests, which give it a stand-in runner.
+var plainHireTmux = func(id string) *hireTmux { return newHireTmux(id, testCopyPort(), nil) }
+
+// plainHireTmuxID is a new plain hire's server's id: "plain-" and twelve letters or digits, which no engine hire's id
+// (twelve alone) can be.
+func plainHireTmuxID() string { return "plain-" + strings.ToLower(newID())[:12] }
+
+// openHireInTmux is openHire in tmux: command in a session on its own server, shown in a window of terminal when
+// there is one.
+func openHireInTmux(command []string, folder string, terminal hireOpener, hasTerminal bool) error {
+	id := plainHireTmuxID()
+	tmux := plainHireTmux(id)
+	if tmux == nil {
+		return errUnsupported
+	}
+	_, socket, pid, err := tmux.start(folder, command)
+	if err != nil {
+		return err
+	}
+	// The core's own record of the server it made, as its start said it: what the Mac app is told with a focus or close
+	// on its pane (deskOfPane), as it has no registry row.
+	notePlainTmux(socket, plainTmux{id: id, pane: pid, paneStarted: paneStartedAt(pid), folder: folder})
+	if !hasTerminal {
+		// Over SSH, say: the log names its socket, for `tmux -S <socket> attach`.
+		log.Printf("tmux: a hire's session is on its own server, %s.", socket)
+		return nil
+	}
+	// Its window runs `smolcorp attach` with exec, on the socket of its own server (SA-M8).
+	if err := openWindow(terminal, folder, plainAttachLine(commandLineProgram(), hireSession, socket)); err != nil {
+		tmux.endServer() // its own server: nothing else is on it
+		forgetPlainTmux(socket)
+		return err
+	}
+	return nil
+}

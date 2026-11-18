@@ -11,8 +11,7 @@ import (
 // the office, the way the setup page's outfit maker does: only that project's member
 // name in the saved layout changes. The name is trimmed, one line of at most
 // nicknameLimit characters; an empty one takes the nickname away. (The GM can already
-// change any desk through /setup/layout, so this gives it no new power.) The Mac app's
-// GMNickname does the same.
+// change any desk through /setup/layout, so this gives it no new power.)
 
 // namePlace is where a session works now: its project, and the folder it is in.
 type namePlace struct{ project, folder string }
@@ -60,6 +59,45 @@ func setNickname(layout *Layout, body []byte, places []namePlace, pins []*string
 	}
 	layout.Room.Team[key] = member
 	return project, name, nil
+}
+
+// officeName is the nickname the office gives whoever works in project: its member's name in team, kept under the
+// project's last folder name as setNickname keeps it and the page's deskName reads it; "" for none.
+func officeName(team map[string]TeamMember, project string) string {
+	if project == "" {
+		return ""
+	}
+	return team[lastPart(project)].Name
+}
+
+// nameRows gives the team rows the registry has no nickname for the one the office shows, so `gm team` shows what
+// `gm nickname` set (FXGMNICK): a session nobody hired by its project, as the office names its desk; a hire with no
+// nickname of its own by its session's project, or away from its desk by where it started, as hiredInto keeps it. A
+// hire's own nickname wins, whole (FXGMNICKR1): it is what mail and the CLI look a hire up by, and the office keeps
+// only its first 16 characters, and doesn't follow a rename in the registry.
+func nameRows(rows []map[string]any, hires []Hire, live []liveSession, team map[string]TeamMember) {
+	for _, row := range rows {
+		if row["registered"] == true && row["nickname"] != "" {
+			continue
+		}
+		project := ""
+		if id, _ := row["sessionId"].(string); id != "" {
+			for _, l := range live {
+				if l.ID == id {
+					project = l.Project
+				}
+			}
+		} else if row["registered"] == true {
+			for _, h := range hires {
+				if h.ID == row["id"] {
+					project = startedIn(h)
+				}
+			}
+		}
+		if name := officeName(team, project); name != "" {
+			row["nickname"] = name
+		}
+	}
 }
 
 // nicknameProject is the project a typed folder stands for: a session's project or its folder

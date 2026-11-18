@@ -26,10 +26,10 @@ func macWrittenRegistry(t *testing.T) []byte {
 func TestARegistryTheMacWroteKeepsItsKeysAndContactsThroughAnEdit(t *testing.T) {
 	newTestDeck(t)
 	original := macWrittenRegistry(t)
-	if err := os.WriteFile(registryPath(), original, 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), original, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, refused := editHire(registryPath(), []byte(`{"id":"a1b2c3","notes":"same"}`)); refused != nil {
+	if _, refused := editHire(registryPath(), []byte(`{"id":"a1b2c3","notes":"same"}`), noDeskSession); refused != nil {
 		t.Fatal(refused.message)
 	}
 	var before, after map[string]any
@@ -48,10 +48,10 @@ func TestARegistryTheMacWroteKeepsItsKeysAndContactsThroughAnEdit(t *testing.T) 
 
 func TestAnEmptyRegistryLeavesKeysAndContactsOut(t *testing.T) {
 	newTestDeck(t)
-	if err := os.WriteFile(registryPath(), frontDeskFixture(t, "registry.json"), 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), frontDeskFixture(t, "registry.json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, refused := editHire(registryPath(), []byte(`{"id":"a1b2c3","notes":"x"}`)); refused != nil {
+	if _, refused := editHire(registryPath(), []byte(`{"id":"a1b2c3","notes":"x"}`), noDeskSession); refused != nil {
 		t.Fatal(refused.message)
 	}
 	if data, _ := os.ReadFile(registryPath()); strings.Contains(string(data), `"keys"`) || strings.Contains(string(data), `"contacts"`) {
@@ -66,7 +66,7 @@ func TestAKeyOrContactsThatCantBeReadSetTheRegistryAside(t *testing.T) {
 	newTestDeck(t)
 	for _, broken := range []string{`"contacts": "x"`, `"keys": [1]`, `"contacts": [{"from": 1}]`} {
 		bad := `{"version": 1, "hires": [], ` + broken + `}`
-		if err := os.WriteFile(registryPath(), []byte(bad), 0o600); err != nil {
+		if err := writeRegistryFile(registryPath(), []byte(bad), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if got := readRegistry(registryPath(), false); got.hires != nil || got.keys != nil {
@@ -88,7 +88,7 @@ func TestOnlyTheHashOfASendKeyIsKeptAndAGMHireGetsNone(t *testing.T) {
 	gmHire := map[string]any{"id": "9z9z9z", "name": "Boss", "folder": "/work/gm", "role": "gm", "state": "working"}
 	file["hires"] = append(hires, gmHire)
 	data, _ = json.Marshal(file)
-	os.WriteFile(registryPath(), data, 0o600)
+	writeRegistryFile(registryPath(), data, 0o600)
 
 	key, err := newSendKey(registryPath(), "d4e5f6")
 	if err != nil || len(key) < 32 {
@@ -120,7 +120,7 @@ func TestOnlyTheHashOfASendKeyIsKeptAndAGMHireGetsNone(t *testing.T) {
 
 func TestAFiredOrFailedHiresKeyIsRefused(t *testing.T) {
 	newTestDeck(t)
-	os.WriteFile(registryPath(), macWrittenRegistry(t), 0o600)
+	writeRegistryFile(registryPath(), macWrittenRegistry(t), 0o600)
 	file := readRegistry(registryPath(), false)
 	if h := file.hireForSendKey("fake-key-rev"); h == nil || h.ID != "a1b2c3" {
 		t.Fatalf("an open hire's key finds %v", h)
@@ -129,7 +129,7 @@ func TestAFiredOrFailedHiresKeyIsRefused(t *testing.T) {
 		t.Error("a fired hire's key was accepted")
 	}
 	for _, state := range []string{"fired", "failed"} {
-		if _, refused := editHire(registryPath(), []byte(`{"id":"d4e5f6","state":"`+state+`"}`)); refused != nil {
+		if _, refused := editHire(registryPath(), []byte(`{"id":"d4e5f6","state":"`+state+`"}`), noDeskSession); refused != nil {
 			t.Fatal(refused.message)
 		}
 		if isHireKey(registryPath(), "fake-key-jan") {
@@ -167,7 +167,7 @@ func TestTheGMTokenAndHireKeysAreComparedInConstantTime(t *testing.T) {
 func TestTheContactsRouteAnswersAsContactsJSONSays(t *testing.T) {
 	d := newTestDeck(t)
 	managerOn(d)
-	os.WriteFile(registryPath(), frontDeskFixture(t, "registry.json"), 0o600)
+	writeRegistryFile(registryPath(), frontDeskFixture(t, "registry.json"), 0o600)
 	var fixture struct {
 		Callers []string
 		Steps   []struct {
@@ -226,7 +226,7 @@ func TestContactsRefusalsAndHowANameIsFound(t *testing.T) {
 		map[string]any{"id": "t1", "name": "Twin", "folder": "/w4", "role": "builder", "state": "idle"},
 		map[string]any{"id": "t2", "name": "twin", "folder": "/w5", "role": "builder", "state": "working"})
 	data, _ := json.Marshal(file)
-	os.WriteFile(registryPath(), data, 0o600)
+	writeRegistryFile(registryPath(), data, 0o600)
 	for _, c := range []struct {
 		body   string
 		status int
@@ -321,7 +321,7 @@ func TestTheGMTokenDoesNotHireOrReplaceAGeneralManager(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			d, h, _ := hiringDeck(t, "")
-			if err := os.WriteFile(registryPath(), []byte(registry(c.state)), 0o600); err != nil {
+			if err := writeRegistryFile(registryPath(), []byte(registry(c.state)), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			before, _ := os.ReadFile(registryPath())
@@ -350,13 +350,14 @@ func TestThePageIsNotRefusedTheGMHireAndThePageAloneStartsOne(t *testing.T) {
 
 func TestAGMOrHireKeyDoesNotCompleteSetup(t *testing.T) {
 	for _, who := range []string{"gm", "hire"} {
+		stopDecksOf(t)
 		d := newTestDeck(t)
 		d.config.HasCompletedSetup = false
 		headers := map[string]string{}
 		if who == "gm" {
 			headers[gmTokenHeader] = d.newGMToken()
 		} else {
-			os.WriteFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"aaa111","name":"Rev","folder":"/w","role":"reviewer","state":"working"}]}`), 0o600)
+			writeRegistryFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"aaa111","name":"Rev","folder":"/w","role":"reviewer","state":"working"}]}`), 0o600)
 			key, err := newSendKey(registryPath(), "aaa111")
 			if err != nil {
 				t.Fatal(err)
@@ -370,13 +371,14 @@ func TestAGMOrHireKeyDoesNotCompleteSetup(t *testing.T) {
 			t.Errorf("a %s caller marked setup as done", who)
 		}
 	}
+	stopDecksOf(t)
 	d := newTestDeck(t)
 	d.config.HasCompletedSetup = false
 	d.mu.Lock()
 	cookie := d.access.NewSetupSession()
 	d.mu.Unlock()
 	serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer, withoutSetupKey: true,
-		headers: map[string]string{"Cookie": setupCookie + "=" + cookie}})
+		headers: map[string]string{"Cookie": setupCookie() + "=" + cookie}})
 	if !d.config.HasCompletedSetup {
 		t.Error("the page no longer completes setup")
 	}

@@ -130,9 +130,9 @@ func (w Webhook) send(message map[string]any) string {
 }
 
 // describedDelivery is how a delivery went, for the setup page: "Sent: 204
-// at 20:41", or what went wrong.
-func describedDelivery(result string) string {
-	at := time.Now().Format("15:04")
+// at 20:41", or what went wrong, at the time clock says it.
+func describedDelivery(result string, clock func(time.Time) string) string {
+	at := clock(time.Now())
 	var status int
 	if _, err := fmt.Sscan(result, &status); err != nil || fmt.Sprint(status) != result {
 		return result + " (" + at + ")"
@@ -258,7 +258,7 @@ func (d *Deck) tellWebhook() {
 		// One at a time, in order, so a quick "working" then "done" can't arrive the other way round
 		select {
 		case d.webhookSends <- func() {
-			result := describedDelivery(webhook.send(message))
+			result := describedDelivery(webhook.send(message), d.deliveryClock)
 			d.webhookMu.Lock()
 			d.webhookLast = result
 			d.webhookMu.Unlock()
@@ -284,7 +284,7 @@ func (d *Deck) sendWebhooks() {
 func (d *Deck) testWebhook(webhook Webhook) {
 	result := webhookProblem(webhook.URL, webhook.Outside)
 	if result == "" {
-		result = describedDelivery(webhook.send(map[string]any{"event": "test", "at": time.Now().UTC().Format(time.RFC3339), "session": nil}))
+		result = describedDelivery(webhook.send(map[string]any{"event": "test", "at": time.Now().UTC().Format(time.RFC3339), "session": nil}), d.deliveryClock)
 	}
 	d.webhookMu.Lock()
 	d.webhookLast = result

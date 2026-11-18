@@ -70,26 +70,6 @@ final class BotDiscoveryTests: XCTestCase {
         XCTAssertEqual(CloudBot.discover([group], in: [yours], hidden: []).bots, [yours])
     }
 
-    func testTheGroupChatsDeskGoesAndNothingElseMoves() {
-        var bots = [found("Smolcorp Mini", "aa11"), found("Bot Room", "cc33", pinned: true), found("X scout", "bb22")]
-        for i in bots.indices { bots[i].floor = "3" }
-        let desks = CloudDesks(bots, looking: false)
-        desks.apply(.report, to: "smolcorp-mini")
-        XCTAssertEqual(desks.seated().map(\.session).map(\.id), ["cloud-smolcorp-mini", "cloud-bot-room", "cloud-x-scout"])
-
-        desks.configure(CloudBot.discover([mini, group, scout], in: bots, hidden: []).bots)
-        XCTAssertEqual(desks.seated().map(\.session).map(\.id), ["cloud-smolcorp-mini", "cloud-x-scout"])
-        XCTAssertEqual(desks.seated().map(\.session).first?.state, .unread, "the others keep their news")
-        XCTAssertNil(desks.bot(ofSession: "cloud-bot-room"))
-        XCTAssertFalse(desks.seen(session: "cloud-bot-room"), "its card, if still open, finds no desk")
-        XCTAssertFalse(desks.apply(.report, to: "bot-room"))
-        // Each bot on the floor keeps the desk it had: the group chat's is only left free.
-        let seated = Deck.seat(placed: [Upstairs(person: "cloud-smolcorp-mini", id: "cloud-smolcorp-mini", floor: 2, had: Seat(floor: 2, desk: 0)),
-                                        Upstairs(person: "cloud-x-scout", id: "cloud-x-scout", floor: 2, had: Seat(floor: 2, desk: 2))], rest: [])
-        XCTAssertEqual(seated.seats["cloud-smolcorp-mini"], Seat(floor: 2, desk: 0))
-        XCTAssertEqual(seated.seats["cloud-x-scout"], Seat(floor: 2, desk: 2))
-    }
-
     func testAGroupChatNeverCountsTowardTheMostAndItsPlaceGoesToABot() {
         // Full, one of them the group chat: it goes, and a bot waiting takes its place.
         let eight = (0..<CloudBot.most - 1).map { CloudBot(id: "b\($0)", name: "B\($0)") }

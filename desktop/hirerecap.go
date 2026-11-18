@@ -25,24 +25,13 @@ func visibleCost(capture string) string {
 }
 
 // recapFile opens rel inside dir for the recap, or nil: only a plain file with
-// one name, reached without leaving dir. A hire writes its own folder, so a
-// link there (at any depth) could point anywhere the user can read, and a pipe
-// would hold the fire for good: os.Root refuses a part that leaves dir,
-// O_NONBLOCK keeps a pipe from blocking the open, O_NOFOLLOW refuses a link as
-// the last part, and a hard link (more than one name) is refused as the
-// watchers do.
+// one name, reached without leaving dir and through no link. A hire writes its
+// own folder, so a link there (at any depth) could point anywhere the user can
+// read, and a pipe would hold the fire for good: read through the core's
+// reader (hirefile.go).
 func recapFile(dir, rel string) *os.File {
-	root, err := os.OpenRoot(dir)
+	f, _, err := openHireFile(dir, filepath.Join(dir, rel))
 	if err != nil {
-		return nil
-	}
-	defer root.Close()
-	f, err := openWatched(root, rel)
-	if err != nil {
-		return nil
-	}
-	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() || fileLinks(f, info) > 1 {
-		f.Close()
 		return nil
 	}
 	return f
@@ -128,7 +117,16 @@ func writeRecap(h Hire, capture string, worktreeRemoved bool, now time.Time) str
 		lines = append(lines, "- Branch: "+h.Branch)
 	}
 	if h.Worktree != "" {
-		lines = append(lines, fmt.Sprintf("- Worktree: %s (%s)", h.Worktree, map[bool]string{true: "removed", false: "kept"}[worktreeRemoved]))
+		line := fmt.Sprintf("- Worktree: %s (%s)", h.Worktree, map[bool]string{true: "removed", false: "kept"}[worktreeRemoved])
+		if !worktreeRemoved {
+			// The owner's git in it could run a repo the hire made there (FXHIREPROJECTSR9, RT126FIXREVIEW-HIREPROJECTSR8 N1).
+			branch := "<its branch>"
+			if h.Branch != "" {
+				branch = h.Branch
+			}
+			line += ". Don't run git in it: from your own checkout, `git log " + branch + "` shows its work and `git worktree remove --force " + h.Worktree + "` removes it, deleting what it left uncommitted: open or copy those files first, without git."
+		}
+		lines = append(lines, line)
 	}
 	if h.Started > 0 {
 		lines = append(lines, "- Hired: "+time.UnixMilli(int64(h.Started)).UTC().Format(time.RFC3339))

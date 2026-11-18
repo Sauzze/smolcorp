@@ -27,9 +27,18 @@ type mailPump struct {
 	bot func(mailMessage)
 	// typeIn types a hire's message into its window: commit is called just before the first thing that types.
 	typeIn func(h Hire, text string, commit func() bool) mailResult
+	// t3 sends a hire in T3 Code its message, on t3's standard input (t3desk.go); nil is t3Mail on this computer.
+	t3 func(h Hire, text string, commit func() bool) mailResult
+	// across is why a message isn't typed into a desk on the other side of the sandbox from its sender, looked at
+	// again at each try (Deck.mailDeliveryRefusal, AQ10), or ""; nil looks at nothing.
+	across func(m mailMessage, h Hire, hires []Hire) string
 	// look looks in the bots' mailboxes for replies, at the given time.
 	look func(time.Time)
 	now  func() time.Time
+	// enter is false while tests on this computer hold what's typed into desks (pastehold.go): a hire's message then
+	// stays in the outbox, due, for the first round after the hold. Else its typing is under way until leave. nil: never held.
+	enter func() bool
+	leave func()
 }
 
 // round is one pass of the pump (MailRouter.pump): each due queued message in outbox order, once.
@@ -50,6 +59,20 @@ func (p *mailPump) round() {
 			if found == nil {
 				// A try still out is left to finish (due leaves such a message out already).
 				p.outbox.fail(m.ID, m.ToName+" is gone.")
+				continue
+			}
+			if p.across != nil {
+				if why := p.across(m, *found, open); why != "" {
+					p.outbox.fail(m.ID, why)
+					continue
+				}
+			}
+			if p.enter != nil {
+				if !p.enter() {
+					continue
+				}
+				p.deliverToHire(m, *found)
+				p.leave()
 				continue
 			}
 			p.deliverToHire(m, *found)
@@ -78,26 +101,40 @@ func (p *mailPump) deliverToHire(m mailMessage, h Hire) {
 		result = mailResult{Outcome: mailCannot, Note: why}
 		return
 	}
+	// A hire in T3 Code has no window: its thread takes the text on t3's standard input, and queues it while busy.
+	if h.Engine == t3Engine {
+		send := p.t3
+		if send == nil {
+			send = func(h Hire, text string, commit func() bool) mailResult {
+				return t3Mail(h, text, commit, newT3Machine())
+			}
+		}
+		result = send(h, attempt.Text, attempt.Commit)
+		return
+	}
 	result = p.typeIn(h, attempt.Text, attempt.Commit)
 }
 
 // startMailPump runs the pump every mailPumpEvery until stop is called. stop waits for a round that is
-// under way, and may be called more than once.
-func (d *Deck) startMailPump() (stop func()) {
+// under way, and may be called more than once. ended is closed once the pump's goroutine has returned: a test's
+// deck is checked by it, so no pump of a deck goes on reading the folders the next test puts in (FXCONTRACTRACE).
+func (d *Deck) startMailPump() (stop func(), ended <-chan struct{}) {
 	p := &mailPump{
 		outbox: d.mail,
 		hires:  func() []Hire { return readRegistry(registryPath(), false).hires },
 		bot:    d.mailDeliverBot,
 		typeIn: d.mailTypeIntoHire,
+		across: d.mailDeliveryRefusal,
 		look:   d.botMailboxLook,
 		now:    time.Now,
+		enter:  d.hold.enter,
+		leave:  d.hold.end,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var once sync.Once
-	var ended sync.WaitGroup
-	ended.Add(1)
+	done := make(chan struct{})
 	go func() {
-		defer ended.Done()
+		defer close(done)
 		ticker := time.NewTicker(mailPumpEvery)
 		defer ticker.Stop()
 		for {
@@ -111,8 +148,8 @@ func (d *Deck) startMailPump() (stop func()) {
 	}()
 	return func() {
 		once.Do(cancel)
-		ended.Wait()
-	}
+		<-done
+	}, done
 }
 
 // mailDeckAsking says whether the app knows, from its hooks, that a session working where h does is at a

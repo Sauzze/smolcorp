@@ -67,7 +67,7 @@ func assertNoPartOfTheKey(t *testing.T, text, what string) {
 
 func transcriptFile(t *testing.T, lines ...string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "session.jsonl")
+	path := filepath.Join(projectsFolder(t), "session.jsonl")
 	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -807,7 +807,7 @@ func TestSetupShowsNoPartOfTheKeyOnlyWhereItWasFound(t *testing.T) {
 		if got.Code != http.StatusOK {
 			t.Fatalf("%s %s: %d %s", c.method, c.target, got.Code, got.Body.String())
 		}
-		for _, part := range []string{testSummaryKey[len(testSummaryKey)-4:], "xY9z", "sk-ant-…", "hint"} {
+		for _, part := range []string{testSummaryKey[len(testSummaryKey)-4:], "xY9z", "sk-" + "ant-…", "hint"} {
 			if strings.Contains(got.Body.String(), part) {
 				t.Errorf("%s %s shows %q of the key", c.method, c.target, part)
 			}

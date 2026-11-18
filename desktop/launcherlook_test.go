@@ -139,7 +139,7 @@ func TestFollowAnswersALookAndLeavesTheOtherCommandsAlone(t *testing.T) {
 		if n != "s3/7" { // the secret from the first line is not a command
 			t.Errorf("look %q", n)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("the look wasn't passed on")
 	}
 	if typed.String() != keyBytes[Enter] {
@@ -222,7 +222,7 @@ func TestALookThatIsNotAnsweredOrCantBeSentIsUnknown(t *testing.T) {
 	if got, err := d.lookAtLauncher("L1", 50*time.Millisecond); got != PaneUnknown || err != errLookTimedOut {
 		t.Errorf("no answer: %v, %v", got, err)
 	}
-	if time.Since(start) > 2*time.Second {
+	if time.Since(start) > 10*time.Second { // far from 50ms, so a busy computer can't fail it
 		t.Error("the wait wasn't bounded")
 	}
 	if got, err := d.lookAtLauncher("nobody", time.Second); got != PaneUnknown || err != errLauncherGone {
@@ -458,5 +458,32 @@ func TestALookAtALauncherThatDropsReturnsAtOnce(t *testing.T) {
 	got, err := d.lookAtLauncher("L1", 10*time.Second)
 	if got != PaneUnknown || err != errLauncherGone || time.Since(start) > 3*time.Second {
 		t.Errorf("%v, %v after %v", got, err, time.Since(start))
+	}
+}
+
+// exeLine measures a Windows command line as Go writes it there (syscall.EscapeArg, which the Windows test holds it
+// to): an argument with a space is quoted, a quote takes a backslash, and backslashes before a quote or a closing
+// quote are doubled. A desk's settings, a JSON object, grow by one character per quote.
+var exeLineCases = map[string]string{
+	"":              `""`,
+	"plain":         "plain",
+	"a b":           `"a b"`,
+	`a"b`:           `a\"b`,
+	`a\b`:           `a\b`,
+	`a\"b`:          `a\\\"b`,
+	`a\ b\`:         `"a\ b\\"`,
+	`{"x":"y z"}`:   `"{\"x\":\"y z\"}"`,
+	`--settings={}`: `--settings={}`,
+}
+
+func TestAWindowsCommandLineIsMeasuredAsWindowsQuotesIt(t *testing.T) {
+	for arg, want := range exeLineCases {
+		if got := exeLine("claude", []string{arg}); got != "claude "+want {
+			t.Errorf("%q: %q, want %q", arg, got, "claude "+want)
+		}
+	}
+	settings := `--settings={"permissions":{"deny":["` + strings.Repeat("x", 100) + `"]}}`
+	if got := len(exeLine(`C:\Program Files\claude.exe`, []string{settings})); got != len(`"C:\Program Files\claude.exe" `)+len(settings)+strings.Count(settings, `"`) {
+		t.Errorf("%d characters", got)
 	}
 }

@@ -262,7 +262,7 @@ final class ConfigTests: XCTestCase {
     }
 }
 
-/// Personal build: dictation's clean-up settings.
+/// Dictation's clean-up settings.
 final class PersonalVoiceConfigTests: XCTestCase {
     private func load(_ json: String) throws -> Config {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")

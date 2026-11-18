@@ -3,12 +3,17 @@ package desktop
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 func TestHooksReportHereOnlyWhenEveryAgentNamesThisCopy(t *testing.T) {
@@ -153,11 +158,15 @@ func TestTheFirewallIsRightOnlyWithTailscalesRuleForThisCopy(t *testing.T) {
 }
 
 func TestOnlyAPhoneCountsAsPairedAndLoginIsOffered(t *testing.T) {
-	if c := phoneCheck(0); c.Status != checkTodo {
+	if c := phoneCheck(0, ""); c.Status != checkTodo || c.Detail != "Open Pair a phone, then scan its QR code with your phone's camera, or type its 6-digit code on your phone." {
 		t.Errorf("no phone: %+v", c)
 	}
-	if c := phoneCheck(2); c.Status != checkOK || !strings.HasPrefix(c.Detail, "2 paired") {
+	if c := phoneCheck(2, ""); c.Status != checkOK || !strings.HasPrefix(c.Detail, "2 paired") {
 		t.Errorf("two phones: %+v", c)
+	}
+	// Records whose key failed its check are said, as no phone counts till the owner resets them (records.go).
+	if c := phoneCheck(2, recordsText(recordsInterrupted, false)); c.Status != checkTodo || !strings.Contains(c.Detail, "interrupted") || !strings.Contains(c.Detail, "Reset them") {
+		t.Errorf("an interrupted update: %+v", c)
 	}
 	if c := loginCheck(false, true); c.Status != checkTodo || c.Fix != fixLogin {
 		t.Errorf("not at login: %+v", c)
@@ -223,20 +232,84 @@ func wantChecks() []string {
 	if firewallCheck(listenAll) != nil {
 		ids = append(ids, "firewall")
 	}
-	return append(ids, "phone", "login")
+	return append(ids, "phone", "login", "sandbox", "limits") // the sandbox's line before the limits (SA-X14)
 }
 
-func TestSetupFromATerminalReadsTheChecklistWithTheSetupKey(t *testing.T) {
+// Linux's line for the hires' sandbox (L1APPARMOR1), once Linux desks start in their sandbox (SA-L4; played here), is
+// the start's own check: ticked when it passes; in the way when it doesn't, so the checklist isn't ready, with why
+// and the one command, whole. Not on a Mac or Windows, whose sandbox line is Setup's Sandbox row's alone (SA-X14;
+// MSYSTACK4: one line per system, sandboxLine). Until then, Linux's line is the row's alone too (FXLINUXCLAIMS:
+// TestOnLinuxWithNoDeskInASandboxSetupNeverAsksForBubblewrap).
+func TestTheChecklistShowsTheSandboxsOneCommandOnLinux(t *testing.T) {
+	saved, savedCheck := setupSystem, checkSandbox
+	t.Cleanup(func() { setupSystem, checkSandbox = saved, savedCheck })
+	playSandboxedHere(t, true)
+	setupSystem = "linux"
+	checkSandbox = func() error { return fmt.Errorf("%w: smolcorp-bwrap isn't loaded", sandbox.ErrNoProfile) }
+	d := newTestDeck(t)
+	var line *check
+	checks := d.selfTest()
+	for i := range checks {
+		if checks[i].ID == "sandbox" {
+			line = &checks[i]
+		}
+	}
+	if line == nil || line.Status != checkFix || line.Fix != "" || ready(checks) ||
+		!strings.Contains(line.Detail, "Run this once in a terminal (it asks for your password): "+sandbox.SandboxCommand()) ||
+		!strings.Contains(line.Detail, "AppArmor limits user namespaces") {
+		t.Fatalf("no profile: %+v", line)
+	}
+	if checks[len(checks)-1].ID != "limits" || checks[len(checks)-2].ID != "sandbox" {
+		t.Errorf("the sandbox line isn't just before limits: %v", checks)
+	}
+	if got := sandboxCheck(fmt.Errorf("%w: gone", sandbox.ErrNoBwrap)); got.Status != checkFix || got.Detail != sandbox.BwrapRefusal {
+		t.Errorf("no bubblewrap: %+v", got)
+	}
+	if got := sandboxCheck(nil); got.Status != checkOK || got.Title != "Hires start in their own sandbox" {
+		t.Errorf("in place: %+v", got)
+	}
+	// One line, the Sandbox row's: Smolcorp's bubblewrap check, failing here, is never Linux's line on a Mac or Windows.
+	for _, goos := range []string{"darwin", "windows"} {
+		setupSystem = goos
+		lines := 0
+		for _, c := range d.selfTest() {
+			if c.ID == "sandbox" {
+				if lines++; c.Status == checkFix || c.Title == "Hires start in their own sandbox" || strings.Contains(c.Detail, "AppArmor") {
+					t.Errorf("Linux's bubblewrap line on %s: %+v", goos, c)
+				}
+			}
+		}
+		if lines != 1 {
+			t.Errorf("%d sandbox lines on %s, want the one", lines, goos)
+		}
+	}
+	// On Linux with the check passing: the Sandbox row's words, as no desk starts in a sandbox there yet (SA-L4), one line.
+	setupSystem, checkSandbox = "linux", func() error { return nil }
+	playSandboxedHere(t, false)
+	lines := 0
+	for _, c := range d.selfTest() {
+		if c.ID == "sandbox" {
+			if lines++; c.Status != checkInfo || c.Title != "No sandbox on this computer yet" || c.Detail != noSandboxHere {
+				t.Errorf("Linux, its bubblewrap in place: %+v", c)
+			}
+		}
+	}
+	if lines != 1 {
+		t.Errorf("%d sandbox lines on Linux, want the one", lines)
+	}
+}
+
+func TestSetupFromATerminalReadsTheChecklistWithTheCheckOnlyKey(t *testing.T) {
 	d := newTestDeck(t)
 	server := httptest.NewServer(&router{deck: d})
 	defer server.Close()
 	client := setupClient{base: server.URL, http: server.Client()}
 	// As the app writes it at every start: without it, a terminal has no way in.
-	os.Remove(setupKeyFile)
+	os.Remove(selftestKeyFile)
 	if _, err := client.selfTest(); err == nil {
-		t.Fatal("read the checklist with no setup key written")
+		t.Fatal("read the checklist with no check-only key written")
 	}
-	writeFile(t, setupKeyFile, d.access.SetupKey+"\n")
+	writeFile(t, selftestKeyFile, d.access.SelftestKey+"\n")
 	if !client.answers() {
 		t.Fatal("the test server doesn't answer")
 	}
@@ -244,9 +317,9 @@ func TestSetupFromATerminalReadsTheChecklistWithTheSetupKey(t *testing.T) {
 	if err != nil || len(report.Checks) == 0 {
 		t.Fatalf("the checklist from a terminal: %+v, %v", report, err)
 	}
-	// A terminal only repairs: any other fix, even one that isn't, is the page's.
-	if err := client.fix("teleport"); err == nil || !strings.Contains(err.Error(), "This is for the setup page") {
-		t.Errorf("an unknown fix from a terminal: %v", err)
+	// A tool only repairs: any other fix, even one that isn't, is the page's.
+	if err := toolFix(server, d.access.SetupKey, "teleport"); err == nil || !strings.Contains(err.Error(), "This is for the setup page") {
+		t.Errorf("an unknown fix from a tool: %v", err)
 	}
 	// The page asking for one that doesn't exist is told so.
 	if response := pagePost(t, d, server.URL, "/setup/fix?fix=teleport"); response.StatusCode != http.StatusBadRequest {
@@ -306,9 +379,7 @@ func TestSetupsRepairLeavesAgentsYouDisconnectedUntilYouConnect(t *testing.T) {
 	}
 	server := httptest.NewServer(&router{deck: d})
 	defer server.Close()
-	writeFile(t, setupKeyFile, d.access.SetupKey+"\n")
-	client := setupClient{base: server.URL, http: server.Client()}
-	// Connecting and disconnecting are the page's; setup's repair is a terminal's.
+	// Connecting and disconnecting are the page's; the repair is a tool's (a terminal you allowed).
 	post := func(path string) {
 		t.Helper()
 		response := pagePost(t, d, server.URL, path)
@@ -326,8 +397,8 @@ func TestSetupsRepairLeavesAgentsYouDisconnectedUntilYouConnect(t *testing.T) {
 	if isConnected(Claude) {
 		t.Fatal("Disconnect didn't disconnect")
 	}
-	// What smolcorp setup does for the hooks line.
-	if err := client.fix(fixRepair); err == nil || !strings.Contains(err.Error(), "disconnected") || !strings.Contains(err.Error(), "Connect on the setup page") {
+	// What a tool's repair does for the hooks line.
+	if err := toolFix(server, d.access.SetupKey, fixRepair); err == nil || !strings.Contains(err.Error(), "disconnected") || !strings.Contains(err.Error(), "Connect on the setup page") {
 		t.Errorf("setup's repair after a disconnect said %v, want that they are disconnected and how to connect", err)
 	}
 	if isConnected(Claude) {
@@ -341,7 +412,7 @@ func TestSetupsRepairLeavesAgentsYouDisconnectedUntilYouConnect(t *testing.T) {
 	post("/setup/hooks")
 	post("/setup/hooks?remove=1")
 	post("/setup/hooks")
-	if err := client.fix(fixRepair); err != nil || !isConnected(Claude) {
+	if err := toolFix(server, d.access.SetupKey, fixRepair); err != nil || !isConnected(Claude) {
 		t.Errorf("setup's repair after a Connect: %v, connected %v", err, isConnected(Claude))
 	}
 	if loadConfig().HooksDisconnected {
@@ -378,4 +449,24 @@ func TestLettingInTheHomeWiFiAsksFirstAndSaysHowToGetTheNewLink(t *testing.T) {
 			t.Errorf("the home Wi-Fi confirmation does not say %q", want)
 		}
 	}
+}
+
+// toolFix is a tool's repair, as the route answers it (the fix and auto=1), with key: its error is what the app said.
+func toolFix(server *httptest.Server, key, name string) error {
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/setup/fix?fix="+name+"&auto=1", nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set(setupKeyHeader, key)
+	request.Header.Set(setupHeader, "1")
+	response, err := server.Client().Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= 400 {
+		said, _ := io.ReadAll(io.LimitReader(response.Body, 1000))
+		return errors.New(strings.TrimSpace(string(said)))
+	}
+	return nil
 }
