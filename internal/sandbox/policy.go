@@ -502,8 +502,9 @@ func build(pl Places) (*Policy, error) {
 		b.add(Rule{Row: "the accounts' .claude.json", Path: account, Tail: ".claude.json*", Read: Deny, Write: Deny})
 	}
 	b.add(Rule{Row: "the accounts' .claude.json", Path: join(home), Tail: ".claude.json*", Read: Deny, Write: Deny})
-	for _, file := range CredentialFiles(home) {
-		b.beside(Rule{Row: "other agents' sign-ins", Path: file, Read: Deny, Write: Deny}, anyAfter)
+	// Joined as the Policy's system spells them, not this computer's: a Mac's Policy made on Windows stays in /.
+	for _, names := range credentialNames {
+		b.beside(Rule{Row: "other agents' sign-ins", Path: join(home, names...), Read: Deny, Write: Deny}, anyAfter)
 	}
 	if goos == "linux" {
 		for _, file := range []string{join(home, ".Xauthority"), pl.XAuthority} {
@@ -1047,8 +1048,15 @@ func branchName(name string) bool {
 // CredentialFiles are the sign-ins of the other agents Smolcorp starts, in home: denied whole to every desk, and the
 // list SB15's sign-in runner (S4) takes.
 func CredentialFiles(home string) []string {
-	return []string{filepath.Join(home, ".codex", "auth.json"), filepath.Join(home, ".gemini", "oauth_creds.json")}
+	var files []string
+	for _, names := range credentialNames {
+		files = append(files, filepath.Join(append([]string{home}, names...)...))
+	}
+	return files
 }
+
+// credentialNames are where in the home folder each of CredentialFiles is.
+var credentialNames = [][]string{{".codex", "auth.json"}, {".gemini", "oauth_creds.json"}}
 
 // DefaultBranch is the repo's default branch, as its origin/HEAD names it in gitDir (the common .git), or "".
 // Read as a file: no git runs.

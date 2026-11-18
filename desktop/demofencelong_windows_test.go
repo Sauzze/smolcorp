@@ -57,11 +57,22 @@ func TestOnWindowsTheDemosFenceReadsShortNamesOnTheDisk(t *testing.T) {
 		return demoCall{ToolName: name, ToolInput: data, Cwd: repo}
 	}
 	slashed := filepath.ToSlash(shortRepo)
-	for _, c := range []demoCall{
+	allowed := []demoCall{
 		call("mcp__smolcorp__hire", map[string]any{"role": "tester", "folder": shortRepo}),
-		bashCall("smolcorp gm hire --role tester --folder '"+slashed+"' --worktree --task 'fix it'", repo),
 		call("Write", map[string]any{"file_path": filepath.Join(shortRepo, "notes.md")}),
-	} {
+	}
+	// The hire in a Bash line, by the disk's short names: SMOLCO~1 (this row's smolcorp-demo-long-name, and the
+	// package's smolcorp-desktop-… temp folder) is the guard's refusal before it is the fence's (FXWINCITESTS1,
+	// FXCITRIAGE2's W3: shortNameGuardRefusal). Where the disk gave no SMOLCO~ name, the fence reads it as the hire.
+	hireLine := "smolcorp gm hire --role tester --folder '" + slashed + "' --worktree --task 'fix it'"
+	if guardReadsAsItsToken(hireLine) {
+		if why := f.check(bashCall(hireLine, repo)); !strings.HasPrefix(why, shortNameGuardRefusal) {
+			t.Errorf("%s: %q, want the guard's refusal", hireLine, why)
+		}
+	} else {
+		allowed = append(allowed, bashCall(hireLine, repo))
+	}
+	for _, c := range allowed {
 		if why := f.check(c); why != "" {
 			t.Errorf("refused %s %s: %s", c.ToolName, c.ToolInput, why)
 		}

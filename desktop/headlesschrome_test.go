@@ -150,7 +150,12 @@ func headlessChrome() string {
 func browserRefusal(program string) string {
 	seen := []string{program}
 	if target, err := os.Readlink(program); err == nil {
-		if !filepath.IsAbs(target) {
+		switch {
+		case filepath.IsAbs(target):
+		case target != "" && os.IsPathSeparator(target[0]):
+			// Rooted with no drive (\usr\bin\x on Windows): on the link's own drive, not in its folder.
+			target = filepath.VolumeName(program) + target
+		default:
 			target = filepath.Join(filepath.Dir(program), target)
 		}
 		seen = append(seen, target)

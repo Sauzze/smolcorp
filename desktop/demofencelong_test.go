@@ -8,6 +8,19 @@ import (
 	"testing"
 )
 
+// shortNameGuardRefusal is the demo fence's refusal, on Windows, of a Bash line that names the demo's folder by its
+// short name, SMOLCO~1 (FXWINCITESTS1, FXCITRIAGE2's W3). The guard reads each part shaped like a short name as each
+// name it keeps that the part may stand for (GUARDPS1, FXGUARDPS1R1 B4): SMOLCO~1 may be SMOLCORP_GM_TOKEN, which is
+// always refused, before the fence reads the line's paths. It's fail-closed and costs the demo nothing: the GM is told
+// its folder's long name (demoShellFolder). Only a Windows guard reads short names.
+const shortNameGuardRefusal = demoFenceRefusal + "Refused by Smolcorp's guard (guard: SMOLCORP_GM_TOKEN)"
+
+// guardReadsAsItsToken says this computer's guard reads a part of a Bash line as SMOLCORP_GM_TOKEN's short name: on
+// Windows, a part that starts SMOLCO~ (shortNameGuardRefusal).
+func guardReadsAsItsToken(line string) bool {
+	return runtime.GOOS == "windows" && strings.Contains(strings.ToUpper(line), "SMOLCO~")
+}
+
 // FXDEMOWIN: on Windows, a short (8.3) name and its long one are the same place to the demo's fence, both sides
 // made long before they're compared, and a short name never dodges a refusal: one the disk can't tell is refused.
 // Read by Windows' rules on any computer, with a stand-in disk for the long names (fencePaths.long).
@@ -54,13 +67,24 @@ func TestTheDemosFenceReadsAShortNameAsItsLongOne(t *testing.T) {
 		t.Error("a demo folder whose long name can't be told was taken")
 	}
 	cwd := home + `\smolcorp-demo\app`
-	for _, c := range []demoCall{
+	allowed := []demoCall{
 		write(`C:\Users\ADALOV~1\smolcorp-demo\app\bill.py`),
 		write(`C:/Users/ADALOV~1/SMOLCO~1/app/notes.md`),
 		write(`C:\Users\Ada Lovelace\SMOLCO~1\app\docs\x.md`),
 		read(`C:\Users\ADALOV~1\SMOLCO~1\app\bill.py`),
-		bash("cat 'C:/Users/ADALOV~1/SMOLCO~1/app/notes.md'"),
-	} {
+		bash("cat 'C:/Users/ADALOV~1/smolcorp-demo/app/notes.md'"),
+	}
+	// SMOLCO~1 in a Bash line: the guard's on Windows (FXWINCITESTS1, FXCITRIAGE2's W3), the fence's elsewhere.
+	const byShortNameLine = "cat 'C:/Users/ADALOV~1/SMOLCO~1/app/notes.md'"
+	byShortName := bash(byShortNameLine)
+	if byShortName.Cwd = cwd; guardReadsAsItsToken(byShortNameLine) {
+		if why := f.check(byShortName); !strings.HasPrefix(why, shortNameGuardRefusal) {
+			t.Errorf("on Windows, %s: %q, want the guard's refusal", byShortNameLine, why)
+		}
+	} else {
+		allowed = append(allowed, byShortName)
+	}
+	for _, c := range allowed {
 		if c.Cwd = cwd; f.check(c) != "" {
 			t.Errorf("refused %s %s: %s", c.ToolName, c.ToolInput, f.check(c))
 		}

@@ -206,7 +206,6 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		hookFolder = "'" + strings.Trim(hookFolder, `"`) + "'"
 	}
 	allowed := []demoCall{
-		bashCall("smolcorp gm hire --role tester --folder "+hookFolder+" --worktree --task 'fix it'", repo),
 		bashCall("smolcorp gm hire --role=reviewer --folder="+bash(repo), repo),
 		bashCall("smolcorp gm hire --role tester --folder .", repo),
 		bashCall("smolcorp gm fire tester-1", repo),
@@ -244,6 +243,16 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 		// RWIN B5: text in quotes is text: braces, globs and an escaped quote in it.
 		bashCall("smolcorp gm hire --role tester --folder "+bash(repo)+` --task "Fix {all} the *bugs*? say \"done\""`, repo),
 		bashCall("smolcorp gm send tester-1 --text 'h?re [x] {a,b}'", repo),
+	}
+	// The hook's short name holds the demo folder's, SMOLCO~1: on Windows that is the guard's refusal before the
+	// fence reads the folder (FXWINCITESTS1, FXCITRIAGE2's W3: shortNameGuardRefusal).
+	hookHire := "smolcorp gm hire --role tester --folder " + hookFolder + " --worktree --task 'fix it'"
+	if guardReadsAsItsToken(hookHire) {
+		if why := f.check(bashCall(hookHire, repo)); !strings.HasPrefix(why, shortNameGuardRefusal) {
+			t.Errorf("%s: %q, want the guard's refusal", hookHire, why)
+		}
+	} else {
+		allowed = append(allowed, bashCall(hookHire, repo))
 	}
 	refused := []demoCall{
 		bashCall("smolcorp gm hire --role tester --folder ~", repo),
@@ -399,9 +408,18 @@ func TestTheDemosFenceRefusesOutsideTheDemoFolder(t *testing.T) {
 	}
 	if linked {
 		refused = append(refused, bashCall("smolcorp gm hire --role tester --folder "+filepath.Join(root, "link"), repo),
-			write(filepath.Join(root, "link", "x.txt")),
+			write(filepath.Join(root, "link", "x.txt")))
+		dotdot := strings.Join([]string{root, "link", "..", "x.txt"}, string(filepath.Separator))
+		if runtime.GOOS == "windows" {
+			// Windows takes the .. away by its letters before it looks at the disk (GetFullPathName, Node's
+			// path.resolve): this is the demo folder's own x.txt. Written \\?\ or \??\, nothing takes it away: refused
+			// (FXWINCITESTS1, RT126DEMOFENCEW4's ruling on FXCITRIAGE2's W4).
+			allowed = append(allowed, write(dotdot))
+			refused = append(refused, write(`\\?\`+dotdot), write(`\??\`+dotdot))
+		} else {
 			// The system follows the link before the ..: this is in, beside the demo folder, not in it.
-			write(strings.Join([]string{root, "link", "..", "x.txt"}, string(filepath.Separator))))
+			refused = append(refused, write(dotdot))
+		}
 	}
 	for _, c := range allowed {
 		if why := f.check(c); why != "" {

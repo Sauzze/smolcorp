@@ -476,6 +476,28 @@ func TestOffAMacThePathsAreTheSystems(t *testing.T) {
 	}
 }
 
+// FXWINCITESTS1 (FXCITRIAGE2's W2, FXCITRIAGE's 12a): the other agents' sign-ins are spelled as the Policy's own
+// system spells them, whatever computer makes it. On Windows, a made-up Mac's or Linux's Policy had them as
+// \Users\ada\.codex\auth.json, which New refused as not whole.
+func TestTheOtherAgentsSignInsAreSpelledAsThePolicysSystem(t *testing.T) {
+	for _, c := range []struct {
+		pl   Places
+		want []string
+	}{
+		{hirePlaces(realSupport), []string{home + "/.codex/auth.json", home + "/.gemini/oauth_creds.json"}},
+		{linuxPlaces(lSupport), []string{lHome + "/.codex/auth.json", lHome + "/.gemini/oauth_creds.json"}},
+		{Places{GOOS: "windows", Home: `C:\Users\Ada`, Support: `C:\Users\Ada\AppData\Roaming\Smolcorp`, OwnID: "h1", Root: `C:\Users\Ada\p-hires\h1`},
+			[]string{`C:\Users\Ada\.codex\auth.json`, "c:/users/ada/.gemini/OAUTH_CREDS.JSON"}},
+	} {
+		p := mustNew(t, c.pl)
+		for _, at := range c.want {
+			if v, r := p.Decide(at, Read); v != Deny || r.Row != "other agents' sign-ins" {
+				t.Errorf("%s: read %s: %v by %q", c.pl.GOOS, at, v, r.Row)
+			}
+		}
+	}
+}
+
 func TestDecomposedNamesCompose(t *testing.T) {
 	for in, want := range map[string]string{"e\u0301": "\u00e9", "A\u030a": "\u00c5", "\u304b\u3099": "\u304c", "\u1100\u1161\u11a8": "\uac01",
 		"\u1100\u1161": "\uac00", "e\u0323\u0302": "\u1ec7", "e\u0302\u0323": "\u1ec7", "\u212b": "\u00c5", "\uf900": "\u8c48",
