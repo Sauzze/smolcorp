@@ -1288,6 +1288,8 @@
           <div class="text">
             <div class="title">No sandbox on this computer yet</div>
             <div class="detail">Desks here run as you, with no wall around them: a desk, or a program it starts, can read and change what you can. What Smolcorp does here instead: the fence and the guard refuse the commands you've barred and keep Claude Code out of your .env files and keys, and a desk can't loosen them while Smolcorp runs. Setup's key stays in Smolcorp's memory, and the setup link works once. Each desk has keys of its own, and Smolcorp keeps only their fingerprints. The General Manager's token is only in its own desk's environment, never in a file. See Keys, records and the guard in Smolcorp's docs.</div>
+            <p class="choice-line" id="no-sandbox-windows" hidden>On Windows, hires don't run in a sandbox yet; they're held by the guard only. The Windows sandbox comes in 1.26.1.</p>
+            <p class="choice-line" id="no-sandbox-linux" hidden>On Linux, hires don't run in a sandbox yet; they're held by the guard only. The Linux sandbox comes in a later release.</p>
             <div id="no-sandbox-desks"></div>
           </div>
         </div>
@@ -2487,6 +2489,9 @@
       }));
     }
     $('step-no-sandbox').hidden = here;
+    // The owner's words for 1.26, the one for this system: none on a Mac, whose desks start in their sandbox.
+    $('no-sandbox-windows').hidden = here || state.platform !== 'windows';
+    $('no-sandbox-linux').hidden = here || state.platform !== 'linux';
     const desks = s.desks || [];
     if (!here) {
       // Every desk on this computer says it, plainly (AQ5 as the owner took it for 1.26: no Windows sandbox).

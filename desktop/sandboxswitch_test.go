@@ -413,6 +413,49 @@ func TestSetupsSandboxRowSaysNotToEditYourDotfilesWhileHiresWork(t *testing.T) {
 	}
 }
 
+// FXSETUPHELPNOSANDBOX (the owner's Windows "B", 18 Nov): on Windows and on Linux, Setup says plainly that hires
+// don't run in a sandbox yet, in the owner's words, one sentence for each. Both come with the page, hidden; its
+// script shows the one for the system the core names, and only where desks start in no sandbox, so a Mac shows
+// neither and keeps its sandbox row.
+func TestOffAMacSetupSaysPlainlyThatHiresDontRunInASandboxYet(t *testing.T) {
+	d := newTestDeck(t)
+	page := serve(t, d, call{method: "GET", target: "/setup", host: "localhost:7710", from: thisComputer}).Body.String()
+	start := strings.Index(page, `<div class="step" id="step-no-sandbox"`)
+	end := strings.Index(page, `<div class="group" id="gm-group">`)
+	if start < 0 || end < start {
+		t.Fatal("the setup page has no row for a computer without a sandbox")
+	}
+	row := page[start:end]
+	for system, said := range map[string]string{
+		"windows": "On Windows, hires don't run in a sandbox yet; they're held by the guard only. The Windows sandbox comes in 1.26.1.",
+		"linux":   "On Linux, hires don't run in a sandbox yet; they're held by the guard only. The Linux sandbox comes in a later release.",
+	} {
+		if line := `<p class="choice-line" id="no-sandbox-` + system + `" hidden>` + said + `</p>`; !strings.Contains(row, line) {
+			t.Errorf("%s: the row has no hidden line %q", system, line)
+		}
+		if pick := "$('no-sandbox-" + system + "').hidden = here || state.platform !== '" + system + "';"; !strings.Contains(page, pick) {
+			t.Errorf("%s: the script doesn't show its line on %s alone, where desks start in no sandbox: no %q", system, system, pick)
+		}
+		if mac := page[strings.Index(page, `<div class="step" id="step-sandbox"`):start]; strings.Contains(mac, said) {
+			t.Errorf("%s: the Mac's sandbox rows say it", system)
+		}
+	}
+	// What the script reads: the core's system, and whether desks start in a sandbox here.
+	w := serve(t, d, call{method: "GET", target: "/setup/state", host: "localhost:7710", from: thisComputer})
+	var state map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil || state["platform"] != runtime.GOOS {
+		t.Errorf("the page isn't told which system this is: %d %v", w.Code, state["platform"])
+	}
+	for _, here := range []bool{true, false} {
+		playSandboxedHere(t, here)
+		w := serve(t, d, call{method: "GET", target: "/setup/sandbox", host: "localhost:7710", from: thisComputer})
+		var answer map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &answer); err != nil || answer["here"] != here {
+			t.Errorf("played here=%v: %d %s", here, w.Code, w.Body)
+		}
+	}
+}
+
 // A message queued while both ends were on one side is looked at again at each try: its desk started again in its
 // sandbox meanwhile, and it fails with the words, never typed.
 func TestQueuedMailIsLookedAtAgainWhenItsDeskStartsOnTheOtherSide(t *testing.T) {
