@@ -66,6 +66,10 @@ func defaultScopeOn(system string) string {
 	return listenAll
 }
 
+// settleSystem is the system NewDeck settles the scope for, by Go's name for it: this one. A variable so a test on
+// a Mac can play NewDeck's Linux start.
+var settleSystem = runtime.GOOS
+
 // settleListenScope writes the scope down on Linux, the first time a version
 // with Tailscale's scope as its default starts, so the change of default
 // can't lock you out: before it, Linux listened on every interface, and a

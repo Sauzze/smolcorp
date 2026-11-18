@@ -551,6 +551,55 @@ func TestAConfigWithAPhoneKeepsItsOtherSettingsWhenTheScopeIsWritten(t *testing.
 	}
 }
 
+// SK1's one-time change of every key lets every phone from before go, and those phones still count when the scope
+// is settled: a 1.24 office with a phone on the home Wi-Fi keeps listening there, where the phone pairs again
+// (FXLISTENSCOPE). Played on any system: NewDeck settles for the system named, with the records unsealed as off a Mac.
+func TestTheOneTimeKeyChangeSettlesOnThePhonesItLetGo(t *testing.T) {
+	system := settleSystem
+	t.Cleanup(func() { settleSystem = system })
+	for _, c := range []struct {
+		name   string
+		system string
+		phones []string
+		config string
+		want   string
+	}{
+		{"a phone paired", "linux", []string{"Pixel"}, "", listenAll},
+		{"the window and a phone", "linux", []string{windowDeviceName, "Pixel"}, "", listenAll},
+		{"neither, as before", "linux", []string{"Pixel"}, `{"listen": "lan"}`, listenAll},
+		{"only the window", "linux", []string{windowDeviceName, windowDeviceNameBefore}, "", listenTailscale},
+		{"no phone", "linux", nil, "", listenTailscale},
+		{"chosen already", "linux", []string{"Pixel"}, `{"listen": "tailscale"}`, listenTailscale},
+		// A Mac writes nothing down: its default never changed
+		{"on a Mac", "darwin", []string{"Pixel"}, "", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			isolate(t)
+			settleSystem = c.system
+			writePhones(t, c.phones...)
+			if c.config != "" {
+				if err := os.WriteFile(configFile, []byte(c.config), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			d := startDeck(t)
+			if !recordsRotated() {
+				t.Fatal("this start didn't change every key: nothing here is SK1's change")
+			}
+			// SK1's own: not one phone from before is let in
+			if n := phonesKnown(d.access.Phones); n != 0 {
+				t.Errorf("%d phones from before let in, want none", n)
+			}
+			if d.config.Listen != c.want {
+				t.Errorf("listen %q, want %q", d.config.Listen, c.want)
+			}
+			if got := savedListen(t); got != c.want {
+				t.Errorf("config.json says %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 // openSet is a listener set on a free port, with the connections taken and let go.
 func openSet(t *testing.T) (*listenerSet, int) {
 	t.Helper()

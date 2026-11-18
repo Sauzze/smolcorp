@@ -169,6 +169,13 @@ func phonesKnown(phones *Phones) int {
 	return phonesOnly(phones)
 }
 
+// phonesToSettle is the phones settleListenScope counts: those let in, and at the one-time change of every key (B1),
+// which lets none in, those phones.json listed (Phones.listedAtChange). The change lets the phones go; it mustn't
+// also take the Wi-Fi they pair again on (FXLISTENSCOPE).
+func phonesToSettle(phones *Phones) int {
+	return phonesKnown(phones) + phones.listedAtChange
+}
+
 // isWindowDevice is whether the paired device is the office window's own (ensureWindowKey), by either name.
 func (p PairedPhone) isWindowDevice() bool {
 	return p.Name == windowDeviceName || p.Name == windowDeviceNameBefore

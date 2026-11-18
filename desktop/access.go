@@ -403,6 +403,11 @@ type PairedPhone struct {
 // finds it at its start, and is only written after.
 type Phones struct {
 	All []PairedPhone
+	// listedAtChange is how many phones phones.json listed at the one-time change of every key (B1), the office
+	// window aside. None of them is let in, and nothing but the Linux settle of the listen scope reads it
+	// (phonesToSettle): an office from 1.24 that had a phone keeps listening on the home Wi-Fi, where its phones
+	// pair again (FXLISTENSCOPE).
+	listedAtChange int
 }
 
 // How out of date LastSeen may get before a request updates it. Saving on
@@ -419,6 +424,7 @@ func loadPhones() *Phones {
 	}
 	if recordsRotated() {
 		sayPhones("Smolcorp 1.26 changed every key it keeps, once: the phones paired before were let go. Pair each phone again from Setup.")
+		phones.listedAtChange = listedPhones(data)
 		return phones
 	}
 	body, counts := openBody("phones.json", data)
@@ -444,6 +450,20 @@ func loadPhones() *Phones {
 		}
 	}
 	return phones
+}
+
+// listedPhones is how many phones a phones.json lists, the office window aside, as openBody reads it (off a Mac, as
+// found): a count only, none of them let in, and 0 for a list that doesn't count or can't be read.
+func listedPhones(data []byte) int {
+	body, counts := openBody("phones.json", data)
+	if !counts {
+		return 0
+	}
+	var listed []PairedPhone
+	if json.Unmarshal(body, &listed) != nil {
+		return 0
+	}
+	return phonesOnly(&Phones{All: listed})
 }
 
 // isKeyHash is whether text has the form of a key's hash as this app writes

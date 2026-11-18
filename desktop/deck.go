@@ -231,7 +231,7 @@ func NewDeck() *Deck {
 		// The Mac app it runs under, or none, taken now: the deck reads only its own (hostsetup.go).
 		mac: macState{host: host},
 	}
-	if settleListenScope(d.config, phonesKnown(d.access.Phones), runtime.GOOS) || recordsFirst() {
+	if settleListenScope(d.config, phonesToSettle(d.access.Phones), settleSystem) || recordsFirst() {
 		d.config.save()
 	}
 	// The GM's token kept from the last run (gmtokenstore.go): a GM hired before it goes on working. Read before
