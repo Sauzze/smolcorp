@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -30,6 +31,17 @@ type tmuxGateRun struct {
 	args         string
 }
 
+// tmuxGateStdinCheck is the stand-in's look at its stdin: "null" when it is /dev/null, "stream" (read to its end)
+// otherwise. On a Mac it asks fd 0 itself (stat with no file is fstat of stdin) and compares it with /dev/null: a look
+// by name through /dev/stdin or /dev/fd/0 fails now and then with "Bad file descriptor" while other programs start
+// (FXTMUXSTDIN: 0.2% of runs with /dev/null on stdin), which -ef took for a stream. Anything it can't tell is a stream.
+// Elsewhere, -ef: Linux's /dev/stdin is /proc's link to the descriptor itself.
+var tmuxGateStdinCheck = map[bool]string{
+	true: `in=$(/usr/bin/stat -f '%d:%i' 2>/dev/null); null=$(/usr/bin/stat -f '%d:%i' /dev/null 2>/dev/null)
+if [ -n "$in" ] && [ "$in" = "$null" ]; then stdin=null; else stdin=stream; /bin/cat >/dev/null; fi`,
+	false: `if [ /dev/stdin -ef /dev/null ]; then stdin=null; else stdin=stream; /bin/cat >/dev/null; fi`,
+}[runtime.GOOS == "darwin"]
+
 // tmuxGateStandIn writes the stand-in guarded tmux into a folder of its own and gives its path and its log's.
 func tmuxGateStandIn(t *testing.T) (program, log string) {
 	t.Helper()
@@ -37,7 +49,7 @@ func tmuxGateStandIn(t *testing.T) (program, log string) {
 	program, log = filepath.Join(dir, "tmux"), filepath.Join(dir, "runs")
 	script := `#!/bin/sh
 names=$(/usr/bin/env | /usr/bin/sed -e 's/=.*//' -e '/^PWD$/d' -e '/^SHLVL$/d' -e '/^_$/d' -e '/^OLDPWD$/d' | /usr/bin/sort | /usr/bin/tr '\n' ',')
-if [ /dev/stdin -ef /dev/null ]; then stdin=null; else stdin=stream; /bin/cat >/dev/null; fi
+` + tmuxGateStdinCheck + `
 printf '%s|%s|%s|%s\n' "${SMOLCORP_TMUX_SERVER-UNSET}" "$stdin" "$names" "$*" >> '` + log + `'
 [ -n "${SMOLCORP_TMUX_SERVER:-}" ] || exit 98
 case "$*" in
@@ -176,6 +188,7 @@ func driveEveryTmuxSite(t *testing.T, sandboxed, old Hire) {
 }
 
 func TestNoExecOfTheBundledTmuxWithoutSmolcorpTmuxServer(t *testing.T) {
+	t.Run("the stand-in tells /dev/null from a stream", tmuxGateStandInReadsStdin)
 	program, log, sandboxed, old := tmuxGateRig(t)
 	// The recorder: every run the guard stopped, reported in the gate's words; nothing else is.
 	seen := 0
@@ -268,6 +281,40 @@ func TestNoExecOfTheBundledTmuxWithoutSmolcorpTmuxServer(t *testing.T) {
 		broken.Env = []string{}
 		_ = broken.Run()
 		record()
+	}
+}
+
+// tmuxGateStandInReadsStdin is the rig's own row (FXTMUXSTDIN): the stand-in's look at its stdin (tmuxGateStdinCheck,
+// as the stand-in runs it) says /dev/null when it is, and a stream for a stream or a stdin that isn't there. On a Mac,
+// also with every look by name at /dev/stdin and /dev/fd refused (a Seatbelt profile, standing in for the "Bad file
+// descriptor" such a look gets now and then on a busy Mac): -ef took that for a stream, which failed the gate's stdin
+// row on a call that never had one (Studio 5437455b's race step, a kill-server).
+func tmuxGateStandInReadsStdin(t *testing.T) {
+	look := filepath.Join(t.TempDir(), "look")
+	if err := os.WriteFile(look, []byte("#!/bin/sh\n"+tmuxGateStdinCheck+"\necho \"$stdin\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ways := map[string][]string{"as it is": {look}}
+	if runtime.GOOS == "darwin" {
+		refused := `(version 1)(allow default)(deny file-read-metadata file-read-data (literal "/dev/stdin") (regex #"^/dev/fd/"))`
+		ways["its stdin's names refused"] = []string{"/usr/bin/sandbox-exec", "-p", refused, look}
+	}
+	for way, words := range ways {
+		for _, c := range []struct {
+			stdin, want string
+		}{{"/dev/null", "null"}, {"a stream", "stream"}, {"none", "stream"}} {
+			cmd := exec.Command(words[0], words[1:]...)
+			switch c.stdin {
+			case "a stream":
+				cmd.Stdin = strings.NewReader("words")
+			case "none":
+				cmd = exec.Command("/bin/sh", append([]string{"-c", `exec "$@" <&-`, "sh"}, words...)...)
+			}
+			out, err := cmd.Output()
+			if got := strings.TrimSpace(string(out)); err != nil || got != c.want {
+				t.Errorf("%s, stdin %s: %q (%v), not %q", way, c.stdin, got, err, c.want)
+			}
+		}
 	}
 }
 
