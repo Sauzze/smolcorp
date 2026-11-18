@@ -18,6 +18,9 @@ import (
 // The switch is Setup's page's alone: never the GM, a tool, a hire, nobody, an MCP key or a night job. It is no
 // phone's route either, so the access dump (phoneRouteAccess) has no row for it.
 func TestTheSandboxSwitchIsThePagesAlone(t *testing.T) {
+	// Played as a Mac, whose desks start in their sandbox, on every system: off a Mac the switch answers even the page
+	// 409, as it has nothing to switch, and who may use it is the same.
+	playSandboxedHere(t, true)
 	d := newTestDeck(t)
 	gm, hireKey := withGMAndAHire(t, d)
 	for _, method := range []string{"GET", "POST"} {

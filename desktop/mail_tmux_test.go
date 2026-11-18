@@ -99,7 +99,9 @@ func startFakeClaude(t *testing.T, id, mode string, bracketed bool) *fakeClaude 
 	if err := os.WriteFile(agent, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := h.start(dir, []string{"/bin/sh", agent}); err != nil {
+	// Its own words, no shell (SG2), so the script's interpreter is named: bash, as its first line says. A Mac's
+	// /bin/sh is bash, but Ubuntu's is dash, which can't read it (no read -s/-n, no <<<) and ends the pane at once.
+	if _, _, _, err := h.start(dir, []string{"/bin/bash", agent}); err != nil {
 		t.Fatal("start failed")
 	}
 	// Ends only its own session, on its own socket.

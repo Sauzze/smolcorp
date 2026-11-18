@@ -196,8 +196,10 @@ func TestSetupSessionsAreRandomKeptToTwentyAndNotTheKey(t *testing.T) {
 func TestSetupTokensWorkOnceForFiveMinutes(t *testing.T) {
 	a := &Access{}
 	token := a.NewSetupToken()
-	if left := time.Until(a.setupTokens[token]); left < 4*time.Minute+50*time.Second || left > 5*time.Minute {
-		t.Errorf("a setup token lasts %v, want five minutes", left)
+	// Five minutes under the Mac app, a minute off a Mac (setupLinkLifetime).
+	want := setupLinkLifetime(runtime.GOOS)
+	if left := time.Until(a.setupTokens[token]); left < want-10*time.Second || left > want {
+		t.Errorf("a setup token lasts %v, want %v", left, want)
 	}
 	if !a.RedeemSetupToken(token) || a.RedeemSetupToken(token) {
 		t.Error("a setup token did not work exactly once")

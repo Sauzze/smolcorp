@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +22,13 @@ func TestMain(m *testing.M) {
 	// as it inherits the launcher's variables.
 	if len(os.Args) == 3 && os.Args[1] == voiceAgentArgument {
 		os.Exit(voiceAgentStandIn(os.Args[2]))
+	}
+	// The dictation rows' stand-in claude (hostdictation_tmux_test.go): a cat, every byte it's given written out as it is.
+	if len(os.Args) == 2 && os.Args[1] == dictationCatArgument {
+		if _, err := io.Copy(os.Stdout, os.Stdin); err != nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 	// A row's stand-in for Smolcorp: this test program again, run as far as RunApp's first step (memory_test.go).
 	if part := os.Getenv(memoryStandInVariable); part != "" {
@@ -55,6 +63,9 @@ func TestMain(m *testing.M) {
 	}
 	os.Exit(runWithTempSupport(m.Run))
 }
+
+// dictationCatArgument makes this test program a cat (TestMain), for the dictation rows' pane.
+const dictationCatArgument = "smolcorp-dictation-cat"
 
 // deskRunStandIn is set by deskrun_darwin_test.go, on a Mac only.
 var deskRunStandIn func(args []string) int

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -134,10 +135,16 @@ func TestTheLauncherTakesAPlainHiresAccountFolderOnlyAsTheAppWritesIt(t *testing
 func TestATestCopyNeverStartsAPlainClaudeHire(t *testing.T) {
 	d, h, _ := plainHireDeck(t)
 	Port = 7799
+	// On a Mac a test copy hires on a named account, but never a plain hire. Off a Mac its hires on a named account
+	// aren't set up, so that refusal comes first (testCopyRefusal).
+	named := plainHireInTestCopy
+	if runtime.GOOS != "darwin" {
+		named = "A test copy's hires on a named account aren't set up yet, so none is started."
+	}
 	for _, account := range []string{claudeDefaultName, "work"} {
 		d.lastHire = time.Time{}
 		status, message := d.hireWith(hireSpec{account: account})
-		if status != http.StatusConflict || account == "work" && message != plainHireInTestCopy {
+		if status != http.StatusConflict || account == "work" && message != named {
 			t.Errorf("a test copy's plain hire on %q: %d %s", account, status, message)
 		}
 	}

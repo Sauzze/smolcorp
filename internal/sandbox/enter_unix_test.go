@@ -211,8 +211,15 @@ func TestTheCanaryIsFreshForEachStartWrittenNewThenRenamed(t *testing.T) {
 	if _, err := os.Lstat(a.Path); !errors.Is(err, fs.ErrNotExist) {
 		t.Error("the canary wasn't removed")
 	}
-	os.Remove(b.Path)
-	os.WriteFile(b.Path, []byte("another"), 0o600)
+	// Written beside it and renamed over it, so it's another file while the canary still is: on ext4 a file made
+	// right after the canary was removed is often given its freed inode number, and so its (dev, ino).
+	another := b.Path + ".another"
+	if err := os.WriteFile(another, []byte("another"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(another, b.Path); err != nil {
+		t.Fatal(err)
+	}
 	if err := b.Remove(); err == nil {
 		t.Error("a file put in the canary's place was removed as the canary")
 	}

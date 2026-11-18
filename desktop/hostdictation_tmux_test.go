@@ -17,8 +17,10 @@ import (
 
 // The office's mic on a tmux desk with no window open (1.26, DICT126): the Mac app records from a stand-in, and
 // what it heard reaches the pane through this program's own tmux paste. Never a real microphone or speech
-// engine, and no real Claude Code: the pane runs cat, in raw mode, which has asked for bracketed paste as Claude
-// Code does, under the name claude so the deck finds its agent in front.
+// engine, and no real Claude Code: the pane runs a cat, in raw mode, which has asked for bracketed paste as Claude
+// Code does, under the name claude so the deck finds its agent in front. The cat is this test program
+// (dictationCatArgument), not the system's: a multicall coreutils, as Ubuntu's uutils, picks its tool by the name it
+// was started as, and doesn't know claude.
 
 // dictationPane is a real tmux server on a socket of its own, and in it a pane whose front process is a `claude`
 // that is cat, writing every byte it is given to out, with the bracketed paste asked for. The server is ended by
@@ -31,12 +33,12 @@ func dictationPane(t *testing.T) (pane commandTab, out string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cat, err := exec.LookPath("cat")
+	self, err := os.Executable()
 	if err != nil {
-		t.Skip("no cat here")
+		t.Fatal(err)
 	}
 	claude := filepath.Join(dir, "claude")
-	if err := os.Symlink(cat, claude); err != nil {
+	if err := os.Symlink(self, claude); err != nil {
 		t.Fatal(err)
 	}
 	socket, out := filepath.Join(dir, "s"), filepath.Join(dir, "out")
@@ -48,7 +50,7 @@ func dictationPane(t *testing.T) (pane commandTab, out string) {
 		return strings.TrimSpace(string(output))
 	}
 	tmux("new-session", "-d", "-x", "80", "-y", "24", "sh", "-c",
-		`stty raw -echo; printf '\033[?2004h'; touch `+out+`.ready; exec `+claude+` > `+out)
+		`stty raw -echo; printf '\033[?2004h'; touch `+out+`.ready; exec `+claude+` `+dictationCatArgument+` > `+out)
 	pid, err := strconv.Atoi(tmux("display-message", "-p", "#{pid}"))
 	if err != nil {
 		t.Fatal(err)

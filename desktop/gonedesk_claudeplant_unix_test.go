@@ -99,6 +99,11 @@ func TestGMEDIT1sRefusalHoldsWithoutCLAUDEPLANT1sGuards(t *testing.T) {
 		if _, refused := editHire(registryPath(), []byte(`{"id":"`+g.hire.ID+`","state":"fired"}`), noDeskSession); refused != nil {
 			t.Fatal(refused.message)
 		}
+		// The edit asks for its listing, and the worker lists it once the registry's lock is let go
+		// (registryFile.saveAsking): done before the plant, as a fire's is, or a slow worker lists the plant too.
+		if !waitClaudeListings(func(p claudePending) bool { return p.Desk == g.hire.ID }, claudeCheckWait) {
+			t.Fatal("the edit's listing wasn't done")
+		}
 		keepEveryClaudePlant()
 		h := registered(t)[0]
 		claudeTree(t, h.place(), ".claude/hooks/x.sh")
