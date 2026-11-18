@@ -3,10 +3,14 @@ package desktop
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -42,11 +46,81 @@ type gitRunner func(dir string, args ...string) (status int, output string, ok b
 // git runs there as deskRun runs it, named and hardened, in the hire's sandbox when it has one (deskrun.go). Any other
 // folder may be a repo a desk can write: git runs there only on config the core wrote, or not at all, and in the
 // owner's repo SA-X7's checks come first (ownergit.go).
+//
+// A call whose answer its caller compares exactly (gitComparedExactly) is answered by runGitOut: what git said on
+// standard output, its standard error in the log. A clean tree's status still counts every line git said on standard
+// error (FXWINWORKTREER2): git says it couldn't look at a folder (a path too long, one the owner can't read) only
+// there, with exit 0, so the answer is that line too, and the tree is kept, unless the line is one harmlessGitWarnings
+// names.
 func runGit(dir string, args ...string) (int, string, bool) {
+	if gitComparedExactly(args) {
+		status, out, errs, ok := runGitOut(dir, args...)
+		if errs != "" {
+			log.Printf("smolcorp: git %s in %s said on its standard error (exit %d): %s", strings.Join(args, " "), dir, status, gitWords(errs, 500))
+		}
+		if held := gitWarningsHeld(errs); args[0] == "status" && held != "" {
+			out = strings.TrimSpace(out + "\n" + held)
+		}
+		return status, out, ok
+	}
 	if run, mine := deskGitFor(dir, args); mine {
 		return run()
 	}
 	return ownerGit(dir, args)
+}
+
+// runGitOut is runGit with git's two streams apart (FXWINWORKTREER1): out is its standard output alone, errs its
+// standard error. Only the reads split (a status, a branch's name); any other call answers as runGit's, errs "".
+func runGitOut(dir string, args ...string) (status int, out, errs string, ok bool) {
+	if run, mine := deskGitForAs(dir, args); mine {
+		return run(true)
+	}
+	return ownerGitAs(dir, args, true)
+}
+
+// gitComparedExactly is whether args are a call whose answer its caller compares exactly (FXWINWORKTREER1): a clean
+// tree's empty status (removeWorkspace) and the branch a tree has checked out (hiresOwnWorktree, hirePushRemote). The
+// branch's name is git's standard output alone, so a warning beside it doesn't change it. The status's standard error
+// still counts, but for the lines harmlessGitWarnings names (FXWINWORKTREER2). It stays fail-closed: a nonzero exit,
+// or any answer where none is expected, still counts.
+func gitComparedExactly(args []string) bool {
+	return slices.Equal(args, []string{"status", "--porcelain", "--ignore-submodules=all"}) ||
+		slices.Equal(args, []string{"symbolic-ref", "--short", "-q", "HEAD"})
+}
+
+// harmlessGitWarnings is each line git may print on standard error beside a status that still looked at the whole
+// tree, by a narrow form of its own, matched against the whole line (FXWINWORKTREER2). Any other line keeps the tree:
+// git says it couldn't open a folder only there, with exit 0, and the work in that folder would go with the tree. A
+// form goes in only from words git was seen to print (Git for Windows' on windows-latest, in the log's "said on its
+// standard error" lines), each with a row of its own (TestOnlyTheHarmlessWarningLetsACleanTreeGo):
+//   - Git for Windows 2.56.0.windows.4, on a clean tree (FXWINWORKTREER3): it couldn't open the grafts file the core's
+//     reads named with an empty name. That was the core's own setting, and reads name the null device there now
+//     (gitNoGrafts), but the line stays: it names no folder of the tree, and a Git for Windows that prints it anyway
+//     still lets a clean tree go. Only the empty name: the same words with a path in them are held.
+var harmlessGitWarnings = []*regexp.Regexp{
+	regexp.MustCompile("^" + regexp.QuoteMeta("warning: unable to access '': Invalid argument") + "$"),
+}
+
+// gitWarningsHeld is the lines of errs, git's standard error, that harmlessGitWarnings doesn't name: "" for none.
+func gitWarningsHeld(errs string) string {
+	var held []string
+	for _, line := range strings.Split(errs, "\n") {
+		line = strings.TrimSpace(line)
+		harmless := func(form *regexp.Regexp) bool {
+			at := form.FindStringIndex(line)
+			return at != nil && at[0] == 0 && at[1] == len(line)
+		}
+		if line != "" && !slices.ContainsFunc(harmlessGitWarnings, harmless) {
+			held = append(held, line)
+		}
+	}
+	return strings.Join(held, "\n")
+}
+
+// gitWords is what git said, on one line, each run of spaces and line ends one space (as gitSaid has it), cut to n
+// runes: for the log, where a name git quotes with a line end in it would otherwise start a line of its own.
+func gitWords(text string, n int) string {
+	return firstRunes(strings.Join(strings.Fields(text), " "), n)
 }
 
 // hireRequest is what the place is made for.
@@ -61,6 +135,9 @@ type hireRequest struct {
 	// Held is the scope of a GM held to one project, whose hire this is: Folder is the folder it checked, links
 	// followed, and the place is made only while it is still that folder, held, and its checkout's top. nil for none.
 	Held *gmScope
+	// Check, when set, is asked about the place once it's known, before it is trusted: its error refuses the hire,
+	// and the worktree made for it is taken away (a desk in its sandbox at the projects folder: FXHIREPROJECTSR4).
+	Check func(hirePlace) error
 }
 
 // hirePlaceOptions are what prepareHire needs from outside, each with a test stand-in.
@@ -151,8 +228,9 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 	}
 	place := hirePlace{Folder: r.Folder, Ports: ports}
 	if repo != "" && r.Worktree {
-		// Both parts are slugs: the ID is never trusted to be a safe path part.
-		name := hireSlug(r.Name) + "-" + firstRunes(hireSlug(r.HireID), 6)
+		// Both parts are slugs: the ID is never trusted to be a safe path part. A plain desk's id is told by what
+		// follows its "plain-" (plainDeskIDNew), so two plain hires of one repo don't get one name (FXHIREPROJECTSR8).
+		name := hireSlug(r.Name) + "-" + firstRunes(hireSlug(strings.TrimPrefix(r.HireID, "plain-")), 6)
 		parent := hiresFolder(repo, o.Worktrees)
 		path, branch := filepath.Join(parent, name), hireBranch(r.HireID, name)
 		// A scoped GM's hire (FXGMSCOPEPINR1): git is never driven by the folder's path again once it was checked,
@@ -207,6 +285,14 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 	} else if repo == "" {
 		place.Note = notARepo
 	}
+	if r.Check != nil {
+		if err := r.Check(place); err != nil {
+			if place.Worktree != "" {
+				removeWorkspace(place.Repo, place.Worktree, place.Branch, git)
+			}
+			return hirePlace{}, err
+		}
+	}
 	if r.Claude {
 		// With symlinks resolved: how Claude Code knows a folder.
 		trusted := place.Folder
@@ -224,6 +310,11 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 			}
 			return hirePlace{}, err
 		}
+	}
+	// Its submodules, on a Mac, where a desk can't initialise one (FXHIREPROJECTSR9): last, as a worktree with one
+	// checked out is kept by every removal above (removeDeskTree).
+	if place.Worktree != "" && runtime.GOOS == "darwin" {
+		initHireSubmodules(place.Repo, place.Worktree, git)
 	}
 	return place, nil
 }
@@ -305,10 +396,27 @@ func removeWorkspace(repo, worktree, branch string, git gitRunner) bool {
 	if repo == "" || worktree == "" {
 		return false
 	}
+	// A tree kept is never a quiet answer (FXWINWORKTREER1): one line says which tree and why.
 	if status, out, ok := git(worktree, "status", "--porcelain", "--ignore-submodules=all"); !ok || status != 0 || out != "" {
+		why := "git's status there couldn't be run, or was refused"
+		switch {
+		case ok && status != 0:
+			why = "git's status there ended with " + strconv.Itoa(status)
+		case ok:
+			why = "it holds changes, or git warned while it looked (" + strconv.Itoa(len(strings.Split(out, "\n"))) + " lines in git's status)"
+		}
+		log.Printf("smolcorp: the worktree %s is kept: %s", worktree, why)
 		return false
 	}
-	if status, _, ok := git(repo, "worktree", "remove", "--force", worktree); !ok || status != 0 {
+	if status, out, ok := git(repo, "worktree", "remove", "--force", worktree); !ok || status != 0 {
+		why := "its removal couldn't be run, or was refused"
+		if ok {
+			why = "its removal ended with " + strconv.Itoa(status)
+			if out != "" {
+				why += ": " + gitWords(out, 200)
+			}
+		}
+		log.Printf("smolcorp: the worktree %s is kept: %s", worktree, why)
 		return false
 	}
 	// Only a branch your checkout's HEAD holds is deleted, as before it had an upstream: `branch -d` alone would also

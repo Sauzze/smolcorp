@@ -117,7 +117,16 @@ func writeRecap(h Hire, capture string, worktreeRemoved bool, now time.Time) str
 		lines = append(lines, "- Branch: "+h.Branch)
 	}
 	if h.Worktree != "" {
-		lines = append(lines, fmt.Sprintf("- Worktree: %s (%s)", h.Worktree, map[bool]string{true: "removed", false: "kept"}[worktreeRemoved]))
+		line := fmt.Sprintf("- Worktree: %s (%s)", h.Worktree, map[bool]string{true: "removed", false: "kept"}[worktreeRemoved])
+		if !worktreeRemoved {
+			// The owner's git in it could run a repo the hire made there (FXHIREPROJECTSR9, RT126FIXREVIEW-HIREPROJECTSR8 N1).
+			branch := "<its branch>"
+			if h.Branch != "" {
+				branch = h.Branch
+			}
+			line += ". Don't run git in it: from your own checkout, `git log " + branch + "` shows its work and `git worktree remove --force " + h.Worktree + "` removes it, deleting what it left uncommitted: open or copy those files first, without git."
+		}
+		lines = append(lines, line)
 	}
 	if h.Started > 0 {
 		lines = append(lines, "- Hired: "+time.UnixMilli(int64(h.Started)).UTC().Format(time.RFC3339))

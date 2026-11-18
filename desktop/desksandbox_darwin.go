@@ -22,7 +22,8 @@ const sandboxNotMade = sandbox.SandboxExecRefusal
 // sandbox, the one call hireTmux.start runs through it. In order, each step refusing the start with §A5.2's words:
 //
 //  1. its socket's folder, made new in the parent the core alone can open (step 8): anything already there refuses;
-//  2. its profile, from its Policy and what it may reach (Services), written to <support>/hires/<id>/sandbox.sb;
+//  2. its profile, from its Policy and what it may reach (Services), written to <support>/hires/<id>/sandbox.sb, then
+//     the mark of a desk made before marks, if nothing of it runs (deskSandbox.prepareProfile);
 //  3. a fresh canary, the start's nonce, its handshake and a stand-in other server (sandbox.NewStart, step 2);
 //  4. `smolcorp-spawn /usr/bin/sandbox-exec -f <profile> <smolcorp> sandbox enter … -- <bundled tmux> -S <socket> …`
 //     (sandbox.MacCommand, step 1): `enter` runs its rows inside, reports them, and becomes the bundled tmux, whose
@@ -51,6 +52,17 @@ type startedCmd interface {
 
 var deskStartRunner = deskStartRun{command: macStartCommand, serverIsOurs: sandbox.ServerIsOurs}
 
+// prepareProfile writes desk s's profile to profile, with svc, as each start of a desk on a Mac does before anything of
+// it runs (a tmux server, a plain hire's agent, an ACP desk's program), then the mark of a desk made before marks, when
+// none of its sandbox runs any more (deskMarkAfterProfile, FXFIREREAPR6): the profile just written allows it. A mark
+// folder made meanwhile without that mark refuses the start (FXFIREREAPR7).
+func (s *deskSandbox) prepareProfile(profile string, svc sandbox.Services) error {
+	if err := sandbox.PrepareProfile(s.policy, profile, svc); err != nil {
+		return err
+	}
+	return deskMarkAfterProfile(hireFolder(supportDir, s.at.ID), s.places.ReapMark)
+}
+
 // starter is desk s's start-only runner on a Mac: program is the bundled tmux, smolcorp the app's own program.
 func (s *deskSandbox) starter(program, smolcorp string) tmuxStarter {
 	return func(args []string) (string, int, error) {
@@ -73,7 +85,7 @@ func (r deskStartRun) start(s *deskSandbox, program, smolcorp string, args []str
 		}
 	}()
 	profile := filepath.Join(hireFolder(supportDir, s.at.ID), "sandbox.sb")
-	if err := sandbox.PrepareProfile(s.policy, profile, deskServices(s.places, socket)); err != nil {
+	if err := s.prepareProfile(profile, deskServices(s.places, socket)); err != nil {
 		return refuse(sandbox.SandboxExecRefusal, "its profile: "+err.Error())
 	}
 	start, err := sandbox.NewStart(s.checks(profile))
@@ -84,7 +96,7 @@ func (r deskStartRun) start(s *deskSandbox, program, smolcorp string, args []str
 	defer start.Canary.Remove()
 	// No start file: the server reads none of the owner's (~/.tmux.conf), whose commands would run in it (RT126SG2 B1).
 	args = append([]string{"-f", os.DevNull}, args...)
-	cmd, err := r.command(start, profile, smolcorp, withTmuxGuard(hireEnvironment(), ""), program, args...)
+	cmd, err := r.command(start, profile, smolcorp, withTmuxGuard(sandbox.DeskGitConfig(hireEnvironment()), ""), program, args...)
 	if err != nil {
 		return refuse(sandbox.SandboxExecRefusal, err.Error())
 	}
@@ -174,7 +186,11 @@ func deskChecks(d deskAt, socketParent, profile string) sandbox.Checks {
 	own := hireFolder(supportDir, d.ID)
 	c := sandbox.Checks{Support: supportDir, NoWrite: []string{profile}, Read: []string{profile},
 		Write: []string{filepath.Join(own, "STATUS.md")}, Other: sandbox.OtherServerIn(socketParent)}
-	for _, fence := range []string{filepath.Join(supportDir, hireGuardFile), filepath.Join(d.Root, ".claude", "settings.json")} {
+	fences := []string{filepath.Join(supportDir, hireGuardFile), filepath.Join(d.Root, ".claude", "settings.json")}
+	if d.Projects != "" {
+		fences = append(fences, filepath.Join(d.Projects, ".claude", "settings.json")) // where a GM with a workspace starts
+	}
+	for _, fence := range fences {
 		if info, err := os.Lstat(fence); err == nil && info.Mode().IsRegular() {
 			c.NoWrite = append(c.NoWrite, fence)
 		}

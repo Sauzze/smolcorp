@@ -36,7 +36,8 @@ pairing, the same agents, roles and hiring. What's different from the Mac:
 - **The General Manager** hires, briefs and fires its team here too, only
   into hires Smolcorp can fence: in tmux on Linux, and on Windows only with
   managed hires turned on, a beta that's off by default. Tiling the team's
-  windows and a General Manager started by hand are the Mac's. See
+  windows is the Mac's. A General Manager started by hand (`smolcorp gm
+  login`) works on Windows with WebView2, not on Linux. See
   [Run a team](team.md#run-a-team).
 - **Typing from the phone** reaches tmux panes and the launcher's windows
   (several lines as one paste where the agent asked for it), and WezTerm and
@@ -62,6 +63,68 @@ your browser instead.
   key at each start, handed to the window inside Smolcorp and kept in no file,
   nor in the window's address, which WebView2 keeps in its own folder. Phones still pair with the six-digit code,
   and **Unpair All Phones** leaves the window's device alone.
+- The 📝 badge counts the notes your General Manager suggested, in this window
+  as in the Mac's and in a browser. To review them, open Setup from the tray
+  icon (**Open Setup…**): **What your General Manager has learnt** lists what
+  waits for you.
+
+### Windows: Setup in its own window
+
+**Open Setup…** in the tray, the ⚙︎ in the office's corner and
+`smolcorp setup --open` open Setup in a window of its own, titled Smolcorp
+Settings, as the Mac's Settings window does. A second ask brings the open one to
+the front: there is never a second Settings window. The window is let in by
+Smolcorp itself, with no link, so it works the same before and after you pair a
+phone.
+
+Setup in a browser (a link from before, or one you typed) is then for looking
+only: another program on your computer could read that browser's cookie. Every
+change, pairing a phone and its code happen in the Settings window, and the
+browser says so.
+
+The Settings window is also where you let a command in a terminal into
+Smolcorp, as on a Mac: `smolcorp status` and `desks`, a General Manager you
+start with `smolcorp gm login` (once **Allow a General Manager started by
+hand** is on), and an app of yours ([Getting a tool's
+key](manager/API.md#getting-a-tools-key)). The ask shows at the top of the
+window with a four-digit code, the folder it says it runs in, and the program
+that asked, as Windows names it, with the programs that started it. Nothing on
+Windows keeps a hire from asking too, so click **Allow** only for a command you
+just ran, once its code matches. A browser's Setup and your phone can't answer
+it. Without WebView2, and under `smolcorp serve`, these commands stop and say
+why.
+
+Without WebView2, Setup opens in your browser as before, and changes things
+there: with a link that works once until a phone is paired, then with a yes on
+your phone, as below. `smolcorp setup --open` says which it did.
+
+### Setup in your browser (Windows and Linux)
+
+Linux has no Settings window of its own yet: Setup opens in your browser, as on
+Windows without WebView2. It opens with a link that works once until a phone is
+paired, then with a yes on your phone.
+
+Once a phone is paired, that yes works like this: choose **Open Setup…** in the
+tray (with no tray, open the link Smolcorp printed as it started, then **Ask my
+phone**), and Setup asks your phone, showing a four-digit code. Open Smolcorp on
+your phone through Tailscale's HTTPS address: it asks "Open Setup on" your
+computer's name, with a code. Tap **Allow** only if both screens show the same
+code, and Setup opens in that browser tab. Your phone answers over Tailscale
+only, never over the home Wi-Fi. An ask nobody answers runs out after 3 minutes.
+
+The same goes for `smolcorp serve`, which has no tray and no windows: Setup stays
+in your browser, even where WebView2 is installed. Until a phone is paired, open
+it with the link `smolcorp serve` prints. Once one is, that link no longer opens
+Setup: the page offers **Ask my phone** instead, and you tap Allow on your phone
+as above.
+
+Phone lost, or it can't reach this computer over Tailscale? Quit Smolcorp from
+its tray icon (with no tray, run `smolcorp quit`, or `smolcorp-cli quit` on
+Windows), then rename `phones.json` in Smolcorp's folder, for example to
+`phones.json.old`: on Linux the folder is `~/.config/sauzzedeck-pro`, on Windows
+`%AppData%\SauzzeDeck Pro`. That unpairs every phone. Start Smolcorp again:
+**Open Setup…** opens Setup with a link once more, and you can pair your phone
+again.
 
 ### Who can reach Smolcorp (Windows and Linux)
 
@@ -160,8 +223,10 @@ Download **Smolcorp-Windows-x86_64.zip** (or `-arm64` for an ARM PC), extract
 it and open **Smolcorp.exe** (see [Install](install.md#install)). It installs itself in
 `%LOCALAPPDATA%\Smolcorp` and starts from there, so your agents' hooks and the
 firewall's rules never name the folder you downloaded to. Opening a newer
-download later updates it the same way: quit Smolcorp from its tray icon
-first.
+download later updates it the same way. From 1.26 on, a Smolcorp that's
+running makes way for the new one by itself. A running 1.25 or older can't be
+asked to: when you update from one, quit it once from its tray icon, then open
+Smolcorp again to start the new version.
 
 ### Build it yourself
 

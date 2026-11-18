@@ -294,14 +294,34 @@ func gmPluginFolder(cli string) string {
 
 // gmIntroduction is what the GM is told besides its brief: its role, its folder, and its tool (Deck.gmIntroduction),
 // that its tools aren't there when its plugin is loaded without the program they run, and where its memory is read
-// (gmMemorySentence): one fixed sentence, never what memory holds (MEM4).
-func gmIntroduction(folder string, toolsMissing bool) string {
+// (gmMemorySentence): one fixed sentence, never what memory holds (MEM4). A GM with a workspace (gmWorkspace,
+// FXGMROOT) is told it reads the folder it starts in and writes in its workspace and its plans folder there, and to
+// say so as it introduces itself.
+func gmIntroduction(folder, workspace, plans string, toolsMissing bool) string {
 	text := "You are the General Manager of this team. Your folder is " + folder + ". Your tool for the team is the command `smolcorp gm`; " +
 		"it is already set up to reach Smolcorp, so don't look for a token or a key. " + gmMemorySentence
+	if workspace != "" {
+		text += " " + gmWorkspaceWords(folder, workspace, plans)
+	}
 	if toolsMissing {
 		text += " The `smolcorp` tools are not available in this copy of Smolcorp: say so to the owner, and use the command `smolcorp gm` only if it is on your PATH."
 	}
 	return text
+}
+
+// gmProjectSentence is how a GM with a workspace starts a new project, which its sandbox can't make (gmproject.go).
+const gmProjectSentence = "To start a new project, ask Smolcorp: `smolcorp gm project new <name>`, or `smolcorp gm project new <name> --clone <https address>` for a clone."
+
+// gmWorkspaceWords are a GM's start words on where it writes, when it has a workspace (FXGMROOT): its sandbox lets it
+// read folder and write only in workspace and in plans, the folder there where Claude Code keeps its plan files, and
+// it tells the owner both, plainly, as it introduces itself (SIERRA, FXGMROOTR1: the owner knows where plans live).
+func gmWorkspaceWords(folder, workspace, plans string) string {
+	return "You read the projects in " + folder + " and don't change them: your hires change the code. " +
+		"Your workspace is " + workspace + ": your notes, your briefs, your playbook and your other files go there. " +
+		"Your sandbox refuses every other write in " + folder + ", except your plan files, which Claude Code keeps in " + plans + ". " +
+		gmProjectSentence + " " +
+		"When you introduce yourself to the owner, say so plainly: \"I read your projects; hires change the code; my own notes go in " + workspace +
+		", and my plans in " + plans + ".\""
 }
 
 // oneLine keeps a role's name on the comment line it goes in.

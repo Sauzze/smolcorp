@@ -291,3 +291,74 @@ bare.click(...wall);
 same(frames().length, 0, 'a room without on.tv');
 `, officePath(t))
 }
+
+// Windows' window (FXTALKFIXR1 N1): its page is handed its key in-process (deck.html's givenKey) and is served with no
+// key, so it frames nothing. Its TV stays off there: the page never asks /desk/preview, nothing goes on air, a click on
+// the TV opens no frame, and the TV says why in true words, never "went somewhere else". deck.html's own lines run on a
+// stand-in page, with the real room; a page with no givenKey, the same way, does ask, go on air and open the frame.
+func TestWindowsWindowKeepsTheTVOffAndSaysWhy(t *testing.T) {
+	data, err := os.ReadFile("../Resources/web/deck.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(data)
+	const from, fn, end = "  const PREVIEW_EVERY = 10000;", "  function tvLine(id, url) {", "\n  }\n"
+	start, at := strings.Index(page, from), strings.Index(page, fn)
+	if start < 0 || at < start || strings.Index(page[at:], end) < 0 {
+		t.Fatal("deck.html no longer has the TV's lines as this test expects: update it")
+	}
+	lines := page[start : at+strings.Index(page[at:], end)+len(end)]
+	runNode(t, tvRig(t)+`
+const deck = process.argv[2];
+const frames = () => win.document.body.all().filter((c) => c.tagName === 'IFRAME');
+const wall = middleOf([29, 8, 26, 15]);
+// deck.html's TV lines on a stand-in page: the key Windows' window is handed (givenKey), desk a picked, the room's own
+// office, and what /desk/preview answers.
+const deckPage = (givenKey, office, answer) => {
+  const asked = [];
+  const get = async (path, params) => { asked.push([path, params]); return answer; };
+  const made = new Function('givenKey', 'gitHere', 'get', 'office', 'document', 'setInterval', 'sessions', 'selected',
+    deck + '\nreturn { askPreview, tvLine };')(givenKey, true, get, office, { hidden: false }, () => 0, [{ id: 'a', project: 'shop' }], 'a');
+  return { ...made, asked };
+};
+const answer = (status, body) => ({ status, ok: status >= 200 && status < 300, json: async () => body });
+const preview = answer(200, { url: 'http://localhost:3000', source: 'declared' });
+const words = "The TV's preview isn't shown in this window yet";
+
+(async () => {
+  // Windows' window
+  const windows = rig(false, sessions(), true, WALL_TV);
+  windows.step(5);
+  const there = deckPage('k', windows.office, preview);
+  await there.askPreview();
+  same(there.asked, [], "Windows' window asked for a preview");
+  same(screens(frame(windows)), [], "Windows' window's TV on air");
+  let n = windows.calls.length;
+  windows.click(...wall);
+  const clicked = tvCalls(windows, n);
+  same([clicked, frames().length], [[['tv', 'a', null]], 0], "a click on Windows' window's TV");
+  same(there.tvLine(clicked[0][1], clicked[0][2]), words, "what Windows' window's TV says");
+  same(there.tvLine(null, null), words, "what Windows' window's TV says with no desk picked");
+  windows.office.close();
+
+  // A window with no key handed in-process (the Mac's, Linux's): it asks, goes on air and opens the big preview
+  const own = rig(false, sessions(), true, WALL_TV);
+  own.step(5);
+  const here = deckPage('', own.office, preview);
+  await here.askPreview();
+  same(here.asked, [['/desk/preview', { session: 'a' }]], 'the own window asked for a preview');
+  same(screens(frame(own)).length, 1, "the own window's TV on air");
+  n = own.calls.length;
+  own.click(...wall);
+  same([tvCalls(own, n), frames().length], [[['tv', 'a', 'http://localhost:3000']], 1], "a click on the own window's TV");
+  same(here.tvLine('a', 'http://localhost:3000'), 'LIVE localhost:3000: shop', "what the own window's TV says");
+  own.office.close();
+
+  // A page the computer won't tell keeps its own words
+  const spare = rig(false, sessions(), true, WALL_TV);
+  const refused = deckPage('', spare.office, answer(403, {}));
+  await refused.askPreview();
+  same(refused.tvLine('a', null), "The TV shows a desk's preview only in Smolcorp's own window", 'a page refused a preview');
+})().catch((e) => { console.error(e); process.exit(1); });
+`, officePath(t), lines)
+}

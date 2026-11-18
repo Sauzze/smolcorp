@@ -74,6 +74,10 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 	// (L1GUARD1FIRE): a fire whose look refused asked for this retry, and its session is gone by then, its socket
 	// with it once its stop ran (RMSYLCHAIN B1). A put back is said; a look that refuses still refuses.
 	goneAlready := func() (string, string, error) {
+		// What it started may still run in its sandbox: ended first, as at every fire (FXFIREREAP).
+		if why := deskReap(h); why != "" {
+			return refuse(firedRefusal(h, why))
+		}
 		looked, refused := deskKept(h, "fired")
 		if refused != "" {
 			return refuse(refused)
@@ -140,12 +144,21 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 			return refuse("Couldn't end " + calledHire(h) + "'s tmux session, so nothing was changed.")
 		}
 	}
+	// Its session is gone, but what it started in the background may not be: on a Mac, every program still running in
+	// its sandbox is ended now, and seen ended, before anything looks at its worktree or checks the repo's objects
+	// (FXFIREREAP). One that can't be refuses the fire: nothing is checked, merged or removed.
+	if why := deskReap(h); why != "" {
+		return refuse(firedRefusal(h, why))
+	}
 	again, refused := deskKept(h, "fired")
 	if refused != "" {
 		if gone {
 			// Its session was ended and seen gone: SA-M6's stop runs before the refusal, as it would below, so its
-			// sandbox isn't left kept. The retry the refusal asks for puts back at goneAlready (RMSYLCHAIN B1).
-			deskStopped(h, o)
+			// sandbox isn't left kept. The retry the refusal asks for puts back at goneAlready (RMSYLCHAIN B1). A
+			// program that stop couldn't end is said too (FXFIREREAPR3).
+			if why := deskStopped(h, o); why != "" {
+				refused = joinNote(refused, firedRefusal(h, why))
+			}
 		}
 		return refuse(refused)
 	}
@@ -153,9 +166,12 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 	if gone {
 		// Its session was ended and seen gone: as at every stop, its sandbox is let go and its socket folder taken away
 		// (SA-M6). Its row stays as it was, and it stays off CLAUDEPLANT1's record (GMEDIT1). What the looks found is
-		// said with it (L1GUARD1FIRE).
-		deskStopped(h, o)
+		// said with it (L1GUARD1FIRE), and a program its stop couldn't end (FXFIREREAPR3).
+		stopWords := deskStopped(h, o)
 		stopped := stoppedGone(h, "tmux session")
+		if stopWords != "" {
+			stopped.Message = joinNote(stopped.Message, firedRefusal(h, stopWords))
+		}
 		stopped.Message = joinNote(stopped.Message, said)
 		return "", said, stopped
 	}
@@ -166,6 +182,11 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 	// Before the merged look (the branch goes only when merged), the repo's stored objects are hashed again for a
 	// worktree that is the hire's own: changed ones, or a look that can't be made, keep the worktree and the branch,
 	// and say so (firefsck.go).
+	// The removal's git in the desk's sandbox runs after this look, and can't run before it: this look decides whether
+	// the worktree is removed at all, and the removal checks the tree in the desk's sandbox again only once it has
+	// moved it aside, where no desk reaches (deskrun.go, removeDeskTree). That git is the hardened one (gitReadArgs:
+	// no hook, fsmonitor, pager or helper), and its commands start nothing that outlives them; deskRun waits for it,
+	// and the last stop's reap below looks again (FXFIREREAPR4 O3).
 	storeKept := ""
 	if h.Worktree != "" && !o.KeepWorktree {
 		if _, _, own := hiresOwnWorktree(o.Git, o.Worktrees, h); own {
@@ -187,14 +208,21 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 	}
 	claudeHireEnded(h.ID)
 	// Then its stop's listing, while its place is still as the desk left it, its sandbox let go and its socket
-	// folder taken away (SA-M6).
-	deskStopped(h, o)
+	// folder taken away (SA-M6). A program that stop couldn't end (the reap above found none, but one started
+	// meanwhile) keeps its sandbox, and is said in the fire's answer (FXFIREREAPR3).
+	if why := deskStopped(h, o); why != "" {
+		said = joinNote(said, firedStopNote(why))
+	}
 	// Its own Claude folder goes with its session (SA-X8): its transcripts too, as NB6 plans.
 	_ = removeDeskClaude(supportDir, h.ID)
 	// A hire without a worktree, and the GM, keep their plans in a folder others share: its own go now (MSYSAX8).
 	// Smolcorp's own folder, never a plant: it goes after the listing, so a .claude a desk made in it is held first.
 	if h.Worktree == "" {
 		_ = removeDeskPlans(startedIn(h), h.ID)
+	}
+	// A GM's workspace goes with its other files (FXGMROOT): its notes, which only it wrote.
+	if h.Role == gmRole {
+		removeGMWorkspace(h.ID)
 	}
 	if worktreeKept && storeKept != "" {
 		return storeKept, joinNote(storeKept, said), nil

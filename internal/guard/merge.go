@@ -114,6 +114,9 @@ type Place struct {
 	cwd, gitDir, common string
 	fetchesHeads        bool
 
+	// Set by placeIn for a place unknown with a reason of its own to give: past 32 remotes (manyRemotesWhy).
+	unknown string
+
 	// Set by At: the folders above as gitFolderPath reads them, read once for a line.
 	folders *placeFolders
 }
@@ -297,8 +300,11 @@ func placeIn(gitdir string) Place {
 	}
 	remotes := filepath.Join(common, "refs", "remotes")
 	entries, err := os.ReadDir(remotes)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) || len(entries) > 32 {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return Place{}
+	}
+	if len(entries) > 32 {
+		return Place{unknown: manyRemotesWhy}
 	}
 	for _, e := range entries {
 		if e.Type()&fs.ModeSymlink != 0 {
@@ -451,6 +457,9 @@ func onBase(p *Place, args []string, depth int) string {
 		return storedFetchWhy
 	}
 	if m.current && (!known || !p.alone) {
+		if p.unknown != "" && !p.moved && depth == 0 && plainGitOptions(args) {
+			return p.unknown // the place it runs in, read where it runs, has a reason of its own
+		}
 		return cantTellBranch
 	}
 	if m.current {
@@ -467,6 +476,8 @@ func onBase(p *Place, args []string, depth int) string {
 const (
 	baseWhy        = "a base branch (main, master, release/* and the repository's default): what lands there is the owner's. Leave the work on its own branch for review."
 	cantTellBranch = "The guard can't tell which branch this lands on, so it takes it as a base branch: run it alone, in the repository's folder, with no cd, -C or GIT_DIR."
+	// manyRemotesWhy: the guard reads each remote's HEAD for the repository's defaults, and no more than 32 of them.
+	manyRemotesWhy = "This repository has more than 32 remotes, more than the guard reads to learn each one's default branch, so it can't tell whether this lands on a base branch and takes it as one. Leave it to the owner."
 	noBranchWhy    = "The guard can't read the branch this lands on (a detached HEAD, or a HEAD that names no branch), so it takes it as a base branch. Check out the work's own branch first."
 	cantReadWhy    = "The guard can't read this git command in full (an option it doesn't know, or one that moves branches from input or rules it can't see), so it may move a base branch. Spell its options out as git lists them, or leave it to the owner."
 	// configWhy: an alias, autocorrect or include in git's config runs what the guard never sees; a remote's fetch

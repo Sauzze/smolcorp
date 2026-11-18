@@ -226,6 +226,32 @@ func TestAPermissionsYesIsOneAndNoRejectsAndClearsAsking(t *testing.T) {
 	}
 }
 
+// A question's No (n=no, it has no number): the agent's Reject, pressed once while the question's menu is on its
+// screen, and the desk is free to be told what to do (FXTALKFIX). Never an Escape with no look: see the next row.
+func TestAQuestionsNoIsEscapeOnceWhileItsMenuIsThere(t *testing.T) {
+	d, tab := madeButtonDeck(t)
+	talkScreenShows(t, questionMenu("Which color?", "Red", "Green", "Blue"))
+	talkAsksColor(d, 200, false)
+	since := talkSinceOf(d, "s1")
+	if got := talkPickAt(t, d, "s1", "no", since); got.Code != http.StatusNoContent {
+		t.Fatalf("No: %d %s", got.Code, got.Body)
+	}
+	if command := sent(t, tab); command.Press == nil || *command.Press != press(Escape) {
+		t.Fatalf("No sent %+v, want Escape", command)
+	}
+	// A second No: the desk no longer asks that, so nothing more is pressed.
+	if got := talkPickAt(t, d, "s1", "no", since); got.Code != http.StatusConflict || strings.TrimSpace(got.Body.String()) != choiceGone {
+		t.Errorf("a second No: %d %s", got.Code, got.Body)
+	}
+	nothingSent(t, tab, "a second No")
+	d.mu.Lock()
+	state := d.sessions.Get("s1").State
+	d.mu.Unlock()
+	if state != Idle || talkSinceOf(d, "s1") != 0 {
+		t.Fatalf("after No the desk is %s, still asking at %d; want idle", state, talkSinceOf(d, "s1"))
+	}
+}
+
 // The guards, each before any key: the prompt gone or another one (409), a choice it hasn't (400), choices not
 // offered by label (409, the keys), a session gone (404).
 func TestAPickOfAPromptThatIsntThereOrAChoiceItHasntPressesNothing(t *testing.T) {
@@ -383,6 +409,10 @@ func TestAPickWithNoMenuOnItsScreenPressesNothingAndStopsAsking(t *testing.T) {
 		"Esc in its terminal, then Yes":        {talkInputBox, func(d *Deck) { talkPermission(d, 200) }, "1", Idle},
 		"Yes in its terminal, then No":         {talkToolRuns, func(d *Deck) { talkPermission(d, 200) }, "2", Thinking},
 		"a question put away, then its choice": {talkInputBox, func(d *Deck) { talkAsksColor(d, 200, false) }, "2", Idle},
+		// A question's No looks first too (FXTALKFIX): answered in its own terminal, Claude works on, and an Escape
+		// would stop its turn; put away there, it waits for a prompt.
+		"a question answered in its terminal, then No": {talkToolRuns, func(d *Deck) { talkAsksColor(d, 200, false) }, "no", Thinking},
+		"a question put away, then No":                 {talkInputBox, func(d *Deck) { talkAsksColor(d, 200, false) }, "no", Idle},
 	} {
 		stopDecksOf(t)
 		d, tab := madeButtonDeck(t)

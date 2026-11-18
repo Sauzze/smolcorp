@@ -537,6 +537,9 @@ type hireSettingsOptions struct {
 	// Kept is the folder of the copy a Linux desk's start keeps of the places no mount holds in its view
 	// (deskKeptFolder), named in the guard's words before and after each call; "" for a desk that keeps none.
 	Kept string
+	// Workspace is a GM's workspace when it works in one (gmWorkspace, FXGMROOT), "" for none: a working folder of
+	// its own for Claude Code besides the folder it starts in, which it only reads.
+	Workspace string
 }
 
 // hireSettingsText is hire HireID's settings as their file holds them (writeHireSettings): refused if the guard
@@ -625,6 +628,12 @@ func hireSettingsObject(o hireSettingsOptions) (map[string]any, error) {
 	}
 	if o.OwnClaude {
 		value["plansDirectory"] = deskPlansFor(o.HireID)
+	}
+	// Claude Code asks before each write outside the folder it starts in, but not in one it is told is a working
+	// folder too (permissions.additionalDirectories): a GM's notes in its workspace are its work, asked about no more
+	// than a hire's in its worktree. The fence's denies still hold there.
+	if o.Workspace != "" {
+		value["permissions"].(map[string]any)["additionalDirectories"] = []any{o.Workspace}
 	}
 	return value, nil
 }

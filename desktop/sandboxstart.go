@@ -41,15 +41,29 @@ import (
 var linkCheckMost = 100_000
 
 // linkCheckSkipped are the Policy's rows over whole folders the link check doesn't walk, and why: each is a code tree
-// or an install, too big to look through at every start. A link into one needed a process outside any sandbox, which
-// could have written the file itself. TestEveryDenyRowIsLookedAtOrSkippedWithAReason holds every other row to a look.
-// A file the check would replace that has a name in one (or anywhere else it doesn't look) refuses the start: the
-// name it can't see may be a file desks can't read (X12LINK1).
+// or an install, too big to look through at every start, or a folder of the owner's own apps (FXPLANTSTERMR2) that
+// grows with their use and that no desk writes in. A link into one needed a process outside any sandbox, which could
+// have written the file itself: a second name there is the owner's, not a desk's plant.
+// TestEveryDenyRowIsLookedAtOrSkippedWithAReason holds every other row to a look. A file the check would replace that
+// has a name in one (or anywhere else it doesn't look) refuses the start: the name it can't see may be a file desks
+// can't read (X12LINK1). And a key with a second name in one is still found where its own name is walked (the setup
+// key, in the support folder, walked whole): a file desks can't read with a second name refuses the start wherever
+// the walk meets it.
 var linkCheckSkipped = map[string]string{
-	"other desks' places":                  "other desks' worktrees: code trees, too big to walk at each start",
-	"the owner's checkout":                 "the owner's working tree: a code tree, too big to walk at each start",
-	"other desks' places: the GM's folder": "the GM's working folder: a code tree, too big to walk at each start",
-	"programs that run outside":            "whole install roots (Homebrew's, npm's, Claude Code's): too big to walk at each start",
+	"other desks' places":                                                  "other desks' worktrees: code trees, too big to walk at each start",
+	"the owner's checkout":                                                 "the owner's working tree: a code tree, too big to walk at each start",
+	"other desks' places: the GM's folder":                                 "the GM's working folder: a code tree, too big to walk at each start",
+	"the GM's projects: read only":                                         "the folder for hires, ~/Projects by default: every repo and worktree, too big to walk at each start",
+	"the projects folder: only its own worktree":                           "the folder for hires, ~/Projects by default: every repo and worktree, too big to walk at each start",
+	"programs that run outside":                                            "whole install roots (Homebrew's, npm's, Claude Code's): too big to walk at each start",
+	"plants the owner's programs run later: a git folder at home":          "the owner's repo at home, when there is one (dotfiles): its objects, git's own hard links after a local clone",
+	"plants the owner's programs run later: a git folder above the places": "an owner's repo above the projects (~/Code/.git): a code tree's objects, git's own hard links after a local clone",
+	"plants the owner's programs run later: a git folder below its place":  "its place whole, to find a pattern's every match (a code tree), and the owner's nested repos' objects: git's own hard links after a local clone",
+	// The Mac's FXPLANTSTERM rows: the preferences, the terminals' folders, the hired agents' own folders (their
+	// sessions and logs), the keychains. Each is read by a desk and written by none.
+	"plants the owner's programs run later: what a terminal reads at a window's start": "the owner's preferences and terminals' folders: every app's, growing with use, too big to walk at each start; no desk writes there",
+	"plants the owner's programs run later: a hired agent's own settings":              "the owner's agents' own folders, their sessions and logs among them: too big to walk at each start; no desk writes there",
+	"plants the owner's programs run later: the keychains":                             "the owner's keychains: no desk writes there, and a keychain's second name is the owner's",
 }
 
 // accountFoldersSkipped are the folders in an account folder the link check passes over: its transcripts, its
@@ -57,6 +71,19 @@ var linkCheckSkipped = map[string]string{
 // over too: the repo's own are the desk's to write anyway. A transcript is read-denied, so a file the check would
 // replace with a second name here refuses the start, as one with a name in a linkCheckSkipped place does.
 var accountFoldersSkipped = []string{"projects", "plugins", "file-history"}
+
+// gmWorkspaceSkipped is whether folder is a GM's workspace in a support folder, <support>/hires/<id>/work (FXGMROOT),
+// which the link check passes over (FXGMROOTR1 N1): it is the GM's own working folder, where a tool's hard links
+// (pnpm's store) and a big tree (a project's dependencies, build output) are ordinary work, and a walk through it
+// would refuse every desk's start for them. What the walk no longer looks at is the workspace's own files, which only
+// the GM writes. Other desks can't read or write the workspace, so they can't link into it; and the GM can't link into
+// it a file it can't read or write (the profile refuses a hard link whenever either name is denied), so a second name
+// there of the setup-key, another desk's file or the GM's own brief or fence is one made outside any sandbox, and the
+// walk still meets that file's other name and refuses the start, or counts the name it didn't meet (X12LINK1).
+func gmWorkspaceSkipped(supports []string, folder string) bool {
+	id := filepath.Base(filepath.Dir(folder))
+	return oneName(id) && slices.ContainsFunc(supports, func(s string) bool { return s != "" && filepath.Clean(folder) == sandbox.Workspace(s, id) })
+}
 
 // linkCheckError is a start refused by the link check: the words for the owner.
 type linkCheckError struct{ words string }
@@ -108,7 +135,7 @@ func checkLinks(pol *sandbox.Policy, pl sandbox.Places) (replaced []string, err 
 			case writeV == sandbox.Deny && inside(pl.Support, at):
 				toReplace = append(toReplace, linked{at, info, links})
 			case refusal == nil:
-				refusal = linkedRefusal(at)
+				refusal = linkedRefusalIn(pl.Root, at)
 			}
 			return nil
 		})
@@ -124,7 +151,7 @@ func checkLinks(pol *sandbox.Policy, pl sandbox.Places) (replaced []string, err 
 		}
 	}
 	if len(unreadable) > 0 {
-		return nil, linkedRefusal(unreadable[0].at)
+		return nil, linkedRefusalIn(pl.Root, unreadable[0].at)
 	}
 	if refusal != nil {
 		return nil, refusal
@@ -211,7 +238,7 @@ func linkLooks(pol *sandbox.Policy, pl sandbox.Places) (looks []linkLook, skip f
 		}
 		switch {
 		case r.Path == "": // a row for anywhere: the .claude folders where the desk and the owner work
-			for _, root := range []string{pl.Root, pl.Checkout} {
+			for _, root := range []string{pl.Root, pl.Checkout, pl.GMProjects} { // the GM's starts in its projects
 				if root != "" {
 					looks = append(looks, linkLook{filepath.Join(root, ".claude"), 1})
 				}
@@ -242,13 +269,37 @@ func linkLooks(pol *sandbox.Policy, pl sandbox.Places) (looks []linkLook, skip f
 			passed = append(passed, filepath.Join(account, name))
 		}
 	}
-	modules := ""
+	modules, objects, worktrees := "", "", ""
 	if pl.GitDir != "" {
-		modules = filepath.Join(pl.GitDir, "modules")
+		modules, objects, worktrees = filepath.Join(pl.GitDir, "modules"), filepath.Join(pl.GitDir, "objects"), filepath.Join(pl.GitDir, "worktrees")
+		// The shared .git is walked whole on a Mac since its rest is a row of its own (FXGITROWS2R6, rowGitTop), and no
+		// row denies anything in its loose objects' folders or in git-lfs's store, which can each hold tens of thousands
+		// of files: they are passed over, as a submodule's objects are.
+		passed = append(passed, filepath.Join(pl.GitDir, "lfs"))
 	}
+	// A submodule's objects, in the shared .git's modules or a worktree's (worktrees/<id>/modules, held on a Mac since
+	// FXHIREPROJECTSR9), as the shared .git's own objects aren't looked in: a local clone's are hard links.
+	inModules := func(folder string) bool {
+		if modules == "" || filepath.Base(folder) != "objects" {
+			return false
+		}
+		if inside(modules, folder) {
+			return true
+		}
+		rel, err := filepath.Rel(worktrees, folder)
+		return err == nil && inside(worktrees, folder) && slices.Contains(strings.Split(filepath.ToSlash(rel), "/")[1:], "modules")
+	}
+	supports := append([]string{pl.Support}, pl.OtherSupports...)
 	return kept, func(folder string) bool {
-		return slices.Contains(passed, folder) || modules != "" && filepath.Base(folder) == "objects" && inside(modules, folder)
+		return slices.Contains(passed, folder) || inModules(folder) ||
+			objects != "" && filepath.Dir(folder) == objects && looseObjects(filepath.Base(folder)) ||
+			gmWorkspaceSkipped(supports, folder) || gmProjectStagingSkipped(supports, folder)
 	}
+}
+
+// looseObjects is whether name is one of a git objects folder's loose-object folders: two hex digits.
+func looseObjects(name string) bool {
+	return len(name) == 2 && strings.Trim(name, "0123456789abcdef") == ""
 }
 
 // inside is whether at is folder or below it, as spelled.
@@ -261,7 +312,11 @@ func inside(folder, at string) bool {
 }
 
 // walkLook calls each for every regular file at at, or below it to depth levels, never following a link. A folder
-// skip names, and one only another user can list, are passed over; a place that isn't there is nothing.
+// skip names, and one only another user can list, are passed over; a place that isn't there is nothing. A link in a
+// folder above at is followed, as Lstat does, and a link at a file is passed: the start refuses any link in the
+// shared .git's refs/ and logs/, and on the way to a base branch's name, before this walk (CheckRefPlaces,
+// RT126FIXREVIEW-GITROWS2R1's and R2's B1), and a link in the home folder leads to a place of its own rows
+// (followLinks).
 func walkLook(at string, depth int, skip func(string) bool, budget *int, each func(string, fs.FileInfo) error) error {
 	*budget--
 	if *budget < 0 {
@@ -301,8 +356,79 @@ func couldntCheck(at string, err error) error {
 	return &linkCheckError{fmt.Sprintf("Smolcorp couldn't check %s, which it keeps from desks (%v), so the desk didn't start.", at, err)}
 }
 
+// checkSharedObjects refuses the start of a desk whose repo's shared .git, gitDir ("" for none), holds an object file
+// with a second name (FXHIREPROJECTSR3, RT126FIXREVIEW-HIREPROJECTSR2 N1). A local clone (`git clone ~/Projects/lib
+// app`) hard-links the objects it copies, so app's copy of lib's README is lib's own file: a desk that rewrote it in
+// its repo's objects, which are its to write, would rewrite lib's, and the owner's next checkout in lib would write
+// the desk's bytes into lib's files (git doesn't check an object's bytes then). The profile can't hold it: the other
+// name may be in any repo, and a rename keeps the file under a name of the desk's, so denying a rewrite in place
+// wouldn't do either. A desk can't make such a name itself: one end of it is always a file it can't write. It looks
+// in the objects folder alone, at most linkCheckMost entries, and fails closed, as checkLinks does. `git repack -a -d
+// && git prune` gives the repo files of its own: the repack packs what its history reaches, and the prune takes away
+// the loose objects nothing reaches, which a repack leaves with their second name (RT126FIXREVIEW-HIREPROJECTSR3 N2).
+func checkSharedObjects(gitDir string) error {
+	if gitDir == "" {
+		return nil
+	}
+	repo := gitDir
+	if filepath.Base(gitDir) == ".git" {
+		repo = filepath.Dir(gitDir)
+	}
+	budget := linkCheckMost
+	err := walkLook(filepath.Join(gitDir, "objects"), 3, func(string) bool { return false }, &budget, func(at string, info fs.FileInfo) error {
+		links, err := linksOf(at, info)
+		switch {
+		case err != nil:
+			return couldntCheck(at, err)
+		case links > 1:
+			return &linkCheckError{fmt.Sprintf("%s, in %s's git objects, has a second name on this %s (a hard link, as a local clone makes), so a desk could change another repository's files through it, and the desk didn't start. Run git repack -a -d && git prune in %s to give it files of its own, then start it again.", at, repo, machineHere(), repo)}
+		}
+		return nil
+	})
+	if budget < 0 { // the repo's own objects, too many loose ones to look at (RT126FIXREVIEW-HIREPROJECTSR3 O7b)
+		return &linkCheckError{fmt.Sprintf("%s's git objects are more than %d files, more than Smolcorp looks at before a desk starts, so the desk didn't start. Run git repack -a -d && git prune in %s to pack them, then start it again.", repo, linkCheckMost, repo)}
+	}
+	return err
+}
+
 func linkedRefusal(at string) error {
 	return &linkCheckError{fmt.Sprintf("%s has a second name on this %s (a hard link), so a desk could read or change it through that name, and the desk didn't start. Remove the other name (%s), then start it again.", at, machineHere(), otherNames(at))}
+}
+
+// linkedRefusalIn is linkedRefusal for a desk whose place is root: a file in a package manager's own folder there
+// (sandbox.ToolsGits, a clone or mirror the desk's Policy holds) has its other name in the repo that folder's clone was
+// made from, which may be a project of the owner's (a local `git clone --mirror` links its objects), so the words never
+// point at that name: the folder is the package manager's to make again (FXHIREPROJECTSR9, RT126FIXREVIEW-HIREPROJECTSR8
+// O4).
+func linkedRefusalIn(root, at string) error {
+	if root == "" || !sandbox.InToolsGits(runtime.GOOS, root, filepath.Dir(at)) {
+		return linkedRefusal(at)
+	}
+	folder := toolsFolderOf(root, filepath.Dir(at))
+	// A Python virtual environment isn't built: it is made again, and its packages installed again
+	// (RT126FIXREVIEW-HIREPROJECTSR9 O5).
+	if name := strings.ToLower(filepath.Base(folder)); name == ".venv" || name == "venv" {
+		return &linkCheckError{fmt.Sprintf("%s has a second name on this %s (a hard link), so a desk could read or change it through that name, and the desk didn't start. It's in %s, a Python virtual environment: delete it, make it again with its packages, then start the desk again.", at, machineHere(), folder)}
+	}
+	return &linkCheckError{fmt.Sprintf("%s has a second name on this %s (a hard link), so a desk could read or change it through that name, and the desk didn't start. It's in %s, a package manager's own folder: delete that folder and build again, then start it again.", at, machineHere(), folder)}
+}
+
+// toolsFolderOf is the package manager's own folder that folder, in one of sandbox.ToolsGits' folders below root, is
+// in: .build, .venv or venv, or vendor/bundle, as each package manager makes it again; else the ToolsGits folder itself.
+func toolsFolderOf(root, folder string) string {
+	top := folder
+	for at := folder; at != root && sandbox.InToolsGits(runtime.GOOS, root, at); at = filepath.Dir(at) {
+		top = at
+	}
+	for at := filepath.Dir(top); at != root && inside(root, at); at = filepath.Dir(at) {
+		switch name := strings.ToLower(filepath.Base(at)); {
+		case name == ".build" || name == ".venv" || name == "venv":
+			return at
+		case name == "bundle" && strings.EqualFold(filepath.Base(filepath.Dir(at)), "vendor"):
+			return at
+		}
+	}
+	return top
 }
 
 // otherNames is how the owner finds the other names of the file at at.

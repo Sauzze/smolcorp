@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -283,6 +284,10 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 	if err != nil {
 		return takeBack(http.StatusInternalServerError, err.Error(), false, true)
 	}
+	// The branch words, on the rule every engine's hire on its own branch is told by (FXGITROWS2R6, O1): only an agent
+	// its sandbox holds. T3 Code's runs in T3 Code, outside Smolcorp's sandbox (t3deskdeck.go), so nothing is said
+	// here, which is true: no row holds its git.
+	brief.Message += deskStartWords(deskBranchWords(runtime.GOOS, false, false, place.Branch))
 	// The fence is checked again right before T3 Code hears of the folder, and right before the thread starts.
 	if !t3FenceHolds(fence, settings) {
 		return takeBack(http.StatusConflict, t3FenceLost, false, true)

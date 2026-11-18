@@ -41,7 +41,7 @@ terminal. Free and open source (MIT).
    each change reviewed by a second agent.
 4. **Approve what ships.** Pushes, merges, releases and deploys wait for you.
 
-To watch all of this on a sample project first, in a folder of its own, run `smolcorp demo` (on a Mac only, for now): a browser page opens for the one click that hires its General Manager ([The demo](docs/demo.md)).
+To watch all of this on a sample project first, in a folder of its own, run `smolcorp demo`: a browser page opens for the one click that hires its General Manager ([The demo](docs/demo.md)). It's made for a Mac: on Windows with the WebView2 Runtime it runs too, but hiring from its page hasn't been tried there yet, and on Linux it says why it can't and stops.
 
 You can also hire anyone yourself: hold a free desk in the office and pick a
 role. [Your team](docs/team.md) has every role and what the General Manager
@@ -59,11 +59,15 @@ can do.
   files and keys. **Hires of Codex, Gemini CLI, OpenCode and Grok don't get
   this fence, and nor do some Claude Code hires you make yourself, such as one
   with no role on the Mac while the manager is off:** they run with their own settings.
+  On a Mac with the sandbox on, 1.26.0 refuses those four agents' hires: they
+  come back in 1.26.1.
   Who gets it differs from system to system: see
   [The fence, and who gets it](docs/team.md#the-fence-and-who-gets-it).
   It's a fence, not a wall: everyone runs as you.
 - **The General Manager's hires each work on a branch of their own**, so
-  nothing lands on main without you.
+  nothing lands on main without you. On a Mac, a hire's sandbox lets it commit
+  only to its own branches: that one, and any new one it makes under its own
+  `hire/<id>/`.
 - **Nothing leaves your network unless you turn it on.** No account, no
   analytics, no cloud service of its own. See
   [Setup, privacy and security](docs/setup.md#privacy-and-security).

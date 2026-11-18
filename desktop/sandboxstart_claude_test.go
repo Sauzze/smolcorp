@@ -453,6 +453,7 @@ func TestAPlainHireOfClaudeCodeIsntStartedWhereOneIsHeld(t *testing.T) {
 		t.Errorf("a window opened: %q", h.windows)
 	}
 	d.config.HireAgent = "codex"
+	hiresOfEveryAgentHere(d)
 	if status, message := d.Perform("hire", "", url.Values{}); status != http.StatusNoContent || len(h.windows) != 1 {
 		t.Errorf("codex: %d %q, %d windows", status, message, len(h.windows))
 	}

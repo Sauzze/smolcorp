@@ -131,7 +131,7 @@ func TestStartHereSaysWhetherDesksRunInTheirSandbox(t *testing.T) {
 	}
 	writeRegistryRows(t, Hire{ID: "in0000000001", Name: "Ada", Sandboxed: true, State: "working"},
 		Hire{ID: "old000000001", Name: "Secretname", State: "working"}, Hire{ID: "old000000002", Name: "Gone", State: "fired"})
-	if c := line(); c.Status != checkTodo || !strings.Contains(c.Detail, "while 1 desk run") || strings.Contains(c.Detail, "Secretname") {
+	if c := line(); c.Status != checkTodo || !strings.Contains(c.Detail, "while 1 desk runs without it") || strings.Contains(c.Detail, "Secretname") {
 		t.Errorf("one desk without it: %+v", c)
 	}
 	if answer := sandboxAnswer(t, d); answer["unsandboxed"] != float64(1) {

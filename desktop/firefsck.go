@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -110,15 +111,33 @@ func storeReader(ctx context.Context, repo string, owner [][2]string) func(args 
 
 // storeBaseRefs are the repo's local base branches, as {id, ref}: main, master, the default branch its origin/HEAD
 // names, and release and every branch under it. The same list a Mac desk's Policy keeps from it (FXREPLACEREFS #2),
-// since the owner's checkout may be on another branch when the fire comes (RT126FIREFSCK's B2).
+// since the owner's checkout may be on another branch when the fire comes (RT126FIREFSCK's B2). The default branches
+// are the repo's pin, read from origin/HEAD the first time (FXGITROWS2, RT126SWEEP2's B2), and what origin/HEAD names
+// now when that is another (FXGITROWS2R1, N1: deskgitrows.go).
 func storeBaseRefs(read func(args ...string) (string, int, error)) ([][2]string, error) {
 	patterns := []string{"refs/heads/main", "refs/heads/master", "refs/heads/release"}
-	origin, status, err := read("symbolic-ref", "-q", "refs/remotes/origin/HEAD")
-	if err != nil {
-		return nil, errors.New("git couldn't say its default branch")
+	common, status, err := read("rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil || status != 0 || !filepath.IsAbs(common) {
+		return nil, errors.New("git couldn't say where its shared .git is")
 	}
-	if def, ok := strings.CutPrefix(origin, "refs/remotes/origin/"); status == 0 && ok && def != "" && !strings.ContainsAny(def, "*?[\\") {
-		patterns = append(patterns, "refs/heads/"+def)
+	var unsaid error
+	pinned, now := pinnedDefaultBranches(common, func() string {
+		origin, status, err := read("symbolic-ref", "-q", "refs/remotes/origin/HEAD")
+		if err != nil {
+			unsaid = errors.New("git couldn't say its default branch")
+		}
+		if def, ok := strings.CutPrefix(origin, "refs/remotes/origin/"); err == nil && status == 0 && ok {
+			return def
+		}
+		return ""
+	})
+	if unsaid != nil {
+		return nil, unsaid
+	}
+	for _, def := range []string{pinned, now} {
+		if def != "" {
+			patterns = append(patterns, "refs/heads/"+def)
+		}
 	}
 	said, status, err := read(append([]string{"for-each-ref", "--format=%(objectname) %(refname)"}, patterns...)...)
 	if err != nil || status != 0 {

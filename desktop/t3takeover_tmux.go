@@ -34,10 +34,13 @@ func (d *Deck) t3StopInTmux(h Hire) error {
 		return refuse(unreached)
 	}
 	// A sandboxed desk with nothing of it running: its socket folder goes, as at its stop, so Hand back's resume can
-	// make it new.
+	// make it new. What it started in the background is ended first, and seen ended, as at a fire (FXFIREREAP): one
+	// that can't be refuses the stop, and Take over or the restart goes no further.
 	ended := func() error {
 		if sandboxed {
-			deskStopped(h, o)
+			if why := deskStopped(h, o); why != "" {
+				return refuse(stopRefusal(h, why))
+			}
 		}
 		return nil
 	}
@@ -167,14 +170,23 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 	// Its start goes to its pane alone, by a ticket (deskstart.go): no script, no shell.
 	command, err := deskStarts.issue(o.CLI, h.ID, tmux, plan, o.Key)
 	if err != nil {
-		deskStopped(Hire{ID: h.ID}, o)
+		// Stopped as the restart's is (sandboxrestart.go), with its socket, so its sandbox is reaped and its socket
+		// folder taken away; a program that stop couldn't end is said too (FXFIREREAPR3).
+		if why := deskStopped(Hire{ID: h.ID, TmuxSocket: tmux.socket}, o); why != "" {
+			return t3Resumed{}, errors.New(err.Error() + " " + why + ".")
+		}
 		return t3Resumed{}, err
 	}
 	// In the folder the session started in (its worktree), never the project the registry names.
 	_, socket, started, err := tmux.start(startedIn(h), command)
 	if err != nil {
 		deskStarts.forget(h.ID)
-		deskStopped(Hire{ID: h.ID, TmuxSocket: tmux.socket}, o)
+		// What the refused start left running in its sandbox is ended first (FXFIREREAPR1): one that can't be says so.
+		stopped := h
+		stopped.TmuxSocket = tmux.socket
+		if why := deskStopped(stopped, o); why != "" {
+			return t3Resumed{}, errors.New(reapWordsAfterColon(why) + ".")
+		}
 		if errors.Is(err, errTmuxDidntStart) {
 			return t3Resumed{}, errors.New("tmux didn't start it.")
 		}

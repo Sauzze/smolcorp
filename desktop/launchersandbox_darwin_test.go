@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,18 +53,26 @@ if echo '{"hook_event_name":"Stop","session_id":"s1"}' | "$SMOLCORP_TEST_SELF" h
 	return bin
 }
 
-// appStandIn is the app's /hook, as a plain hire's relay reaches it: each event's headers and body are kept.
+// appStandIn is the app's /hook, as a plain hire's relay reaches it: each event's headers and body are kept. Each time
+// the launcher connects to its own stream (/launcher), its query is kept too, and the stream ends at once, as a core
+// that restarts ends it (switchplain_darwin_test.go).
 type appStandIn struct {
-	mu     sync.Mutex
-	events []http.Header
-	bodies []string
+	mu        sync.Mutex
+	events    []http.Header
+	bodies    []string
+	launchers []url.Values
 }
 
 func (a *appStandIn) serve(t *testing.T) int {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/launcher" {
+			a.mu.Lock()
+			a.launchers = append(a.launchers, r.URL.Query())
+			a.mu.Unlock()
+		}
 		if r.URL.Path != "/hook" {
-			http.NotFound(w, r) // the launcher's own stream (/launcher) isn't this test's
+			http.NotFound(w, r)
 			return
 		}
 		body, _ := io.ReadAll(r.Body)
@@ -119,8 +128,11 @@ func TestOnAMacAPlainHiresAgentRunsInItsSandboxAndReportsThroughItsLauncher(t *t
 		args                []string // what the agent is started with
 		geminiSandbox       string
 	}{
-		{"Gemini CLI", "gemini", "0.9.0", nil, "false"},
-		{"Codex", "codex", "codex-cli 0.46.0", []string{"-c", `sandbox_mode="danger-full-access"`}, "true"}, // not Codex's to change
+		// A pinned desk's Claude Code, the one plain hire that starts in a Mac's sandbox in 1.26.0: Codex's, Gemini CLI's,
+		// OpenCode's and Grok's don't (notonamac.go, TestOnAMacTheLauncherRefusesEveryAgentButClaudeCodeBeforeItStarts);
+		// the words that switch Codex's and Gemini CLI's own sandboxes off are agentownsandbox_test.go's, and come back
+		// here with their homes (1.26.1).
+		{"Claude Code", "claude", "2.1.300 (Claude Code)", []string{"--settings", `{"sandbox":{"enabled":false}}`}, "true"},
 	} {
 		t.Run(c.row, func(t *testing.T) {
 			bin, folder, sockets := plainProbeAgent(t, c.agent, c.version), t.TempDir(), shortDeskSockets(t)
@@ -146,10 +158,10 @@ func TestOnAMacAPlainHiresAgentRunsInItsSandboxAndReportsThroughItsLauncher(t *t
 	// Codex, as its hook says), whatever the hook would have named.
 	app.mu.Lock()
 	defer app.mu.Unlock()
-	if len(app.events) != 2 {
-		t.Fatalf("the app had %d events, want 2: %q", len(app.events), app.bodies)
+	if len(app.events) != 1 {
+		t.Fatalf("the app had %d events, want 1: %q", len(app.events), app.bodies)
 	}
-	for i, agent := range []string{"gemini", "codex"} {
+	for i, agent := range []string{"claude"} {
 		h := app.events[i]
 		tab := h.Get("X-AgentDeck-Tab")
 		if h.Get(hookKeyHeader) != "fake-hook-key-1" || h.Get("X-AgentDeck-Agent") != agent || !strings.Contains(app.bodies[i], `"session_id":"s1"`) ||
@@ -160,7 +172,8 @@ func TestOnAMacAPlainHiresAgentRunsInItsSandboxAndReportsThroughItsLauncher(t *t
 }
 
 // The control: the same agent, run by hand, is in no sandbox, and reads the secret. And a plain hire's agent too old
-// to switch its own sandbox off is refused before anything of it starts.
+// to switch its own sandbox off is refused before anything of it starts: an old Codex, now before its version is asked
+// (notonamac.go: no Codex hire starts in a Mac's sandbox yet).
 func TestOnAMacTheProbeReadsTheSecretOutsideTheSandboxAndAnOldAgentIsRefused(t *testing.T) {
 	macSandboxHere(t)
 	bin, folder := plainProbeAgent(t, "gemini", "0.9.0"), t.TempDir()
@@ -171,8 +184,34 @@ func TestOnAMacTheProbeReadsTheSecretOutsideTheSandboxAndAnOldAgentIsRefused(t *
 	old := plainProbeAgent(t, "codex", "codex-cli 0.19.9")
 	folder = t.TempDir()
 	probe, said := runPlainLauncher(t, []string{"--hire", strings.Repeat("AB", 16), "codex"}, old, folder, env...)
-	if len(probe) != 0 || !strings.Contains(said, "Update Codex: a desk in its sandbox needs 0.20.0 or later") {
+	if len(probe) != 0 || !strings.Contains(said, notOnAMacYet(Codex, true)) {
 		t.Errorf("an old Codex: %+v, said %q", probe, said)
+	}
+}
+
+// FXPLANTSTERMR2 (B) and R3: the launcher's backstop. A Codex, Gemini CLI, OpenCode or Grok hire that reached the
+// launcher anyway is refused in the hire routes' words, before its version is asked or anything of its desk is made;
+// run by hand, not as a hire, the same agent still starts (no sandbox, nothing refused).
+func TestOnAMacTheLauncherRefusesEveryAgentButClaudeCodeBeforeItStarts(t *testing.T) {
+	macSandboxHere(t)
+	for _, c := range []struct {
+		agent   Agent
+		version string
+	}{{Codex, "codex-cli 0.46.0"}, {Gemini, "0.9.0"}, {OpenCode, "1.0.0"}, {Grok, "1.0.0"}} {
+		t.Run(c.agent.Name(), func(t *testing.T) {
+			bin, folder, sockets := plainProbeAgent(t, string(c.agent), c.version), t.TempDir(), shortDeskSockets(t)
+			env := []string{testDeskSocketsVariable + "=" + sockets, testSecretVariable + "=1"}
+			probe, said := runPlainLauncher(t, []string{"--hire", strings.Repeat("AB", 16), string(c.agent)}, bin, folder, env...)
+			if len(probe) != 0 || !strings.Contains(said, "smolcorp: "+notOnAMacYet(c.agent, true)) {
+				t.Errorf("as a hire: it ran (%+v), or the launcher said %q", probe, said)
+			}
+			if left, _ := filepath.Glob(filepath.Join(sockets, "*")); len(left) != 0 {
+				t.Errorf("a refused hire left %q in the socket folder", left)
+			}
+			if probe, said := runPlainLauncher(t, []string{string(c.agent)}, bin, t.TempDir(), env...); probe["secret"] != "read" {
+				t.Errorf("by hand: %+v (the launcher said %q)", probe, said)
+			}
+		})
 	}
 }
 
@@ -266,12 +305,13 @@ func TestOnAMacAPlainHiresSandboxIsTakenAwayWhenItsWindowCloses(t *testing.T) {
 	macSandboxHere(t)
 	for _, end := range []syscall.Signal{syscall.SIGHUP, syscall.SIGTERM} {
 		bin, folder, sockets := t.TempDir(), t.TempDir(), shortDeskSockets(t)
-		writeFile(t, filepath.Join(bin, "gemini"), "#!/bin/sh\n[ \"$1\" = --version ] && { echo 0.9.0; exit 0; }\n: > ./started\nexec /bin/sleep 30\n")
-		if err := os.Chmod(filepath.Join(bin, "gemini"), 0o755); err != nil {
+		// Claude Code: no other agent's hire starts in a Mac's sandbox in 1.26.0 (notonamac.go).
+		writeFile(t, filepath.Join(bin, "claude"), "#!/bin/sh\n[ \"$1\" = --version ] && { echo 2.1.300; exit 0; }\n: > ./started\nexec /bin/sleep 30\n")
+		if err := os.Chmod(filepath.Join(bin, "claude"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		cmd := exec.Command(os.Args[0], "-test.run=^$")
-		cmd.Env = append(os.Environ(), launcherStandInVariable+"="+string(must(json.Marshal([]string{"--hire", strings.Repeat("AB", 16), "gemini"}))),
+		cmd.Env = append(os.Environ(), launcherStandInVariable+"="+string(must(json.Marshal([]string{"--hire", strings.Repeat("AB", 16), "claude"}))),
 			"PATH="+bin+":/usr/bin:/bin", deskStandInVariable+"=1", testDeskSocketsVariable+"="+sockets)
 		cmd.Dir = folder
 		if err := cmd.Start(); err != nil {

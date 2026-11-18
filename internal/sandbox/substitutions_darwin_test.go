@@ -78,7 +78,9 @@ func TestOnAMacTheProfileKeepsGitsSubstitutionsFromADesk(t *testing.T) {
 		{"write", git + "/objects/pack/pack-b.rev", "", ok}, {"write", git + "/objects/pack/pack-b.bitmap", "", ok},
 		{"unlink", git + "/objects/pack/pack-a.idx", "", ok}, {"mkdir", git + "/objects/ab", "", ok},
 		{"write", git + "/objects/ab/cdef", "", ok}, {"write", git + "/logs/refs/heads/hire/h1/work", "", ok},
-		{"write", git + "/refs/tags/v2", "", ok}, {"write", git + "/worktrees/h1/HEAD", "", ok}, {"write", root + "/main.go", "", ok},
+		// A ref of its own beside refs/replace: its branch, since a desk writes no tag from FXGITROWS2R4 (this stand-in
+		// moved in FXGITROWS2R6).
+		{"write", git + "/refs/heads/hire/h1", "", ok}, {"write", git + "/worktrees/h1/HEAD", "", ok}, {"write", root + "/main.go", "", ok},
 	}
 	var args [][]string
 	for _, s := range steps {

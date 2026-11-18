@@ -273,7 +273,7 @@ func TestTheUpdateFrom1242OnAMacSealsTheOfficeAndSaysWhatReset(t *testing.T) {
 		}
 	}
 	line := updateLineSays(t, d, time.Now(), checkTodo, []string{updateKept, updateKeys, updatePhone,
-		"The 2 Macs paired with this one before the update were let go: pair each one again.", updateByHand,
+		updateByHand,
 		"Re-hire your hires from 1.24 (Ada, Bo and the General Manager)"}, "fell back")
 	// In the self-test, as Start here and `smolcorp setup` show it: first, before the app's install line.
 	checks := d.selfTest()

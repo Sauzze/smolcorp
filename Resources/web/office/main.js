@@ -33548,6 +33548,25 @@
       frameRate = Number(asked.get('fps')) || 0; // and `fps=` a rate of its own, for measuring
       comparing = asked.has('compare');
     } catch {}
+    /**
+     * The room's art where the page shows it on its own layer under the canvas (artLayerOf), drawn into `page`, a
+     * context the canvas's size, where the page would show it: cut to the window, the canvas then drawn over it. Nothing
+     * where the art is on the canvas itself. A copy of the canvas alone (compareDirect, the Pixel Terminal's picture)
+     * would show the names and no room.
+     */
+    function artUnder(page) {
+      const layer = artLayers.get(canvas);
+      if (!layer || !layer.shown || !layer.view || layer.view.style.display === 'none' || !layer.at) return;
+      const { at, edge, view } = layer;
+      page.save();
+      if (edge) {
+        roundedRect(page, edge.glass.x, edge.glass.y, edge.glass.w, edge.glass.h, edge.glass.r);
+        page.clip();
+      }
+      page.drawImage(view, at.x, at.y, view.width * at.scale, view.height * at.scale);
+      page.restore();
+    }
+
     function compareDirect(storey, frames) {
       const doc = canvas.ownerDocument, check = compareDirect.canvas || (compareDirect.canvas = doc.createElement('canvas'));
       check.width = canvas.width;
@@ -33564,17 +33583,7 @@
       page.imageSmoothingEnabled = false;
       page.fillStyle = '#7a7f8a';
       page.fillRect(0, 0, canvas.width, canvas.height);
-      const layer = artLayers.get(canvas);
-      if (layer && layer.shown && layer.view.style.display !== 'none') {
-        const { at, edge, view } = layer;
-        page.save();
-        if (edge) {
-          roundedRect(page, edge.glass.x, edge.glass.y, edge.glass.w, edge.glass.h, edge.glass.r);
-          page.clip();
-        }
-        page.drawImage(view, at.x, at.y, view.width * at.scale, view.height * at.scale);
-        page.restore();
-      }
+      artUnder(page);
       page.drawImage(canvas, 0, 0);
       const a = new Uint32Array(page.getImageData(0, 0, canvas.width, canvas.height).data.buffer);
       const direct = compareDirect.direct || (compareDirect.direct = doc.createElement('canvas'));
@@ -34019,8 +34028,9 @@
         const session = sessionOf(id);
         return session ? TALK_BUBBLE.nameOf(session, memberOf(session) && memberOf(session).name) : 'Agent';
       };
-      // cog: the settings' key where the room last drew it, in art pixels ({ x, y, w, h }), or null with none drawn
-      return { canvas, anchor: talkAnchor, view: talkView, shape: () => shape, session: sessionOf, name, cog: () => styleKeyAt };
+      // cog: the settings' key where the room last drew it, in art pixels ({ x, y, w, h }), or null with none drawn;
+      // artUnder: the room's art on its own layer, for a picture of the canvas (the Pixel Terminal's)
+      return { canvas, anchor: talkAnchor, view: talkView, shape: () => shape, session: sessionOf, name, cog: () => styleKeyAt, artUnder };
     }
 
     /** The next frame, or step, called off. */

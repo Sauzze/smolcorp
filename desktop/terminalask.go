@@ -25,11 +25,17 @@ import (
 // shows the ask, with the folder the terminal says it runs in and the same code: Allow is offered only once you've
 // ticked that the code in the terminal is the same. The terminal waits with GET /terminal/ask?ticket=…, and the key
 // comes back on that ticket once, to that process, which keeps it in memory. Any program of yours can ask; none can
-// see another ask's code or ticket, or answer one. Only Smolcorp's own window, where there is one, and the paired
-// phone may answer, never a browser's Setup, whose cookie other programs can read, or whose link they can use first
-// (the owner's B8 STRICT, 13 Nov). So under the Mac app its Settings window answers; off a Mac nothing answers yet
-// (Windows' office window has no way to, and the phone's route is FS3's), and a terminal's ask is refused at once,
-// in words that say so, as Setup says it too (terminalAskOff).
+// see another ask's code or ticket, or answer one. Only Smolcorp's own Settings window answers, never a browser's
+// Setup, whose cookie other programs can read, or whose link they can use first (the owner's B8 STRICT, 13 Nov), and
+// never the phone. So under the Mac app its Settings window answers, and on Windows with WebView2 Smolcorp's own
+// Settings window there (settingswindow.go, FXWINTOOLASK). Where Smolcorp has no window of its own (Linux, a Windows
+// without WebView2, `smolcorp serve`) nothing answers, and a terminal's ask is refused at once, in words that say so,
+// as Setup says it too (terminalAskOff).
+//
+// On Windows there's no sandbox, so a hire can ask as well as you, and print the code in its own window
+// (RT126SWEEP2 P4 F4). So there the window also says which program asked, as Windows itself says it: the program
+// holding the asking connection, and the programs that started it (askprogram.go). The folder is still the asker's
+// own words.
 
 // terminalAskPath is the terminal's route: POST asks, GET waits for the answer.
 const terminalAskPath = "/terminal/ask"
@@ -48,8 +54,9 @@ type terminalAsk struct {
 	folder string // as the terminal said it: shown, never trusted
 	code   string // four digits, unique among the asks waiting
 	asked  time.Time
-	answer string // "", askAnswering, "allow", "deny"
-	key    string // on allow, until the terminal takes it
+	answer string   // "", askAnswering, "allow", "deny"
+	asker  askAsker // which program asked, where the system can say (askprogram.go)
+	key    string   // on allow, until the terminal takes it
 	done   chan struct{}
 }
 
@@ -103,11 +110,11 @@ func (a *terminalAsks) prune(now time.Time) {
 	a.all = slices.DeleteFunc(a.all, func(ask *terminalAsk) bool { return now.Sub(ask.asked) > askLifetime })
 }
 
-// add makes an ask, or says why not.
-func (a *terminalAsks) add(kind, folder string) (*terminalAsk, string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	now := time.Now()
+// asksFull is what an ask is told while asksMost are waiting.
+const asksFull = "Smolcorp already has asks waiting for you: answer them in Smolcorp's window first."
+
+// full is whether asksMost asks are waiting already. The caller holds a.mu.
+func (a *terminalAsks) full(now time.Time) bool {
 	a.prune(now)
 	waiting := 0
 	for _, ask := range a.all {
@@ -115,10 +122,26 @@ func (a *terminalAsks) add(kind, folder string) (*terminalAsk, string) {
 			waiting++
 		}
 	}
-	if waiting >= asksMost {
-		return nil, "Smolcorp already has asks waiting for you: answer them in Smolcorp's window first."
+	return waiting >= asksMost
+}
+
+// isFull is full, for a caller that doesn't hold a.mu: checked before the asker is read (askingProgram), so an ask
+// that is refused anyway costs no look at Windows' tables (RT126FIXREVIEW-WINTOOLASK O3).
+func (a *terminalAsks) isFull() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.full(time.Now())
+}
+
+// add makes an ask, or says why not.
+func (a *terminalAsks) add(kind, folder string, asker askAsker) (*terminalAsk, string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	if a.full(now) {
+		return nil, asksFull
 	}
-	ask := &terminalAsk{id: newID(), ticket: randomKey(), kind: kind, folder: askFolder(folder), asked: now, done: make(chan struct{})}
+	ask := &terminalAsk{id: newID(), ticket: randomKey(), kind: kind, folder: askFolder(folder), asker: asker, asked: now, done: make(chan struct{})}
 	// A code no other ask has, so a program can't ask until its code is yours.
 	for ask.code = askCode(); slices.ContainsFunc(a.all, func(other *terminalAsk) bool { return other.code == ask.code }); {
 		ask.code = askCode()
@@ -135,8 +158,10 @@ func (a *terminalAsks) waiting() []map[string]any {
 	var shown []map[string]any
 	for _, ask := range a.all {
 		if ask.answer == "" {
-			shown = append(shown, map[string]any{"id": ask.id, "kind": ask.kind, "folder": ask.folder,
-				"code": askCodeShown(ask.code), "askedAt": ask.asked.UnixMilli()})
+			one := map[string]any{"id": ask.id, "kind": ask.kind, "folder": ask.folder,
+				"code": askCodeShown(ask.code), "askedAt": ask.asked.UnixMilli()}
+			ask.asker.shown(one)
+			shown = append(shown, one)
 		}
 	}
 	return shown
@@ -242,9 +267,10 @@ func (d *Deck) terminalAskRoute(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusBadRequest, "Say kind=gm or kind=tool.")
 			return
 		}
-		// Off a Mac nothing may answer it yet (the owner's B8 STRICT): said now, not after three minutes of waiting.
-		if kind == askTool && d.macHost() == nil {
-			writeStatus(w)(http.StatusForbidden, terminalAskOff(runtime.GOOS))
+		// Where Smolcorp has no window of its own nothing may answer it (the owner's B8 STRICT): said now, not after
+		// three minutes of waiting.
+		if kind == askTool && !d.ownSettingsWindow() {
+			writeStatus(w)(http.StatusForbidden, terminalAskOffHere())
 			return
 		}
 		if kind == askGM {
@@ -252,17 +278,22 @@ func (d *Deck) terminalAskRoute(w http.ResponseWriter, r *request) {
 			allowed := d.byHandAllowed()
 			d.mu.Unlock()
 			if !allowed {
-				writeStatus(w)(http.StatusForbidden, gmLoginOff(d.macHost() != nil))
+				writeStatus(w)(http.StatusForbidden, gmLoginOff(d.macHost() != nil, d.ownSettingsWindow()))
 				return
 			}
 		}
-		ask, why := d.asks.add(kind, r.URL.Query().Get("folder"))
+		// Refused while full before the asker is read: asked again by add, as one may have come meanwhile.
+		if d.asks.isFull() {
+			writeStatus(w)(http.StatusTooManyRequests, asksFull)
+			return
+		}
+		ask, why := d.asks.add(kind, r.URL.Query().Get("folder"), askingProgram(r.Request))
 		if ask == nil {
 			writeStatus(w)(http.StatusTooManyRequests, why)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ticket": ask.ticket, "code": askCodeShown(ask.code),
-			"expiresIn": int(askLifetime.Seconds()), "where": askWhere(d.macHost() != nil)})
+			"expiresIn": int(askLifetime.Seconds()), "where": askWhere(d.macHost() != nil, d.ownSettingsWindow())})
 	case http.MethodGet:
 		ticket := r.URL.Query().Get("ticket")
 		if done := d.asks.doneOf(ticket); done != nil {
@@ -287,40 +318,72 @@ func (d *Deck) terminalAskRoute(w http.ResponseWriter, r *request) {
 	}
 }
 
-// gmLoginOff is why `smolcorp gm login` isn't taken.
-func gmLoginOff(mac bool) string {
-	if !mac {
-		return "A General Manager you start yourself is the Mac's only: here, hire your General Manager from Setup."
+// gmLoginOff is why `smolcorp gm login` isn't taken: the setting is off, or Smolcorp has no window of its own here
+// to say yes in (window).
+func gmLoginOff(mac, window bool) string {
+	switch {
+	case mac:
+		return "Turn on Allow a General Manager started by hand in Smolcorp's Settings, Hires and roles, then run smolcorp gm login again."
+	case window:
+		return "Turn on Allow a General Manager started by hand in Smolcorp's Settings window (the tray icon, then Open Setup…), " +
+			"Hires and roles, then run smolcorp gm login again."
 	}
-	return "Turn on Allow a General Manager started by hand in Smolcorp's Settings, Hires and roles, then run smolcorp gm login again."
+	return "A General Manager you start yourself needs Smolcorp's own Settings window to say yes in, and this computer has none: " +
+		"here, hire your General Manager from Setup."
 }
 
-// terminalAskOff is why, off a Mac, no terminal is given a key, as the terminal and Setup say it: only Smolcorp's own
-// window, where there is one, and your paired phone may say yes to it (the owner's B8 STRICT), and neither can yet.
-func terminalAskOff(goos string) string {
-	who := "only your paired phone may let a command in a terminal into Smolcorp, and it can't yet: that comes in a later update."
-	if goos == "windows" {
-		who = "only Smolcorp's own window or your paired phone may let a command in a terminal into Smolcorp, and neither can yet: that comes in a later update."
+// terminalAskOff is why, where Smolcorp has no window of its own, no terminal is given a key, as the terminal and
+// Setup say it: only that window may say yes to it (the owner's B8 STRICT). On Windows, why the window isn't there:
+// Smolcorp runs as `smolcorp serve` (app false), WebView2 was found but made no window (broken), or WebView2 isn't
+// installed; the tray is named only where there is one (RT126FIXREVIEW-WINTOOLASK O6). Elsewhere (Linux) the words
+// say what RELEASE-NOTES.md says: no window of Smolcorp's own to say yes in yet, and never the phone, which doesn't
+// answer a terminal's ask (the owner's Q8; RT126FIXREVIEW-WINTOOLASKR1 O2).
+func terminalAskOff(goos string, app, broken bool) string {
+	if goos != "windows" {
+		return "On this computer, only a window of Smolcorp's own may let a command in a terminal into Smolcorp, and there's " +
+			"none here yet. A setup page in a browser can't, as another program could be using it. So smolcorp demo, status " +
+			"and desks don't run here: see your team and set things up in Setup (the tray icon, then Open Setup…)."
 	}
-	return "On this computer, " + who + " A setup page in a browser can't, as another program could be using it. " +
-		"Until then, smolcorp demo, status and desks don't run here: see your team and set things up in Setup (the tray icon, then Open Setup…)."
+	why, setup := "", "Setup (the tray icon, then Open Setup…)"
+	switch {
+	case !app:
+		why, setup = "That window comes with Smolcorp's app, and Smolcorp is running here as smolcorp serve, which has no windows.",
+			"Setup, at the address smolcorp serve printed"
+	case broken:
+		why = "That window didn't open this time: quit Smolcorp and open it again to try once more."
+	default:
+		why = "That window needs the Microsoft Edge WebView2 Runtime, free from Microsoft, and this computer doesn't have it."
+	}
+	return "On this computer, only Smolcorp's own Settings window may let a command in a terminal into Smolcorp: a setup page " +
+		"in a browser can't, as another program could be using it. " + why + " Until the window can open, smolcorp demo, status " +
+		"and desks don't run here: see your team and set things up in " + setup + "."
 }
 
-// askWhere is where the terminal tells you to look.
-func askWhere(mac bool) string {
-	if mac {
+// terminalAskOffHere is terminalAskOff for this computer and this run of Smolcorp.
+func terminalAskOffHere() string {
+	return terminalAskOff(runtime.GOOS, settingsWindowApp.Load(), settingsWindowBroken.Load())
+}
+
+// askWhere is where the terminal tells you to look: the Mac's Settings, or Windows' own Settings window. (Where
+// Smolcorp has neither, the ask is refused before this is said.)
+func askWhere(mac, window bool) string {
+	switch {
+	case mac:
 		return "Smolcorp's Settings (menu bar icon, then Settings…)"
+	case window:
+		return "Smolcorp's Settings window (the tray icon, then Open Setup…)"
 	}
 	return "Smolcorp's setup page (the tray icon, then Open Setup…)"
 }
 
 // answerTerminalAsk is POST /setup/terminal/answer?id=…&code=…&answer=allow|deny, the page's alone, and only Smolcorp's
-// own Settings window's, under the Mac app: never a browser's Setup, and off a Mac nobody's (terminalAskOff). The code
-// is the one the page showed, which you ticked as the terminal's.
+// own Settings window's, under the Mac app and on Windows with WebView2: never a browser's Setup, nor the phone, and
+// where Smolcorp has no window of its own nobody's (terminalAskOff). The code is the one the page showed, which you
+// ticked as the terminal's.
 func (rt *router) answerTerminalAsk(w http.ResponseWriter, r *request) {
 	d := rt.deck
-	if d.macHost() == nil {
-		writeStatus(w)(http.StatusForbidden, terminalAskOff(runtime.GOOS))
+	if !d.ownSettingsWindow() {
+		writeStatus(w)(http.StatusForbidden, terminalAskOffHere())
 		return
 	}
 	if !d.isWindowPage(r.Request) {
@@ -375,7 +438,7 @@ func (d *Deck) keyForAsk(kind string) (string, string) {
 	allowed := d.byHandAllowed()
 	d.mu.Unlock()
 	if !allowed {
-		return "", gmLoginOff(d.macHost() != nil)
+		return "", gmLoginOff(d.macHost() != nil, d.ownSettingsWindow())
 	}
 	// While the records' key can't be read no new token is kept (gmTokenKeeper.writeNow), so none is given: refused
 	// with Setup's reason, as a rotation in Setup is (RT126SK1R4 follow-up 3), and the token from before goes on

@@ -529,14 +529,28 @@ func TestGitIsReadWithNothingToAskAndNoOtherRepoNamed(t *testing.T) {
 		"GIT_TEST_ASSUME_DIFFERENT_OWNER=1", "GIT_LITERAL_PATHSPECS=1", "GIT_GLOB_PATHSPECS=1", "GIT_NOGLOB_PATHSPECS=1", "git_icase_pathspecs=1"}
 	want := "PATH=/bin HOME=/h GIT_AUTHOR_NAME=kept GIT_TEST_ASSUME_DIFFERENT_OWNER=1 GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 GIT_PAGER=cat GIT_ALLOW_PROTOCOL= GIT_NO_LAZY_FETCH=1 " +
 		"GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=" + os.DevNull + " GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE="
-	// FXREPLACEREFS: gitReadAround, last.
-	around := "GIT_CONFIG_KEY_%d=core.commitGraph GIT_CONFIG_VALUE_%d=false GIT_CONFIG_KEY_%d=core.multiPackIndex GIT_CONFIG_VALUE_%d=false"
-	if got := strings.Join(gitReadEnv(app, nil), " "); got != want+" GIT_CONFIG_COUNT=2 "+fmt.Sprintf(around, 0, 0, 1, 1) {
+	// FXREPLACEREFS: gitReadAround, last. FXWINWORKTREER3: on Windows, the grafts file is the null device, and git's
+	// hint about it is off, after gitReadAround.
+	keys := []string{"core.commitGraph", "core.multiPackIndex"}
+	counts := [2]string{" GIT_CONFIG_COUNT=2 ", " GIT_CONFIG_COUNT=4 "}
+	if runtime.GOOS == "windows" {
+		want += os.DevNull
+		keys = append(keys, "advice.graftFileDeprecated")
+		counts = [2]string{" GIT_CONFIG_COUNT=3 ", " GIT_CONFIG_COUNT=5 "}
+	}
+	around := func(n int) string { // keys, each false, numbered from n
+		var each []string
+		for i, key := range keys {
+			each = append(each, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s GIT_CONFIG_VALUE_%d=false", n+i, key, n+i))
+		}
+		return strings.Join(each, " ")
+	}
+	if got := strings.Join(gitReadEnv(app, nil), " "); got != want+counts[0]+around(0) {
 		t.Errorf("%s", got)
 	}
 	// Config is handed over whole, a key with an "=" in its subsection included.
 	got := strings.Join(gitReadEnv(app, [][2]string{{"filter.x=y.clean", ""}, {"filter.x=y.required", "false"}}), " ")
-	if got != want+" GIT_CONFIG_COUNT=4 GIT_CONFIG_KEY_0=filter.x=y.clean GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=filter.x=y.required GIT_CONFIG_VALUE_1=false "+fmt.Sprintf(around, 2, 2, 3, 3) {
+	if got != want+counts[1]+"GIT_CONFIG_KEY_0=filter.x=y.clean GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=filter.x=y.required GIT_CONFIG_VALUE_1=false "+around(2) {
 		t.Errorf("%s", got)
 	}
 }
@@ -887,6 +901,78 @@ func TestAnAnswerOverTheCapStopsTheCopy(t *testing.T) {
 	}
 	if _, err := out.Write(chunk); !errors.Is(err, errGitTooBig) || !out.over {
 		t.Errorf("%v %v", err, out.over)
+	}
+}
+
+// FXWINWORKTREER4: a listing read as it comes (gitRecords) gives each whole record once, however git's writes cut
+// it, past gitOutputCap; a record past gitRecordMost, a listing past its bound, a last record cut short, or its
+// reader's error stops it, and every write after.
+func TestAListingReadAsItComesGivesEachRecordWhole(t *testing.T) {
+	var got []string
+	taken := func(record []byte) error { got = append(got, string(record)); return nil }
+	whole := &gitRecords{sep: 0, each: taken}
+	past := strings.Repeat(strings.Repeat("x", 999)+"\x00", gitOutputCap/1000+1) // past the cap, in records of 1,000 bytes
+	for _, chunk := range []string{"one\x00tw", "", "o\x00three", "\x00", past} {
+		if n, err := whole.Write([]byte(chunk)); err != nil || n != len(chunk) {
+			t.Fatalf("%d %v", n, err)
+		}
+	}
+	if err := whole.end(); err != nil || len(got) != 3+gitOutputCap/1000+1 || got[0] != "one" || got[1] != "two" || got[2] != "three" {
+		t.Errorf("%v %d records %q", err, len(got), got[:min(len(got), 3)])
+	}
+
+	long := &gitRecords{sep: 0, each: taken}
+	if _, err := long.Write([]byte(strings.Repeat("x", gitRecordMost))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := long.Write([]byte("a\x00")); !errors.Is(err, errGitTooBig) {
+		t.Errorf("a record past gitRecordMost: %v", err)
+	}
+	bounded := &gitRecords{sep: '\n', most: 10, each: taken}
+	if _, err := bounded.Write([]byte("12345\n12345\n")); !errors.Is(err, errGitTooBig) || !errors.Is(bounded.end(), errGitTooBig) {
+		t.Errorf("a listing past its bound: %v", err)
+	}
+	cut := &gitRecords{sep: '\n', each: taken}
+	if _, err := cut.Write([]byte("whole\nhalf")); err != nil || cut.end() == nil {
+		t.Errorf("a last record cut short: %v %v", err, cut.end())
+	}
+	no := errors.New("no")
+	refused := &gitRecords{sep: '\n', each: func([]byte) error { return no }}
+	if _, err := refused.Write([]byte("a\n")); !errors.Is(err, no) {
+		t.Errorf("the reader's error: %v", err)
+	}
+	if _, err := refused.Write([]byte("b\n")); !errors.Is(err, no) || !errors.Is(refused.end(), no) {
+		t.Errorf("a write after the stop: %v", err)
+	}
+}
+
+// FXWINWORKTREER4: the fire's reader of the index (deskGitlinks) keeps a gitlink's path alone, and stops at a record
+// git never gives or at a gitlink past deskGitlinksMost, so the tree is kept.
+func TestTheFiresIndexReaderKeepsGitlinksAndStopsAtWhatIsntARecord(t *testing.T) {
+	id := strings.Repeat("a", 40)
+	links := &deskGitlinks{}
+	for _, record := range []string{"100644 " + id + " 0\tsub/a.txt", "160000 " + id + " 0\tsub/mod", "120000 " + id + " 0\tlink"} {
+		if err := links.take([]byte(record)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if links.records != 3 || len(links.paths) != 1 || links.paths[0] != "sub/mod" {
+		t.Errorf("%d records, gitlinks %q", links.records, links.paths)
+	}
+	for _, record := range []string{"", "a.txt", "100644 " + id + " 0", "100644 " + id + "\ta.txt", "10064 " + id + " 0\ta.txt",
+		"10064x " + id + " 0\ta.txt", "100644 " + id + " 0\t"} {
+		if err := (&deskGitlinks{}).take([]byte(record)); err == nil {
+			t.Errorf("%q was taken as a record", record)
+		}
+	}
+	many := &deskGitlinks{}
+	for i := range deskGitlinksMost {
+		if err := many.take([]byte(fmt.Sprintf("160000 %s 0\tm/%d", id, i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := many.take([]byte("160000 " + id + " 0\tm/last")); err == nil {
+		t.Errorf("gitlink %d was taken", deskGitlinksMost+1)
 	}
 }
 

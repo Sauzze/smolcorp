@@ -40,7 +40,11 @@ want to approve yourself. Then it:
   or reaches a real person;
 - keeps its board of what's done and what's left next to its brief.
 
-Each hire works on a branch of its own, in its own git worktree. The GM can
+Each hire works on a branch of its own, in its own git worktree. On a Mac,
+its sandbox lets it commit only to its own branches: that one, and any new
+one it makes under its own `hire/<id>/`. Other branches, tags and
+`git stash` aren't open to it. For another branch or a tag it asks the GM
+or you, and the GM asks you. The GM can
 pin a project to a desk and give a person a nickname: `smolcorp gm pin`,
 `smolcorp gm unpin --desk N` and `smolcorp gm nickname <name>`, with desks
 counted from 1, as in the office.
@@ -61,10 +65,12 @@ and fires, messages its hires, sets watches, names people and pins desks. It
 hires only into a hire Smolcorp can fence: on Linux in tmux, and on Windows
 only with managed hires turned on, a beta that's off by default
 (`"hireManagedWindows": true` in `config.json`). Otherwise its hire is refused,
-saying what to install or turn on. Tiling the team's windows, choosing the
-screen that holds them, and a General Manager started by hand are the Mac's.
-On Windows and Linux, a General Manager you hired keeps its token across
-restarts; for a new one, hire it again from Setup.
+saying what to install or turn on. Tiling the team's windows and choosing the
+screen that holds them are the Mac's. A General Manager started by hand
+(`smolcorp gm login`) works on a Mac and on Windows with the Microsoft Edge
+WebView2 Runtime. A General Manager you hired keeps its token across restarts.
+For a new token, on Linux and on Windows without WebView2, hire it again from
+Setup; elsewhere, use **New GM token** or `smolcorp gm login`.
 
 On a Mac, the General Manager and the hires it manages run in tmux, each in a
 session of its own: if tmux isn't installed, hiring them says so
@@ -132,10 +138,11 @@ Add `--json` to get the answers as Smolcorp serves them, and `smolcorp status
 
 - **They only read.** Each run asks Smolcorp for a key: it prints a
   four-digit code, Smolcorp shows the same code in its Settings window, and
-  you click **Allow** there once they match. That's on a Mac only for now: on
-  Windows and Linux nothing may say yes to a terminal yet (only your paired
-  phone will, and on Windows Smolcorp's own window), so these commands say so
-  and stop; Setup shows your team instead. The key stays in that
+  you click **Allow** there once they match. That's on a Mac, and on Windows
+  with WebView2 (the tray icon, then **Open Setup…**), where the window also
+  names the program that asked. On Linux, and on Windows without WebView2,
+  nothing may say yes to a terminal, so these commands say so and stop; Setup
+  shows your team instead. The key stays in that
   command's memory and goes with it: no file holds it, and no command prints it.
   They never use the General Manager's token or the office window's key, so a
   terminal of yours can't pass for the General Manager.
@@ -178,6 +185,13 @@ every hire while managed hires are off; and everywhere, every hire of Codex,
 Gemini CLI, OpenCode and Grok. They run with their own settings, as they would
 if you'd started them yourself. The hire sheet in setup and the office say so
 when you pick one.
+
+**On a Mac with the sandbox on** (Setup's **Start desks in their sandbox**,
+which covers every hire, plain hires included), 1.26.0 hires run Claude Code:
+a hire of Codex, Gemini CLI, OpenCode or Grok is refused before anything
+opens, and they come back in 1.26.1. With the sandbox off, they start as
+before. Started yourself, in your own terminal, they work with the office as
+they always have.
 
 ## Hires in the background, and T3 Code
 

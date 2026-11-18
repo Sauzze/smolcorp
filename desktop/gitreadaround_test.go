@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -138,21 +139,30 @@ func rewriteSealed(t *testing.T, file string, change func(data []byte)) {
 func TestTheCoresReadsLeaveGitsSubstitutionsOut(t *testing.T) {
 	app := []string{"PATH=/bin", "GIT_NO_REPLACE_OBJECTS=0", "git_graft_file=/elsewhere/grafts", "GIT_REPLACE_REF_BASE=refs/heads/"}
 	env := gitReadEnv(app, [][2]string{{"core.commitGraph", "true"}, {"core.multiPackIndex", "true"}})
-	for _, want := range []string{"GIT_NO_REPLACE_OBJECTS=1", "GIT_GRAFT_FILE="} {
+	// The grafts file: none at all off Windows, the null device on Windows (gitNoGrafts), with git's hint about it off.
+	graftFile, hint := "GIT_GRAFT_FILE=", ""
+	if runtime.GOOS == "windows" {
+		graftFile, hint = "GIT_GRAFT_FILE="+os.DevNull, " GIT_CONFIG_KEY_4=advice.graftFileDeprecated GIT_CONFIG_VALUE_4=false"
+	}
+	for _, want := range []string{"GIT_NO_REPLACE_OBJECTS=1", graftFile} {
 		if n := len(slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return kv != want })); n != 1 {
 			t.Errorf("%s is there %d times: %q", want, n, env)
 		}
 	}
 	for _, kv := range env {
 		name, _, _ := strings.Cut(strings.ToUpper(kv), "=")
-		if name == "GIT_REPLACE_REF_BASE" || name == "GIT_NO_REPLACE_OBJECTS" && kv != "GIT_NO_REPLACE_OBJECTS=1" || name == "GIT_GRAFT_FILE" && kv != "GIT_GRAFT_FILE=" {
+		if name == "GIT_REPLACE_REF_BASE" || name == "GIT_NO_REPLACE_OBJECTS" && kv != "GIT_NO_REPLACE_OBJECTS=1" || name == "GIT_GRAFT_FILE" && kv != graftFile {
 			t.Errorf("the app's %s is handed on", kv)
 		}
 	}
 	// The caller's values first, gitReadAround's last: git takes the last.
-	if got := strings.Join(env, " "); !strings.HasSuffix(got, "GIT_CONFIG_COUNT=4 GIT_CONFIG_KEY_0=core.commitGraph GIT_CONFIG_VALUE_0=true "+
+	count := "GIT_CONFIG_COUNT=4 "
+	if hint != "" {
+		count = "GIT_CONFIG_COUNT=5 "
+	}
+	if got := strings.Join(env, " "); !strings.HasSuffix(got, count+"GIT_CONFIG_KEY_0=core.commitGraph GIT_CONFIG_VALUE_0=true "+
 		"GIT_CONFIG_KEY_1=core.multiPackIndex GIT_CONFIG_VALUE_1=true GIT_CONFIG_KEY_2=core.commitGraph GIT_CONFIG_VALUE_2=false "+
-		"GIT_CONFIG_KEY_3=core.multiPackIndex GIT_CONFIG_VALUE_3=false") {
+		"GIT_CONFIG_KEY_3=core.multiPackIndex GIT_CONFIG_VALUE_3=false"+hint) {
 		t.Errorf("the settings around a read aren't last: %s", got)
 	}
 }
@@ -209,6 +219,69 @@ func TestTheCoresGitReadsABaseBranchAsItIs(t *testing.T) {
 			t.Errorf("the core's read of main:f: %q, want base", got)
 		}
 	})
+}
+
+// FXWINWORKTREER3: git opens the grafts file the core's reads name without a word on its standard error, so a clean
+// tree's status says nothing (the fire's first look, removeWorkspace), and the file still holds no grafts: the repo's
+// own info/grafts, which the owner's git takes, isn't read. Two forms: this computer's (an empty name off Windows, the
+// null device on it), and Windows' (the null device, git's hint about grafts off) with this computer's null device.
+// On Windows, an empty name is tried too, for the words Git for Windows gives it: windows-latest's were the one form
+// harmlessGitWarnings names.
+func TestTheCoresReadsNameAGraftsFileGitOpensQuietly(t *testing.T) {
+	windowsFile, windowsHint := gitNoGrafts(true)
+	for _, form := range []struct {
+		name string
+		file string
+		hint [][2]string
+	}{
+		{"this computer's", gitNoGraftFile, gitNoGraftHint},
+		{"Windows' form", windowsFile, windowsHint},
+	} {
+		t.Run(form.name, func(t *testing.T) {
+			r := aSubstRepo(t)
+			writeRepoFile(t, r.dir, ".git/info/grafts", r.b+" "+r.d+"\n")
+			if status, _, errs := gitWithGrafts(t, r.dir, form.file, form.hint, "status", "--porcelain", "--ignore-submodules=all"); status != 0 || errs != "" {
+				t.Errorf("the status: exit %d, standard error %q", status, errs)
+			}
+			if status, out, errs := gitWithGrafts(t, r.dir, form.file, form.hint, "log", "-1", "--format=%H", "main"); status != 0 || out != r.b || errs != "" {
+				t.Errorf("main's log: exit %d, %q, standard error %q", status, out, errs)
+			}
+			if status, _, errs := gitWithGrafts(t, r.dir, form.file, form.hint, "merge-base", "--is-ancestor", r.d, "main"); status != 1 || errs != "" {
+				t.Errorf("D is an ancestor of main (exit %d, standard error %q): the repo's grafts are read", status, errs)
+			}
+		})
+	}
+	t.Run("on Windows, an empty name", func(t *testing.T) {
+		if runtime.GOOS != "windows" {
+			t.Skip("off Windows an empty name is this computer's form, above")
+		}
+		r := aSubstRepo(t)
+		_, _, errs := gitWithGrafts(t, r.dir, "", nil, "status", "--porcelain", "--ignore-submodules=all")
+		if errs == "" {
+			t.Skip("this Git for Windows opens an empty name without a word")
+		}
+		if held := gitWarningsHeld(errs); held != "" {
+			t.Errorf("for an empty grafts file's name, git said %q; harmlessGitWarnings doesn't name %q", errs, held)
+		}
+	})
+}
+
+// gitWithGrafts is git with args in dir, run as the core's reads are (gitReadArgs, gitReadEnv) but with file as the
+// grafts file and hint after the config (gitReadEnvGrafts): its exit code, its standard output and its standard error.
+func gitWithGrafts(t *testing.T, dir, file string, hint [][2]string, args ...string) (int, string, string) {
+	t.Helper()
+	cmd := exec.Command("git", append(append([]string{"-C", dir}, gitReadArgs...), args...)...)
+	cmd.Env = gitReadEnvGrafts(os.Environ(), nil, file, hint)
+	var out, errs bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errs
+	status := 0
+	var exit *exec.ExitError
+	if err := cmd.Run(); errors.As(err, &exit) {
+		status = exit.ExitCode()
+	} else if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return status, strings.TrimSpace(out.String()), strings.TrimSpace(errs.String())
 }
 
 // aMidxRepo is aSubstRepo packed, with a multi-pack index whose places for main's f and the desk's f are swapped.

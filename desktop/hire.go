@@ -64,6 +64,12 @@ type pendingHire struct {
 	env    *hireStartEnv
 	// A General Manager hired the plain way: env is its token alone, for its launcher, asked for with no id.
 	plainGM bool
+	// A plain hire made on a Mac while the owner had the sandbox off: its launcher starts it outside one, and its desk
+	// is tagged No sandbox (FXSWITCHPLAIN).
+	sandboxOff bool
+	// A plain hire's desk, with a worktree of its own (plainhireend.go): its launcher carries it, so the hire is ended
+	// once that launcher is gone.
+	plainDesk string
 }
 
 // hireToken is the only shape of token a launcher may hand back: newID's.
@@ -399,6 +405,11 @@ func (d *Deck) worktreesFolder(given string) string {
 
 func (d *Deck) unfencedNote(roleID, program string, terminals []hireOpener, tmux bool) string {
 	agent := Agent(program)
+	// On a Mac, a Codex, Gemini CLI, OpenCode or Grok hire doesn't start at all yet: the office says why when it's
+	// tapped.
+	if why := notOnAMacYet(agent, d.deskSandboxInForce()); why != "" {
+		return why
+	}
 	if agent != Claude {
 		if name := agent.Name(); name != "" {
 			return name + " hires don't get Smolcorp's fence: they run with their own settings."
@@ -433,11 +444,16 @@ func (d *Deck) hire(desk, roleID string) (int, string) {
 // from the office: it sits there. It starts in the floor's folder when the
 // floor has one rule (see FloorRule), else in the folder for new hires.
 func (d *Deck) hireUpstairs(floor, desk, roleID string) (int, string) {
+	return d.hireUpstairsIn(floor, desk, roleID, "")
+}
+
+// hireUpstairsIn is hireUpstairs into project, the one picked in the folder for hires ("" for none: projectFirst).
+func (d *Deck) hireUpstairsIn(floor, desk, roleID, project string) (int, string) {
 	n, err := strconv.Atoi(floor)
 	if err != nil || n < 0 || n >= floorCount {
 		return http.StatusBadRequest, "Unknown floor"
 	}
-	return d.hireAs(desk, roleID, n, false)
+	return d.hireWith(hireSpec{desk: desk, roleID: roleID, floor: n, project: project})
 }
 
 // hireFromSetup is a hire of roleID asked for on the setup page, on this
@@ -525,6 +541,9 @@ type hireSpec struct {
 	// The scope of a GM held to one project, which the GM route checked folder against: its place is made only in
 	// that folder, still held where it is made (prepareHire). nil for none.
 	held *gmScope
+	// The project the office's hire picked in the folder for hires, by name, on a Mac with the sandbox on
+	// (FXHIREPROJECTSR4, projectFirst); "" for none yet.
+	project string
 	// A start of your Claude Code held while Smolcorp was still checking its folder, made again once that's done
 	// (Deck.startOnceChecked): its gate waits as long as a listing may take, and it isn't held again.
 	checked bool
@@ -674,6 +693,7 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 		// The GM route's folder, checked already; a pinned one is refused (fenceRefusal).
 		folder = s.folder
 	}
+	general := folder == "" // the folder for hires, rather than one asked for or pinned
 	if folder == "" {
 		var ok bool
 		if folder, ok = existingFolder(d.config.HireFolder); !ok && fromSetup {
@@ -748,6 +768,13 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 			return v.status, v.why
 		}
 	}
+	// On a Mac, a Codex, Gemini CLI, OpenCode or Grok hire can't start in its sandbox yet (notonamac.go): refused on
+	// every hire route while the sandbox is in force, before the cooldown is spent or anything is looked for or made.
+	// With the owner's switch off it starts without one, tagged, as any hire then does. The GM route has said its own
+	// sentence above: it hires only Claude roles anywhere.
+	if why := notOnAMacYet(agentNamed(program), d.deskSandboxInForce()); why != "" {
+		return http.StatusConflict, why
+	}
 	d.lastHire = time.Now()
 	// Until it's done, however long the lock is let go, which may be longer
 	// than the cooldown: no second hire takes the same desk meanwhile.
@@ -792,6 +819,17 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 	// at its pinned desk.
 	if roleID != "" && pinned == "" && Agent(program) == Claude {
 		if inTmux {
+			// The office's own hire into the folder for hires, on a Mac with the sandbox on: the project it works in is
+			// picked first, and it is hired into that (FXHIREPROJECTSR4). Every other route's folder is checked once the
+			// hire's place is known (runManagedHire), and again at each start (makeDeskSandbox).
+			if general && extra == nil && !fromSetup && !s.fenced && roleID != gmRole && d.hiresSandboxed() {
+				picked, status, answer := d.projectFirst(folder, s.project)
+				if status != 0 {
+					d.lastHire = time.Time{} // nobody was hired, so the pick needn't wait
+					return status, answer
+				}
+				folder = picked
+			}
 			if status, message, handled := d.managedHireWith(roleID, folder, terminal, showWindow, held, floor, engineExtra); handled {
 				return status, message
 			}
@@ -854,8 +892,75 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 		d.lastHire = time.Time{}
 		return http.StatusConflict, plainHireInTestCopy
 	}
+	// A plain hire's launcher starts its agent in a sandbox on a Mac (plainHireSandboxed): the office's own plain hire
+	// into the folder for hires picks its project first, as the engine's does (FXHIREPROJECTSR5, N1). The GM's place
+	// is never one project: it isn't asked.
+	plainDesk, plain := "", Hire{}
+	if plainHireSandboxed(*d.config) {
+		if general && extra == nil && !fromSetup && roleID != gmRole {
+			picked, status, answer := d.projectFirst(folder, s.project)
+			if status != 0 {
+				d.lastHire = time.Time{} // nobody was hired, so the pick needn't wait
+				return status, answer
+			}
+			folder = picked
+		}
+		// Its place is refused here as its launcher's start would refuse it (makeDeskSandbox), by any route: the
+		// projects folder or home, or a folder holding one, or a folder in no repo that holds one (FXHIREPROJECTSR5).
+		d.mu.Unlock()
+		why := hirePlaceWords(folder, runGit)
+		d.mu.Lock()
+		if why != "" {
+			d.lastHire = time.Time{}
+			return http.StatusConflict, why
+		}
+		// Ruling (W) (FXHIREPROJECTSR7): by any route, it works in a worktree of its own, on its own branch,
+		// hire/<desk>/…, made as the engine's hire's is (prepareHire), and its launcher's sandbox is that desk's
+		// (--desk): no plain hire works in the owner's checkout, so a repo there is never one a desk changed. A
+		// folder in no repo it works in itself, as before. The GM aside: its place is its own.
+		if roleID != gmRole {
+			plainDesk = plainDeskIDNew()
+			name := roleID
+			if name == "" {
+				name = string(agentOrClaude(program))
+			}
+			worktrees := d.config.HireWorktrees
+			d.mu.Unlock()
+			place, err := prepareHire(hireRequest{HireID: plainDesk, Name: name, Folder: folder, Worktree: true},
+				hirePlaceOptions{Worktrees: worktrees, PortFree: func(int) bool { return true }})
+			d.mu.Lock()
+			if err != nil {
+				d.lastHire = time.Time{}
+				var refused *hireRefusal
+				if errors.As(err, &refused) {
+					return refused.Status, refused.Message
+				}
+				return http.StatusInternalServerError, err.Error()
+			}
+			folder = place.Folder
+			// On record until its end, as the engine's row is, so its worktree and branch get the fire's clean-up and its
+			// recap once its launcher is gone (plainhireend.go). A folder in no repo has none: nothing to end.
+			if place.Worktree != "" {
+				plain = Hire{ID: plainDesk, Name: name, Role: roleID, Folder: folder, Branch: place.Branch, Worktree: place.Worktree,
+					Repo: place.Repo, Started: float64(time.Now().UnixMilli()), State: "working"}
+				if err := keepPlainHire(plain); err != nil {
+					log.Printf("hire: plain hire %s's record: %v", plainDesk, err)
+				}
+			}
+			// Its own worktree is new to Claude Code: trusted for the account it starts on, as the engine's hire's is
+			// (prepareHire), so it doesn't stop at "trust this folder?". Best done: if it can't be, Claude Code asks.
+			if place.Worktree != "" && agentOrClaude(program) == Claude {
+				if err := preTrust(physical(place.Worktree), claudeJSON(configDir), nil); err != nil {
+					log.Printf("hire: a plain hire's worktree wasn't trusted beforehand: %v", err)
+				}
+			}
+		}
+	}
 	token := newID()
 	command := []string{commandLineProgram(), "run", "--hire", token}
+	if plainDesk != "" {
+		command = append(command, "--desk", plainDesk)
+	}
 	// Claude Code starts on the account it's hired on, whatever the terminal's shell sets (PLAINENV1): a named one's
 	// folder, from setup's confirmed list (configDir), goes with it; without one, the launcher takes CLAUDE_CONFIG_DIR
 	// out, so it runs on ~/.claude (plainHireEnv).
@@ -864,6 +969,15 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 	}
 	if pinned != "" && floor == 0 {
 		command = append(command, "--pinned")
+	}
+	// The sandbox's switch covers a plain hire too (FXSWITCHPLAIN): off, a Mac's plain hire starts outside its sandbox,
+	// tagged No sandbox (plainHireTag), as the engine's desks started now do. The switch as the core holds it, sealed;
+	// its launcher reads it again as it starts (launcherRun.sandboxed). Elsewhere nothing changes: no plain hire has one.
+	// The switch itself, not plainHireSandboxed: a test whose launchers are stand-ins (plainHiresSandboxed false) still
+	// tags only a hire made with the switch off.
+	sandboxOff := launcherSandboxes && d.config.SandboxOff
+	if sandboxOff {
+		command = append(command, "--sandbox-off")
 	}
 	if roleID != "" {
 		// The launcher reads the role again: it must still have the agent looked for.
@@ -924,15 +1038,19 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 		}
 	}
 	// Kept before its window opens, so a launcher quick to ask for its start finds it.
-	d.hires[token] = &pendingHire{desk: held, floor: floor, at: time.Now(), env: start, plainGM: start != nil}
+	d.hires[token] = &pendingHire{desk: held, floor: floor, at: time.Now(), env: start, plainGM: start != nil, sandboxOff: sandboxOff, plainDesk: plain.ID}
 	// Opened outside the lock: the terminal may take a moment to start.
 	d.mu.Unlock()
 	err := openHire(command, folder, terminal, hasTerminal, plainInTmux)
 	d.mu.Lock()
 	if err != nil {
 		// Nobody was hired, so the next try needn't wait, and its token goes, the GM's with it if it's still the GM's.
+		// A plain hire's worktree goes too, as no launcher ever opened in it.
 		d.lastHire = time.Time{}
 		delete(d.hires, token)
+		if plain.ID != "" {
+			go d.endPlainHire(plain)
+		}
 		if gmToken != "" && constantTimeEqual(d.gmToken, gmToken) {
 			d.gmToken = "" // d.mu is held: clearGMToken would take it again
 			d.gmTokenChanged()

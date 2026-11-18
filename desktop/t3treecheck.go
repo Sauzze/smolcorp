@@ -16,8 +16,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 // Take over's look at the worktree (SA-X7; SANDBOX-PLAN A0.1 C6, AQ22). Taken over, a hire's worktree leaves its
@@ -222,7 +220,8 @@ func t3HooksAreTheBase(ctx context.Context, h Hire, t deskTree) string {
 		}
 	}
 	base := ""
-	for _, branch := range []string{sandbox.DefaultBranch(t.common), "main", "master"} {
+	pinned, now := deskDefaultBranches(t.common)
+	for _, branch := range []string{pinned, now, "main", "master"} {
 		if branch == "" {
 			continue
 		}

@@ -33,6 +33,10 @@ func acquireInstance() (running bool, err error) {
 	return false, nil
 }
 
+// listenForMakeWay: an update here is install.sh's, or a package manager's,
+// with the running copy left as it is.
+func listenForMakeWay() {}
+
 // notifyUser: on these systems the message was printed to the terminal already.
 func notifyUser(string) {}
 

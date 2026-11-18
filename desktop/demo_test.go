@@ -643,6 +643,7 @@ type standInOffice struct {
 	noDemo    bool              // a Smolcorp that doesn't serve the demo's page (404)
 	onWait    func()            // runs at each look for the GM before it's hired
 	told      map[string]string // the demo folders registered, with their roles, as the app keeps them
+	window    bool              // Smolcorp has a Settings window of its own here: the demo's page opens there
 }
 
 func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -674,7 +675,7 @@ func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					open = append(open, name)
 				}
 			}
-			json.NewEncoder(w).Encode(map[string]any{"gmHired": false, "open": open})
+			json.NewEncoder(w).Encode(map[string]any{"gmHired": false, "open": open, "window": s.window})
 			return
 		}
 		if _, told := s.told[root]; !told {
@@ -775,11 +776,12 @@ func realDemoWith(t *testing.T, ctx context.Context, office *standInOffice, answ
 }
 
 func TestTheRealDemoAsksBeforeItSpendsAndHasYouHireTheGMOnItsPage(t *testing.T) {
-	// No OK: nothing made, nothing opened.
-	office := &standInOffice{state: strings.Replace(demoTestState, "%s", "false", 1)}
+	// No OK: nothing made, nothing opened. The question says where the page opens: Smolcorp's own Settings window
+	// where it has one (the Mac app, Windows with its window), else the browser.
+	office := &standInOffice{state: strings.Replace(demoTestState, "%s", "false", 1), window: true}
 	code, out, in := realDemo(t, office, "n\n")
 	if entries, _ := os.ReadDir(in); code != 1 || len(entries) != 0 || len(office.posts()) != 0 || !strings.Contains(out, "your default Claude account") ||
-		!strings.Contains(out, "Setup opens in your browser at\nthe demo: check it there, and click Hire") {
+		!strings.Contains(out, "Smolcorp's Settings window\nopens at the demo: check it there, and click Hire") || strings.Contains(out, "browser") {
 		t.Errorf("without an OK: %d %v %v\n%s", code, entries, office.calls, out)
 	}
 

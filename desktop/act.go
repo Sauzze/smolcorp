@@ -10,10 +10,19 @@ import (
 // each checked by hand here (N2). Its action is the query's, never a phone's free text.
 func (d *Deck) act(w http.ResponseWriter, r *request, phoneID, session string) {
 	switch action := r.URL.Query().Get("action"); action {
-	// ⚙︎ in the office's corner, from its own window on this computer: setup opens, as from the tray.
+	// ⚙︎ in the office's corner, from its own window on this computer: setup opens, as from the tray. Under the Mac
+	// app, Smolcorp's own Settings window, as the menu's Settings… opens it: Setup in a browser only looks on a Mac.
 	case "settings":
 		if phoneID != officeWindowID {
 			writeStatus(w)(http.StatusForbidden, "Settings open on your "+d.machine()+".")
+			return
+		}
+		if h := d.macHost(); h != nil {
+			if err := hostShowSettings(h); err != nil {
+				writeStatus(w)(http.StatusBadGateway, "Couldn't open Smolcorp's Settings ("+err.Error()+"). Instead: "+askWhere(true, true)+".")
+				return
+			}
+			writeStatus(w)(http.StatusNoContent, "")
 			return
 		}
 		if err := openSetupPage(d); err != nil {

@@ -269,6 +269,51 @@
       "callers" : [
         "page"
       ],
+      "kind" : "read",
+      "method" : "GET",
+      "path" : "\/setup\/gm\/memory\/notes",
+      "why" : "what the GM proposed and what's kept, every field whole, for the owner"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/memory\/keep",
+      "why" : "the owner keeps a note the GM proposed, as it was shown"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/memory\/edit",
+      "why" : "the owner's own words for a note the GM proposed, kept in one step"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/memory\/drop",
+      "why" : "the owner drops a note the GM proposed"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/memory\/forget",
+      "why" : "the owner forgets a kept note"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
       "kind" : "page",
       "method" : "*",
       "path" : "\/setup\/gm\/memory\/*",

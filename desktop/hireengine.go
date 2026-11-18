@@ -95,6 +95,14 @@ func tmuxStartRefusal(err error) (status int, message string) {
 	return http.StatusConflict, err.Error()
 }
 
+// hiresSandboxed is whether a role's Claude hire made now starts in its sandbox: on a Mac, with the owner's switch
+// as held now (AQ1), as managedHireWith gives the engine its options. With the lock held.
+func (d *Deck) hiresSandboxed() bool {
+	o := d.engine
+	o.SandboxOff = d.config.SandboxOff
+	return o.sandboxing()
+}
+
 // worktrees is the folder hires' worktrees are made in, "" for beside the repo (hiresFolder).
 func (o engineOptions) worktrees() string { return o.Worktrees }
 
@@ -155,8 +163,25 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if r.APIKeyText != "" {
 		key = func() string { return r.APIKeyText } // the key the Mac app gave for this hire
 	}
+	// A desk in its sandbox on a Mac never works in the whole folder for hires, nor in a folder that holds it
+	// (FXHIREPROJECTSR4), nor in a folder in no repo that holds one (FXHIREPROJECTSR5): refused once its place is
+	// known, before anything is trusted or written there, by whatever route it came (Setup's folder, a recent one, the
+	// GM's); the office's own hire picks a project first (hireWith).
+	check := func(p hirePlace) error {
+		if !tmux.sandboxed {
+			return nil
+		}
+		at := deskAtOf(Hire{ID: id, Role: r.Role.ID, Folder: r.Folder, Worktree: p.Worktree, Repo: p.Repo}, "", nil, o)
+		if at.Projects != "" { // a GM's workspace is its place
+			return nil
+		}
+		if words := hirePlaceWords(at.Root, o.Git); words != "" {
+			return &hireRefusal{Status: http.StatusConflict, Message: words}
+		}
+		return nil
+	}
 	place, err := prepareHire(hireRequest{HireID: id, Name: name, Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir, Held: r.Held,
-		APIKey: r.APIKey, Worktree: !r.NoWorktree},
+		APIKey: r.APIKey, Worktree: !r.NoWorktree, Check: check},
 		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: o.Git, PortFree: o.PortFree, Key: key})
 	if err != nil {
 		return Hire{}, err
@@ -175,10 +200,17 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if r.Role.ID == "gm" {
 		profile = guardGM
 	}
+	// A GM hired into a folder that isn't a repo works in its sandbox in a workspace of its own, and reads the folder
+	// it starts in (FXGMROOT): its settings let Claude Code work there, and its introduction says so.
+	workspace := ""
+	if tmux.sandboxed {
+		workspace = gmWorkspace(r.Role.ID == gmRole, id, place.Repo, place.Worktree)
+	}
 	// A Claude Code desk gets its own Claude folder (SA-X8), made below, and its plans kept outside it.
 	claude := agentOrClaude(r.Role.Agent) == Claude
 	settings, err := writeHireSettings(hireSettingsOptions{HireID: id, Auto: engineAutoMode, Profile: profile, CLI: o.CLI, Support: supportDir,
-		ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec, OwnClaude: claude, Kept: deskKeptFolder(runtime.GOOS, tmux.sandboxed, id)})
+		ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec, OwnClaude: claude, Kept: deskKeptFolder(runtime.GOOS, tmux.sandboxed, id),
+		Workspace: workspace})
 	if err != nil {
 		undo()
 		return Hire{}, err
@@ -248,9 +280,27 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		if start.GMPlugin = gmPluginFolder(o.CLI); start.GMPlugin != "" && isExec(o.CLI) {
 			start.GMCLI = o.CLI
 		}
-		start.Message += "\n\n" + gmIntroduction(place.Folder, start.GMPlugin != "" && start.GMCLI == "")
+		plans := "" // its plans folder where it starts, named in its words with its workspace
+		if workspace != "" {
+			plans = filepath.Join(place.Folder, filepath.FromSlash(deskPlansFor(id)))
+		}
+		start.Message += "\n\n" + gmIntroduction(place.Folder, workspace, plans, start.GMPlugin != "" && start.GMCLI == "")
 		if deskSandboxed && o.SandboxOff {
 			start.Message += " " + gmSandboxOffLine // told it starts outside its sandbox (§A5.2, AQ1)
+		}
+	}
+	// A desk in its sandbox is told plainly which branches are its own (FXGITROWS2R5): the sandbox refuses the others,
+	// tags and git stash with git's "Operation not permitted" alone.
+	start.Message += deskStartWords(deskBranchWords(runtime.GOOS, tmux.sandboxed, r.Role.ID == gmRole, place.Branch))
+	// A desk in its sandbox is told plainly that only its own place in the folder for hires is its to change
+	// (FXHIREPROJECTS): the sandbox refuses the rest with no words of its own. A GM with a workspace has its own words.
+	if tmux.sandboxed && workspace == "" {
+		root := place.Folder
+		if place.Worktree != "" {
+			root = place.Worktree
+		}
+		if words := deskProjectsWords(root, place.Worktree != ""); words != "" {
+			start.Message += "\n\n" + words
 		}
 	}
 	if r.StartTyped != nil {
@@ -306,7 +356,13 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	if tmux.sandboxed {
 		undoPlaced := undo
 		undo = func() {
-			deskStopped(Hire{ID: id, TmuxSocket: tmux.socket}, o) // its sandbox let go; its socket folder, when nothing answers
+			// Its sandbox let go; its socket folder, when nothing answers. First, what a refused start left running in
+			// its sandbox is ended (FXFIREREAPR1): one that can't be keeps its row, marked failed, its worktree and its
+			// folders, for a fire to end it.
+			if why := deskStopped(hire, o); why != "" {
+				failHire(id, why+startReapKept)
+				return
+			}
 			undoPlaced()
 		}
 	}
@@ -317,6 +373,9 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	}
 	if place.Repo != "" {
 		desk.Hires = hiresFolder(place.Repo, o.Worktrees)
+	}
+	if workspace != "" {
+		desk.Root, desk.Projects = workspace, place.Folder // made with its sandbox (makeGMWorkspace)
 	}
 	if err := o.sandboxDesk(tmux, desk); err != nil {
 		return fail(http.StatusConflict, err.Error())
@@ -353,7 +412,10 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 			}
 			return Hire{}, goneWhileStarting(hire, "Smolcorp ended its tmux session but couldn't see it gone: fire "+calledHire(hire)+" to end it")
 		}
-		deskStopped(hire, o) // seen gone: its sandbox let go, and its socket folder (SA-M6)
+		// Seen gone: its sandbox let go, and its socket folder (SA-M6), once what it started is ended (FXFIREREAPR1).
+		if why := deskStopped(hire, o); why != "" {
+			return Hire{}, goneWhileStarting(hire, "its tmux session was ended. "+why+strings.TrimSuffix(startReapKept, "."))
+		}
 		undoMade()
 		return Hire{}, goneWhileStarting(hire, "its tmux session was ended")
 	}
@@ -384,8 +446,11 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 			if ended { // its session is known to have ended (CLAUDEPLANT1)
 				claudeHireEnded(id)
 			}
-			deskStopped(hire, o)
-			undoMade()
+			if why := deskStopped(hire, o); why != "" {
+				failHire(id, "Its window didn't open. "+why+startReapKept)
+			} else {
+				undoMade()
+			}
 			return Hire{}, &hireRefusal{Status: http.StatusInternalServerError, Message: "The terminal didn't open."}
 		}
 	}
@@ -415,11 +480,18 @@ func watchManagedHire(hire Hire, testPort int, o engineOptions) {
 		func(id, why string) { setHire(id, "failed", firstRunes(why, longestNotes)) })
 	// Its windows' records go too, as a fired hire's do (hirewindows.go).
 	forgetHireWindows(hire.ID, windowsOfHire(hire.ID))
-	deskStopped(hire, o) // its sandbox, and a sandboxed desk's socket folder once nothing answers there
+	// Its sandbox, and a sandboxed desk's socket folder once nothing answers there. One with a program still running
+	// in its sandbox keeps its folders, as cleanUpHire kept its worktree (FXFIREREAPR1).
+	if deskStopped(hire, o) != "" {
+		return
+	}
 	// Its own Claude folder goes, as at a fire (SA-X8), and its plans from a folder others share.
 	_ = removeDeskClaude(supportDir, hire.ID)
 	if hire.Worktree == "" {
 		_ = removeDeskPlans(startedIn(hire), hire.ID)
+	}
+	if hire.Role == gmRole {
+		removeGMWorkspace(hire.ID) // a GM's workspace too (FXGMROOT)
 	}
 	// A start script left from before 1.26, never run, still holds its send key or token: it goes too.
 	scripts, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hire.ID), "hire-*.sh"))

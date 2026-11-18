@@ -491,28 +491,32 @@ func TestATerminalGetsAToolKeyOnlyOnTheOwnersAllow(t *testing.T) {
 	}
 }
 
-// Off a Mac no terminal is given a key (the owner's B8 STRICT): only Smolcorp's own window, where there is one, and the
-// paired phone may answer, and neither can yet. The ask is refused at once with why, in words, which Setup says too,
-// and no page answers one, whatever its session.
+// Where Smolcorp has no Settings window of its own (Linux, a Windows without WebView2) no terminal is given a key (the
+// owner's B8 STRICT): only that window may answer. The ask is refused at once with why, in words, which Setup says
+// too, and no page answers one, whatever its session. (Windows with WebView2: wintoolask_test.go.)
 func TestOffAMacNoTerminalIsGivenAKey(t *testing.T) {
 	d := newTestDeck(t)
+	withoutWebView2(t)
 	code, said := askFromTerminal(t, d, askTool, "/work")
 	if code != http.StatusForbidden || said != nil && said["ticket"] != nil {
 		t.Fatalf("a tool's ask off a Mac: %d %v", code, said)
 	}
 	w := serve(t, d, call{method: "POST", target: terminalAskPath + "?kind=tool", host: "localhost:7710", from: thisComputer, headers: map[string]string{setupHeader: "1"}})
-	if !strings.Contains(w.Body.String(), "paired phone") || !strings.Contains(w.Body.String(), "browser can't") {
+	if !strings.Contains(w.Body.String(), "window of Smolcorp's own") || !strings.Contains(w.Body.String(), "browser can't") ||
+		strings.Contains(w.Body.String(), "phone") {
 		t.Errorf("the terminal is told %q", w.Body)
 	}
 	if len(d.asks.waiting()) != 0 {
 		t.Error("an ask waits off a Mac")
 	}
-	linux, windows := terminalAskOff("linux"), terminalAskOff("windows")
-	if !strings.Contains(linux, "only your paired phone") || strings.Contains(linux, "own window") || !strings.Contains(windows, "Smolcorp's own window or your paired phone") {
+	linux, windows := terminalAskOff("linux", true, false), terminalAskOff("windows", true, false)
+	// Off Windows, never the phone, which doesn't answer a terminal's ask (RT126FIXREVIEW-WINTOOLASKR1 O2).
+	if !strings.Contains(linux, "only a window of Smolcorp's own") || strings.Contains(linux, "phone") || strings.Contains(linux, "WebView2") ||
+		!strings.Contains(windows, "only Smolcorp's own Settings window may") || !strings.Contains(windows, "WebView2") || strings.Contains(windows, "phone") {
 		t.Errorf("the words: linux %q, windows %q", linux, windows)
 	}
 	// An ask already waiting (as from before an update) is answered by no page off a Mac.
-	ask, _ := d.asks.add(askTool, "/work")
+	ask, _ := d.asks.add(askTool, "/work", askAsker{})
 	d.mu.Lock()
 	browser, window := d.access.NewSetupSessionFrom("fake-link-token"), d.access.NewSetupSession()
 	d.mu.Unlock()

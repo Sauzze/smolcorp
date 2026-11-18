@@ -57,7 +57,7 @@ class El {
   find(cls) { return this.all().filter((c) => c.className.split(' ').includes(cls) && c.getClientRects().length); }
   getClientRects() { for (let n = this; n; n = n.parentNode) if (n.hidden) return []; return [{}]; }
   focus() { if (!((El.strict || El.late) && this.disabled)) theDoc.focused = this; }
-  getContext() { return this.tagName === 'CANVAS' ? { drawImage() {} } : null; }
+  getContext() { return this.tagName === 'CANVAS' ? { drawImage() {}, clearRect() {}, save() {}, restore() {}, scale() {} } : null; }
 }
 function dressDoc(doc, canvas) {
   const body = new El('body'), head = new El('head');
@@ -413,7 +413,7 @@ const walk = (back, n) => Array.from({ length: n }, () => { press('Tab', back); 
   await tick();
   const pt = term();
   same(focusedText(), '1Yes', 'the focus on its first choice');
-  const order = ['Back to office', 'Shrink to bubble', 'Next question 1', 'Menu ▾', 'the conversation', '1Yes', '2No', 'Up', 'Down', 'Pick', 'No',
+  const order = ['Back to office', 'Shrink to bubble', 'Next question 1', 'Menu ▾', 'the conversation', '1Yes', '2No', 'Up', 'Down', 'Pick', 'Esc key',
     'the input', 'Back to office', 'desk Al', 'desk Cy', 'desk Rex'];
   const stops = body.all().filter(stop);
   same(stops.map(named), order, 'the terminal\'s stops in the page, and none outside it');
@@ -438,6 +438,33 @@ const walk = (back, n) => Array.from({ length: n }, () => { press('Tab', back); 
   body.focus();
   same(walk(false, 1), ['Back to office'], 'Tab from the page comes in');
   same(posts(), [], 'no Tab answered anything');
+})().catch((e) => { console.error(e); process.exit(1); });
+`)
+}
+
+// The Pixel Terminal under a question it can offer by label (FXTALKFIXR1, the review's N2): the question's No and the
+// four keys show side by side, and only one button is named No for a screen reader, the choice, which looks at the
+// screen first (/talk/pick n=no). ✕ is named for the key it presses, Escape, and still presses it as it is (/act).
+func TestThePixelTerminalsOnlyNoIsTheOneThatLooks(t *testing.T) {
+	runNode(t, talkBubbleSources(t)+talkSame+talkDOM+talkStage+`
+same(B.KEYS.map((k) => [k.label, k.name]), [['▲', 'Up'], ['▼', 'Down'], ['✓', 'Pick'], ['✕', 'Esc key']], 'the four keys and their names');
+same(B.sendOf('s2', question(true), B.KEYS[3]), { path: '/act', params: { session: 's2', action: 'reject' } }, '✕ presses as it is');
+const named = (el) => el.attrs['aria-label'] || el.textContent;
+
+(async () => {
+  cards.s2 = { state: 'asking', asking: { ...question(true), since: 300 }, size: 10, typing: waiting };
+  bubble.frame(bubbles);
+  await settle();
+  bubble.frame(bubbles);
+  same(bubble.expand('s2'), true, 'Expand on Bo, asking a question');
+  await tick();
+  const buttons = term().all().filter((el) => el.tagName === 'BUTTON' && el.getClientRects().length);
+  same(buttons.filter((b) => ['1Yes', '2Later', '✕'].includes(b.textContent)).map(named), ['1Yes', '2Later', 'Esc key'], 'the choices and the keys, shown together');
+  const nos = buttons.filter((b) => named(b) === 'No');
+  same(nos.length, 1, 'the buttons named No');
+  nos[0].dispatch('click');
+  await tick();
+  same(posts().map((p) => [p[1], p[2]]), [['/talk/pick', { session: 's2', n: 'no', since: '300' }]], 'the one No looks first');
 })().catch((e) => { console.error(e); process.exit(1); });
 `)
 }

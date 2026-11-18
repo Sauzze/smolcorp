@@ -762,11 +762,16 @@ func (r Role) resumeArguments(session string) []string {
 }
 
 // roleAgents are the agents a role can be, for the setup page: whether each
-// has an effort, and whether it takes a first message.
-func roleAgents() []map[string]any {
+// has an effort, whether it takes a first message, and notOnMac: why its hires
+// can't start here yet (a Mac's Codex, Gemini CLI, OpenCode and Grok while the
+// sandbox is in force, notonamac.go), which the role editor and the hire sheet
+// show, or "". Every system sends it, so setup's answer has one shape
+// everywhere (the route contract's known gap).
+func roleAgents(sandboxInForce bool) []map[string]any {
 	list := []map[string]any{}
 	for _, agent := range agents {
-		list = append(list, map[string]any{"id": agent, "name": agent.Name(), "effort": agent.HasEffortDial(), "starts": agent != Grok})
+		list = append(list, map[string]any{"id": agent, "name": agent.Name(), "effort": agent.HasEffortDial(), "starts": agent != Grok,
+			"notOnMac": notOnAMacYet(agent, sandboxInForce)})
 	}
 	return list
 }

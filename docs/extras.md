@@ -1,6 +1,6 @@
 # Portable office, summaries and other tools
 
-Three extras, each off until you turn it on. Back to the [README](../README.md).
+Three extras, each off until you turn it on, and how an app of yours gets a key. Back to the [README](../README.md).
 
 ## Portable office (beta)
 
@@ -232,3 +232,24 @@ automation:
                 target: { entity_id: light.desk_lamp }
                 data: { color_name: red }
 ```
+
+## An app of yours (Mac and Windows)
+
+An app you run on the same computer (a script, an editor's plugin, a studio app)
+can read your team and Setup's state with a **tool's key**. No file holds one:
+the app asks Smolcorp, and you say yes in Smolcorp's own Settings window.
+
+1. The app asks (`POST /terminal/ask?kind=tool`) and shows you a four-digit
+   code, such as 4-7-2-9.
+2. Smolcorp's Settings window shows the ask at the top, with the same code and
+   the folder the app runs in. On Windows it also names the program that asked,
+   as Windows says it: check it's your app, since on Windows a hire could ask too.
+3. Tick that the codes match, then click **Allow**. The app gets its key once,
+   and sends it as `x-smolcorp-setup-key`.
+4. The key works until Smolcorp quits. To take it back, quit Smolcorp and open
+   it again: every app has to ask again.
+
+On a Mac the window is Settings… in the menu bar; on Windows, the tray icon,
+then **Open Setup…** (it needs the Microsoft Edge WebView2 Runtime). On Linux
+there's no such window yet, so an app can't get a key there. The requests, the
+answers and an example are in [Getting a tool's key](manager/API.md#getting-a-tools-key).

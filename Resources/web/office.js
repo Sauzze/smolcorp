@@ -302,9 +302,13 @@
     SIDE_LEAST: 220,
     /** Each state as a word: the status is never colour alone. */
     STATES: { thinking: 'working', asking: 'waiting for you', idle: 'idle', unread: 'done', error: 'stopped on an error' },
-    /** The four keys, where a prompt's choices can't be offered by label: ✕ says No, as a permission's No does. */
+    /**
+     * The four keys, where a prompt's choices can't be offered by label, pressed as they are. ✕ is the Escape key and
+     * is named for it, not "No": the Pixel Terminal shows the keys under a question's choices too, and the only No there
+     * is the choice, which looks at the screen first. (Not "Esc" alone: that's the open bubble's close button.)
+     */
     KEYS: [{ act: 'up', label: '▲', name: 'Up' }, { act: 'down', label: '▼', name: 'Down' },
-      { act: 'accept', label: '✓', name: 'Pick' }, { act: 'reject', label: '✕', name: 'No', no: true }],
+      { act: 'accept', label: '✓', name: 'Pick' }, { act: 'reject', label: '✕', name: 'Esc key', no: true }],
     /** Words sent wait this long for the computer, in ms, as the deck's own (INPUT_WAIT): past it, Send works again. */
     SAY_WAIT: 20000,
     NO_ANSWER: 'Your computer didn\'t answer in time. Look at the desk before you try again.',
@@ -445,19 +449,23 @@
 
     /**
      * A prompt's buttons, when its choices can be offered by label (`pickable`): a question's options by their numbers
-     * and No (Escape, as ✕), or a permission's Yes and No (1 and 2, D4). Null where they can't: the four keys answer it.
+     * and No (Escape, as ✕, with no number), or a permission's Yes and No (1 and 2, D4). Null where they can't: the four
+     * keys answer it.
      */
     choicesOf(asking) {
       if (!asking || !asking.pickable) return null;
       if (asking.kind === 'permission') return [{ n: 1, label: 'Yes' }, { n: 2, label: 'No', no: true }];
       const options = asking.questions[0].options.map((o) => ({ n: o.n, label: o.label, description: o.description }));
-      return [...options, { act: 'reject', label: 'No', no: true }];
+      return [...options, { label: 'No', no: true }];
     },
 
-    /** What a choice sends: a numbered one, POST /talk/pick with the prompt's `since`; a key, POST /act. */
+    /**
+     * What a choice sends: POST /talk/pick with the prompt's `since`, its number or, for a question's No, `no`, so the
+     * computer reads the desk's screen first and presses only while that prompt's menu is there; a key, POST /act.
+     */
     sendOf(id, asking, choice) {
       if (choice.act) return { path: '/act', params: { session: id, action: choice.act } };
-      return { path: '/talk/pick', params: { session: id, n: String(choice.n), since: String(asking.since) } };
+      return { path: '/talk/pick', params: { session: id, n: choice.n ? String(choice.n) : 'no', since: String(asking.since) } };
     },
 
     /** A desk's card once a choice went: after a No it no longer asks, so its input wakes for what to do instead. */
@@ -1551,14 +1559,23 @@
         }));
       }
 
-      /** The office's picture in the side: the room's own canvas, small. */
+      /**
+       * The office's picture in the side: the room as the page shows it, small. At a whole-number scale on a see-through
+       * canvas (a Retina Mac, Windows and Linux at 100 % or 200 %), the room's art is on a layer of its own under the
+       * canvas, which holds only the names and keys over it: that layer first (room.artUnder), then the canvas.
+       */
       function picture() {
         const from = room.canvas, to = p.picture, ctx = from.width && from.height && to.getContext && to.getContext('2d');
         if (!ctx) return;
         const w = T.PICTURE, h = Math.round((w * from.height) / from.width);
         if (to.width !== w * 2 || to.height !== h * 2) Object.assign(to, { width: w * 2, height: h * 2 });
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(from, 0, 0, to.width, to.height);
+        ctx.clearRect(0, 0, to.width, to.height);
+        ctx.save();
+        ctx.scale(to.width / from.width, to.height / from.height);
+        room.artUnder?.(ctx);
+        ctx.drawImage(from, 0, 0);
+        ctx.restore();
       }
 
       function problem(text) {
@@ -69786,6 +69803,25 @@
       frameRate = Number(asked.get('fps')) || 0; // and `fps=` a rate of its own, for measuring
       comparing = asked.has('compare');
     } catch {}
+    /**
+     * The room's art where the page shows it on its own layer under the canvas (artLayerOf), drawn into `page`, a
+     * context the canvas's size, where the page would show it: cut to the window, the canvas then drawn over it. Nothing
+     * where the art is on the canvas itself. A copy of the canvas alone (compareDirect, the Pixel Terminal's picture)
+     * would show the names and no room.
+     */
+    function artUnder(page) {
+      const layer = artLayers.get(canvas);
+      if (!layer || !layer.shown || !layer.view || layer.view.style.display === 'none' || !layer.at) return;
+      const { at, edge, view } = layer;
+      page.save();
+      if (edge) {
+        roundedRect(page, edge.glass.x, edge.glass.y, edge.glass.w, edge.glass.h, edge.glass.r);
+        page.clip();
+      }
+      page.drawImage(view, at.x, at.y, view.width * at.scale, view.height * at.scale);
+      page.restore();
+    }
+
     function compareDirect(storey, frames) {
       const doc = canvas.ownerDocument, check = compareDirect.canvas || (compareDirect.canvas = doc.createElement('canvas'));
       check.width = canvas.width;
@@ -69802,17 +69838,7 @@
       page.imageSmoothingEnabled = false;
       page.fillStyle = '#7a7f8a';
       page.fillRect(0, 0, canvas.width, canvas.height);
-      const layer = artLayers.get(canvas);
-      if (layer && layer.shown && layer.view.style.display !== 'none') {
-        const { at, edge, view } = layer;
-        page.save();
-        if (edge) {
-          roundedRect(page, edge.glass.x, edge.glass.y, edge.glass.w, edge.glass.h, edge.glass.r);
-          page.clip();
-        }
-        page.drawImage(view, at.x, at.y, view.width * at.scale, view.height * at.scale);
-        page.restore();
-      }
+      artUnder(page);
       page.drawImage(canvas, 0, 0);
       const a = new Uint32Array(page.getImageData(0, 0, canvas.width, canvas.height).data.buffer);
       const direct = compareDirect.direct || (compareDirect.direct = doc.createElement('canvas'));
@@ -70257,8 +70283,9 @@
         const session = sessionOf(id);
         return session ? TALK_BUBBLE.nameOf(session, memberOf(session) && memberOf(session).name) : 'Agent';
       };
-      // cog: the settings' key where the room last drew it, in art pixels ({ x, y, w, h }), or null with none drawn
-      return { canvas, anchor: talkAnchor, view: talkView, shape: () => shape, session: sessionOf, name, cog: () => styleKeyAt };
+      // cog: the settings' key where the room last drew it, in art pixels ({ x, y, w, h }), or null with none drawn;
+      // artUnder: the room's art on its own layer, for a picture of the canvas (the Pixel Terminal's)
+      return { canvas, anchor: talkAnchor, view: talkView, shape: () => shape, session: sessionOf, name, cog: () => styleKeyAt, artUnder };
     }
 
     /** The next frame, or step, called off. */

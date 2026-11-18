@@ -248,6 +248,7 @@ const (
 )
 
 func TestTwoMacsPairOverTailscale(t *testing.T) {
+	turnOn(t, &peersOn)
 	m := newTwoMacs(t, otherMac, tailHome+":0")
 	joined := m.join(t, m.address, m.code(t))
 	if joined.Code != http.StatusOK {
@@ -280,6 +281,7 @@ func TestTwoMacsPairOverTailscale(t *testing.T) {
 }
 
 func TestAWrongExpiredOrOverusedCodeIsRefused(t *testing.T) {
+	turnOn(t, &peersOn)
 	m := newTwoMacs(t, otherMac, tailHome+":0")
 	peerCodeTryGap = 0
 	code := m.code(t)
@@ -349,6 +351,7 @@ func atoi(text string) int {
 }
 
 func TestARevokedMacIsRefusedAtOnce(t *testing.T) {
+	turnOn(t, &peersOn)
 	m := newTwoMacs(t, otherMac, tailHome+":0")
 	if got := m.join(t, m.address, m.code(t)); got.Code != http.StatusOK {
 		t.Fatalf("joining: %d %s", got.Code, got.Body)
@@ -395,6 +398,7 @@ func pairedPeer(t *testing.T, m *twoMacs) string {
 }
 
 func TestAPeerKeyOpensNothingButThePeerRoutes(t *testing.T) {
+	turnOn(t, &peersOn)
 	m := newTwoMacs(t, otherMac, tailHome+":0")
 	savedOpen := openSetupPage
 	t.Cleanup(func() { openSetupPage = savedOpen })
@@ -457,6 +461,7 @@ func TestAPeerKeyOpensNothingButThePeerRoutes(t *testing.T) {
 }
 
 func TestPlainWiFiIsRefusedForEveryPeerRoute(t *testing.T) {
+	turnOn(t, &peersOn)
 	m := newTwoMacs(t, wifiMac, "192.168.1.10:0")
 	key := pairedPeer(t, m)
 	code := m.code(t)
@@ -510,6 +515,7 @@ func TestPlainWiFiIsRefusedForEveryPeerRoute(t *testing.T) {
 // handed it on (`tailscale serve`, a proxy forwarding the Wi-Fi, a process here), with a proxy's headers or to a
 // name: on a Mac and off it, with a valid key or the live code (RT126M1 B2).
 func TestLoopbackOrAProxyIsRefusedEvenWithAKeyOrTheCode(t *testing.T) {
+	turnOn(t, &peersOn)
 	m := newTwoMacs(t, otherMac, tailHome+":0")
 	key := pairedPeer(t, m)
 	code := m.code(t)
@@ -571,6 +577,7 @@ func TestLoopbackOrAProxyIsRefusedEvenWithAKeyOrTheCode(t *testing.T) {
 // A web page on a tailnet device can POST text or a form to /peer/pair without a preflight, never JSON: refused
 // before the code is looked at, so it spends neither the code nor a try (RT126M1 N3).
 func TestPairTakesJSONOnly(t *testing.T) {
+	turnOn(t, &peersOn)
 	m := newTwoMacs(t, otherMac, tailHome+":0")
 	code := m.code(t)
 	for _, kind := range []string{"", "text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"} {
@@ -598,6 +605,7 @@ func TestPairTakesJSONOnly(t *testing.T) {
 }
 
 func TestFloorsOffRefusesEverything(t *testing.T) {
+	turnOn(t, &peersOn)
 	m := newTwoMacs(t, otherMac, tailHome+":0")
 	key := pairedPeer(t, m)
 	code := m.code(t)
@@ -628,6 +636,7 @@ func TestFloorsOffRefusesEverything(t *testing.T) {
 }
 
 func TestFloorsAreOffUntilThePageTurnsThemOn(t *testing.T) {
+	turnOn(t, &peersOn)
 	d := newTestDeck(t)
 	if got := peerPage(t, d, "GET", "/setup/peers", ""); !strings.Contains(got.Body.String(), `"on":false`) {
 		t.Errorf("a new deck: %s", got.Body)
@@ -664,6 +673,7 @@ func TestFloorsAreOffUntilThePageTurnsThemOn(t *testing.T) {
 }
 
 func TestAJoinWithoutASecretStoreSendsNothing(t *testing.T) {
+	turnOn(t, &peersOn)
 	m := newTwoMacs(t, otherMac, tailHome+":0")
 	m.joiner.mu.Lock()
 	m.joiner.peerKeys = noPeerKeyStore
@@ -682,6 +692,7 @@ func TestAJoinWithoutASecretStoreSendsNothing(t *testing.T) {
 }
 
 func TestThePeerKeyIsKeptHashedAndNoSecretCrosses(t *testing.T) {
+	turnOn(t, &peersOn)
 	m := newTwoMacs(t, otherMac, tailHome+":0")
 	// Every secret of both Macs: the setup key, the hook's, the window's, the GM's token and a phone's.
 	var secrets []string
@@ -745,6 +756,7 @@ func TestThePeerKeyIsKeptHashedAndNoSecretCrosses(t *testing.T) {
 
 // A peer row outside /peer/, or another class's inside it, stops the start.
 func TestPeerRowsAreUnderPeerOnly(t *testing.T) {
+	turnOn(t, &peersOn)
 	for _, row := range []phoneRoute{
 		{method: "GET", path: "/test-peer-outside", access: accessPeer},
 		{method: "GET", path: "/peer/test-phone-inside", access: accessPhone},
@@ -777,6 +789,7 @@ func TestPeerRowsAreUnderPeerOnly(t *testing.T) {
 // moved or its seal doesn't fit, or the Keychain can't be read now) is never taken for none: the join is refused
 // before the code is sent, and the list kept isn't written over with only the next Mac.
 func TestUnderTheMacAppTheMacsJoinedAreTheAppsItem(t *testing.T) {
+	turnOn(t, &peersOn)
 	m := newTwoMacs(t, otherMac, tailHome+":0")
 	mac := &macStandIn{}
 	m.joiner.mu.Lock()

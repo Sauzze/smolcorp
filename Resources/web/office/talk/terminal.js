@@ -399,14 +399,23 @@ const PIXEL_TERMINAL = {
       }));
     }
 
-    /** The office's picture in the side: the room's own canvas, small. */
+    /**
+     * The office's picture in the side: the room as the page shows it, small. At a whole-number scale on a see-through
+     * canvas (a Retina Mac, Windows and Linux at 100 % or 200 %), the room's art is on a layer of its own under the
+     * canvas, which holds only the names and keys over it: that layer first (room.artUnder), then the canvas.
+     */
     function picture() {
       const from = room.canvas, to = p.picture, ctx = from.width && from.height && to.getContext && to.getContext('2d');
       if (!ctx) return;
       const w = T.PICTURE, h = Math.round((w * from.height) / from.width);
       if (to.width !== w * 2 || to.height !== h * 2) Object.assign(to, { width: w * 2, height: h * 2 });
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(from, 0, 0, to.width, to.height);
+      ctx.clearRect(0, 0, to.width, to.height);
+      ctx.save();
+      ctx.scale(to.width / from.width, to.height / from.height);
+      room.artUnder?.(ctx);
+      ctx.drawImage(from, 0, 0);
+      ctx.restore();
     }
 
     function problem(text) {

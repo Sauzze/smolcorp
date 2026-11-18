@@ -56,6 +56,9 @@ func TestNoDeskWritesTheOldRemoteFiles(t *testing.T) {
 func TestTheOldRemoteFilesRowsOnlyAddFinalDenies(t *testing.T) {
 	mine := func(r Rule) bool { return r.Row == rowOldRemotes }
 	for _, s := range profileSetups() {
+		if s.pl.GitDir == "" {
+			continue // the GM in the projects folder (FXGMROOT): in no repo, no old remote files' rows
+		}
 		p, svc := mustNew(t, s.pl), goldenServices(s.pl)
 		profile, err := p.Profile(svc)
 		if err != nil {

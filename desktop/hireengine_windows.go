@@ -15,6 +15,13 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 
 type engineOptions struct{}
 
+// hiresSandboxed: no desk starts in a sandbox here yet (FXSETUPHELPNOSANDBOX).
+func (d *Deck) hiresSandboxed() bool { return false }
+
+// hirePlaceWords: no desk starts in a sandbox here, so no place is refused for it (FXHIREPROJECTSR5); never asked, as
+// no plain hire's launcher starts a sandbox here either (plainHiresSandboxed).
+func hirePlaceWords(string, gitRunner) string { return "" }
+
 // worktrees is the folder hires' worktrees are made in: beside the repo here, as there's no engine to set another.
 func (engineOptions) worktrees() string { return "" }
 

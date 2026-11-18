@@ -79,8 +79,12 @@ func phoneSetupAsks(t *testing.T, d *Deck, phoneKey string) ([]map[string]any, s
 // tapSetup is POST /grants/setup as one caller.
 func tapSetup(t *testing.T, d *Deck, phoneKey, id, code, answer string, c routeCaller) (int, string) {
 	t.Helper()
-	return probeRouteWith(t, d, "POST", setupTapAnswerPath+"?id="+url.QueryEscape(id)+"&code="+url.QueryEscape(code)+"&answer="+answer, "",
-		phoneKey, c)
+	return probeRouteWith(t, d, "POST", tapSetupTarget(id, code, answer), "", phoneKey, c)
+}
+
+// tapSetupTarget is POST /grants/setup's target for one ask, its code and the answer.
+func tapSetupTarget(id, code, answer string) string {
+	return setupTapAnswerPath + "?id=" + url.QueryEscape(id) + "&code=" + url.QueryEscape(code) + "&answer=" + answer
 }
 
 // openWithCookie is GET /setup/state with a session's cookie.

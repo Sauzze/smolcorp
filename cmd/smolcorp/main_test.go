@@ -62,3 +62,27 @@ func TestGMLoginChecksTheProgramAsEveryAgentStartIsChecked(t *testing.T) {
 		}
 	}
 }
+
+// Neither `smolcorp help` nor `smolcorp gm help` names a feature this version leaves off (desktop/dormant.go): spend
+// asks, the night shift, company templates, floors from other Macs and photos have no command, and a word typed for
+// one gets the help, as any unknown command does.
+func TestTheHelpNamesNoFeatureThisVersionLeavesOff(t *testing.T) {
+	var gmHelp, gmErrors strings.Builder
+	if gm.Run([]string{"help"}, &gmHelp, &gmErrors) != 0 || !strings.Contains(gmHelp.String(), "smolcorp gm") {
+		t.Fatalf("smolcorp gm help: %q %q", gmHelp.String(), gmErrors.String())
+	}
+	for where, text := range map[string]string{"smolcorp help": usage, "smolcorp gm help": gmHelp.String()} {
+		lower := strings.ToLower(text)
+		for _, word := range []string{"night", "template", "hire plan", "peer", "other mac", "photo", "grant", "allow once"} {
+			if strings.Contains(lower, word) {
+				t.Errorf("%s names %q", where, word)
+			}
+		}
+	}
+	for _, word := range []string{"night", "photo", "peers", "plan", "grants"} {
+		var out, errs strings.Builder
+		if code := gm.Run([]string{word}, &out, &errs); code == 0 || !strings.Contains(errs.String(), "Usage: smolcorp gm") {
+			t.Errorf("smolcorp gm %s: %d %q %q", word, code, out.String(), errs.String())
+		}
+	}
+}

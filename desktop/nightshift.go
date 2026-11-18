@@ -322,8 +322,13 @@ func newNightShift(file string, now func() time.Time) *nightShift {
 	var unsealed bool
 	n.jobs, n.skipped, unsealed = loadNightJobs(file)
 	if unsealed && !recordsHeldOnly() {
-		// The records rotate as the start ends, so no copy of the file from before fits again (records.go).
-		recordDropped(nightFileName, "")
+		// The records rotate as the start ends, so no copy of the file from before fits again (records.go). While the
+		// night shift is off (dormant.go), nothing names the file.
+		if nightShiftOn {
+			recordDropped(nightFileName, "")
+		} else {
+			recordDroppedUnsaid(nightFileName)
+		}
 	}
 	n.unreadable = len(n.skipped) > 0
 	n.sched = newNightScheduler(n, now)
