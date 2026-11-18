@@ -282,10 +282,23 @@ jobs:
           pgrep -P "$pid" -f 'Resources/bin/smolcorp core ' >/dev/null || { echo "::error::the copy's core isn't running"; exit 1; }
           # One request that must cross the bridge: setup's state asks the app for the Summary key (secret-read), which
           # the app answers only to a connection carrying the core's audit token. Answered, the key is "store"; refused
-          # or timed out, the core says there's no secret store (noStore). Read with the copy's own setup key; the
-          # state isn't printed.
-          [ -s "$SUPPORT/setup-key" ] || { echo "::error::the copy has no setup-key in $SUPPORT"; exit 1; }
-          state="$(curl -s --max-time 20 -H "X-Smolcorp-Setup-Key: $(cat "$SUPPORT/setup-key")" http://127.0.0.1:7791/setup/state)"
+          # or timed out, the core says there's no secret store (noStore). Opened the way a tester's browser opens setup,
+          # since no file holds a setup key (SK2): as it opens, the copy leaves a link in setup-link (Paths.swift,
+          # leaveSetupLink) whose token after #o= works once, for 5 minutes on a Mac, and /setup/session swaps it for a
+          # session cookie (desktop/server.go). The token, the cookie and the state aren't printed.
+          token=""
+          for _ in $(seq 100); do
+            token="$(sed -n 's/.*#o=\([A-Za-z0-9_-][A-Za-z0-9_-]*\).*/\1/p' "$SUPPORT/setup-link" 2>/dev/null | head -n 1 || true)"
+            if [ -n "$token" ]; then break; fi
+            sleep 0.2
+          done
+          [ -n "$token" ] || { echo "::error::the copy left no setup link with a token in $SUPPORT/setup-link within 20 s"; exit 1; }
+          jar="$RUNNER_TEMP/setup-jar"
+          rm -f "$jar"
+          opened="$(umask 077; curl -s --max-time 20 -o /dev/null -w '%{http_code}' -c "$jar" -X POST -H 'X-AgentDeck-Setup: 1' -H "X-Smolcorp-Setup-Once: $token" http://127.0.0.1:7791/setup/session || true)"
+          [ "$opened" = 204 ] || { echo "::error::the copy's setup link didn't open a session (HTTP $opened)"; exit 1; }
+          state="$(curl -s --max-time 20 -b "$jar" http://127.0.0.1:7791/setup/state)"
+          rm -f "$jar"
           python3 -c '
           import json, sys
           summary = json.loads(sys.argv[1])["summary"]
@@ -340,7 +353,9 @@ jobs:
       - name: Install tmux
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y tmux
-      - run: go test ./...
+      # ./desktop alone runs past go's default 10 minutes on windows-latest (600 s there, 442 s on ubuntu-latest, run
+      # 44187923724), and a package that runs out stops every row after it unrun: 20 minutes for each package here.
+      - run: go test -timeout 20m ./...
       # The GM's hire, fire and brief on the launcher's way, Windows' own, run by name: each one must say PASS, so
       # a test that's skipped, renamed or left out of the build fails the step instead of passing unseen. The
       # first six are PEGASUS PR3's (managed windows off among them), the last two FXPGS's. It runs even when the
