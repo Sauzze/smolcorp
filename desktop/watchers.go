@@ -879,15 +879,12 @@ func (w *watchers) apply(fires []watchFire, updated []watch) {
 // moment. A file with a second name (a hard link) may be one outside the hire's
 // folder, so it is never read.
 func openPlainFile(base, path string) (*os.File, os.FileInfo) {
-	f, err := openWatchedIn(base, path)
+	f, info, err := openHireFile(base, path) // the core's reader (hirefile.go)
 	if err != nil {
 		return nil, nil
 	}
-	info, err := f.Stat()
-	if err == nil && info.Mode().IsRegular() && fileLinks(f, info) <= 1 {
-		if at, err := os.Lstat(path); err == nil && at.Mode().IsRegular() && os.SameFile(info, at) && plainPath(path) == path {
-			return f, info
-		}
+	if at, err := os.Lstat(path); err == nil && os.SameFile(info, at) && plainPath(path) == path {
+		return f, info
 	}
 	f.Close()
 	return nil, nil

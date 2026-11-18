@@ -5,8 +5,6 @@ package desktop
 import (
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -31,15 +29,15 @@ func TestARoleHireAtAChosenDeskGoesThroughTheEngine(t *testing.T) {
 			if len(got) != 1 || got[0].Role != role || got[0].Worktree == "" || !r.tmux.ran("new-session") || len(h.tmux) != 0 {
 				t.Fatalf("not made by the engine: registry %+v, tmux %q, old tmux %q", got, r.tmux.asked, h.tmux)
 			}
-			settings, _ := os.ReadFile(filepath.Join(hireFolder(supportDir, got[0].ID), hireSettingsFile))
+			settings := scriptSettings(r.script(got[0]))
 			if role == "gm" {
 				d.mu.Lock()
 				token := d.gmToken
 				d.mu.Unlock()
-				if token == "" || !strings.Contains(r.script(got[0]), token) || !strings.Contains(string(settings), "--profile gm") {
+				if token == "" || !strings.Contains(r.script(got[0]), token) || !strings.Contains(settings, `"--profile","gm"`) {
 					t.Errorf("the GM at a chosen desk has no token or no GM profile: %s", settings)
 				}
-			} else if scriptSendKey(r.script(got[0])) == "" || strings.Contains(string(settings), "--profile") {
+			} else if scriptSendKey(r.script(got[0])) == "" || settings == "" || strings.Contains(settings, "--profile") {
 				t.Errorf("the hire has no send key or the wrong profile: %s", settings)
 			}
 			// Its session appears, and takes the desk chosen.
@@ -93,7 +91,7 @@ func TestALauncherEngineHireAtAChosenDeskSitsThere(t *testing.T) {
 	r.d.launcherEngine = r.o
 	r.d.mu.Lock()
 	running(r.d, 1)
-	status, message, handled := r.d.managedLauncherHire("janitor", r.repo, hireOpener{}, true, 5, 0)
+	status, message, handled := r.d.managedLauncherHire("janitor", r.repo, hireOpener{}, true, 5, 0, nil, nil)
 	r.d.mu.Unlock()
 	if !handled || status != http.StatusNoContent {
 		t.Fatalf("%d %q %v", status, message, handled)

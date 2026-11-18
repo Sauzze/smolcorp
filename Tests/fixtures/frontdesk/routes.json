@@ -240,6 +240,45 @@
         "gm",
         "page"
       ],
+      "kind" : "read",
+      "method" : "GET",
+      "path" : "\/setup\/gm\/memory",
+      "why" : "what the office taught its GM: the kept notes, behind a fixed header"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/memory\/propose",
+      "why" : "a note proposed, waiting for the owner's tap"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "kind" : "action",
+      "method" : "POST",
+      "path" : "\/setup\/gm\/memory\/withdraw",
+      "why" : "a note still waiting, taken back; never a kept one"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "*",
+      "path" : "\/setup\/gm\/memory\/*",
+      "why" : "any other memory route is the page's alone: no GM route keeps or deletes a kept note"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
       "kind" : "action",
       "method" : "*",
       "path" : "\/setup\/gm\/*",
@@ -267,6 +306,15 @@
     },
     {
       "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "GET",
+      "path" : "\/setup\/hire\/gm\/preflight",
+      "why" : "what a first GM hire needs: it starts your login shell and Claude Code to tell"
+    },
+    {
+      "callers" : [
         "gm",
         "page"
       ],
@@ -277,13 +325,22 @@
     },
     {
       "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/hiring\/choose",
+      "why" : "the Mac's folder panel, opened on your screen"
+    },
+    {
+      "callers" : [
         "gm",
         "page"
       ],
       "kind" : "action",
       "method" : "POST",
-      "path" : "\/setup\/hiring\/choose",
-      "why" : "the folder for new hires"
+      "path" : "\/setup\/hire-folder",
+      "why" : "the folder for new hires, from Start here"
     },
     {
       "callers" : [
@@ -610,6 +667,60 @@
       ],
       "kind" : "page",
       "method" : "POST",
+      "path" : "\/setup\/officekey",
+      "why" : "the keys that show and hide the office from anywhere, only from the page"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/choices",
+      "why" : "T3 Code on or off, and agent windows: switching to the background closes the windows Smolcorp opened"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/hire\/window",
+      "why" : "a window attached to a hire's own tmux session, by the hire's id"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "GET",
+      "path" : "\/setup\/t3code",
+      "why" : "whether T3 Code and its t3 command are installed"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/t3code\/open",
+      "why" : "a hire's folder, from the registry, opened in T3 Code on this computer"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/t3code\/letgo",
+      "why" : "let a hire in T3 Code go: its T3 project removed, its worktree kept"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
       "path" : "\/setup\/pair",
       "why" : "a pairing code"
     },
@@ -658,6 +769,51 @@
       "method" : "*",
       "path" : "\/bots\/*",
       "why" : "a cloud bot's news, from a tool of yours"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "GET",
+      "path" : "\/setup\/sandbox",
+      "why" : "whether desks start in their sandbox, and each desk's tag: only you see it (AQ1)"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/sandbox",
+      "why" : "the sandbox's switch: only you turn it off, never the GM, a tool, an MCP key or a hire (AQ1)"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/sandbox\/database",
+      "why" : "you say your local database asks for a password: only you, once Smolcorp's own login without one fails (AQ21)"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/sandbox\/restart",
+      "why" : "restart a desk in its sandbox: only you, never the GM, a tool, an MCP key or a hire (AQ17)"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "kind" : "page",
+      "method" : "POST",
+      "path" : "\/setup\/sandbox\/gitplant",
+      "why" : "remove an old hook or setting from a repository's .git: only you, never the GM, a tool, an MCP key or a hire (NB2)"
     }
   ],
   "unlisted" : {

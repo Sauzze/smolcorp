@@ -109,16 +109,25 @@ func (rt *router) mailSend(w http.ResponseWriter, r *request) {
 		req.To = to
 	}
 	req.Resolve = func() (mailDest, *mailError) {
+		var found mailDest
+		var refusal *mailError
 		if signer != nil {
-			return d.mailTowardFrom(*signer, to)
+			found, refusal = d.mailTowardFrom(*signer, to)
+		} else {
+			found, refusal = d.mailTarget(to)
 		}
-		return d.mailTarget(to)
+		if refusal == nil {
+			// Between a desk in its sandbox and one without (AQ10, sandboxswitch.go).
+			refusal = d.mailSandboxRefusal(r.caller, signer, found)
+		}
+		return found, refusal
 	}
 	added, refusal := d.mail.add(req)
 	if refusal != nil {
 		writeStatus(w)(refusal.Status, refusal.Message)
 		return
 	}
+	d.owner.notOwners(req.Text) // mail is never the owner's words, even typed into the GM's terminal (ownerwords.go)
 	if added.ToGM && !added.Duplicate && signer != nil {
 		// Kept first, then told: the GM's inbox learns of it as it does of a bot's reply.
 		d.events.append(mailInboxEntry(*signer, added.Message))

@@ -1,0 +1,885 @@
+;; A desk's sandbox (Smolcorp, SANDBOX-PLAN Appendix A), made from its Policy at its start.
+(version 1)
+(allow default)
+
+;; Denied by default: unix sockets, Mach services, IOKit, signals
+(deny network-outbound (remote unix-socket)) ; unix sockets: only those allowed below
+(deny mach-lookup) ; Mach services: only those on its list
+(deny iokit-open) ; IOKit: only the classes on its list
+(deny signal) ; signals: only to its own sandbox (C1)
+
+;; What it may still reach
+(allow network-outbound (literal "/private/tmp/smolcorp-501/h1/s")) ; its own socket
+(allow network-outbound (literal "/private/var/run/mDNSResponder")) ; a socket on its list
+(allow network-outbound (literal "/private/var/run/syslog")) ; a socket on its list
+(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo")) ; a Mach service on its list
+(allow mach-lookup (global-name "com.apple.trustd.agent")) ; a Mach service on its list
+(allow iokit-open (iokit-registry-entry-class "IOSurfaceRootUserClient")) ; an IOKit class on its list
+(allow iokit-open (iokit-user-client-class "IOSurfaceSendRight")) ; an IOKit class on its list
+(allow signal (target same-sandbox)) ; its own processes (C1)
+
+;; Allowed places
+(allow file-read-data file-read-xattr (subpath "/Users/ada/.claude")) ; the account folders
+(allow file-read-data file-read-xattr (subpath "/Users/ada/.claude-work")) ; the account folders
+(allow file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/Projects/app")) ; its own place
+(allow file-write* file-link (subpath "/Users/ada/Projects/app/.git")) ; the rest of the shared .git
+
+;; Denied places an exception opens
+(deny file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.ssh/[^/]*(/.*)?$")) ; ssh keys while Remote Login answers
+(deny file-write* file-link (subpath "/Users/ada/Projects/app-hires")) ; other desks' places
+(deny file-write* file-link (subpath "/private/tmp/smolcorp-501")) ; the socket folder
+(deny file-read-data file-read-xattr file-write* file-link network-outbound (subpath "/Users/ada/Library/Application Support/AgentDeck")) ; the support folder, whole
+
+;; The exceptions
+(allow file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.ssh/[^/]*\\.pub$")) ; ssh files that aren't keys
+(allow file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.ssh/known_hosts[^/]*$")) ; ssh files that aren't keys
+(allow file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.ssh/config$")) ; ssh files that aren't keys
+(allow file-read-data file-read-xattr file-write* file-link (subpath "/private/tmp/smolcorp-501/h1")) ; its own socket folder
+(allow file-read-data file-read-xattr (literal "/Users/ada/Library/Application Support/AgentDeck/hire-guard.json")) ; the guard file: the guard reads it
+(allow file-read-data file-read-xattr (literal "/Users/ada/Library/Application Support/AgentDeck/nightshift.json")) ; the night shift's jobs: read only, as the guard file
+(allow file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/[^/]*\\.md$")) ; its status and report
+(allow file-read-data file-read-xattr (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/BRIEF[^/]*\\.md$")) ; its brief and its fence
+(allow file-read-data file-read-xattr (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/settings\\.json$")) ; its brief and its fence
+(allow file-read-data file-read-xattr (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/sandbox\\.sb$")) ; its brief and its fence
+(allow file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude")) ; its own Claude folder
+(allow file-read-data file-read-xattr (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/settings[^/]*\\.json$")) ; its own Claude folder's fence
+(allow file-read-data file-read-xattr (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/settings[^/]*\\.json[^/]*$")) ; its own Claude folder's fence
+(allow file-read-data file-read-xattr (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/\\.settings[^/]*\\.json\\.fresh-[^/]*$")) ; its own Claude folder's fence
+(allow file-read-data file-read-xattr (subpath "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/CLAUDE.md")) ; the links the core put in its Claude folder
+(allow file-read-data file-read-xattr (subpath "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/commands")) ; the links the core put in its Claude folder
+(allow file-read-data file-read-xattr (subpath "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/agents")) ; the links the core put in its Claude folder
+(allow file-read-data file-read-xattr (subpath "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/skills")) ; the links the core put in its Claude folder
+(allow file-read-data file-read-xattr (subpath "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/plugins")) ; the links the core put in its Claude folder
+(allow file-read-data file-read-xattr (subpath "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/output-styles")) ; the links the core put in its Claude folder
+(allow network-outbound (literal "/Users/ada/Library/Application Support/AgentDeck/desk-start")) ; the desk-start socket
+
+;; Denied places nothing opens
+(deny file-write* file-link (literal "/Users/ada/.zshrc")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zshrc.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zshrc.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.zshrc\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.zshrc\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zshrc___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zshrc-omztemp")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zshrc.pre-oh-my-zsh")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.zshrc$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.zshrc\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/INS@[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zshenv")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zshenv.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zshenv.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.zshenv\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.zshenv\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zshenv___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.zshenv$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.zshenv\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zprofile")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zprofile.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zprofile.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.zprofile\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.zprofile\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zprofile___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.zprofile$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.zprofile\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zlogin")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zlogin.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zlogin.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.zlogin\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.zlogin\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zlogin___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.zlogin$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.zlogin\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zlogout")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zlogout.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zlogout.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.zlogout\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.zlogout\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zlogout___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.zlogout$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.zlogout\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bashrc")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bashrc.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bashrc.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.bashrc\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.bashrc\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bashrc___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.bashrc$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.bashrc\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bash_profile")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bash_profile.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bash_profile.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.bash_profile\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.bash_profile\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bash_profile___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.bash_profile$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.bash_profile\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bash_login")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bash_login.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bash_login.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.bash_login\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.bash_login\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bash_login___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.bash_login$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.bash_login\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bash_logout")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bash_logout.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bash_logout.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.bash_logout\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.bash_logout\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.bash_logout___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.bash_logout$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.bash_logout\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.profile")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.profile.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.profile.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.profile\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.profile\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.profile___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.profile$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.profile\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.gitconfig")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.gitconfig.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.gitconfig.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.gitconfig\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.gitconfig\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.gitconfig___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.gitconfig$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.gitconfig\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.tmux.conf")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.tmux.conf.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.tmux.conf.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.tmux\\.conf\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.tmux\\.conf\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.tmux.conf___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.tmux\\.conf$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.tmux\\.conf\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.ssh/config")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.ssh/config.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.ssh/config.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.ssh/config\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.ssh/config\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.ssh/config___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.ssh/\\.![^/]*!config$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.ssh/\\.config\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.ssh/INS@[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.ssh/XX[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.ssh/rc")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.ssh/rc.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.ssh/rc.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.ssh/rc\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.ssh/rc\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.ssh/rc___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.ssh/\\.![^/]*!rc$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.ssh/\\.rc\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (subpath "/Users/ada/.config/fish")) ; plants the owner's programs run later
+(deny file-write* file-link (subpath "/Users/ada/Library/LaunchAgents")) ; plants the owner's programs run later
+(deny file-write* file-link (subpath "/Users/ada/.config/autostart")) ; plants the owner's programs run later
+(deny file-write* file-link (subpath "/Users/ada/.config/systemd/user")) ; plants the owner's programs run later
+(deny file-write* file-link (subpath "/Users/ada/.config/git")) ; plants the owner's programs run later
+(deny file-write* file-link (subpath "/Users/ada/.config/tmux")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.ssh/authorized_keys[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/opt/homebrew/etc/gitconfig")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (literal "/opt/homebrew/etc/gitconfig.lock")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (literal "/opt/homebrew/etc/gitconfig.new")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (regex "^/opt/homebrew/etc/gitconfig\\.tmp[^/]*$")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (regex "^/opt/homebrew/etc/gitconfig\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (literal "/opt/homebrew/etc/gitconfig___jb_tmp___")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (regex "^/opt/homebrew/etc/\\.![^/]*!gitconfig$")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (regex "^/opt/homebrew/etc/\\.gitconfig\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (regex "^/opt/homebrew/etc/INS@[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (regex "^/opt/homebrew/etc/XX[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (literal "/Users/ada/.xdg/git/config")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (literal "/Users/ada/.xdg/git/config.lock")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (literal "/Users/ada/.xdg/git/config.new")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (regex "^/Users/ada/\\.xdg/git/config\\.tmp[^/]*$")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (regex "^/Users/ada/\\.xdg/git/config\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (literal "/Users/ada/.xdg/git/config___jb_tmp___")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (regex "^/Users/ada/\\.xdg/git/\\.![^/]*!config$")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (regex "^/Users/ada/\\.xdg/git/\\.config\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (regex "^/Users/ada/\\.xdg/git/INS@[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (regex "^/Users/ada/\\.xdg/git/XX[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later: git's other config
+(deny file-write* file-link (subpath "/Users/ada/Projects/app-hires/h1/.husky/_")) ; plants the owner's programs run later: git's hooks folder
+(deny file-write* file-link (subpath "/Users/ada/Projects/app-hires/h1/.husky")) ; plants the owner's programs run later: git's hooks folder
+(deny file-write* file-link (subpath "/Users/ada/.githooks")) ; plants the owner's programs run later: git's hooks folder
+(deny file-write* file-link (subpath "/Users/ada/dotfiles/hooklib")) ; plants the owner's programs run later: git's hooks folder
+(deny file-write* file-link (literal "/Users/ada/.gitconfig-work")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/.gitconfig-work.lock")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/.gitconfig-work.new")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.gitconfig-work\\.tmp[^/]*$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.gitconfig-work\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/.gitconfig-work___jb_tmp___")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.gitconfig-work$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.gitconfig-work\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/.config/standin/ssh_config")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/.config/standin/ssh_config.lock")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/.config/standin/ssh_config.new")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.config/standin/ssh_config\\.tmp[^/]*$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.config/standin/ssh_config\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/.config/standin/ssh_config___jb_tmp___")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.config/standin/\\.![^/]*!ssh_config$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.config/standin/\\.ssh_config\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.config/standin/INS@[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.config/standin/XX[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/opt/standin/nc")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/opt/standin/nc.lock")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/opt/standin/nc.new")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/opt/standin/nc\\.tmp[^/]*$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/opt/standin/nc\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/opt/standin/nc___jb_tmp___")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/opt/standin/\\.![^/]*!nc$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/opt/standin/\\.nc\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/opt/standin/INS@[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/opt/standin/XX[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/dotfiles/githooks/post-checkout")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/dotfiles/githooks/post-checkout.lock")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/dotfiles/githooks/post-checkout.new")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/dotfiles/githooks/post-checkout\\.tmp[^/]*$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/dotfiles/githooks/post-checkout\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/dotfiles/githooks/post-checkout___jb_tmp___")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/dotfiles/githooks/\\.![^/]*!post-checkout$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/dotfiles/githooks/\\.post-checkout\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/dotfiles/githooks/INS@[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/dotfiles/githooks/XX[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/.config/husky/init.sh")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/.config/husky/init.sh.lock")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/.config/husky/init.sh.new")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.config/husky/init\\.sh\\.tmp[^/]*$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.config/husky/init\\.sh\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (literal "/Users/ada/.config/husky/init.sh___jb_tmp___")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.config/husky/\\.![^/]*!init\\.sh$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.config/husky/\\.init\\.sh\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.config/husky/INS@[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (regex "^/Users/ada/\\.config/husky/XX[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later: what git's config names
+(deny file-write* file-link (subpath "/usr/lib/cron/tabs")) ; plants the owner's programs run later
+(deny file-write* file-link (subpath "/private/var/at")) ; plants the owner's programs run later
+(deny file-write* file-link (subpath "/Users/ada/.claude")) ; the account folders
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.claude/ide")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.claude/.credentials.json")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.claude/\\.credentials\\.json[^/]*(/.*)?$")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.claude/history.jsonl")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.claude/history\\.jsonl[^/]*(/.*)?$")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.claude/projects")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.claude/sessions")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.claude/\\.claude\\.json[^/]*$")) ; the accounts' .claude.json
+(deny file-write* file-link (subpath "/Users/ada/.claude-work")) ; the account folders
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.claude-work/ide")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.claude-work/.credentials.json")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.claude-work/\\.credentials\\.json[^/]*(/.*)?$")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.claude-work/history.jsonl")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.claude-work/history\\.jsonl[^/]*(/.*)?$")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.claude-work/projects")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.claude-work/sessions")) ; the account folders' tokens and history
+(deny file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.claude-work/\\.claude\\.json[^/]*$")) ; the accounts' .claude.json
+(deny file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.claude\\.json[^/]*$")) ; the accounts' .claude.json
+(deny file-read-data file-read-xattr file-write* file-link (literal "/Users/ada/.codex/auth.json")) ; other agents' sign-ins
+(deny file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.codex/auth\\.json[^/]*$")) ; other agents' sign-ins
+(deny file-read-data file-read-xattr file-write* file-link (literal "/Users/ada/.gemini/oauth_creds.json")) ; other agents' sign-ins
+(deny file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.gemini/oauth_creds\\.json[^/]*$")) ; other agents' sign-ins
+(deny file-write* file-link (subpath "/Applications/Smolcorp.app")) ; programs that run outside
+(deny file-write* file-link (subpath "/opt/homebrew/Cellar/tmux")) ; programs that run outside
+(deny file-write* file-link (subpath "/Users/ada/Projects/app-gm")) ; other desks' places: the GM's folder
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/config")) ; the shared git places
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/config.lock")) ; the shared git places
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/config.worktree")) ; the shared git places
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/config.worktree.lock")) ; the shared git places
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/index")) ; the shared git places
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/index.lock")) ; the shared git places
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/HEAD")) ; the shared git places
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/HEAD.lock")) ; the shared git places
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/commondir")) ; the shared git places
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/commondir.lock")) ; the shared git places
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/gitdir")) ; the shared git places
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/gitdir.lock")) ; the shared git places
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/hooks")) ; the shared git places
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/info")) ; the shared git places
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/objects/info")) ; the shared git places
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git")) ; the shared git places: what makes it a git folder
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/objects")) ; the shared git places: what makes it a git folder
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs")) ; the shared git places: what makes it a git folder
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/rebase-merge")) ; the shared git places: the owner's rebase
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/rebase-apply")) ; the shared git places: the owner's rebase
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/sequencer")) ; the shared git places: the owner's rebase
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/modules")) ; the shared git places: the submodules' git folders
+(deny file-write* file-link (regex "^/Users/ada/Projects/app/\\.git/worktrees/[^/]*$")) ; the shared git places: a worktree's registration
+(deny file-write* file-link (regex "^/Users/ada/Projects/app/\\.git/worktrees/[^/]*/commondir$")) ; the shared git places: where a worktree finds them
+(deny file-write* file-link (regex "^/Users/ada/Projects/app/\\.git/worktrees/[^/]*/commondir\\.lock$")) ; the shared git places: where a worktree finds them
+(deny file-write* file-link (regex "^/Users/ada/Projects/app/\\.git/worktrees/[^/]*/gitdir$")) ; the shared git places: where a worktree finds them
+(deny file-write* file-link (regex "^/Users/ada/Projects/app/\\.git/worktrees/[^/]*/gitdir\\.lock$")) ; the shared git places: where a worktree finds them
+(deny file-write* file-link (regex "^/Users/ada/Projects/app/\\.git/worktrees/[^/]*/config\\.worktree$")) ; the shared git places: where a worktree finds them
+(deny file-write* file-link (regex "^/Users/ada/Projects/app/\\.git/worktrees/[^/]*/config\\.worktree\\.lock$")) ; the shared git places: where a worktree finds them
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git")) ; the shared git places: the .git at its place
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/worktrees/h1")) ; other desks' places: their worktree's registration
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/worktrees/h2")) ; other desks' places: their worktree's registration
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/worktrees/gm")) ; other desks' places: their worktree's registration
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/packed-refs")) ; the base branches
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/packed-refs.new")) ; the base branches
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/heads/main")) ; the base branches
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/heads/main.lock")) ; the base branches
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/heads/master")) ; the base branches
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/heads/master.lock")) ; the base branches
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/heads/develop")) ; the base branches
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/heads/develop.lock")) ; the base branches
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/refs/heads/release")) ; the base branches
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/reftable")) ; the base branches: a reftable repo's refs
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/refs/replace")) ; the base branches: git's substitutions
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/shallow")) ; the base branches: git's substitutions
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/shallow.lock")) ; the base branches: git's substitutions
+(deny file-write* file-link (regex "^/Users/ada/Projects/app/\\.git/objects/pack/multi-pack-index[^/]*(/.*)?$")) ; the base branches: git's substitutions
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads/main")) ; the base branches: their reflogs
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads/main.lock")) ; the base branches: their reflogs
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads/master")) ; the base branches: their reflogs
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads/master.lock")) ; the base branches: their reflogs
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads/develop")) ; the base branches: their reflogs
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads/develop.lock")) ; the base branches: their reflogs
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/logs/refs/heads/release")) ; the base branches: their reflogs
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/main")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/main.lock")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/main")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/main.lock")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/tags/main")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/tags/main.lock")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/master")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/master.lock")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/master")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/master.lock")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/tags/master")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/tags/master.lock")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/develop")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/develop.lock")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/develop")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/develop.lock")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/tags/develop")) ; the base branches: their names elsewhere
+(deny file-write* file-link (literal "/Users/ada/Projects/app/.git/refs/tags/develop.lock")) ; the base branches: their names elsewhere
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/release")) ; the base branches: their names elsewhere
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/refs/release")) ; the base branches: their names elsewhere
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/refs/tags/release")) ; the base branches: their names elsewhere
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/branches")) ; the shared git places: the old remote files
+(deny file-write* file-link (regex "^/Users/ada/Projects/app/\\.git/worktrees/[^/]*/branches(/.*)?$")) ; the shared git places: the old remote files
+(deny file-write* file-link (subpath "/Users/ada/Projects/app/.git/remotes")) ; the shared git places: the old remote files
+(deny file-write* file-link (regex "^/Users/ada/Projects/app/\\.git/worktrees/[^/]*/remotes(/.*)?$")) ; the shared git places: the old remote files
+(deny file-write* file-link (regex "^(/[^/]+)*/\\.claude$")) ; a .claude folder can't be made, moved or removed
+(deny file-write* file-link (regex "^(/[^/]+)*/\\.claude/settings\\.json$")) ; fences and hooks
+(deny file-write* file-link (regex "^(/[^/]+)*/\\.claude/settings\\.json[^/]*$")) ; fences and hooks
+(deny file-write* file-link (regex "^(/[^/]+)*/\\.claude/settings\\.local\\.json$")) ; fences and hooks
+(deny file-write* file-link (regex "^(/[^/]+)*/\\.claude/settings\\.local\\.json[^/]*$")) ; fences and hooks
+(deny file-write* file-link (literal "/Users/ada/Projects/app")) ; a desk's place and the folders above it can't be moved or removed
+(deny file-write* file-link (literal "/Users/ada/Projects")) ; a desk's place and the folders above it can't be moved or removed
+(deny file-write* file-link (literal "/Users/ada")) ; a desk's place and the folders above it can't be moved or removed
+(deny file-write* file-link (literal "/Users")) ; a desk's place and the folders above it can't be moved or removed
+(deny file-write* file-link (literal "/")) ; a desk's place and the folders above it can't be moved or removed
+(deny file-write* file-link (literal "/Users/ada/Library/Application Support/AgentDeck")) ; a desk's place and the folders above it can't be moved or removed
+(deny file-write* file-link (literal "/Users/ada/Library/Application Support")) ; a desk's place and the folders above it can't be moved or removed
+(deny file-write* file-link (literal "/Users/ada/Library")) ; a desk's place and the folders above it can't be moved or removed
+(deny file-write* file-link (literal "/Users/ada")) ; a desk's place and the folders above it can't be moved or removed
+(deny file-write* file-link (literal "/Users")) ; a desk's place and the folders above it can't be moved or removed
+(deny file-write* file-link (literal "/")) ; a desk's place and the folders above it can't be moved or removed
+(deny file-link (subpath "/private/tmp/smolcorp-501")) ; no links anywhere in the socket folder
+(deny file-write-create (require-all (subpath "/private/tmp/smolcorp-501") (vnode-type SYMLINK))) ; no links anywhere in the socket folder
+(deny file-write* file-link (subpath "/private/tmp/tmux-501")) ; tmux's own folder
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/BRIEF[^/]*\\.md$")) ; its brief and its fence
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/settings\\.json$")) ; its brief and its fence
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/sandbox\\.sb$")) ; its brief and its fence
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/settings[^/]*\\.json$")) ; its own Claude folder's fence
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/settings[^/]*\\.json[^/]*$")) ; its own Claude folder's fence
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/\\.settings[^/]*\\.json\\.fresh-[^/]*$")) ; its own Claude folder's fence
+(deny file-write* file-link (subpath "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/CLAUDE.md")) ; the links the core put in its Claude folder
+(deny file-write* file-link (subpath "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/commands")) ; the links the core put in its Claude folder
+(deny file-write* file-link (subpath "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/agents")) ; the links the core put in its Claude folder
+(deny file-write* file-link (subpath "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/skills")) ; the links the core put in its Claude folder
+(deny file-write* file-link (subpath "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/plugins")) ; the links the core put in its Claude folder
+(deny file-write* file-link (subpath "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/output-styles")) ; the links the core put in its Claude folder
+(deny file-read-data file-read-xattr file-write* file-link network-outbound (literal "/Users/ada/Library/Application Support/AgentDeck/serve.sock")) ; the owner's tap (serve.sock)
+(deny file-read-data file-read-xattr file-write* file-link network-outbound (subpath "/Users/ada/Library/Application Support/AgentDeck/gm-memory")) ; the GM's memory
+(deny file-read-data file-read-xattr file-write* file-link network-outbound (regex "^/Users/ada/Library/Application Support/AgentDeck/sandbox-canary-[^/]*(/.*)?$")) ; the sandbox's canary
+(deny file-write-unlink file-link (literal "/Users/ada/.ssh")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.ssh") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zshrc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zshrc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zshrc.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zshrc.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zshrc.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zshrc.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zshrc___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zshrc___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zshrc-omztemp")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zshrc-omztemp") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zshrc.pre-oh-my-zsh")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zshrc.pre-oh-my-zsh") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zshenv")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zshenv") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zshenv.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zshenv.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zshenv.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zshenv.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zshenv___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zshenv___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zprofile")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zprofile") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zprofile.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zprofile.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zprofile.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zprofile.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zprofile___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zprofile___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zlogin")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zlogin") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zlogin.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zlogin.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zlogin.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zlogin.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zlogin___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zlogin___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zlogout")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zlogout") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zlogout.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zlogout.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zlogout.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zlogout.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.zlogout___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zlogout___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bashrc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bashrc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bashrc.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bashrc.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bashrc.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bashrc.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bashrc___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bashrc___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bash_profile")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bash_profile") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bash_profile.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bash_profile.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bash_profile.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bash_profile.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bash_profile___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bash_profile___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bash_login")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bash_login") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bash_login.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bash_login.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bash_login.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bash_login.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bash_login___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bash_login___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bash_logout")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bash_logout") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bash_logout.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bash_logout.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bash_logout.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bash_logout.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.bash_logout___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bash_logout___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.profile")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.profile") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.profile.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.profile.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.profile.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.profile.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.profile___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.profile___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.gitconfig")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.gitconfig") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.gitconfig.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.gitconfig.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.gitconfig.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.gitconfig.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.gitconfig___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.gitconfig___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.tmux.conf")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.tmux.conf") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.tmux.conf.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.tmux.conf.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.tmux.conf.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.tmux.conf.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.tmux.conf___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.tmux.conf___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.ssh/config")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.ssh/config") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.ssh/config.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.ssh/config.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.ssh/config.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.ssh/config.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.ssh/config___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.ssh/config___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.ssh/rc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.ssh/rc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.ssh/rc.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.ssh/rc.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.ssh/rc.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.ssh/rc.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.ssh/rc___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.ssh/rc___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/fish")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/fish") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/LaunchAgents")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/LaunchAgents") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/autostart")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/autostart") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/systemd/user")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/systemd/user") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/systemd")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/systemd") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/git")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/git") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/tmux")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/tmux") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt/homebrew/etc/gitconfig")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt/homebrew/etc/gitconfig") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt/homebrew/etc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt/homebrew/etc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt/homebrew")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt/homebrew") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt/homebrew/etc/gitconfig.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt/homebrew/etc/gitconfig.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt/homebrew/etc/gitconfig.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt/homebrew/etc/gitconfig.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt/homebrew/etc/gitconfig___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt/homebrew/etc/gitconfig___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.xdg/git/config")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.xdg/git/config") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.xdg/git")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.xdg/git") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.xdg")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.xdg") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.xdg/git/config.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.xdg/git/config.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.xdg/git/config.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.xdg/git/config.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.xdg/git/config___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.xdg/git/config___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app-hires/h1/.husky/_")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app-hires/h1/.husky/_") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app-hires/h1/.husky")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app-hires/h1/.husky") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app-hires/h1")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app-hires/h1") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app-hires")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app-hires") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.githooks")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.githooks") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/dotfiles/hooklib")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/dotfiles/hooklib") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/dotfiles")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/dotfiles") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.gitconfig-work")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.gitconfig-work") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.gitconfig-work.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.gitconfig-work.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.gitconfig-work.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.gitconfig-work.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.gitconfig-work___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.gitconfig-work___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/standin/ssh_config")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/standin/ssh_config") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/standin")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/standin") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/standin/ssh_config.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/standin/ssh_config.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/standin/ssh_config.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/standin/ssh_config.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/standin/ssh_config___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/standin/ssh_config___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt/standin/nc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt/standin/nc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt/standin")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt/standin") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt/standin/nc.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt/standin/nc.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt/standin/nc.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt/standin/nc.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt/standin/nc___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt/standin/nc___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/dotfiles/githooks/post-checkout")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/dotfiles/githooks/post-checkout") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/dotfiles/githooks")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/dotfiles/githooks") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/dotfiles/githooks/post-checkout.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/dotfiles/githooks/post-checkout.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/dotfiles/githooks/post-checkout.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/dotfiles/githooks/post-checkout.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/dotfiles/githooks/post-checkout___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/dotfiles/githooks/post-checkout___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/husky/init.sh")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/husky/init.sh") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/husky")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/husky") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/husky/init.sh.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/husky/init.sh.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/husky/init.sh.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/husky/init.sh.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.config/husky/init.sh___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/husky/init.sh___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/usr/lib/cron/tabs")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/usr/lib/cron/tabs") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/usr/lib/cron")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/usr/lib/cron") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/usr/lib")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/usr/lib") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/usr")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/usr") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/private/var/at")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/private/var/at") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/private/var")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/private/var") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/private")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/private") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.claude")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.claude") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.claude/ide")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.claude/ide") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.claude/.credentials.json")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.claude/.credentials.json") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.claude/history.jsonl")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.claude/history.jsonl") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.claude/projects")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.claude/projects") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.claude/sessions")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.claude/sessions") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.claude-work")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.claude-work") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.claude-work/ide")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.claude-work/ide") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.claude-work/.credentials.json")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.claude-work/.credentials.json") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.claude-work/history.jsonl")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.claude-work/history.jsonl") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.claude-work/projects")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.claude-work/projects") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.claude-work/sessions")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.claude-work/sessions") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.codex/auth.json")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.codex/auth.json") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.codex")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.codex") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.gemini/oauth_creds.json")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.gemini/oauth_creds.json") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/.gemini")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.gemini") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Applications/Smolcorp.app")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Applications/Smolcorp.app") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Applications")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Applications") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt/homebrew/Cellar/tmux")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt/homebrew/Cellar/tmux") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/opt/homebrew/Cellar")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/opt/homebrew/Cellar") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app-gm")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app-gm") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/config")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/config") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/config.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/config.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/config.worktree")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/config.worktree") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/config.worktree.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/config.worktree.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/index")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/index") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/index.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/index.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/HEAD")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/HEAD") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/HEAD.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/HEAD.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/commondir")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/commondir") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/commondir.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/commondir.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/gitdir")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/gitdir") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/gitdir.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/gitdir.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/hooks")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/hooks") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/info")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/info") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/objects/info")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/objects/info") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/objects")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/objects") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/rebase-merge")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/rebase-merge") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/rebase-apply")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/rebase-apply") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/sequencer")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/sequencer") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/modules")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/modules") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/worktrees")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/worktrees") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (regex "^/Users/ada/Projects/app/\\.git/worktrees/[^/]*$")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (regex "^/Users/ada/Projects/app/\\.git/worktrees/[^/]*$") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/worktrees/h1")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/worktrees/h1") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/worktrees/h2")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/worktrees/h2") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/worktrees/gm")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/worktrees/gm") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/packed-refs")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/packed-refs") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/packed-refs.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/packed-refs.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/heads/main")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/heads/main") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/heads")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/heads") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/heads/main.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/heads/main.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/heads/master")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/heads/master") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/heads/master.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/heads/master.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/heads/develop")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/heads/develop") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/heads/develop.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/heads/develop.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/heads/release")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/heads/release") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/reftable")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/reftable") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/replace")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/replace") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/shallow")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/shallow") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/shallow.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/shallow.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/objects/pack")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/objects/pack") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads/main")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/logs/refs/heads/main") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/logs/refs/heads") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/logs/refs")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/logs/refs") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/logs")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/logs") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads/main.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/logs/refs/heads/main.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads/master")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/logs/refs/heads/master") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads/master.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/logs/refs/heads/master.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads/develop")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/logs/refs/heads/develop") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads/develop.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/logs/refs/heads/develop.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/logs/refs/heads/release")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/logs/refs/heads/release") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/main")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/main") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/main.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/main.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/main")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/main") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/main.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/main.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/tags/main")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/tags/main") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/tags")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/tags") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/tags/main.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/tags/main.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/master")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/master") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/master.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/master.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/master")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/master") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/master.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/master.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/tags/master")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/tags/master") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/tags/master.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/tags/master.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/develop")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/develop") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/develop.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/develop.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/develop")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/develop") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/develop.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/develop.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/tags/develop")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/tags/develop") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/tags/develop.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/tags/develop.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/release")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/release") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/release")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/release") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/refs/tags/release")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/refs/tags/release") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/branches")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/branches") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Projects/app/.git/remotes")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Projects/app/.git/remotes") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/private/tmp/smolcorp-501")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/private/tmp/smolcorp-501") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/private/tmp")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/private/tmp") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/private/tmp/tmux-501")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/private/tmp/tmux-501") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/hires")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/hires") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/CLAUDE.md")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/CLAUDE.md") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/commands")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/commands") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/agents")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/agents") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/skills")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/skills") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/plugins")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/plugins") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/output-styles")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/hires/h1/claude/output-styles") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/serve.sock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/serve.sock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-link (literal "/Users/ada/Library/Application Support/AgentDeck/gm-memory")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/AgentDeck/gm-memory") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+
+;; Denied, whatever allows it
+(deny network-outbound (remote tcp4 "localhost:22")) ; a local port on its list: any address of this Mac
+(deny network-outbound (remote tcp6 "*:22")) ; a local port on its list: any IPv6 address, ::ffff:127.0.0.1 too (C4)
+(deny network-outbound (remote tcp4 "localhost:2375")) ; a local port on its list: any address of this Mac
+(deny network-outbound (remote tcp6 "*:2375")) ; a local port on its list: any IPv6 address, ::ffff:127.0.0.1 too (C4)
+(deny network-outbound (remote tcp4 "localhost:2376")) ; a local port on its list: any address of this Mac
+(deny network-outbound (remote tcp6 "*:2376")) ; a local port on its list: any IPv6 address, ::ffff:127.0.0.1 too (C4)
+(deny network-outbound (remote tcp4 "localhost:5432")) ; a local port on its list: any address of this Mac
+(deny network-outbound (remote tcp6 "*:5432")) ; a local port on its list: any IPv6 address, ::ffff:127.0.0.1 too (C4)
+(deny network-outbound (remote tcp4 "localhost:3306")) ; a local port on its list: any address of this Mac
+(deny network-outbound (remote tcp6 "*:3306")) ; a local port on its list: any IPv6 address, ::ffff:127.0.0.1 too (C4)
+(deny network-outbound (literal "/private/tmp/com.apple.launchd.standin/Listeners")) ; an agent, while Remote Login answers (C5)
+(deny network-outbound (literal "/Users/ada/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock")) ; an agent, while Remote Login answers (C5)
+(deny file-ioctl (ioctl-command (_IO "t" 114))) ; typing into a terminal (TIOCSTI)
+(deny appleevent-send) ; Apple Events
+(deny lsopen) ; opening apps (LaunchServices)
+(deny job-creation) ; new launchd jobs

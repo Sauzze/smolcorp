@@ -12,7 +12,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // The OpenCode installed, for the plugin it can load, as the Mac app's
@@ -31,10 +34,28 @@ var (
 	openCodeMu         sync.Mutex
 	openCodeWrittenFor string
 	openCodeVersion    = regexp.MustCompile(`(\d+)\.\d`)
-	// The PATH your login shell sets, asked once.
-	loginPath     []string
-	loginPathOnce sync.Once
+	// The PATH your login shell sets, asked once (askLoginPath), with
+	// loginPathMu held. loginPathKnown says it has been; loginPathAsking that
+	// it's being asked in the background.
+	loginPath       []string
+	loginPathMu     sync.Mutex
+	loginPathKnown  atomic.Bool
+	loginPathAsking atomic.Bool
+	// askShellPath asks your login shell for its PATH: a variable, for the tests.
+	askShellPath = loginShellPath
 )
+
+// askLoginPath is the PATH your login shell sets, asked once and waited for.
+// Never with the deck's lock held: tmuxLoginPath doesn't wait.
+func askLoginPath() []string {
+	loginPathMu.Lock()
+	defer loginPathMu.Unlock()
+	if !loginPathKnown.Load() {
+		loginPath = askShellPath()
+		loginPathKnown.Store(true)
+	}
+	return loginPath
+}
 
 // openCodeProgram is the opencode program, with every link resolved, or ""
 // if there's none: on the PATH, the one your login shell sets, or where its
@@ -69,10 +90,10 @@ func openCodePlaces() []string {
 		return []string{filepath.Join(os.Getenv("APPDATA"), "npm"), filepath.Join(os.Getenv("LOCALAPPDATA"), "pnpm"),
 			filepath.Join(os.Getenv("LOCALAPPDATA"), "Volta", "bin"), home(".opencode", "bin"), home(".bun", "bin")}
 	}
-	loginPathOnce.Do(func() { loginPath = loginShellPath() })
+	login := askLoginPath()
 	nvm, _ := filepath.Glob(home(".nvm", "versions", "node", "*", "bin"))
 	slices.Reverse(nvm) // the newest first
-	return slices.Concat(loginPath, []string{home(".opencode", "bin"), home(".local", "bin"), home(".bun", "bin"), home(".npm-global", "bin"),
+	return slices.Concat(login, []string{home(".opencode", "bin"), home(".local", "bin"), home(".bun", "bin"), home(".npm-global", "bin"),
 		home(".local", "share", "pnpm"), home(".volta", "bin"), home(".local", "share", "fnm", "aliases", "default", "bin"),
 		home(".asdf", "shims"), home(".local", "share", "mise", "shims"), "/opt/homebrew/bin", "/usr/local/bin"}, nvm)
 }
@@ -80,14 +101,11 @@ func openCodePlaces() []string {
 // loginShellPath is the PATH your login shell sets, which a program started
 // from the desktop may not have: empty if it doesn't say within a few seconds.
 func loginShellPath() []string {
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
+	shell := pathShell()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	// A marker before it, as a shell's start-up files can print things of their own
-	out, err := exec.CommandContext(ctx, shell, "-lic", `printf '\n<path>%s' "$PATH"`).Output()
+	out, err := lookupCommand(ctx, shell, "-lic", `printf '\n<path>%s' "$PATH"`).Output()
 	if err != nil && len(out) == 0 {
 		return nil
 	}
@@ -95,7 +113,46 @@ func loginShellPath() []string {
 	if i < 0 {
 		return nil
 	}
-	return filepath.SplitList(strings.TrimSpace(string(out)[i+len("<path>"):]))
+	// Only full paths: a relative one would be looked in wherever this program runs.
+	return slices.DeleteFunc(filepath.SplitList(strings.TrimSpace(string(out)[i+len("<path>"):])), func(folder string) bool {
+		return !filepath.IsAbs(folder)
+	})
+}
+
+// lookupCommand is a login shell run only to learn where programs are (SANDBOX-PLAN §3.4, SG2; RT126S2 D2): your
+// shell's start files run in it, and a hire can write those. So it gets nothing of Smolcorp's: no key, no token,
+// no variable from Smolcorp's own environment, only who you are, your home and the system's own PATH, no input,
+// and your home as its folder. What it says only finds programs; an agent found is checked before it runs
+// (agentcheck.go). On a Mac it starts through smolcorp-spawn with responsibility disclaimed (internal/disclaim,
+// ST1), so it holds none of Smolcorp's grants.
+func lookupCommand(ctx context.Context, shell string, args ...string) *exec.Cmd {
+	cmd := disclaim.Cmd(exec.CommandContext(ctx, shell, args...))
+	cmd.Env = lookupEnvironment()
+	cmd.Dir = homeDir
+	return cmd
+}
+
+// lookupEnvironment is all a lookup's shell is given.
+func lookupEnvironment() []string {
+	env := []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "TERM=dumb"}
+	for _, name := range []string{"HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE"} {
+		if value, ok := os.LookupEnv(name); ok {
+			env = append(env, name+"="+value)
+		}
+	}
+	return env
+}
+
+// pathShell is the shell asked for its PATH: yours, else the Mac's own (zsh,
+// as Terminal and the Mac's engine start), else sh.
+func pathShell() string {
+	if shell := os.Getenv("SHELL"); shell != "" {
+		return shell
+	}
+	if runtime.GOOS == "darwin" {
+		return macShell
+	}
+	return "/bin/sh"
 }
 
 // openCodeStamp is where the program is and when it last changed, or "".
@@ -162,6 +219,9 @@ func lookAtOpenCode() {
 // forgetOpenCode removes the plugin, as disconnecting does, and what it was
 // written for, so connecting again writes it afresh.
 func forgetOpenCode() {
+	if leavesAgentsAlone() {
+		return
+	}
 	openCodeMu.Lock()
 	defer openCodeMu.Unlock()
 	_ = os.Remove(openCodePlugin())

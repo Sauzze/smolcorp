@@ -1,4 +1,5 @@
 {
+  "buildCommand": "cp ../Resources/web/office.js public/office.js",
   "outputDirectory": "public",
   "cleanUrls": false,
   "trailingSlash": false,

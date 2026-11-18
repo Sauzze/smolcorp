@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -61,6 +62,7 @@ type savedSession struct {
 	TurnStartedAt float64 `json:"turnStartedAt,omitempty"`
 	PID           int     `json:"pid,omitempty"`
 	Parent        string  `json:"parent,omitempty"`
+	Desk          string  `json:"desk,omitempty"` // the desk whose key reported it (Session.reportedBy)
 }
 
 // Saved is every session as it's kept across a restart.
@@ -70,7 +72,7 @@ func (s *Sessions) Saved() []savedSession {
 		saved = append(saved, savedSession{ID: session.ID, Agent: string(session.Agent), Folder: session.Folder, Project: session.Project,
 			Tab: session.Tab, State: string(session.State), Effort: session.Effort, Model: session.Model, Transcript: session.Transcript,
 			StartedAt: session.StartedAt, LastEventAt: session.LastEventAt, TurnStartedAt: session.TurnStartedAt, PID: session.PID,
-			Parent: session.ParentFolder})
+			Parent: session.ParentFolder, Desk: session.reportedBy})
 	}
 	return saved
 }
@@ -81,7 +83,10 @@ func (s *Sessions) Saved() []savedSession {
 func (s *Sessions) Restore(saved []savedSession, fresh bool) bool {
 	restored := false
 	for _, entry := range saved {
-		if _, known := s.byID[entry.ID]; known || entry.ID == "" || entry.Tab == "" {
+		// t3: ids are the desks of hires in T3 Code, made from the registry alone: none comes back as a session. Nor
+		// does an acp: one, an ACP desk's (acpdesk.go), which lives only as long as the core holds its agent.
+		if _, known := s.byID[entry.ID]; known || entry.ID == "" || entry.Tab == "" || strings.HasPrefix(entry.ID, t3DeskPrefix) ||
+			strings.HasPrefix(entry.ID, acpDeskPrefix) || strings.HasPrefix(entry.Tab, acpDeskPrefix) {
 			continue
 		}
 		if _, ended := s.endedAt[entry.ID]; ended {
@@ -93,7 +98,7 @@ func (s *Sessions) Restore(saved []savedSession, fresh bool) bool {
 		}
 		session := &Session{ID: entry.ID, Agent: agent, Folder: entry.Folder, Project: entry.Project, Tab: entry.Tab, State: Idle,
 			Effort: entry.Effort, Model: entry.Model, Transcript: entry.Transcript, StartedAt: entry.StartedAt,
-			LastEventAt: entry.LastEventAt, PID: entry.PID, ParentFolder: entry.Parent}
+			LastEventAt: entry.LastEventAt, PID: entry.PID, ParentFolder: entry.Parent, reportedBy: entry.Desk}
 		if state := SessionState(entry.State); fresh && slices.Contains([]SessionState{Idle, Thinking, Asking, Unread, Failed}, state) {
 			session.State = state
 			if session.IsBusy() {
@@ -121,10 +126,12 @@ func (d *Deck) scheduleSave() {
 		return
 	}
 	d.savePending = true
-	time.AfterFunc(saveDelay, d.saveSessions)
+	d.saveTimer = time.AfterFunc(saveDelay, d.saveSessions)
 }
 
 func (d *Deck) saveSessions() {
+	d.saveMu.Lock()
+	defer d.saveMu.Unlock()
 	d.mu.Lock()
 	d.savePending = false
 	saved := savedDeck{SavedAt: nowMillis(), Sessions: d.sessions.Saved(), Keys: map[string]int{},
@@ -251,7 +258,16 @@ func (d *Deck) restore(running []savedSession, places savedDeck, fresh bool) {
 	if len(running) == 0 {
 		return
 	}
-	for _, entry := range running {
+	// Each session's desk, by its tab (its tmux socket, or its launcher) as the registry holds it: a desk with its own
+	// Claude folder keeps a transcript there alone (SA-X8), as its hook events do (Deck.ingestAs).
+	desks := currentHookDesks()
+	desks.launchers = d.launcherHires()
+	for i, entry := range running {
+		// Saved before transcripts were taken by place, or since moved out of the owner's Claude folders, or not this
+		// desk's: not read.
+		if !d.transcriptKnown(desks.deskOfTab(entry.Tab), entry.Transcript) {
+			running[i].Transcript = ""
+		}
 		if key, ok := places.Keys[entry.ID]; ok && key >= 0 && key < mostKeys {
 			if _, has := d.keyOf[entry.ID]; !has {
 				d.keyOf[entry.ID] = key

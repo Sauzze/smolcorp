@@ -242,6 +242,7 @@ func TestAStatusFileFiresForNewLinesOnlyAndOnlyTheRightBuiltin(t *testing.T) {
 	b := builtinDeck(t)
 	status := filepath.Join(b.root, "STATUS.md")
 	// A file that was there before the watches were set never fires for its old lines: set them again from a fresh start.
+	stopDecksOf(t)
 	b2 := watchDeck(t)
 	old := filepath.Join(b2.root, "STATUS.md")
 	putFile(t, old, "DONE long ago\nNEEDS-REVIEW: long ago\n")

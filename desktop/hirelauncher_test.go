@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -278,6 +279,19 @@ func TestTheSwitchOnMakesTheHireWithTheEngineAndNoSecretIsInTheOpenersArgumentsO
 	r.d.config.HiringEnabled, r.d.config.HireFolder = true, r.repo
 	o := r.o
 	o.Open = nil // the real opener, through the terminal's own arguments
+	// No launcher connects here, so the hire is heard from only once the test is done: its watch ends then,
+	// in this test, and never writes the registry in a later test's folder.
+	done := make(chan struct{})
+	o.HeardFrom = func(Hire) bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}
+	o.Every = 5 * time.Millisecond
+	t.Cleanup(func() { close(done); r.d.watching.Wait() })
 	r.d.launcherEngine = o
 	if status, message := r.d.hireFromSetup("janitor"); status != http.StatusNoContent {
 		t.Fatalf("hire: %d %s", status, message)
@@ -292,7 +306,7 @@ func TestTheSwitchOnMakesTheHireWithTheEngineAndNoSecretIsInTheOpenersArgumentsO
 	args := commandWords(h.windows[0])
 	token := flagAfter(args, "--hire")
 	if !hireToken.MatchString(token) || flagAfter(args, "--hire-id") != hires[0].ID || flagAfter(args, "--role") != "janitor" ||
-		!slices.Contains(args, "--settings="+filepath.Join(hireFolder(supportDir, hires[0].ID), hireSettingsFile)) {
+		slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "--settings") }) {
 		t.Errorf("command: %q", args)
 	}
 	// The launcher asks for its environment: the secrets are there, and only there.
@@ -304,6 +318,12 @@ func TestTheSwitchOnMakesTheHireWithTheEngineAndNoSecretIsInTheOpenersArgumentsO
 	if key == "" || got.Set["SMOLCORP_HIRE_PORTS"] != hires[0].Ports || got.Set["SMOLCORP_GM_TOKEN"] != "" ||
 		!slices.Contains(got.Unset, "SMOLCORP_GM_TOKEN") || !slices.Contains(got.Unset, "CLAUDE_CONFIG_DIR") {
 		t.Errorf("environment: %+v", got)
+	}
+	// Its settings file and seal come with it, for the launcher to check and name in the agent's command line
+	// (SANDBOX-PLAN §3.4, SETTINGSFILE1).
+	if text := fileSettings(got.Settings); !strings.Contains(text, `"PreToolUse"`) || !strings.Contains(text, `"onFailure":"block"`) ||
+		(sealedSettings{Path: got.Settings, Sum: got.SettingsSum}).refusal() != nil {
+		t.Errorf("settings: %s %s: %s", got.Settings, got.SettingsSum, text)
 	}
 	if found := readRegistry(registryPath(), false).hireForSendKey(key); found == nil || found.ID != hires[0].ID {
 		t.Errorf("the key isn't the hire's: %+v", found)
@@ -348,8 +368,8 @@ func TestAStartIsMadeInOrderEachReadyBeforeTheNext(t *testing.T) {
 		if len(hires.hires) != 1 || hires.hires[0].State != "starting" || hires.hires[0].TmuxSocket != "" || hires.keys[hires.hires[0].ID] == "" {
 			t.Errorf("at the window's opening the row or its key wasn't ready: %+v %v", hires.hires, hires.keys)
 		}
-		if _, err := os.Stat(filepath.Join(hireFolder(supportDir, hires.hires[0].ID), hireSettingsFile)); err != nil {
-			t.Errorf("no settings when the window opened: %v", err)
+		if launcherSettings(r.d, hires.hires[0].ID) == "" {
+			t.Error("no settings when the window opened")
 		}
 		if len(strings.Split(r.worktrees(), "\n")) != 2 {
 			t.Errorf("no worktree when the window opened: %s", r.worktrees())
@@ -422,6 +442,12 @@ func TestTheGMGetsTheTokenAndNoKeyOthersAKeyAndNoToken(t *testing.T) {
 		!slices.Contains(otherWindow.env.Unset, "SMOLCORP_GM_TOKEN") {
 		t.Errorf("the other hire's environment: %+v", otherWindow.env)
 	}
+	// As a tmux desk, both start with Claude Code's auto-update off, and HUSKY left as the terminal has it (SA-T1).
+	for _, env := range []hireStartEnv{gmWindow.env, otherWindow.env} {
+		if _, husky := env.Set["HUSKY"]; env.Set["DISABLE_AUTOUPDATER"] != "1" || husky || slices.Contains(env.Unset, "HUSKY") {
+			t.Errorf("the tools' switches: %+v", env)
+		}
+	}
 	if file := readRegistry(registryPath(), false); file.keys[gm.ID] != "" || file.keys[other.ID] == "" {
 		t.Errorf("keys: %v", file.keys)
 	}
@@ -432,11 +458,56 @@ func TestTheGMGetsTheTokenAndNoKeyOthersAKeyAndNoToken(t *testing.T) {
 		return strings.HasPrefix(e, "SMOLCORP_GM_TOKEN=") || strings.HasPrefix(e, "CLAUDE_CONFIG_DIR=")
 	}) ||
 		!slices.Contains(got, "KEEP=1") || !slices.Contains(got, hireKeyEnvironment+"="+otherWindow.env.Set[hireKeyEnvironment]) ||
+		!slices.Contains(got, "DISABLE_AUTOUPDATER=1") ||
 		!strings.HasPrefix(got[0], "PATH="+filepath.Dir(r.o.CLI)+string(os.PathListSeparator)) {
 		t.Errorf("environment: %v", got)
 	}
 	if slices.Contains(base, hireKeyEnvironment) || base[1] != "SMOLCORP_GM_TOKEN=inherited" {
 		t.Error("the inherited environment was changed")
+	}
+
+	// FXMEM4bR1 B1 and SIERRA's musts, the launcher's twin of the engine's: the GM's start sets Claude Code's memory
+	// variable to 1 and takes out the launch modes that keep its settings' env out; a hire's names none of them.
+	modes := []string{"CLAUDE_CODE_REMOTE_TOOLS_PIN_STORED_LOGIN", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_ENVIRONMENT_KIND"}
+	if gmWindow.env.Set[claudeMemoryEnv] != "1" || slices.ContainsFunc(modes, func(m string) bool { return !slices.Contains(gmWindow.env.Unset, m) }) {
+		t.Errorf("the GM's start doesn't keep its memory off: %+v", gmWindow.env)
+	}
+	if slices.ContainsFunc(append([]string{claudeMemoryEnv}, modes...), func(m string) bool {
+		_, set := otherWindow.env.Set[m]
+		return set || slices.Contains(otherWindow.env.Unset, m)
+	}) {
+		t.Errorf("a hire's start changes Claude Code's memory: %+v", otherWindow.env)
+	}
+	var gmSettings map[string]any
+	if err := json.Unmarshal([]byte(fileSettings(gmWindow.env.Settings)), &gmSettings); err != nil {
+		t.Fatal(err)
+	}
+	account := map[string]any{"env": map[string]any{claudeMemoryEnv: "0"}, "autoMemoryEnabled": true}
+	for _, mode := range claudeLaunchModes {
+		for _, caseless := range []bool{false, true} {
+			inherited := append([]string{"PATH=/usr/bin", claudeMemoryEnv + "=0"}, mode...)
+			if caseless { // Windows: names in any case are the same variable, to the launcher and to Claude Code
+				for i, entry := range inherited {
+					name, value, _ := strings.Cut(entry, "=")
+					inherited[i] = strings.ToLower(name) + "=" + value
+				}
+			}
+			name := fmt.Sprintf("%q, caseless %v", mode, caseless)
+			got := startEnvironment(inherited, gmWindow.env, caseless)
+			if !slices.Contains(got, claudeMemoryEnv+"=1") || slices.ContainsFunc(got, func(e string) bool {
+				key, _, _ := strings.Cut(e, "=")
+				return strings.EqualFold(key, claudeMemoryEnv) && e != claudeMemoryEnv+"=1" ||
+					slices.ContainsFunc(modes, func(m string) bool { return strings.EqualFold(key, m) })
+			}) {
+				t.Errorf("%s: the GM starts with %q", name, got)
+			}
+			if !caseless && claudeAutoMemoryOn(environmentMap(got), account, gmSettings) {
+				t.Errorf("%s: the GM's memory is on", name)
+			}
+			if got := startEnvironment(inherited, otherWindow.env, caseless); slices.ContainsFunc(inherited[1:], func(e string) bool { return !slices.Contains(got, e) }) {
+				t.Errorf("%s: a hire's start changed what it inherited: %q", name, got)
+			}
+		}
 	}
 }
 
@@ -587,7 +658,7 @@ func TestMailFindsAnEngineHiresLauncherByIdIncludingTwoHiresInOneFolder(t *testi
 func writeRegistry(t *testing.T, hires ...Hire) {
 	t.Helper()
 	data, _ := json.Marshal(map[string]any{"version": 1, "hires": hires})
-	if err := os.WriteFile(registryPath(), data, 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -596,7 +667,7 @@ func (r *lrig) manage(roleID string) (int, string, bool) {
 	r.d.launcherEngine = r.o
 	r.d.mu.Lock()
 	defer r.d.mu.Unlock()
-	return r.d.managedLauncherHire(roleID, r.repo, hireOpener{}, true, -1, 0)
+	return r.d.managedLauncherHire(roleID, r.repo, hireOpener{}, true, -1, 0, nil, nil)
 }
 
 func TestAHireHeardFromIsWorkingAndOneNeverHeardFromIsCleanedUpWithItsLauncherStopped(t *testing.T) {
@@ -700,6 +771,7 @@ func TestAGMThatNeverStartsOrWhoseWindowWontOpenTakesItsTokenAway(t *testing.T) 
 	if r.d.gmTokenNow() != "" {
 		t.Error("a GM that never started kept its token")
 	}
+	stopDecksOf(t)
 	r2 := newLRig(t)
 	r2.o.Open = func([]string, string) error { return os.ErrPermission }
 	if status, _, _ := r2.manage("gm"); status != http.StatusInternalServerError {
@@ -787,9 +859,13 @@ func TestAFireRefusesInTheEngineTmuxWordsAndChangesNothing(t *testing.T) {
 	t.Run("already gone", func(t *testing.T) {
 		r := newLRig(t)
 		h, w := r.hire("janitor")
+		// Its window closed first: one still running is ended (gonedesk_unix_test.go).
+		if !r.d.stopLauncherOf(h.ID, r.o.StopWait) {
+			t.Fatal("the window didn't stop")
+		}
 		markFired(h.ID, "")
 		r.fireRefused(h, false, "Janitor is already gone.")
-		if w.stopped() != 0 {
+		if w.stopped() != 1 {
 			t.Error("a launcher was stopped for a hire already gone")
 		}
 	})
@@ -818,6 +894,7 @@ func TestAFireLooksAgainJustBeforeStoppingAndStopsAtAQuestionThatCameUpMeanwhile
 
 func TestForceSkipsOnlyADraftBusyOrUncommittedFilesAndNothingIsEverTyped(t *testing.T) {
 	for _, shows := range []string{"draft", "busy-1"} {
+		stopDecksOf(t)
 		r := newLRig(t)
 		r.shows = shows
 		h, w := r.hire("janitor")
@@ -977,17 +1054,19 @@ func TestSetupStateShowsTheBetaSwitchAndTheSettingsRouteSetsIt(t *testing.T) {
 
 func TestTheLauncherTakesOnlyTheArgumentsOfAnEngineHire(t *testing.T) {
 	token, id := strings.Repeat("A", 32), "abcdef123456"
-	good := []string{"--hire", token, "--hire-id", id, "--agent", "claude", "--role", "janitor", "--settings=" + filepath.Join(t.TempDir(), "s.json")}
+	good := []string{"--hire", token, "--hire-id", id, "--agent", "claude", "--role", "janitor"}
 	run, err := parseRun(good)
-	if err != nil || run.hireID != id || run.role != "janitor" || run.settings != good[8] {
+	if err != nil || run.hireID != id || run.role != "janitor" {
 		t.Fatalf("%+v %v", run, err)
 	}
+	// The settings come with the start environment, never on the command line or from a file (SANDBOX-PLAN §3.4).
+	settings := "--settings=" + filepath.Join(t.TempDir(), "s.json")
 	for name, args := range map[string][]string{
 		"id without a role":           {"--hire", token, "--hire-id", id, "claude"},
 		"bad id":                      {"--hire", token, "--hire-id", "../x", "--role", "janitor"},
-		"settings without an id":      {"--hire", token, "--role", "janitor", good[8]},
-		"relative settings":           {"--hire", token, "--hire-id", id, "--role", "janitor", "--settings=s.json"},
-		"another argument":            {"--hire", token, "--hire-id", id, "--role", "janitor", good[8], "--dangerous"},
+		"a settings file":             {"--hire", token, "--hire-id", id, "--role", "janitor", settings},
+		"settings without an id":      {"--hire", token, "--role", "janitor", settings},
+		"inline settings":             {"--hire", token, "--hire-id", id, "--role", "janitor", `--settings={"disableAllHooks":true}`},
 		"another argument for a role": {"--hire", token, "--hire-id", id, "--role", "janitor", "--model=x"},
 	} {
 		if run, err := parseRun(args); err == nil {
@@ -1031,6 +1110,7 @@ func TestALauncherThatConnectedAgainIsNeverFiredByAPlainStopAndStillCountsAsTheG
 	}
 
 	// The GM: a second one is refused while the reconnected GM window is up.
+	stopDecksOf(t)
 	r2 := newLRig(t)
 	gm, gmWindow := r2.hire("gm")
 	gmToken := flagAfter(r2.opened[0], "--hire")
@@ -1180,5 +1260,36 @@ func TestAHireWithNoWorktreeKeepsItsProtectionAfterItsLauncherConnectsAgain(t *t
 	}
 	if !r.d.launcherHolds(h) {
 		t.Error("the reconnected window isn't counted as the hire's")
+	}
+}
+
+// The launcher's hire has its brief written as the engine's does; the launcher is handed the message
+// that names it with the hire's environment, as it can't make that message itself.
+func TestALauncherHireIsHandedTheMessageToReadItsBrief(t *testing.T) {
+	r := newLRig(t)
+	r.launches = false
+	var token, hireID string
+	r.o.Expect = func(given, id string, env hireStartEnv) {
+		token, hireID = given, id
+		r.d.expectLauncher(given, id, env)
+	}
+	request := r.request("janitor")
+	request.Role.Brief = &RoleBrief{Kind: "library", ID: "janitor"}
+	hire, _, err := runLauncherHire(request, r.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief := filepath.Join(hireFolder(supportDir, hire.ID), "BRIEF.md")
+	if data, err := os.ReadFile(brief); err != nil || !strings.Contains(string(data), "# Brief: Janitor") || hire.Brief != brief {
+		t.Fatalf("the brief: %v %q", err, hire.Brief)
+	}
+	env, status := r.d.takeStartEnv(token, hireID)
+	if status != http.StatusOK || env.Message != "Read `"+tildePath(brief)+"` and follow it: it's your brief, as my Janitor. As it says, your "+
+		"first reply must only ask me its questions, all together; wait for my answers before you read code or run commands." {
+		t.Errorf("handed %d %q", status, env.Message)
+	}
+	// The message isn't on the window's command line.
+	if words := strings.Join(commandWords(r.opened[0]), " "); strings.Contains(words, "BRIEF") {
+		t.Errorf("the command names the brief: %s", words)
 	}
 }

@@ -11,8 +11,10 @@ import (
 // `tmux capture-pane -p` gives on Linux, so ReadPaneState can read it.
 //
 // It draws printable text and handles \r \n \b \t, the cursor moves CSI A B C
-// D G H f, the erases CSI J K X, and scrolls at the bottom. It ignores colours
-// (SGR m) and the harmless private modes, and skips OSC strings. It is not a
+// D G H f, the erases CSI J K X, and scrolls at the bottom. Of the styles (SGR
+// m) it keeps only faint, so Claude Code's grey suggestion isn't read as typed
+// (panestyle.go); it ignores colours and the harmless private modes, and
+// skips OSC strings. It is not a
 // terminal emulator. Anything it can't draw faithfully (the alternate screen,
 // scroll regions, wide or combining characters, unknown sequences, bad UTF-8,
 // a narrower window) makes Unknown true, and then the pane reads as
@@ -23,7 +25,15 @@ import (
 type textScreen struct {
 	rows, cols int
 	grid       [][]rune
-	row, col   int
+	// style: whether each cell of grid is faint.
+	style    [][]paneCell
+	row, col int
+	// pen: the style the next character is drawn in.
+	pen paneCell
+	// styleUnsure: an SGR sequence couldn't be read, so the styles may be
+	// wrong and are not used (every character counts as typed); only Reset
+	// clears it.
+	styleUnsure bool
 	// wrap: the last column was just written; the next character starts a new
 	// line (the deferred wrap of real terminals).
 	wrap bool
@@ -82,6 +92,10 @@ func (s *textScreen) Reset(rows, cols int) {
 		s.rows, s.cols, s.broken = 1, 1, true
 	}
 	s.grid = s.blankGrid(s.rows, s.cols)
+	s.style = make([][]paneCell, s.rows)
+	for i := range s.style {
+		s.style[i] = make([]paneCell, s.cols)
+	}
 	s.dirty = make([]bool, s.rows)
 }
 
@@ -116,12 +130,32 @@ func (s *textScreen) Text() string {
 // Bracketed says whether the agent turned bracketed paste on.
 func (s *textScreen) Bracketed() bool { return s.bracketed }
 
-// PaneState reads the screen like a tmux capture; Unknown reads PaneUnknown.
+// styledText is Text and the style of each of its runes, lined up as
+// paneUnstyle gives them.
+func (s *textScreen) styledText() (string, []paneCell) {
+	lines := make([]string, s.rows)
+	var styles []paneCell
+	for i, r := range s.grid {
+		lines[i] = strings.TrimRight(string(r), " ")
+		styles = append(styles, s.style[i][:utf8.RuneCountInString(lines[i])]...)
+		if i < s.rows-1 {
+			styles = append(styles, 0) // the newline
+		}
+	}
+	return strings.Join(lines, "\n"), styles
+}
+
+// PaneState reads the screen like a tmux capture taken with its escapes (a box
+// holding only a faint suggestion is idle); Unknown reads PaneUnknown.
 func (s *textScreen) PaneState() PaneState {
 	if s.Unknown() {
 		return PaneUnknown
 	}
-	return ReadPaneState(s.Text())
+	text, styles := s.styledText()
+	if s.styleUnsure {
+		styles = nil
+	}
+	return readPaneState(text, styles)
 }
 
 // Resize changes the window's size. Fewer rows push the top lines off, as a
@@ -142,19 +176,21 @@ func (s *textScreen) Resize(rows, cols int) {
 	}
 	if rows < s.rows {
 		drop := max(s.row-rows+1, 0)
-		s.grid = s.grid[drop:]
+		s.grid, s.style = s.grid[drop:], s.style[drop:]
 		s.row -= drop
-		s.grid = s.grid[:rows]
+		s.grid, s.style = s.grid[:rows], s.style[:rows]
 	}
 	for len(s.grid) < rows {
 		s.grid = append(s.grid, s.blankRow(s.cols))
+		s.style = append(s.style, make([]paneCell, s.cols))
 	}
 	for i, r := range s.grid {
 		if cols < len(r) {
-			s.grid[i] = r[:cols]
+			s.grid[i], s.style[i] = r[:cols], s.style[i][:cols]
 		}
 		for len(s.grid[i]) < cols {
 			s.grid[i] = append(s.grid[i], ' ')
+			s.style[i] = append(s.style[i], 0)
 		}
 	}
 	s.rows, s.cols = rows, cols
@@ -286,9 +322,10 @@ func (s *textScreen) lineFeed() {
 		s.row++
 		return
 	}
-	top := s.grid[0]
+	top, topStyle := s.grid[0], s.style[0]
 	copy(s.grid, s.grid[1:])
-	s.grid[s.rows-1] = top
+	copy(s.style, s.style[1:])
+	s.grid[s.rows-1], s.style[s.rows-1] = top, topStyle
 	copy(s.dirty, s.dirty[1:])
 	s.dirty[s.rows-1] = true
 	s.fill(s.rows-1, 0, s.cols)
@@ -301,6 +338,7 @@ func (s *textScreen) fill(row, from, to int) {
 	}
 	for i := from; i < to; i++ {
 		s.grid[row][i] = ' '
+		s.style[row][i] = 0
 	}
 	if from == 0 && to == s.cols {
 		s.dirty[row] = false
@@ -317,6 +355,7 @@ func (s *textScreen) put(r rune) {
 		s.lineFeed()
 	}
 	s.grid[s.row][s.col] = r
+	s.style[s.row][s.col] = s.pen
 	s.dirty[s.row] = true
 	if s.col == s.cols-1 {
 		s.wrap = true
@@ -403,6 +442,13 @@ func (s *textScreen) csi(final byte) {
 	if p := s.params; len(p) > 0 && strings.IndexByte("?<=>", p[0]) >= 0 {
 		s.csiPrivate(p[0], string(p[1:]), final)
 		return
+	}
+	if final == 'm' {
+		if pen, ok := paneSGR(string(s.params), s.pen); ok {
+			s.pen = pen
+		} else {
+			s.styleUnsure = true
+		}
 	}
 	if harmlessCSI(s.params, final) {
 		return

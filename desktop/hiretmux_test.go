@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -108,14 +109,26 @@ func TestOnlyOurSocketsAreOwned(t *testing.T) {
 func TestStartIsDetachedInTheFolderOnItsOwnSocket(t *testing.T) {
 	r := newRecorder()
 	h, socket := fakeHireTmux(t, r, 0)
-	r.output = "%0 " + socket
-	pane, got, ok := h.start("/work/app", "/bin/zsh", "/x/hire.sh")
-	if !ok || pane != "%0" || got != socket {
-		t.Fatalf("start gave %q %q %v", pane, got, ok)
+	r.output = "%0 4242 " + socket
+	pane, got, pid, err := h.start("/work/app", []string{"/x/smolcorp", "desk-start", "/s/desk-start", "42", "ticket"})
+	if err != nil || pane != "%0" || got != socket || pid != 4242 {
+		t.Fatalf("start gave %q %q %d %v", pane, got, pid, err)
 	}
-	want := []string{"-S", socket, "new-session", "-d", "-P", "-F", "#{pane_id} #{socket_path}",
-		"-s", "hire", "-c", "/work/app", "/bin/zsh", "-lic", "exec '/x/hire.sh'"}
+	// Its words as they are: tmux runs several without a shell, so no login shell and no start file runs (SG2). The
+	// pid of the process it started is said by the same call (the desk's ticket is for that process: RT126SG2 B1).
+	want := []string{"-S", socket, "new-session", "-d", "-P", "-F", "#{pane_id} #{pane_pid} #{socket_path}",
+		"-s", "hire", "-c", "/work/app", "/x/smolcorp", "desk-start", "/s/desk-start", "42", "ticket"}
 	if len(r.asked) != 1 || !reflect.DeepEqual(r.asked[0], want) {
+		t.Errorf("asked %q, want %q", r.asked, want)
+	}
+}
+
+// RT126SG2 B1, §4 g6: a hire's real tmux reads none of the owner's start files. Every call is given -f with no
+// file, which only the call starting the server reads; a stand-in runner is left as it is.
+func TestAHiresRealTmuxReadsNoStartFile(t *testing.T) {
+	r := newRecorder()
+	withoutStartFile(r.run)([]string{"-S", "/s/x", "has-session"})
+	if want := []string{"-f", os.DevNull, "-S", "/s/x", "has-session"}; len(r.asked) != 1 || !reflect.DeepEqual(r.asked[0], want) {
 		t.Errorf("asked %q, want %q", r.asked, want)
 	}
 }
@@ -123,11 +136,17 @@ func TestStartIsDetachedInTheFolderOnItsOwnSocket(t *testing.T) {
 func TestStartFailsWhenTmuxDoes(t *testing.T) {
 	r := newRecorder()
 	h, _ := fakeHireTmux(t, r, 0)
-	for _, c := range []recorder{{status: 1, ran: true}, {output: "garbage", ran: true}, {output: "%0 ", ran: true}, {output: "0 /s", ran: true}, {}} {
+	for _, c := range []recorder{{status: 1, ran: true}, {output: "garbage", ran: true}, {output: "%0 ", ran: true}, {output: "0 /s", ran: true},
+		{output: "%0 /s", ran: true}, {output: "%0 x /s", ran: true}, {output: "%0 1 /s", ran: true}, {output: "%0 42 ", ran: true}, {}} {
 		*r = c
-		if _, _, ok := h.start("/w", "/bin/sh", "x"); ok {
+		if _, _, _, err := h.start("/w", []string{"/bin/sh", "x"}); err == nil {
 			t.Errorf("start succeeded on %+v", c)
 		}
+	}
+	// One word would be run by tmux's shell: never asked.
+	*r = recorder{output: "%0 42 /s", ran: true}
+	if _, _, _, err := h.start("/w", []string{"/x/hire.sh"}); err == nil || len(r.asked) != 0 {
+		t.Errorf("a one-word start was asked: %q", r.asked)
 	}
 }
 
@@ -157,7 +176,7 @@ func TestCaptureReadsTheLastLinesAndTheStateFollows(t *testing.T) {
 	if got, ok := h.capture(40); !ok || got != "one\ntwo" {
 		t.Errorf("capture %q %v", got, ok)
 	}
-	if want := []string{"-S", socket, "capture-pane", "-p", "-t", "=hire:", "-S", "-40"}; !reflect.DeepEqual(r.asked[0], want) {
+	if want := []string{"-S", socket, "capture-pane", "-p", "-e", "-t", "=hire:", "-S", "-40"}; !reflect.DeepEqual(r.asked[0], want) {
 		t.Errorf("asked %q", r.asked[0])
 	}
 	r.asked = nil
@@ -166,7 +185,7 @@ func TestCaptureReadsTheLastLinesAndTheStateFollows(t *testing.T) {
 	if r.asked[0][len(r.asked[0])-1] != "-1" || r.asked[1][len(r.asked[1])-1] != "-5000" {
 		t.Errorf("lines not clamped: %q", r.asked)
 	}
-	// The pane's screen goes through ReadPaneState, a real capture of a menu included.
+	// The pane's screen goes through ReadStyledPaneState, a real capture of a menu included.
 	menu, err := os.ReadFile("../Tests/fixtures/panes/permission-menu.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -179,6 +198,15 @@ func TestCaptureReadsTheLastLinesAndTheStateFollows(t *testing.T) {
 	r.output = string(idle)
 	if got := h.paneState(); got != PaneIdle {
 		t.Errorf("an idle window reads %v", got)
+	}
+	// Read with its escapes (RT126GHOSTDRAFT1 m12): a box showing only a faint suggestion is idle, typed text isn't.
+	r.output = paneBox(paneAuto, "❯ "+faint("run the tests"))
+	if got := h.paneState(); got != PaneIdle {
+		t.Errorf("a faint suggestion reads %v", got)
+	}
+	r.output = paneBox(paneAuto, "❯ half typed"+faint(" and run the tests"))
+	if got := h.paneState(); got != PaneDraft {
+		t.Errorf("typed text and a suggestion read %v", got)
 	}
 	r.status = 1
 	if got := h.paneState(); got != PaneUnknown {
@@ -200,8 +228,8 @@ func TestEndNamesTheSessionAndNeverKillsTheServerByName(t *testing.T) {
 func TestEveryCallNamesOurSocket(t *testing.T) {
 	r := newRecorder()
 	h, socket := fakeHireTmux(t, r, 0)
-	r.output = "%0 " + socket
-	h.start("/w", "/bin/sh", "x")
+	r.output = "%0 4242 " + socket
+	h.start("/w", []string{"/bin/sh", "x"})
 	h.alive()
 	h.capture(3)
 	h.paneState()
@@ -301,12 +329,21 @@ func TestCleaningUpAHireThatNeverReported(t *testing.T) {
 	}
 }
 
-// With a real tmux, on a socket of the test's own, and a fake agent in place of claude.
-func TestARealSessionOnItsOwnSocket(t *testing.T) {
+// needTmux is the path of tmux for a test that runs a real one: without it the test skips, but in CI (CI set) it fails.
+func needTmux(t *testing.T) string {
+	t.Helper()
 	path, err := exec.LookPath("tmux")
-	if err != nil {
+	if err != nil && os.Getenv("CI") != "" {
+		t.Fatal("tmux isn't installed: in CI a missing tmux is a failure, not a skip")
+	} else if err != nil {
 		t.Skip("tmux isn't installed")
 	}
+	return path
+}
+
+// With a real tmux, on a socket of the test's own, and a fake agent in place of claude.
+func TestARealSessionOnItsOwnSocket(t *testing.T) {
+	path := needTmux(t)
 	shortSupport(t)
 	saved := tmuxPath
 	tmuxPath = func() string { return path }
@@ -323,8 +360,8 @@ func TestARealSessionOnItsOwnSocket(t *testing.T) {
 	if err := os.WriteFile(agent, []byte("#!/bin/sh\necho 'fake agent is up'\nexec cat\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	pane, socket, ok := h.start(folder, "/bin/sh", agent)
-	if !ok {
+	pane, socket, _, err := h.start(folder, []string{"/bin/sh", agent})
+	if err != nil {
 		t.Fatal("start failed")
 	}
 	// Ends only its own session, on its own socket, whatever else happens.
@@ -355,7 +392,8 @@ func TestARealSessionOnItsOwnSocket(t *testing.T) {
 	}
 }
 
-// The tmux server's environment is a hire's: nothing of where Smolcorp started, and never the GM's token.
+// The tmux server's environment is a hire's (its start call's): nothing of where Smolcorp started, and never the GM's
+// token. Every other call's is tmuxClient's alone (tmuxclient_test.go).
 func TestTmuxIsGivenAHiresEnvironment(t *testing.T) {
 	isolate(t)
 	dir := t.TempDir()
@@ -368,7 +406,7 @@ func TestTmuxIsGivenAHiresEnvironment(t *testing.T) {
 		t.Setenv(name, "fake-gm-token-1")
 	}
 	t.Setenv("HIRE_KEEPS_THIS", "yes")
-	if _, status, ran := realTmux(fake)([]string{"-V"}); !ran || status != 0 {
+	if _, status, ran := tmuxStartCall(fake)([]string{"-V"}); !ran || status != 0 {
 		t.Fatalf("fake tmux ran %v status %d", ran, status)
 	}
 	got, err := os.ReadFile(dump)
@@ -382,5 +420,59 @@ func TestTmuxIsGivenAHiresEnvironment(t *testing.T) {
 	}
 	if !strings.Contains(string(got), "HIRE_KEEPS_THIS=yes") {
 		t.Error("the rest of the environment was dropped")
+	}
+}
+
+// Agent windows in the background (T796): a hire's viewers counted and detached on its own socket, by its session.
+func TestHireViewersAreDetachedOnTheirOwnSocketOnly(t *testing.T) {
+	calls := [][]string{}
+	server := &hireTmux{socket: "/s/smolcorp-a", run: func(args []string) (string, int, bool) {
+		calls = append(calls, args)
+		if slices.Contains(args, "list-clients") {
+			return "/dev/pts/3\n/dev/pts/4", 0, true
+		}
+		return "", 0, true
+	}}
+	if server.viewers() != 2 || !server.detachViewers() {
+		t.Fatal("viewers or detach")
+	}
+	want := [][]string{
+		{"-S", "/s/smolcorp-a", "list-clients", "-t", "=hire", "-F", "#{client_tty}"},
+		{"-S", "/s/smolcorp-a", "detach-client", "-s", "=hire"},
+	}
+	if len(calls) != len(want) {
+		t.Fatalf("calls %v", calls)
+	}
+	for i := range want {
+		if !slices.Equal(calls[i], want[i]) {
+			t.Fatalf("call %d: %v, want %v", i, calls[i], want[i])
+		}
+		if slices.Contains(calls[i], "kill-session") || slices.Contains(calls[i], "kill-server") {
+			t.Fatalf("killed: %v", calls[i])
+		}
+	}
+}
+
+// RWTC N1: only a tmux pane on one of the copy's own hire sockets is its own.
+func TestATabIsATestCopysOwnOnlyAsATmuxPaneOnItsOwnHireSocket(t *testing.T) {
+	isolate(t)
+	onMarkedPort(t, 7799)
+	own := "tmux:%3@" + filepath.Join(supportDir, hireSocketName("abcdef123456", 7799))
+	if why := testCopyKeepsTab(own); why != "" {
+		t.Errorf("its own hire's pane: %q", why)
+	}
+	for _, tab := range []string{"iterm:AB12", "tty:/dev/ttys003", "launcher:L1", "kitty:3@/tmp/kitty", "wezterm:4@/tmp/w", "tmux:%3",
+		"tmux:%3@/tmp/tmux-501/default", "headless:abc", "",
+		"tmux:%3@" + filepath.Join(supportDir, hireSocketName("abcdef123456", 0)),     // the office's own hire
+		"tmux:%3@" + filepath.Join(supportDir, hireSocketName("abcdef123456", 7798)),  // another copy's
+		"tmux:%3@" + filepath.Join(t.TempDir(), hireSocketName("abcdef123456", 7799)), // not in a hire socket folder
+	} {
+		if why := testCopyKeepsTab(tab); why != testCopyKeepsTerminal {
+			t.Errorf("%q: %q", tab, why)
+		}
+	}
+	onDefaultPort(t)
+	if why := testCopyKeepsTab("iterm:AB12"); why != "" {
+		t.Errorf("the office's own: %q", why)
 	}
 }

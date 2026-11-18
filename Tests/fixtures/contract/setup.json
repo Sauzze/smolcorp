@@ -1,0 +1,1982 @@
+{
+  "routes" : [
+    {
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "note" : "the menu's one-time link key, in the setup-key header, for a cookie (204 with Set-Cookie)",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "nobody"
+          },
+          "status" : 401,
+          "why" : "no menu link's key: no session"
+        }
+      ],
+      "route" : "POST \/setup\/session"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "enabled" : "1"
+        }
+      },
+      "route" : "POST \/setup\/scroll"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "enabled" : "1"
+        }
+      },
+      "route" : "POST \/setup\/maxconfirm"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "keys" : "cmd+Q"
+            }
+          },
+          "status" : 400,
+          "why" : "the Mac's own keys"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "keys" : "K"
+            }
+          },
+          "status" : 400,
+          "why" : "no ⌘, ⌥ or ⌃"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "keys" : "ctrl+alt+K"
+        }
+      },
+      "route" : "POST \/setup\/officekey"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "done" : "1"
+        }
+      },
+      "route" : "POST \/setup\/guide"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "enabled" : "0"
+        }
+      },
+      "route" : "POST \/setup\/phonemic"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "logo" : "nope"
+            }
+          },
+          "status" : 400,
+          "why" : "no such logo"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "logo" : "keys"
+        }
+      },
+      "route" : "POST \/setup\/logo"
+    },
+    {
+      "answer" : {
+        "kind" : "empty",
+        "status" : 204
+      },
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "body" : {
+
+        },
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "POST \/setup\/theme"
+    },
+    {
+      "answer" : {
+        "kind" : "empty",
+        "status" : 204
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : "not a layout"
+          },
+          "status" : 400,
+          "why" : "not a layout"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "body" : {
+          "keyCount" : 6,
+          "showProject" : true
+        },
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "POST \/setup\/layout"
+    },
+    {
+      "answer" : {
+        "kind" : "empty",
+        "status" : 204
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "folder" : "\/work\/alpha",
+              "key" : "99"
+            }
+          },
+          "status" : 400,
+          "why" : "no such key"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "floor" : "6",
+              "key" : "0"
+            }
+          },
+          "status" : 400,
+          "why" : "no such floor"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "key" : "0"
+            }
+          },
+          "status" : 400,
+          "why" : "no folder"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "folder" : "\/work\/alpha",
+          "key" : "0"
+        }
+      },
+      "route" : "POST \/setup\/pin"
+    },
+    {
+      "answer" : {
+        "kind" : "empty",
+        "status" : 204
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "key" : "x"
+            }
+          },
+          "status" : 400,
+          "why" : "no such key"
+        },
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "floor" : "6",
+              "key" : "0"
+            }
+          },
+          "status" : 400,
+          "why" : "no such floor"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "floor" : "1",
+          "key" : "0"
+        }
+      },
+      "route" : "POST \/setup\/unpin"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+
+            }
+          },
+          "status" : 400,
+          "why" : "neither floors nor rules"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "body" : {
+          "rules" : [
+            {
+              "exact" : false,
+              "floor" : 2,
+              "folder" : "\/work\/beta"
+            }
+          ]
+        },
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "POST \/setup\/floors"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : "not json"
+          },
+          "status" : 400,
+          "why" : "not a webhook"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+              "enabled" : true,
+              "url" : "ftp:\/\/example.invalid\/x"
+            }
+          },
+          "status" : 400,
+          "why" : "an address it can't send to"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "body" : {
+          "enabled" : false
+        },
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "POST \/setup\/webhook"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "action" : "nope"
+            }
+          },
+          "status" : 400,
+          "why" : "unknown action"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : "not a profile",
+            "query" : {
+              "action" : "check"
+            }
+          },
+          "status" : 400,
+          "why" : "check: not a profile"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "action" : "save",
+          "name" : "Contract"
+        }
+      },
+      "route" : "POST \/setup\/profiles"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "page"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "POST \/setup\/pair"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page"
+          },
+          "status" : 400,
+          "why" : "neither phone= nor all=1"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "phone" : "no-such-phone"
+        }
+      },
+      "route" : "POST \/setup\/unpair"
+    },
+    {
+      "answer" : {
+        "kind" : "png",
+        "status" : 200
+      },
+      "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page"
+          },
+          "status" : 404,
+          "why" : "no pairing code asked for"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a pairing code"
+        ]
+      },
+      "route" : "GET \/setup\/qr.png"
+    },
+    {
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "note" : "GET \/setup\/logo\/<logo> answers the logo's PNG",
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page"
+          },
+          "status" : 404,
+          "why" : "no such logo"
+        }
+      ],
+      "route" : "GET \/setup\/logo\/nope"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "agent" : "nope"
+            }
+          },
+          "status" : 400,
+          "why" : "unknown agent"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "terminal" : "nope"
+            }
+          },
+          "status" : 400,
+          "why" : "a terminal that isn't here"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "folder" : "\/no\/such\/folder\/for\/contract"
+            }
+          },
+          "status" : 400,
+          "why" : "no folder there"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "agent" : "claude"
+        }
+      },
+      "route" : "POST \/setup\/hiring"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "note" : "a folder that's there is saved as the folder for your hires; only the refusal, which comes first, is asked",
+      "refusals" : [
+        {
+          "kind" : "json",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "folder" : "\/no\/such\/folder\/for\/contract"
+            }
+          },
+          "shape" : {
+            "exists" : "bool",
+            "fix" : "string",
+            "folder" : "string",
+            "home" : "string",
+            "problem" : "string",
+            "suggested" : "string"
+          },
+          "status" : 400,
+          "why" : "no folder there"
+        }
+      ],
+      "route" : "POST \/setup\/hire-folder"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "enabled" : "1"
+            }
+          },
+          "status" : 400,
+          "why" : "on only from its dialog (confirmed=1)"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "confirmed" : "1",
+              "enabled" : "1",
+              "provider" : "nope"
+            }
+          },
+          "status" : 400,
+          "why" : "no such provider"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "enabled" : "0"
+        }
+      },
+      "route" : "POST \/setup\/summaries"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "id" : "nope"
+            }
+          },
+          "status" : 400,
+          "why" : "no such provider"
+        }
+      ],
+      "route" : "POST \/setup\/summary\/provider"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "note" : "the key goes to the Keychain (the Mac) or the secret store; only the refusal is asked here",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+              "key" : "not-a-key"
+            }
+          },
+          "status" : 400,
+          "why" : "not an Anthropic API key"
+        }
+      ],
+      "route" : "POST \/setup\/summary\/key"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "language" : "xx"
+            }
+          },
+          "status" : 400,
+          "why" : "unknown language"
+        }
+      ],
+      "route" : "POST \/setup\/dictation"
+    },
+    {
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : "not a list"
+          },
+          "status" : 400,
+          "why" : "not a list of names"
+        }
+      ],
+      "route" : "POST \/setup\/dictation\/glossary"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page"
+          },
+          "status" : 400,
+          "why" : "neither enabled=1 nor enabled=0"
+        }
+      ],
+      "route" : "POST \/setup\/keystrokes"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page"
+          },
+          "status" : 400,
+          "why" : "neither add= nor remove="
+        }
+      ],
+      "route" : "POST \/setup\/keystrokes\/apps"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "extra" : [
+
+          ],
+          "groups" : [
+            {
+              "about" : "string",
+              "allows" : "string",
+              "name" : "string",
+              "on" : "bool"
+            }
+          ],
+          "limits" : "string"
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "GET \/setup\/guard"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : "not json"
+          },
+          "status" : 400,
+          "why" : "not a guard file"
+        }
+      ],
+      "route" : "POST \/setup\/guard"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "found" : "array",
+          "most" : "number",
+          "profiles" : "array"
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "GET \/setup\/claude-accounts"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+
+            }
+          },
+          "status" : 400,
+          "why" : "no profiles list"
+        }
+      ],
+      "route" : "POST \/setup\/claude-accounts"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "bots" : [
+            {
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "badge" : "string",
+              "discovered" : "bool",
+              "floor" : "string",
+              "id" : "string",
+              "mailbox" : "string",
+              "name" : "string",
+              "outfit" : "string",
+              "permanent" : "bool",
+              "pinned" : "bool",
+              "resolved" : "object|null",
+              "source" : {
+                "bot" : "string",
+                "botId" : "string",
+                "counts" : "string",
+                "kind" : "string"
+              }
+            }
+          ]
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "GET \/setup\/bots"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "bots" : [
+            {
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "badge" : "string",
+              "discovered" : "bool",
+              "floor" : "string",
+              "id" : "string",
+              "mailbox" : "string",
+              "name" : "string",
+              "outfit" : "string",
+              "permanent" : "bool",
+              "pinned" : "bool",
+              "resolved" : "object|null",
+              "source" : {
+                "bot" : "string",
+                "botId" : "string",
+                "counts" : "string",
+                "kind" : "string"
+              }
+            }
+          ]
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : "not json"
+          },
+          "status" : 400,
+          "why" : "not a list of bots"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "body" : {
+          "bots" : [
+            {
+              "id" : "contract-bot",
+              "name" : "Contract Bot"
+            }
+          ]
+        },
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "POST \/setup\/bots"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+              "botFloor" : "2"
+            }
+          },
+          "status" : 400,
+          "why" : "botFloor not a whole number"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+              "id" : "no-such-bot"
+            }
+          },
+          "status" : 404,
+          "why" : "no such bot"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "body" : {
+          "floor" : "2",
+          "id" : "contract-bot"
+        },
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "POST \/setup\/bots\/override"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "note" : "a floor that isn't text changes nothing and isn't refused: the setup state, as for \"floor\": \"2\" (FXC2b)",
+      "request" : {
+        "as" : "page",
+        "body" : {
+          "floor" : 3,
+          "id" : "contract-bot"
+        },
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "POST \/setup\/bots\/override"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+
+            }
+          },
+          "status" : 400,
+          "why" : "no id and folder"
+        }
+      ],
+      "route" : "POST \/setup\/bots\/mailbox"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "bots" : [
+            {
+              "agent" : "'claude'|'codex'|'gemini'|'opencode'|'grok'",
+              "badge" : "string",
+              "discovered" : "bool",
+              "floor" : "string",
+              "id" : "string",
+              "mailbox" : "string",
+              "name" : "string",
+              "outfit" : "string",
+              "permanent" : "bool",
+              "pinned" : "bool",
+              "resolved" : "object|null",
+              "source" : {
+                "bot" : "string",
+                "botId" : "string",
+                "counts" : "string",
+                "kind" : "string"
+              }
+            }
+          ],
+          "filled" : [
+
+          ],
+          "unresolved" : [
+
+          ]
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "POST \/setup\/bots\/resolve"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "exists" : "bool",
+          "fix" : "string",
+          "folder" : "string",
+          "home" : "string",
+          "problem" : "string",
+          "suggested" : "string"
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "GET \/setup\/hire-folder"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "default" : "string",
+          "recent" : [
+
+          ]
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "GET \/setup\/hire\/folders"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "note" : "with a known account it checks the GM's tools, which runs them; only the refusal, which comes first, is asked",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "query" : {
+              "account" : "no-such-account"
+            }
+          },
+          "status" : 400,
+          "why" : "no such Claude account"
+        }
+      ],
+      "route" : "GET \/setup\/hire\/gm\/preflight"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "note" : "the roles, whole: sent as they come with the app, so the state is answered unchanged",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : "not json"
+          },
+          "status" : 400,
+          "why" : "not a list of roles"
+        }
+      ],
+      "request" : {
+        "as" : "page",
+        "body" : [
+          {
+            "agent" : "claude",
+            "badge" : "glasses",
+            "effort" : "high",
+            "id" : "reviewer",
+            "instructions" : "Review the changes I point you to. List the problems you find, most serious first, each with its file and line and why it matters. Don't edit any files: report, and wait for me to say which to fix.",
+            "model" : "opus",
+            "name" : "Reviewer",
+            "outfit" : "",
+            "questions" : [
+              "Which changes should you review: a branch, a pull request, or a range of commits?",
+              "What should they be compared with, for example main, or the commit before?",
+              "What matters most this time: bugs, security, performance, style, or all of them?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "clipboard",
+            "effort" : "medium",
+            "id" : "tester",
+            "instructions" : "Run the tests I point you to. If any fail, find out why, and explain each failure with the fix you'd make. Don't change any code until I say so.",
+            "model" : "sonnet",
+            "name" : "Tester",
+            "outfit" : "",
+            "questions" : [
+              "Which tests should you run: all of them, a folder, or a single file?",
+              "What's the main thing someone must be able to do, for you to try by hand too?",
+              "What must be set up or started first, such as a database or a server? Say what's needed; don't send keys or passwords."
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "magnifier",
+            "effort" : "high",
+            "id" : "bughunter",
+            "instructions" : "Look for bugs where I point you to: wrong results, crashes, edge cases that aren't handled. Report each one with how to reproduce it and how sure you are. Don't fix anything until I say which.",
+            "model" : "opus",
+            "name" : "Bug hunter",
+            "outfit" : "detective",
+            "questions" : [
+              "Which area or feature should you focus on, or should you look everywhere?",
+              "Which devices, systems or browsers matter, and which of them can run on this computer?",
+              "Which known bugs should you skip, and how serious must a bug be to report it?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "quill",
+            "effort" : "medium",
+            "id" : "docs",
+            "instructions" : "Check the docs I point you to against what the code actually does. List what's missing, wrong or out of date, with the changes you'd make. Wait for my OK before editing any file.",
+            "model" : "sonnet",
+            "name" : "Docs writer",
+            "outfit" : "librarian",
+            "questions" : [
+              "Which docs should you check: the README, a docs folder, or comments in the code?",
+              "Who reads them (newcomers, developers, or both), and in which languages?",
+              "Should you only list what's wrong, or fix it too? Anything that must stay as it is?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "wrench",
+            "effort" : "high",
+            "id" : "refactorer",
+            "instructions" : "In the area I point you to, find the code that's hardest to follow or change. Propose one refactor at a time: what you'd change, why, and what could break, within the limits I've given. Wait for my OK before editing, and keep each change small.",
+            "model" : "opus",
+            "name" : "Refactorer",
+            "outfit" : "hardhat",
+            "questions" : [
+              "Which area or files should you work on?",
+              "What mustn't change, such as public APIs, file names or behaviour?",
+              "Which command runs the tests and checks that prove nothing changed?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "palette",
+            "effort" : "high",
+            "id" : "artdirector",
+            "instructions" : "Review the visual work I point you to. Say whether each piece belongs with the rest and reads well at the size it's shown, and list the fixes you'd make, most important first. Don't redraw or edit anything until I say which.",
+            "model" : "opus",
+            "name" : "Art Director",
+            "outfit" : "artdirector",
+            "questions" : [
+              "What should you look at (assets, a page, a screen of the app), and where is each piece shown?",
+              "What must it match: a style guide, a brief, or the pieces already accepted?",
+              "How can you see it in place: a page or command that runs here, and in which modes (day and night, light and dark)?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "scales",
+            "effort" : "high",
+            "id" : "lawyer",
+            "instructions" : "Read the documents and licences I point you to. Flag the risks and gaps you find, each with where it is and why it matters. Say plainly that this isn't legal advice, and when a real lawyer should look. Don't change any files.",
+            "model" : "opus",
+            "name" : "Lawyer",
+            "outfit" : "lawyer",
+            "questions" : [
+              "What should you read: the licence, terms, a privacy policy, or the dependencies' licences?",
+              "How is the project used: open source, sold, or only inside a company, and in which countries?",
+              "What is this read for: a release, a sale, a new dependency, or a check-up?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "speech",
+            "effort" : "medium",
+            "id" : "therapist",
+            "instructions" : "Be a calm sounding board. Ask one question at a time to help me untangle it, then sum up the options with what each costs. Don't edit any code. Keep it light and practical; you're no substitute for real care, so say so if we go beyond work.",
+            "model" : "sonnet",
+            "name" : "Therapist",
+            "outfit" : "therapist",
+            "questions" : [
+              "What are you stuck on: a problem, a decision, or where to start?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "pipe",
+            "effort" : "medium",
+            "id" : "plumber",
+            "instructions" : "Run and watch the pipeline I point you to, and find where it leaks or clogs: failures, slow steps, flaky ones. Report each with the fix you'd make, and wait for my OK before making it. Never deploy or push unless I ask.",
+            "model" : "sonnet",
+            "name" : "Plumber",
+            "outfit" : "plumber",
+            "questions" : [
+              "Which pipeline should you look at: the build, CI, deploy scripts, or a data job?",
+              "Which steps mustn't you run, such as a deploy or a job that writes data?",
+              "Can you see CI's recent logs here, and if so, where?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "crown",
+            "effort" : "high",
+            "id" : "gm",
+            "instructions" : "Run a team of agents toward the goal. First plan it: tasks one agent can finish and prove in one sitting, and wait for my OK on the plan. Then hire one agent per task, each in its own worktree or folder, branch and port range, with a brief that says what done means and what proof to show. Check that each hire really started, check their proof yourself, and have a second agent review any change before it merges. Decide the team and process calls yourself; ask me before anything is pushed, merged to main, published, deployed, released, deleted or paid for, or reaches a real person. Never type into another window, never ask an employee to do what your own checks refused, and when an employee is done, end its session, make sure it's gone, and close its window.",
+            "model" : "opus",
+            "name" : "General Manager",
+            "outfit" : "gmexec",
+            "questions" : [
+              "What's the goal, and which project or projects does it cover?",
+              "What may the team spend (plans, API keys, cloud time), and which agents and accounts may it use?",
+              "What do you want to approve yourself, beyond push, publish, deploy, spending and deleting?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "broom",
+            "effort" : "medium",
+            "id" : "janitor",
+            "instructions" : "Look for what's left lying around: dead code, unused files and dependencies, stale branches, old TODOs. List each with why you think it's unused and how sure you are. Don't delete anything until I say which.",
+            "model" : "sonnet",
+            "name" : "Janitor",
+            "outfit" : "janitor",
+            "questions" : [
+              "Which project or area should you tidy up?",
+              "What must stay even if it looks unused, such as old branches, public APIs or files other apps load?",
+              "Do other projects, scripts or apps call into this one, and where are they?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "flame",
+            "effort" : "high",
+            "id" : "firefighter",
+            "instructions" : "Triage first: find out what's broken, how badly, and the most likely cause, and tell me. Then propose the smallest safe fix, with how to undo it. Don't change, deploy or restart anything until I say so.",
+            "model" : "opus",
+            "name" : "Firefighter",
+            "outfit" : "firefighter",
+            "questions" : [
+              "What's broken, since when, and who is affected?",
+              "Which error, log or failing request can you look at?",
+              "What will do for now (stop the harm, undo a recent change, or only find the cause), and what mustn't you restart or touch?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "plane",
+            "effort" : "high",
+            "id" : "pilot",
+            "instructions" : "Prepare the release I point you to and run through the checklist: tests, version, changelog, migrations, config. Report each item as ready or not, with what's missing, and wait for my OK before changing anything. Never deploy or publish unless I tell you to.",
+            "model" : "opus",
+            "name" : "Pilot",
+            "outfit" : "pilot",
+            "questions" : [
+              "What's going out: which project, which version, and to where?",
+              "Is there a release checklist or a deploy script to follow, and what was the last release's tag?",
+              "Which commands build and test it here, and is there anything you mustn't run?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "envelope",
+            "effort" : "medium",
+            "id" : "postman",
+            "instructions" : "Check how the notifications and webhooks I point you to are wired: what's sent, the payloads, signatures, retries and what happens when delivery fails. Report what's wrong or missing with the fix you'd make, and wait for my OK before changing anything.",
+            "model" : "sonnet",
+            "name" : "Postman",
+            "outfit" : "postman",
+            "questions" : [
+              "Which notifications or webhooks should you look at: sending, receiving, or both?",
+              "Where do they go, and is there a test endpoint you may send to?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "coins",
+            "effort" : "medium",
+            "id" : "accountant",
+            "instructions" : "Find where the project spends money: API calls, usage, billing and budgets in the code. Estimate what each costs, flag waste and missing limits, and list the savings you'd make. Don't change anything until I say which.",
+            "model" : "sonnet",
+            "name" : "Accountant",
+            "outfit" : "accountant",
+            "questions" : [
+              "Which costs should you cover: paid APIs and models, hosting and storage, billing code, or all of them?",
+              "How much is it used today (calls, users or a monthly bill), and is there a budget it must stay under?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "megaphone",
+            "effort" : "medium",
+            "id" : "marketer",
+            "instructions" : "Read what changed and write the copy I asked for: clear, short, and true to what the code actually does. Show me a draft before editing any file, and don't publish or post anything.",
+            "model" : "sonnet",
+            "name" : "Marketer",
+            "outfit" : "marketer",
+            "questions" : [
+              "What should you write (release notes, landing copy, or an announcement), where will it appear, and how long may it be?",
+              "Who is it for, in which language, and in what tone?",
+              "Which changes does it cover: a version, a range of commits, or a feature?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "lock",
+            "effort" : "high",
+            "id" : "securityguard",
+            "instructions" : "Review the code I point you to for security problems: leaked secrets, weak auth, injection, unsafe dependencies. Report each with where it is, how serious it is and the fix you'd make, most serious first. Don't fix anything until I say which, and never print a secret in full.",
+            "model" : "opus",
+            "name" : "Security guard",
+            "outfit" : "securityguard",
+            "questions" : [
+              "Which project or area should you check?",
+              "Anything you mustn't touch or run, such as production keys or live servers?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "toque",
+            "effort" : "medium",
+            "id" : "chef",
+            "instructions" : "Follow the recipe I give you to cook up a scaffold or prototype. First list what you'll make, file by file, and wait for my OK. Then build it in small steps, and keep it out of the way of existing code.",
+            "model" : "sonnet",
+            "name" : "Chef",
+            "outfit" : "chef",
+            "questions" : [
+              "What should you make (a scaffold, a prototype, or a feature's first draft), and where in the project should it live?",
+              "What's the spec: the stack, the files, and what it must include?",
+              "What may stay a stub for now, and what must really work?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "bulb",
+            "effort" : "max",
+            "id" : "thinker",
+            "instructions" : "Think the question I give you through before doing anything else. Read what matters in this project, and on the web if it helps. Write your thinking to a file: the options, their trade-offs, what you recommend and why, the open questions, and your sources. Don't change any code: report, and wait for my OK on any next step.",
+            "model" : "opus",
+            "name" : "Thinker",
+            "outfit" : "professor",
+            "questions" : [
+              "What should you think about: a question about this project, or a broader one?",
+              "What should your answer help me decide or do?",
+              "Anything to read first, any limits, or ideas already ruled out?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "rocket",
+            "effort" : "high",
+            "id" : "builder",
+            "instructions" : "Build what I describe, on a branch of its own. First list what you'll make or change, file by file, and wait for my OK. Then build it in small steps, and check it in the real thing, not only in tests. Show me what you did and how you checked it. Never push, merge, publish or deploy unless I tell you to.",
+            "model" : "sonnet",
+            "name" : "Builder",
+            "outfit" : "",
+            "questions" : [
+              "What should you build, and who will use it?",
+              "What must it do or include? List the things that make it \"done\".",
+              "What should you build from (a design, a study, an existing page), and what mustn't you touch, such as payments, sign-in or stored data?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "star",
+            "effort" : "high",
+            "id" : "designer",
+            "instructions" : "Design what I point you to: one strong direction, proven with real HTML\/CSS mockups built from real content, beside screenshots of what's there today. First tell me the direction in a few lines and wait for my OK. Keep the mockups next to your brief and leave the project's own code alone. Never push, merge, publish or deploy unless I tell you to.",
+            "model" : "opus",
+            "name" : "Designer",
+            "outfit" : "",
+            "questions" : [
+              "What should you design: a page, a screen, a site, or a whole look?",
+              "Who is it for, and what should it feel like?",
+              "Is there a current version to start from, and anything that must stay (name, logo, contact details) or that you should avoid?"
+            ]
+          },
+          {
+            "agent" : "claude",
+            "badge" : "flag",
+            "effort" : "high",
+            "id" : "minimanager",
+            "instructions" : "Run one project for me. First settle the goal with me and plan it in pieces one person can finish and prove, then show me the plan and wait for my OK. You don't write the project's code and you don't hire anyone: write each piece's brief and ask the General Manager, or me, for each hire. Check each piece's proof yourself and have a second agent review it before you call it done. Keep a board of the team, the proof and what needs me. Never push, merge, publish or deploy, and never pass an approval on as if it came from me.",
+            "model" : "opus",
+            "name" : "Mini Manager",
+            "outfit" : "",
+            "questions" : [
+              "What's the goal for this run, and what's out of scope?",
+              "Who already works on it (people, agents, folders, branches), and who hires the people it needs?",
+              "What do you want to approve yourself, beyond push, publish, deploy, spending and deleting? What counts as proof that a piece is done?"
+            ]
+          }
+        ],
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ]
+      },
+      "route" : "POST \/setup\/roles"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : {
+          "briefs" : [
+            {
+              "id" : "string",
+              "name" : "string",
+              "questions" : [
+                "string"
+              ],
+              "summary" : "string"
+            }
+          ]
+        },
+        "status" : 200
+      },
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "the app's briefs"
+        ]
+      },
+      "route" : "GET \/setup\/briefs"
+    },
+    {
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "note" : "reads the brief a hire would get; this test bundle has none of the app's briefs, so only the refusal is asked",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : "not json"
+          },
+          "status" : 400,
+          "why" : "not a role and folder"
+        }
+      ],
+      "route" : "POST \/setup\/briefs\/preview"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+
+            }
+          },
+          "status" : 400,
+          "why" : "no role"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+              "role" : "nobody-at-all"
+            }
+          },
+          "status" : 404,
+          "why" : "no such role"
+        }
+      ],
+      "route" : "POST \/setup\/hire"
+    },
+    {
+      "callers" : [
+        "gm",
+        "page"
+      ],
+      "note" : "hires the GM in the folder for your hires; asked here only with none set",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page"
+          },
+          "status" : 409,
+          "why" : "no folder for your hires yet"
+        }
+      ],
+      "route" : "POST \/setup\/hire\/gm"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : "not json"
+          },
+          "status" : 400,
+          "why" : "not a viewer setting"
+        }
+      ],
+      "route" : "POST \/setup\/viewer"
+    },
+    {
+      "answer" : {
+        "kind" : "json",
+        "shape" : "setup-state",
+        "status" : 200
+      },
+      "callers" : [
+        "page"
+      ],
+      "note" : "background=1 is refused (400) where there's no tmux: not asked, as whether there is depends on this computer",
+      "request" : {
+        "as" : "page",
+        "given" : [
+          "a floor rule",
+          "sessions",
+          "a pin",
+          "a saved profile",
+          "a cloud bot",
+          "a pairing code",
+          "a paired phone"
+        ],
+        "query" : {
+          "t3" : "0"
+        }
+      },
+      "route" : "POST \/setup\/choices"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "note" : "a hire that is found has a window opened for it; only the refusal, which comes first, is asked",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+              "id" : "no-such-hire"
+            }
+          },
+          "status" : 409,
+          "why" : "no such hire"
+        }
+      ],
+      "route" : "POST \/setup\/hire\/window"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "note" : "with T3 Code on it looks for T3 Code's app and runs its command; only the refusal, which comes first, is asked",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page"
+          },
+          "status" : 404,
+          "why" : "T3 Code is off"
+        }
+      ],
+      "route" : "GET \/setup\/t3code"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+              "id" : "no-such-hire"
+            }
+          },
+          "status" : 404,
+          "why" : "T3 Code is off"
+        },
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+              "id" : "no-such-hire"
+            },
+            "given" : [
+              "T3 Code on"
+            ]
+          },
+          "status" : 404,
+          "why" : "no such hire"
+        }
+      ],
+      "route" : "POST \/setup\/t3code\/open"
+    },
+    {
+      "callers" : [
+        "page"
+      ],
+      "note" : "a hire in T3 Code that is found is let go there; only the refusal, which comes first, is asked",
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "page",
+            "body" : {
+              "id" : "no-such-hire"
+            }
+          },
+          "status" : 404,
+          "why" : "no such hire"
+        }
+      ],
+      "route" : "POST \/setup\/t3code\/letgo"
+    },
+    {
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "refusals" : [
+        {
+          "kind" : "text",
+          "request" : {
+            "as" : "tool",
+            "query" : {
+              "fix" : "nope"
+            }
+          },
+          "status" : 403,
+          "why" : "a tool only repairs"
+        }
+      ],
+      "route" : "POST \/setup\/fix"
+    },
+    {
+      "callers" : [
+        "page",
+        "tool"
+      ],
+      "refusals" : [
+        {
+          "kind" : "empty",
+          "request" : {
+            "as" : "page"
+          },
+          "status" : 404,
+          "why" : "no such route"
+        }
+      ],
+      "route" : "GET \/setup\/nothing-here"
+    }
+  ]
+}

@@ -48,23 +48,32 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
 
     /// On top of other windows, on every Space and beside apps in full
     /// screen: setup's switch, and the menu's Always on Top. Off unless you
-    /// turn it on (see `settle`).
+    /// turn it on (see `settleForCore`).
     var alwaysOnTop: Bool {
         get { config.officeOnTop ?? false }
-        set {
-            config.officeOnTop = newValue
-            config.save()
-            applyOptions()
-        }
     }
 
     /// Kept on top once in the menu, and on by default there: a Mac that had
     /// the office window before keeps what it had, its choice or that
-    /// default, and a new one starts with it off. Once, as the app starts.
-    static func settle(_ config: Config, defaults: UserDefaults = .standard, file: URL = Paths.config) {
-        guard config.officeOnTop == nil else { return }
-        config.officeOnTop = defaults.object(forKey: "officeWindow.alwaysOnTop") as? Bool ?? config.hasCompletedSetup
-        config.save(to: file)
+    /// default, and a new one starts with it off. Once, as the app starts
+    /// (`settleForCore`).
+    /// What `settleForCore` keeps on top, or nil once it's kept.
+    static func settled(_ config: Config, defaults: UserDefaults = .standard) -> Bool? {
+        guard config.officeOnTop == nil else { return nil }
+        return defaults.object(forKey: "officeWindow.alwaysOnTop") as? Bool ?? config.hasCompletedSetup
+    }
+
+    /// `settled` under the Go core (`GoShellDelegate`), before it starts: the core keeps the config file,
+    /// so only this one setting is put in it, as `settled` decides, and the rest is left exactly as it is,
+    /// never this app's whole config. No file yet: the core's default, off, as `settled` would keep for a
+    /// Mac that hasn't been set up.
+    static func settleForCore(_ config: Config, defaults: UserDefaults = .standard, file: URL = Paths.config) {
+        guard let onTop = settled(config, defaults: defaults), let data = try? Data(contentsOf: file),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+        object["alwaysOnTop"] = onTop // Config.officeOnTop's key in the file
+        guard let settled = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else { return }
+        Paths.writePrivately(settled, to: file)
+        config.officeOnTop = onTop
     }
 
     /// On every Space, and beside apps in full screen, on its own: kept on
@@ -106,6 +115,8 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     func toggle() { isShown ? hide() : show() }
 
     func show() {
+        // The second layer for a test copy: no path (the shortcut, the menu, a page, the Dock) puts its office in front.
+        guard TestCopy.mayComeForward("the office window") else { return }
         let panel = self.panel ?? makePanel()
         let screen = screenUnderPointer()
         panel.setFrame(savedFrame(on: screen) ?? firstFrame(on: screen), display: false)
@@ -280,15 +291,40 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { refreshShadow() }
 
     /// Only the office's own pages, from this Mac's Smolcorp: the window's
-    /// address carries its key.
+    /// address carries its key. A frame inside the page may also show a
+    /// desk's own dev server, for the TV's big preview (see `decide`).
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(OfficeWindow.isOwnPage(action.request.url, of: address) ? .allow : .cancel)
+        let allowed = OfficeWindow.decide(action.request.url, of: address, mainFrame: action.targetFrame?.isMainFrame ?? true)
+        decisionHandler(allowed ? .allow : .cancel)
+    }
+
+    /// Whether a page may load in the window. The window itself (the main
+    /// frame) shows only the office's own pages. A frame inside it (the TV's
+    /// big preview, talk/tv.js) may also show a desk's page at
+    /// http://localhost:<port>, as the page's CSP lets it, but never at
+    /// Smolcorp's own ports: the window's, 7710, 7720 or 7730, whose offices
+    /// hold their window's key. It may start out blank, too. Anything else in
+    /// a frame, 127.0.0.1 included, is refused.
+    static func decide(_ url: URL?, of address: URL, mainFrame: Bool) -> Bool {
+        if isOwnPage(url, of: address) { return true }
+        guard !mainFrame, let url else { return false }
+        if url.absoluteString == "about:blank" { return true }
+        return isDesksPage(url, of: address)
     }
 
     static func isOwnPage(_ url: URL?, of address: URL) -> Bool {
         guard let url else { return false }
         return url.scheme == "http" && url.host == "127.0.0.1" && url.port == address.port
+    }
+
+    /// A desk's dev server, as the TV's preview frames it: http://localhost
+    /// at a port of its own, with no name or password in the address.
+    static func isDesksPage(_ url: URL, of address: URL) -> Bool {
+        guard url.scheme == "http", url.host == "localhost", url.user == nil, url.password == nil,
+              let port = url.port, (1...65535).contains(port), port != address.port,
+              !TestCopy.livePorts.contains(UInt16(port)) else { return false }
+        return true
     }
 
     func windowDidMove(_ notification: Notification) { saveFrame() }
@@ -456,7 +492,8 @@ final class HotKey {
 }
 
 extension OfficeWindow {
-    /// Puts the office's window at `rect` (AppleScript's coordinates) while it's shown.
+    /// Puts the office's window at `rect` (AppleScript's coordinates) while it's shown: the GM's tiling puts it
+    /// under the team (HostBridge's `office-place`).
     func place(atTile rect: CGRect, mainHeight: CGFloat) {
         guard let panel, panel.isVisible else { return }
         panel.setFrame(Tiler.flipped(rect, mainHeight: mainHeight), display: true)

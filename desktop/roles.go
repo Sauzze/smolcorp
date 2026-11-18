@@ -70,7 +70,8 @@ var (
 	// then those for roles of your own.
 	briefLibraryIDs = []string{"reviewer", "tester", "bughunter", "docs", "refactorer", "artdirector", "lawyer", "therapist", "plumber",
 		"gm", "janitor", "firefighter", "pilot", "postman", "accountant", "marketer", "chef", "thinker",
-		"builder", "security-auditor", "perf-auditor", "designer", "pixel-artist", "planner", "fixer", "study"}
+		"builder", "designer", "minimanager", "security-auditor", "perf-auditor", "pixel-artist", "planner", "fixer", "study",
+		"issue-sorter", "test-writer", "dependency-updater", "translator", "api-checker", "support-writer"}
 	// A shipped role whose brief has an id of its own: the Security guard's is the security auditor's.
 	briefLibraryOfRole = map[string]string{"securityguard": "security-auditor"}
 	// What a role can wear in the office: the shipped roles' own, then some
@@ -92,30 +93,41 @@ var (
 		{ID: "tester", Name: "Tester", Agent: "claude", Model: "sonnet", Effort: "medium", Badge: "clipboard",
 			Questions: []string{
 				"Which tests should you run: all of them, a folder, or a single file?",
-				"Is there anything to set up or start first, such as a database, a server or environment variables?",
+				"What's the main thing someone must be able to do, for you to try by hand too?",
+				"What must be set up or started first, such as a database or a server? Say what's needed; don't send keys or passwords.",
 			},
 			Instructions: "Run the tests I point you to. If any fail, find out why, and explain each failure with the fix you'd make. " +
 				"Don't change any code until I say so."},
 		{ID: "bughunter", Name: "Bug hunter", Agent: "claude", Model: "opus", Effort: "high", Badge: "magnifier", Outfit: "detective",
-			Questions: []string{"Which area or feature should you focus on, or should you look everywhere?"},
+			Questions: []string{
+				"Which area or feature should you focus on, or should you look everywhere?",
+				"Which devices, systems or browsers matter, and which of them can run on this computer?",
+				"Which known bugs should you skip, and how serious must a bug be to report it?",
+			},
 			Instructions: "Look for bugs where I point you to: wrong results, crashes, edge cases that aren't handled. Report each one " +
 				"with how to reproduce it and how sure you are. Don't fix anything until I say which."},
 		{ID: "docs", Name: "Docs writer", Agent: "claude", Model: "sonnet", Effort: "medium", Badge: "quill", Outfit: "librarian",
-			Questions: []string{"Which docs should you check: the README, a docs folder, or comments in the code?"},
+			Questions: []string{
+				"Which docs should you check: the README, a docs folder, or comments in the code?",
+				"Who reads them (newcomers, developers, or both), and in which languages?",
+				"Should you only list what's wrong, or fix it too? Anything that must stay as it is?",
+			},
 			Instructions: "Check the docs I point you to against what the code actually does. List what's missing, wrong or out of date, " +
 				"with the changes you'd make. Wait for my OK before editing any file."},
 		{ID: "refactorer", Name: "Refactorer", Agent: "claude", Model: "opus", Effort: "high", Badge: "wrench", Outfit: "hardhat",
 			Questions: []string{
 				"Which area or files should you work on?",
-				"Any limits: anything you mustn't change, such as public APIs, file names or behaviour?",
+				"What mustn't change, such as public APIs, file names or behaviour?",
+				"Which command runs the tests and checks that prove nothing changed?",
 			},
 			Instructions: "In the area I point you to, find the code that's hardest to follow or change. Propose one refactor at a time: " +
 				"what you'd change, why, and what could break, within the limits I've given. Wait for my OK before editing, and " +
 				"keep each change small."},
 		{ID: "artdirector", Name: "Art Director", Agent: "claude", Model: "opus", Effort: "high", Badge: "palette", Outfit: "artdirector",
 			Questions: []string{
-				"What should you look at: assets, screenshots, a page or a screen of the app?",
-				"Is there a style or brief it has to match?",
+				"What should you look at (assets, a page, a screen of the app), and where is each piece shown?",
+				"What must it match: a style guide, a brief, or the pieces already accepted?",
+				"How can you see it in place: a page or command that runs here, and in which modes (day and night, light and dark)?",
 			},
 			Instructions: "Review the visual work I point you to. Say whether each piece belongs with the rest and reads well at the size " +
 				"it's shown, and list the fixes you'd make, most important first. Don't redraw or edit anything until I say " +
@@ -123,7 +135,8 @@ var (
 		{ID: "lawyer", Name: "Lawyer", Agent: "claude", Model: "opus", Effort: "high", Badge: "scales", Outfit: "lawyer",
 			Questions: []string{
 				"What should you read: the licence, terms, a privacy policy, or the dependencies' licences?",
-				"Where will the project be used or sold, and by whom?",
+				"How is the project used: open source, sold, or only inside a company, and in which countries?",
+				"What is this read for: a release, a sale, a new dependency, or a check-up?",
 			},
 			Instructions: "Read the documents and licences I point you to. Flag the risks and gaps you find, each with where it is and " +
 				"why it matters. Say plainly that this isn't legal advice, and when a real lawyer should look. Don't change any " +
@@ -136,7 +149,8 @@ var (
 		{ID: "plumber", Name: "Plumber", Agent: "claude", Model: "sonnet", Effort: "medium", Badge: "pipe", Outfit: "plumber",
 			Questions: []string{
 				"Which pipeline should you look at: the build, CI, deploy scripts, or a data job?",
-				"Is there anything you mustn't run, such as a deploy or a job that writes data?",
+				"Which steps mustn't you run, such as a deploy or a job that writes data?",
+				"Can you see CI's recent logs here, and if so, where?",
 			},
 			Instructions: "Run and watch the pipeline I point you to, and find where it leaks or clogs: failures, slow steps, flaky ones. " +
 				"Report each with the fix you'd make, and wait for my OK before making it. Never deploy or push unless I ask."},
@@ -157,21 +171,24 @@ var (
 		{ID: "janitor", Name: "Janitor", Agent: "claude", Model: "sonnet", Effort: "medium", Badge: "broom", Outfit: "janitor",
 			Questions: []string{
 				"Which project or area should you tidy up?",
-				"Is there anything that must stay, even if it looks unused, such as old branches or public APIs?",
+				"What must stay even if it looks unused, such as old branches, public APIs or files other apps load?",
+				"Do other projects, scripts or apps call into this one, and where are they?",
 			},
 			Instructions: "Look for what's left lying around: dead code, unused files and dependencies, stale branches, old TODOs. List " +
 				"each with why you think it's unused and how sure you are. Don't delete anything until I say which."},
 		{ID: "firefighter", Name: "Firefighter", Agent: "claude", Model: "opus", Effort: "high", Badge: "flame", Outfit: "firefighter",
 			Questions: []string{
-				"What's on fire: what's broken, since when, and who is affected?",
-				"Is there an error, a log or a failing request you can look at?",
+				"What's broken, since when, and who is affected?",
+				"Which error, log or failing request can you look at?",
+				"What will do for now (stop the harm, undo a recent change, or only find the cause), and what mustn't you restart or touch?",
 			},
 			Instructions: "Triage first: find out what's broken, how badly, and the most likely cause, and tell me. Then propose the " +
 				"smallest safe fix, with how to undo it. Don't change, deploy or restart anything until I say so."},
 		{ID: "pilot", Name: "Pilot", Agent: "claude", Model: "opus", Effort: "high", Badge: "plane", Outfit: "pilot",
 			Questions: []string{
 				"What's going out: which project, which version, and to where?",
-				"Is there a release checklist or a deploy script you should follow?",
+				"Is there a release checklist or a deploy script to follow, and what was the last release's tag?",
+				"Which commands build and test it here, and is there anything you mustn't run?",
 			},
 			Instructions: "Prepare the release I point you to and run through the checklist: tests, version, changelog, migrations, " +
 				"config. Report each item as ready or not, with what's missing, and wait for my OK before changing anything. " +
@@ -179,23 +196,24 @@ var (
 		{ID: "postman", Name: "Postman", Agent: "claude", Model: "sonnet", Effort: "medium", Badge: "envelope", Outfit: "postman",
 			Questions: []string{
 				"Which notifications or webhooks should you look at: sending, receiving, or both?",
-				"Where do they go, and is there a test endpoint you can use?",
+				"Where do they go, and is there a test endpoint you may send to?",
 			},
 			Instructions: "Check how the notifications and webhooks I point you to are wired: what's sent, the payloads, signatures, " +
 				"retries and what happens when delivery fails. Report what's wrong or missing with the fix you'd make, and wait " +
 				"for my OK before changing anything."},
 		{ID: "accountant", Name: "Accountant", Agent: "claude", Model: "sonnet", Effort: "medium", Badge: "coins", Outfit: "accountant",
 			Questions: []string{
-				"Which costs should you look at: API calls, usage, billing code, or budgets?",
-				"Is there a budget or a limit it has to stay within?",
+				"Which costs should you cover: paid APIs and models, hosting and storage, billing code, or all of them?",
+				"How much is it used today (calls, users or a monthly bill), and is there a budget it must stay under?",
 			},
 			Instructions: "Find where the project spends money: API calls, usage, billing and budgets in the code. Estimate what each " +
 				"costs, flag waste and missing limits, and list the savings you'd make. Don't change anything until I say " +
 				"which."},
 		{ID: "marketer", Name: "Marketer", Agent: "claude", Model: "sonnet", Effort: "medium", Badge: "megaphone", Outfit: "marketer",
 			Questions: []string{
-				"What should you write: release notes, landing copy, or an announcement?",
-				"Who is it for, and what tone should it have?",
+				"What should you write (release notes, landing copy, or an announcement), where will it appear, and how long may it be?",
+				"Who is it for, in which language, and in what tone?",
+				"Which changes does it cover: a version, a range of commits, or a feature?",
 			},
 			Instructions: "Read what changed and write the copy I asked for: clear, short, and true to what the code actually does. Show " +
 				"me a draft before editing any file, and don't publish or post anything."},
@@ -209,8 +227,9 @@ var (
 				"Don't fix anything until I say which, and never print a secret in full."},
 		{ID: "chef", Name: "Chef", Agent: "claude", Model: "sonnet", Effort: "medium", Badge: "toque", Outfit: "chef",
 			Questions: []string{
-				"What should you cook up: a scaffold, a prototype, or a new feature's first draft?",
-				"What's the recipe: the stack, the files, and anything it has to include?",
+				"What should you make (a scaffold, a prototype, or a feature's first draft), and where in the project should it live?",
+				"What's the spec: the stack, the files, and what it must include?",
+				"What may stay a stub for now, and what must really work?",
 			},
 			Instructions: "Follow the recipe I give you to cook up a scaffold or prototype. First list what you'll make, file by file, " +
 				"and wait for my OK. Then build it in small steps, and keep it out of the way of existing code."},
@@ -224,6 +243,36 @@ var (
 				"on the web if it helps. Write your thinking to a file: the options, their trade-offs, what you recommend " +
 				"and why, the open questions, and your sources. Don't change any code: report, and wait for my OK on any " +
 				"next step."},
+		{ID: "builder", Name: "Builder", Agent: "claude", Model: "sonnet", Effort: "high", Badge: "rocket",
+			Questions: []string{
+				"What should you build, and who will use it?",
+				"What must it do or include? List the things that make it \"done\".",
+				"What should you build from (a design, a study, an existing page), and what mustn't you touch, such as payments, sign-in or stored data?",
+			},
+			Instructions: "Build what I describe, on a branch of its own. First list what you'll make or change, file by file, and wait " +
+				"for my OK. Then build it in small steps, and check it in the real thing, not only in tests. Show me what " +
+				"you did and how you checked it. Never push, merge, publish or deploy unless I tell you to."},
+		{ID: "designer", Name: "Designer", Agent: "claude", Model: "opus", Effort: "high", Badge: "star",
+			Questions: []string{
+				"What should you design: a page, a screen, a site, or a whole look?",
+				"Who is it for, and what should it feel like?",
+				"Is there a current version to start from, and anything that must stay (name, logo, contact details) or that you should avoid?",
+			},
+			Instructions: "Design what I point you to: one strong direction, proven with real HTML/CSS mockups built from real " +
+				"content, beside screenshots of what's there today. First tell me the direction in a few lines and wait for my " +
+				"OK. Keep the mockups next to your brief and leave the project's own code alone. Never push, merge, publish or " +
+				"deploy unless I tell you to."},
+		{ID: "minimanager", Name: "Mini Manager", Agent: "claude", Model: "opus", Effort: "high", Badge: "flag",
+			Questions: []string{
+				"What's the goal for this run, and what's out of scope?",
+				"Who already works on it (people, agents, folders, branches), and who hires the people it needs?",
+				"What do you want to approve yourself, beyond push, publish, deploy, spending and deleting? What counts as proof that a piece is done?",
+			},
+			Instructions: "Run one project for me. First settle the goal with me and plan it in pieces one person can finish and " +
+				"prove, then show me the plan and wait for my OK. You don't write the project's code and you don't hire anyone: " +
+				"write each piece's brief and ask the General Manager, or me, for each hire. Check each piece's proof yourself " +
+				"and have a second agent review it before you call it done. Keep a board of the team, the proof and what needs " +
+				"me. Never push, merge, publish or deploy, and never pass an approval on as if it came from me."},
 	}
 	// The shipped roles as 1.7.1 had them, which assumed what to work on. A
 	// role still exactly so is brought up to date as it loads; one you've
@@ -262,6 +311,50 @@ func shippedBeforeOutfits() []Role {
 		if role.ID == "bughunter" || role.ID == "docs" || role.ID == "refactorer" {
 			role.Outfit = ""
 			role.Questions = slices.Clone(role.Questions)
+			if questions, ok := questionsBefore126[role.ID]; ok {
+				role.Questions = slices.Clone(questions)
+			}
+			if questions, ok := questionsBeforeOutfits[role.ID]; ok {
+				role.Questions = slices.Clone(questions)
+			}
+			old = append(old, role)
+		}
+	}
+	return old
+}
+
+// questionsBeforeOutfits are what the Refactorer asked before it had an
+// outfit, and until its brief asked for the command that proves nothing changed.
+var questionsBeforeOutfits = map[string][]string{
+	"refactorer": {
+		"Which area or files should you work on?",
+		"Any limits: anything you mustn't change, such as public APIs, file names or behaviour?",
+	},
+}
+
+// questionsBefore126 are what the Bug hunter, the Tester, the Docs writer and
+// the Firefighter asked before 1.26 gave each a sharper brief and more to ask.
+var questionsBefore126 = map[string][]string{
+	"bughunter": {"Which area or feature should you focus on, or should you look everywhere?"},
+	"tester": {
+		"Which tests should you run: all of them, a folder, or a single file?",
+		"Is there anything to set up or start first, such as a database, a server or environment variables?",
+	},
+	"docs": {"Which docs should you check: the README, a docs folder, or comments in the code?"},
+	"firefighter": {
+		"What's on fire: what's broken, since when, and who is affected?",
+		"Is there an error, a log or a failing request you can look at?",
+	},
+}
+
+// shippedBefore126 are those four roles as they came before 1.26: one still
+// exactly so, on its own brief from the library or none, is brought up to
+// date as it loads; one you've changed is left as you have it.
+func shippedBefore126() []Role {
+	var old []Role
+	for _, role := range shippedRoles {
+		if questions, ok := questionsBefore126[role.ID]; ok {
+			role.Questions = slices.Clone(questions)
 			old = append(old, role)
 		}
 	}
@@ -290,6 +383,46 @@ func shippedRoleIDs() []string {
 		ids[i] = role.ID
 	}
 	return ids
+}
+
+// CompanyTemplate is a team the office can be set up with in one go: a name
+// and a blurb to pick it by, the General Manager, and the roles it hires,
+// each by its shipped id, in the order they are hired (a role twice is two
+// hires). It is only data: nothing here hires anything. The hire queue (K2)
+// and setup's "Pick your company" step (K3) read it.
+type CompanyTemplate struct {
+	ID    string   `json:"id"`
+	Name  string   `json:"name"`
+	Blurb string   `json:"blurb"`
+	GM    string   `json:"gm"`
+	Roles []string `json:"roles"`
+}
+
+// companyTemplates are the teams that come with the app, in the order setup
+// offers them. Each role is a shipped one. Small agency's designer is the
+// Designer, who makes the screens, not the Art Director, who reviews them
+// (pending the owner's OK).
+var companyTemplates = []CompanyTemplate{
+	{ID: "solo-builder", Name: "Solo builder",
+		Blurb: "One builder, with a manager to plan the work, and a reviewer and a tester to check it before it counts as done.",
+		GM:    "gm", Roles: []string{"builder", "reviewer", "tester"}},
+	{ID: "small-agency", Name: "Small agency",
+		Blurb: "Two builders on a manager's plan, a designer for how it looks, a reviewer for the code and a writer for the docs.",
+		GM:    "gm", Roles: []string{"builder", "builder", "designer", "reviewer", "docs"}},
+	{ID: "bug-squash", Name: "Bug squash",
+		Blurb: "A bug hunter finds what's broken, a tester proves it, a reviewer checks the fix, and a manager keeps the list.",
+		GM:    "gm", Roles: []string{"bughunter", "tester", "reviewer"}},
+}
+
+// companyTemplate is the template with this id, and false if there is none.
+func companyTemplate(id string) (CompanyTemplate, bool) {
+	i := slices.IndexFunc(companyTemplates, func(t CompanyTemplate) bool { return t.ID == id })
+	if i < 0 {
+		return CompanyTemplate{}, false
+	}
+	template := companyTemplates[i]
+	template.Roles = slices.Clone(template.Roles)
+	return template, true
 }
 
 // UnmarshalJSON reads a role field by field: anything missing or of the
@@ -376,6 +509,20 @@ func (r Role) defaultBrief() *RoleBrief {
 	return &RoleBrief{Kind: "text", Text: r.Instructions}
 }
 
+// shippedWithBriefs are the shipped roles as setup is sent them, each with the
+// brief it comes with, as the Mac's Role.jsonObject sends them: a role kept is
+// given that brief (checkedRoles), so without it "Back to how it came" would
+// take every shipped role for changed.
+func shippedWithBriefs() []Role {
+	roles := slices.Clone(shippedRoles)
+	for i := range roles {
+		if roles[i].Brief == nil {
+			roles[i].Brief = roles[i].defaultBrief()
+		}
+	}
+	return roles
+}
+
 // checked is the role as kept, and false without an id or a name. An
 // unknown agent is Claude Code; a model with anything but a model name's
 // characters, an effort the agent hasn't, an unknown badge or an outfit the
@@ -388,7 +535,9 @@ func (r Role) checked() (Role, bool) {
 		return Role{}, false
 	}
 	agent := Agent(r.Agent)
-	if !slices.Contains(agents, agent) {
+	// As any agent Smolcorp doesn't know, an ACP agent that isn't on the known list is read as Claude Code, which
+	// the fence covers.
+	if _, known := agent.acpKnown(); !slices.Contains(agents, agent) && !known {
 		agent = Claude
 	}
 	model := strings.TrimSpace(r.Model)
@@ -468,6 +617,10 @@ func checkedRoles(roles []Role) []Role {
 			continue
 		}
 		if role.Brief == nil && (slices.ContainsFunc(shippedIn171, role.sameAs) || slices.ContainsFunc(shippedBeforeOutfits(), role.sameAs)) {
+			role = shippedRoles[slices.IndexFunc(shippedRoles, func(r Role) bool { return r.ID == role.ID })]
+		}
+		// A role from before 1.26 sharpened it, on its own library brief or none: another brief is yours, and stays.
+		if slices.ContainsFunc(shippedBefore126(), role.sameAs) && (role.Brief == nil || *role.Brief == RoleBrief{Kind: "library", ID: role.ID}) {
 			role = shippedRoles[slices.IndexFunc(shippedRoles, func(r Role) bool { return r.ID == role.ID })]
 		}
 		// The General Manager from before it ran a team, whatever brief it was kept with: sameAs leaves briefs aside.
@@ -567,7 +720,15 @@ func (r Role) firstMessage(folder string, how roleStart) string {
 // `=`, and the message after `--` where it stands alone, so text starting
 // with a dash is never read as an option. Grok starts as it is: how it takes
 // these hasn't been checked.
+//
+// An ACP agent (an Agent of the kind acpKind) starts as its entry in the known list says, and nothing more: its model
+// and its first message don't go in its arguments, they are asked for through the protocol (session/new, then
+// session/prompt). An ACP agent the list doesn't have starts with none.
 func (r Role) arguments(message string) []string {
+	if Agent(r.Agent).IsACP() {
+		_, args, _ := Agent(r.Agent).acpLaunch()
+		return args
+	}
 	var args []string
 	if r.Model != "" && Agent(r.Agent) != Grok {
 		args = append(args, "--model="+r.Model)
@@ -586,6 +747,18 @@ func (r Role) arguments(message string) []string {
 		return append(args, "--prompt="+message)
 	}
 	return nil
+}
+
+// resumeArguments are a Claude Code role's arguments to go on with session: its model and effort, then --resume.
+func (r Role) resumeArguments(session string) []string {
+	var args []string
+	if r.Model != "" {
+		args = append(args, "--model="+r.Model)
+	}
+	if r.Effort != "" {
+		args = append(args, "--effort="+r.Effort)
+	}
+	return append(args, "--resume", session)
 }
 
 // roleAgents are the agents a role can be, for the setup page: whether each

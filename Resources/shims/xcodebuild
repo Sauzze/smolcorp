@@ -1,0 +1,51 @@
+#!/bin/bash
+# smolcorp-shim: hands on to the real tool, never to a shim.
+# xcodebuild, as a Mac desk Smolcorp started runs it (SANDBOX-PLAN §A4.3, AQ9; SA-T2). Xcode runs a target's script
+# phases in a sandbox of its own (ENABLE_USER_SCRIPT_SANDBOXING), and that sandbox can't start inside the desk's. So a
+# build gets ENABLE_USER_SCRIPT_SANDBOXING=NO here, after what was typed. One that sets it already is left as typed,
+# and so are the calls that build nothing (-version, -showsdks, -list and the like). -showBuildSettings gets it too:
+# it then shows what a build through here uses.
+#
+# This file ships in Smolcorp.app (Contents/Resources/shims, sealed by the app's signature), and its folder is first on
+# every Mac desk's PATH (desktop/deskstart.go). No desk can change it: the Policy denies the whole app to every desk
+# (internal/sandbox/programs.go). Nor what it hands on to: xcodebuild is held in every folder of the search as the
+# core's own programs are, so no desk can put one before the real one for another desk's call. A full path such as
+# /usr/bin/xcodebuild doesn't come through here, so the brief still says to add the setting (desktop/briefs.go).
+# Xcode's package resolution may still not work in a desk (§A4.3).
+
+# The xcodebuild this stands for: the first one on PATH after this file's own folder, as the swift shim finds swift.
+# Nothing here runs a program but the tool itself (bash's own words only): PATH may lack every folder of programs.
+self="${BASH_SOURCE[0]}"
+case "$self" in */*) dir="${self%/*}" ;; *) dir=. ;; esac
+here="$(cd "${dir:-/}" && pwd -P)" || exit 127
+real=""
+IFS=: read -r -a folders <<<"${PATH-}"
+for folder in ${folders[@]+"${folders[@]}"}; do
+  case "$folder" in /*) ;; *) continue ;; esac
+  candidate="$folder/xcodebuild"
+  [ -f "$candidate" ] && [ -x "$candidate" ] || continue
+  [ "$candidate" -ef "$self" ] && continue
+  [ "$(cd "$folder" 2>/dev/null && pwd -P)" = "$here" ] && continue
+  # Another Smolcorp's shim (a second app's folder): passed over too, or the two would hand to each other forever.
+  first="" second=""
+  { read -r first && read -r second; } <"$candidate" 2>/dev/null
+  [ "${second-}" = "# smolcorp-shim: hands on to the real tool, never to a shim." ] && continue
+  real="$candidate"
+  break
+done
+if [ -z "$real" ]; then
+  echo "xcodebuild: there's no xcodebuild on PATH besides Smolcorp's own (in $here)." >&2
+  exit 127
+fi
+
+for arg in "$@"; do
+  case "$arg" in
+    ENABLE_USER_SCRIPT_SANDBOXING=* | -version | -usage | -help | -h | -license | -showsdks | -showComponent | \
+      -checkFirstLaunchStatus | -runFirstLaunch | -find | -find-executable | -find-library | -downloadPlatform | \
+      -downloadAllPlatforms | -downloadComponent | -importPlatform | -importComponent | -create-xcframework | \
+      -list | -showdestinations | -showTestPlans | -exportArchive)
+      exec "$real" "$@"
+      ;;
+  esac
+done
+exec "$real" "$@" ENABLE_USER_SCRIPT_SANDBOXING=NO

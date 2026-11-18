@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os/exec"
 	"strings"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // folderPicker is the desktop's own folder picker, where there is one: GNOME's
@@ -13,10 +15,10 @@ import (
 // their own, never read as a command.
 func folderPicker(start, title string) *exec.Cmd {
 	if path, err := exec.LookPath("zenity"); err == nil {
-		return exec.Command(path, "--file-selection", "--directory", "--title="+title, "--filename="+strings.TrimSuffix(start, "/")+"/")
+		return disclaim.Cmd(exec.Command(path, "--file-selection", "--directory", "--title="+title, "--filename="+strings.TrimSuffix(start, "/")+"/"))
 	}
 	if path, err := exec.LookPath("kdialog"); err == nil {
-		return exec.Command(path, "--title", title, "--getexistingdirectory", start)
+		return disclaim.Cmd(exec.Command(path, "--title", title, "--getexistingdirectory", start))
 	}
 	return nil
 }

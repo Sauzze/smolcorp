@@ -5,6 +5,7 @@ package desktop
 import (
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -34,6 +35,23 @@ func TestTheEngineGMsScriptAloneHoldsItsNewToken(t *testing.T) {
 	if strings.Contains(r.script(other), "SMOLCORP_GM_TOKEN=") {
 		t.Errorf("another hire's script holds the GM's token:\n%s", r.script(other))
 	}
+	// Told who it is; no plugin bundled beside this stand-in program, so none is loaded.
+	if !strings.Contains(script, "You are the General Manager of this team. Your folder is ") || strings.Contains(script, "--plugin-dir") {
+		t.Errorf("the GM's introduction, without a plugin:\n%s", script)
+	}
+	if strings.Contains(r.script(other), "General Manager of this team") {
+		t.Error("another hire is told it's the GM")
+	}
+
+	// Bundled beside the program, as in Smolcorp.app: the GM loads it, and its tools run this program.
+	writeFile(t, filepath.Join(filepath.Dir(filepath.Dir(r.o.CLI)), "gm", "plugin", ".claude-plugin", "plugin.json"), "{}")
+	gm, err = runManagedHire(r.request("gm"), r.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if script := r.script(gm); !strings.Contains(script, "--agent=smolcorp-gm:general-manager") || !strings.Contains(script, "export SMOLCORP_CLI=") {
+		t.Errorf("the GM's script with the plugin bundled:\n%s", script)
+	}
 }
 
 func TestAGMHireWithNoTokenIsRefusedAndLeavesNothing(t *testing.T) {
@@ -55,7 +73,7 @@ func TestOnlyTheGMsScriptMayHoldTheTokenAndNeverWithASendKey(t *testing.T) {
 		"another role":      {Role: Role{ID: "janitor", Name: "Janitor", Agent: "claude"}, Message: "x", GMToken: "fake-gm-token-1"},
 		"the GM with a key": {Role: Role{ID: "gm", Name: "GM", Agent: "claude"}, Message: "x", GMToken: "fake-gm-token-1", SendKey: "k"},
 	} {
-		if script, err := start.script(); err == nil {
+		if script, err := start.startText(); err == nil {
 			t.Errorf("%s: a script was made:\n%s", name, script)
 		}
 	}

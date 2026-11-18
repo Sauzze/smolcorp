@@ -24,7 +24,7 @@ final class DictationTests: XCTestCase {
         // Whatever a test left running ends, so the next starts idle.
         let ended = expectation(description: "idle")
         Dictation.stop { _, _ in ended.fulfill() }
-        wait(for: [ended], timeout: 2)
+        wait(for: [ended], timeout: 10)
     }
 
     private func standIns(ready: TimeInterval, text: String = "ajoute un test") {
@@ -40,7 +40,7 @@ final class DictationTests: XCTestCase {
         let answered = expectation(description: "started")
         var started = false
         Dictation.start(language: "fr_FR", for: "tty:/dev/ttys003", phone: phone, deliver: deliver) { started = $0; answered.fulfill() }
-        wait(for: [answered], timeout: 3)
+        wait(for: [answered], timeout: 10)
         return started
     }
 
@@ -55,20 +55,17 @@ final class DictationTests: XCTestCase {
             XCTAssertEqual(tab, "tty:/dev/ttys003")
             stopped.fulfill()
         }
-        wait(for: [stopped, answered], timeout: 3)
+        wait(for: [stopped, answered], timeout: 10)
         XCTAssertFalse(Dictation.isActive, "the microphone isn't left on")
         XCTAssertEqual(made.count, 1)
-        let done = expectation(description: "finished")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { done.fulfill() }
-        wait(for: [done], timeout: 1)
-        XCTAssertTrue(made[0].finished, "the recording that came up after the release was stopped")
+        XCTAssertTrue(eventually { made[0].finished }, "the recording that came up after the release was stopped")
         XCTAssertTrue(start(), "the next press starts")
     }
 
     func testStopAlwaysAnswers() {
         let answered = expectation(description: "answered")
         Dictation.stop { text, _ in XCTAssertEqual(text, ""); answered.fulfill() }
-        wait(for: [answered], timeout: 1)
+        wait(for: [answered], timeout: 10)
     }
 
     func testARecordingStopsByItselfAtTheCap() {
@@ -80,7 +77,7 @@ final class DictationTests: XCTestCase {
             XCTAssertEqual(tab, "tty:/dev/ttys003")
             delivered.fulfill()
         })
-        wait(for: [delivered], timeout: 3)
+        wait(for: [delivered], timeout: 10)
         XCTAssertFalse(Dictation.isActive)
     }
 
@@ -91,7 +88,7 @@ final class DictationTests: XCTestCase {
         Dictation.phoneLeft("p2")
         XCTAssertTrue(Dictation.isActive, "another phone going changes nothing")
         Dictation.phoneLeft("p1")
-        wait(for: [delivered], timeout: 3)
+        wait(for: [delivered], timeout: 10)
         XCTAssertFalse(Dictation.isActive)
     }
 

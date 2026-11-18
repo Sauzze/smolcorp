@@ -50,3 +50,12 @@ func TestARoleMessageComesThroughCmdExeAsItWas(t *testing.T) {
 		t.Errorf("through cmd.exe, the agent was given\n%q\nwant\n%q", got, want)
 	}
 }
+
+// exeLine quotes each argument as Windows' own syscall.EscapeArg does.
+func TestExeLineQuotesAsSyscallDoes(t *testing.T) {
+	for arg := range exeLineCases {
+		if got, want := exeLine("claude", []string{arg}), "claude "+syscall.EscapeArg(arg); got != want {
+			t.Errorf("%q: %q, want %q", arg, got, want)
+		}
+	}
+}

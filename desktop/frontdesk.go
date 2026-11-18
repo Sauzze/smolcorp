@@ -44,6 +44,23 @@ type Hire struct {
 	Worktree   string `json:"worktree"`
 	Repo       string `json:"repo"`
 	TmuxSocket string `json:"tmuxSocket"`
+	// TmuxProgram is the tmux that started that server (1.26): it keeps driving it while the file is there.
+	// Written only when known, so a 1.25 row is as it was, and read as "today's order" (findTmux).
+	TmuxProgram string `json:"tmuxProgram,omitempty"`
+	// TmuxServer is the pid of a sandboxed desk's tmux server, as the core checked it at its start (SA-M6, SANDBOX-PLAN
+	// §A5.2 step 9): the only server its guarded tmux may talk to. Written only then.
+	TmuxServer int `json:"tmuxServer,omitempty"`
+	// TmuxPane is the pid of the process its tmux started for the desk's start (its helper, which becomes its agent), as
+	// that start said it, and TmuxPaneStarted when that process started (processStartedAt). Unguarded says why the desk
+	// no longer counts as guarded: its pane was found running another process (SA-M7, RT126SG2R2 N1, N2). Each written
+	// only when known.
+	TmuxPane        int    `json:"tmuxPane,omitempty"`
+	TmuxPaneStarted int64  `json:"tmuxPaneStarted,omitempty"`
+	Unguarded       string `json:"unguarded,omitempty"`
+	// Sandboxed: its last start was in its sandbox, its server checked as TmuxServer says (SA-X13). A desk started
+	// before this version, while the sandbox was off, or anywhere else has it false, and keeps that tag until it starts
+	// again (inSandbox, sandboxswitch.go). Written only when true.
+	Sandboxed bool `json:"sandboxed,omitempty"`
 	// ViaLauncher: the hire engine made it in a window run by the launcher, which is known by this hire's id.
 	ViaLauncher bool    `json:"viaLauncher,omitempty"`
 	Account     string  `json:"account"`
@@ -53,6 +70,30 @@ type Hire struct {
 	Started     float64 `json:"started"`
 	State       string  `json:"state"`
 	Notes       string  `json:"notes"`
+	// Where its agent runs: "" in a terminal of Smolcorp's, t3Engine ("t3") in T3 Code (t3desk.go), with its
+	// thread's id and link there. Written only when set, so every other hire's row is as it always was.
+	Engine   string `json:"engine,omitempty"`
+	T3Thread string `json:"t3Thread,omitempty"`
+	T3Link   string `json:"t3Link,omitempty"`
+	// Where a hire in T3 Code's desk is in the office (t3desks.go): its floor (0 for the ground floor, 1 for 2F up
+	// to 5 for 6F) and its desk there, so it sits there again after a restart; nil for where there's room. Written
+	// only for a hire in T3 Code, as the Mac writes them.
+	T3Floor *int `json:"t3Floor,omitempty"`
+	T3Desk  *int `json:"t3Desk,omitempty"`
+	// A hire taken over in T3 Code from its own tmux session (t3takeover.go, the Go core's only): its Claude Code
+	// session and that session's transcript, kept until Hand back resumes it there. Written only then.
+	T3Session    string `json:"t3Session,omitempty"`
+	T3Transcript string `json:"t3Transcript,omitempty"`
+	// T3Copied: T3Transcript is the copy Take over made in ~/.claude of a transcript from the desk's own Claude folder
+	// (SA-X8), the one Hand back brings back there and then takes away. Set only by Take over, in the same save as
+	// the copy's place, and cleared with it: never told from where a transcript is (RT126SAX9R2 F2).
+	T3Copied bool `json:"t3Copied,omitempty"`
+	// Scope: a General Manager the owner hired held to one project (gmscope.go), as the full path of that
+	// project; written only when set. Go only: the Mac's Swift engine has no scope (M7).
+	Scope string `json:"scope,omitempty"`
+	// ScopeRoles: for a GM held to a demo's project, the roles the demo offers, the only ones it may hire
+	// (gmscope.go), by id with a comma between; written only then. Text, so a row stays comparable.
+	ScopeRoles string `json:"scopeRoles,omitempty"`
 }
 
 // liveSession is a session as the deck follows it, with where it sits.
@@ -60,6 +101,8 @@ type liveSession struct {
 	ID, Agent, Folder, Project, State, Model string
 	Floor, Desk                              *int
 	LastEventAt                              float64
+	// KeyedDesk is the desk with a hook key of its own whose tab the session is on (hookkeys.go), or "".
+	KeyedDesk string
 }
 
 // Contact is one pair who may write to each other: from may write to to
@@ -70,49 +113,110 @@ type Contact struct {
 }
 
 // registryFile holds the hires, the pairs who may write to each other, the
-// hash of each hire's send key (hire id to SHA-256 hex, never the key), and,
-// kept untouched, whatever else the file has.
+// hash of each hire's send key (hire id to SHA-256 hex, never the key), the
+// hash of each desk's hook key alike (hookkeys.go), and, kept untouched,
+// whatever else the file has.
 type registryFile struct {
 	hires    []Hire
 	contacts []Contact
 	keys     map[string]string
+	hookKeys map[string]string
 	rest     map[string]json.RawMessage
 }
 
-// readRegistry loads the file. One that is there but can't be read gives an
-// empty registry; with aside set (the edit path only) it is also moved to
-// registry.broken.json, so a later save can't wipe what might be mended. A read
-// route passes false and leaves the file where it is.
+// readRegistry is the registry the core holds (§3.2, RT126SK1 B4): the file is read once, the first time it's
+// asked for (as the core starts), and from then on only written, on every system. What another program writes into
+// it while the core runs counts for nothing, now or, on a Mac, at the next start (records_registry.go).
+//
+// A file that is there but can't be read gives an empty registry; with aside set (the edit path only) it is also
+// moved to registry.broken.json, so a later save can't wipe what might be mended. A read route passes false and
+// leaves the file where it is, until an edit.
 func readRegistry(path string, aside bool) registryFile {
+	if held, ok := heldRegistryFor(path); ok {
+		if aside && takeBrokenRegistry(path) {
+			setAside(path)
+		}
+		return held
+	}
+	file, broken := readRegistryFile(path, aside)
+	holdRegistry(path, file)
+	if broken && !aside {
+		markBrokenRegistry(path)
+	}
+	return file
+}
+
+// readRegistryFile is the registry the file at path holds, as the core first reads it, and whether it was there but
+// couldn't be read.
+func readRegistryFile(path string, aside bool) (registryFile, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return registryFile{}
+			return registryFile{}, false
 		}
-		return unreadable(path, aside)
+		registryDropped()
+		return unreadable(path, aside), true
 	}
+	file, ok := parseRegistry(data)
+	if !ok {
+		registryDropped()
+		return unreadable(path, aside), true
+	}
+	// Its permissions are a sealed record (records_registry.go): one another program changed doesn't count.
+	return vouchRegistry(data, file), false
+}
+
+// readRegistryData is the registry data holds, or an empty one if it can't be read.
+func readRegistryData(data []byte) registryFile {
+	file, _ := parseRegistry(data)
+	return file
+}
+
+// parseRegistry reads a registry file's bytes: false if they aren't one.
+func parseRegistry(data []byte) (registryFile, bool) {
 	var raw map[string]json.RawMessage
 	var version int
 	var hires []Hire
 	var contacts []Contact
-	var keys map[string]string
+	var keys, hookKeys map[string]string
 	// Contacts and keys that can't be read make the file unreadable, as on the Mac (FrontDesk.swift load).
 	if json.Unmarshal(data, &raw) != nil || json.Unmarshal(raw["version"], &version) != nil || version > registryVersion ||
 		(raw["hires"] != nil && json.Unmarshal(raw["hires"], &hires) != nil) ||
 		(raw["contacts"] != nil && json.Unmarshal(raw["contacts"], &contacts) != nil) ||
-		(raw["keys"] != nil && json.Unmarshal(raw["keys"], &keys) != nil) {
-		return unreadable(path, aside)
+		(raw["keys"] != nil && json.Unmarshal(raw["keys"], &keys) != nil) ||
+		(raw["hookKeys"] != nil && json.Unmarshal(raw["hookKeys"], &hookKeys) != nil) {
+		return registryFile{}, false
 	}
-	for _, h := range hires {
+	for i, h := range hires {
 		if h.ID == "" || h.Name == "" || h.Folder == "" {
-			return unreadable(path, aside)
+			return registryFile{}, false
 		}
+		hires[i].Folder = projectFolder(h)
 	}
 	delete(raw, "version")
 	delete(raw, "hires")
 	delete(raw, "contacts")
 	delete(raw, "keys")
-	return registryFile{hires: hires, contacts: contacts, keys: keys, rest: raw}
+	delete(raw, "hookKeys")
+	delete(raw, sealedPartField)
+	return registryFile{hires: hires, contacts: contacts, keys: keys, hookKeys: hookKeys, rest: raw}, true
+}
+
+// projectFolder is a hire's folder as the contract's registry.json has it: the project it was hired into.
+// A row the Go core wrote before 1.25 has the worktree there (or a folder in it): it is read as the same
+// place in the repo, and written so at the registry's next save.
+func projectFolder(h Hire) string {
+	if h.Worktree == "" || h.Repo == "" {
+		return h.Folder
+	}
+	worktree, folder := filepath.Clean(h.Worktree), filepath.Clean(h.Folder)
+	if folder == worktree {
+		return h.Repo
+	}
+	if rest, inside := strings.CutPrefix(folder, worktree+string(filepath.Separator)); inside {
+		return filepath.Join(h.Repo, rest)
+	}
+	return h.Folder
 }
 
 func unreadable(path string, aside bool) registryFile {
@@ -130,10 +234,64 @@ func setAside(path string) registryFile {
 }
 
 func (f registryFile) save(path string) error {
-	out := map[string]any{"version": registryVersion, "hires": f.hires}
-	if f.hires == nil {
-		out["hires"] = []Hire{}
+	_, err := f.saveAsking(path)
+	return err
+}
+
+// saveAsking is save, and the hires whose listing it asked for. A hire gone by any way (a fire, a failed start, the
+// GM's edit, T3 Code's) has what it left named .claude or .mcp.json in its place listed and held for you
+// (CLAUDEPLANT1): one listing for every path to a gone state. It's asked for here, on record, and listed by the
+// worker once frontDeskMu is let go (FXCLAUDESUMOPENR3 B, claudePending): its mark is written before the registry,
+// so the record key the registry's write moves to (a hire made gone takes authority away, registryTightens) seals
+// it, and a copy of the record from before it no longer fits.
+func (f registryFile) saveAsking(path string) ([]string, error) {
+	before, _ := heldRegistryFor(path)
+	var gone []Hire
+	for _, h := range f.hires {
+		if !isOpen(h) && slices.ContainsFunc(before.hires, func(was Hire) bool { return was.ID == h.ID && isOpen(was) }) {
+			gone = append(gone, h)
+		}
 	}
+	asked := askClaudeListings(gone, false, true)
+	return asked, f.write(path)
+}
+
+// write writes f as the registry at path, and holds it.
+func (f registryFile) write(path string) error {
+	if filepath.Base(path) != registryName {
+		fields, err := f.fields()
+		if err != nil {
+			return err
+		}
+		data, err := json.MarshalIndent(fields, "", "  ")
+		if err == nil {
+			err = writePrivate(path, data)
+		}
+		if err == nil {
+			holdRegistry(path, f)
+		}
+		return err
+	}
+	// A sealed record (records.go): what takes authority away is written under a new record key (registryTightens).
+	old, held := heldRegistryFor(path)
+	if err := keepRecord(registryName, f.writer(path), held && registryTightens(old, f)); err != nil {
+		return err
+	}
+	holdRegistry(path, f)
+	return nil
+}
+
+// fields are the registry file's fields as f holds them, its seal aside.
+func (f registryFile) fields() (map[string]json.RawMessage, error) {
+	hires := []Hire{}
+	for _, h := range f.hires {
+		// Where a desk sits is a hire in T3 Code's alone, as the Mac writes it.
+		if h.Engine == "" {
+			h.T3Floor, h.T3Desk = nil, nil
+		}
+		hires = append(hires, h)
+	}
+	out := map[string]any{"version": registryVersion, "hires": hires}
 	for k, v := range f.rest {
 		out[k] = v
 	}
@@ -144,11 +302,32 @@ func (f registryFile) save(path string) error {
 	if len(f.keys) > 0 {
 		out["keys"] = f.keys
 	}
-	data, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return err
+	if len(f.hookKeys) > 0 {
+		out["hookKeys"] = f.hookKeys
 	}
-	return writePrivate(path, data)
+	data, err := json.Marshal(out)
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	err = json.Unmarshal(data, &fields)
+	return fields, err
+}
+
+// writer writes the registry at path as f holds it now, sealed under the key given (records.go's recordWriter).
+func (f registryFile) writer(path string) recordWriter {
+	fields, err := f.fields()
+	part := registrySecurityPart(f)
+	return func(key []byte, prev string) error {
+		if err != nil {
+			return err
+		}
+		data, err := withPartSeal(fields, key, prev, registryName, part)
+		if err != nil {
+			return err
+		}
+		return writePrivate(path, data)
+	}
 }
 
 // contactsJSON is the pairs as gm team and POST /setup/gm/contacts answer them:
@@ -170,8 +349,10 @@ type refusal struct {
 }
 
 // editHire changes the nickname, state or notes of the hire `id`, and nothing
-// else; anything more is refused whole, with nothing changed.
-func editHire(path string, body []byte) (Hire, *refusal) {
+// else; anything more is refused whole, with nothing changed. session is how its
+// session is looked at (Deck.deskSession): a hire is never marked fired or failed
+// here while it still runs, or while its start is under way (goneWhileRunning).
+func editHire(path string, body []byte, session func(Hire) deskLook) (Hire, *refusal) {
 	var given map[string]json.RawMessage
 	if json.Unmarshal(body, &given) != nil {
 		return Hire{}, &refusal{http.StatusBadRequest, "Send {id, nickname, state, notes}."}
@@ -192,6 +373,10 @@ func editHire(path string, body []byte) (Hire, *refusal) {
 	}
 	if len(given) < 2 {
 		return Hire{}, &refusal{http.StatusBadRequest, "Give a nickname, a state or notes to change."}
+	}
+	refused, looked := goneWhileRunning(path, given["state"], id, session)
+	if refused != nil {
+		return Hire{}, refused
 	}
 	frontDeskMu.Lock()
 	defer frontDeskMu.Unlock()
@@ -216,6 +401,21 @@ func editHire(path string, body []byte) (Hire, *refusal) {
 		var text string
 		if json.Unmarshal(v, &text) != nil || !slices.Contains(hireStates, text) {
 			return Hire{}, &refusal{http.StatusBadRequest, "State is one of " + strings.Join(hireStates, ", ") + "."}
+		}
+		// A hire taken over (in T3 Code, or waiting for Hand back) is handed back first, as a fire is refused: marked
+		// gone, Hand back would never be offered again and T3 Code's project would stay (RM5c2 N2).
+		if (text == "fired" || text == "failed") && isOpen(file.hires[i]) && file.hires[i].T3Session != "" {
+			return Hire{}, &refusal{http.StatusConflict, calledHire(file.hires[i]) + " was taken over in T3 Code: hand it back first, then mark it " + text + "."}
+		}
+		// Again under the lock: a start under way now, or a row the look didn't find open and ended, is never marked
+		// gone (gonedesk.go, RT126GMEDIT1 B1).
+		if (text == "fired" || text == "failed") && isOpen(file.hires[i]) && (!looked || startUnderWay(id)) {
+			return Hire{}, stillStarting(file.hires[i], text)
+		}
+		// Letting a hire go while the records' key can't be read would last only until the restart (records.go's
+		// refusedWhileHeld, RT126SK1R4 follow-up 2).
+		if (text == "fired" || text == "failed") && recordsHeldOnly() {
+			return Hire{}, &refusal{http.StatusConflict, recordsHeldAnswer}
 		}
 		hire.State = text
 	}
@@ -278,13 +478,25 @@ func seatOrNull(n *int) any {
 // each session is claimed by at most one hire and a hire by at most one session,
 // the first listed. now is in milliseconds; status gives a folder's last STATUS line.
 func buildTeam(hires []Hire, live []liveSession, now float64, status func(string) string) []map[string]any {
+	return teamRows(hires, readRegistry(registryPath(), false).hookKeys, live, now, status)
+}
+
+// teamRows is buildTeam with the registry's hook keys, keyed, read with hires: a desk with a hook key of its own
+// claims only the sessions on its own tab, and only it claims them (hookkeys.go).
+func teamRows(hires []Hire, keyed map[string]string, live []liveSession, now float64, status func(string) string) []map[string]any {
 	claimed := map[string]bool{}
 	rows := []map[string]any{}
 	for _, h := range hires {
 		var session *liveSession
 		if h.State != "fired" && h.State != "failed" {
 			for i := range live {
-				if !claimed[live[i].ID] && works(live[i], h) {
+				// A hire in T3 Code claims only its own desk, never a session in the folder it was hired from; and
+				// no other hire claims a T3 desk (FXT3Da B1, RT3Da2 n1).
+				mine := deskWorks(live[i], h, keyed) && !strings.HasPrefix(live[i].ID, t3DeskPrefix)
+				if h.Engine == t3Engine {
+					mine = live[i].ID == t3DeskID(h.ID)
+				}
+				if !claimed[live[i].ID] && mine {
 					session = &live[i]
 					claimed[session.ID] = true
 					break
@@ -310,6 +522,14 @@ func teamRow(h *Hire, s *liveSession, now float64, status func(string) string) m
 		row["branch"], row["worktree"], row["tmuxSocket"], row["account"] = h.Branch, h.Worktree, h.TmuxSocket, h.Account
 		row["started"], row["state"], row["notes"] = h.Started, h.State, h.Notes
 		row["model"] = h.Model
+		// A hire in T3 Code says so, with its thread; nobody else's row changes.
+		if h.Engine != "" {
+			row["engine"], row["t3Thread"] = h.Engine, h.T3Thread
+		}
+		// A desk in its sandbox says so (SA-X13): mail goes only between desks both in theirs, or neither.
+		if inSandbox(*h) {
+			row["sandboxed"] = true
+		}
 	} else {
 		folder, place = s.Project, s.Folder
 		row["id"], row["name"], row["nickname"], row["role"] = "live:"+s.ID, lastPart(folder), "", ""
@@ -344,26 +564,16 @@ func cmpOr(a, b string) string {
 
 // statusLine is the last line with words in it of the STATUS.md a hire keeps,
 // in its folder or its .team folder, cut to 200 characters; "" without one.
-// Only a plain file's last few kilobytes are read; a pipe or any other kind
-// of file is passed over.
+// Only a plain file's last few kilobytes are read, through the core's reader
+// (hirefile.go): a link, a hard link, a pipe or any other kind of file is
+// passed over.
 func statusLine(folder string) string {
 	if !filepath.IsAbs(folder) && !strings.HasPrefix(folder, "/") {
 		return ""
 	}
 	for _, name := range []string{"STATUS.md", filepath.Join(".team", "STATUS.md")} {
-		path := filepath.Join(folder, name)
-		// Look before opening, as the Mac does (links followed): opening a FIFO
-		// would block for good.
-		if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		file, err := os.Open(path)
+		file, info, err := openHireFile(folder, filepath.Join(folder, name))
 		if err != nil {
-			continue
-		}
-		info, err := file.Stat()
-		if err != nil || !info.Mode().IsRegular() {
-			file.Close()
 			continue
 		}
 		offset := max(0, info.Size()-4096)
@@ -385,10 +595,13 @@ func statusLine(folder string) string {
 }
 
 // frontDeskLive is the sessions the deck follows with the floor and desk each
-// sits at: the ground floor's by its key, the others' by the building.
+// sits at: the ground floor's by its key, the others' by the building. A hire
+// in T3 Code's desk is its live session here, so the team pairs it by its id.
 func (d *Deck) frontDeskLive() []liveSession {
+	desks := currentHookDesks()
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	desks.launchers = d.launcherHires()
 	keys, overflow := d.layout()
 	type seat struct{ floor, desk int }
 	seats := map[string]seat{}
@@ -407,9 +620,13 @@ func (d *Deck) frontDeskLive() []liveSession {
 		}
 	}
 	var out []liveSession
-	for _, s := range d.sessions.All() {
+	all := d.sessions.All()
+	for _, one := range d.t3Seated() {
+		all = append(all, one.session)
+	}
+	for _, s := range all {
 		l := liveSession{ID: s.ID, Agent: string(s.Agent), Folder: s.Folder, Project: s.Project,
-			State: string(s.State), Model: s.Model, LastEventAt: s.LastEventAt}
+			State: string(s.State), Model: s.Model, LastEventAt: s.LastEventAt, KeyedDesk: desks.deskOfTab(s.Tab)}
 		if at, ok := seats[s.ID]; ok {
 			floor, desk := at.floor, at.desk
 			l.Floor = &floor
@@ -422,13 +639,25 @@ func (d *Deck) frontDeskLive() []liveSession {
 	return out
 }
 
-// team answers GET /setup/gm/team.
+// team answers GET /setup/gm/team. A GM started by hand has the GM's role on its session's row, unless a GM is
+// hired, which wins (FrontDesk.team's byHandGM).
 func (rt *router) team(w http.ResponseWriter) {
 	live := rt.deck.frontDeskLive()
+	rt.deck.mu.Lock()
+	byHand := rt.deck.byHandGMSession()
+	rt.deck.mu.Unlock()
 	file := readRegistry(registryPath(), false)
 	now := float64(time.Now().UnixMilli())
+	rows := teamRows(file.hires, file.hookKeys, live, now, statusLine)
+	if byHand != "" && !file.gmIsHired() {
+		for _, row := range rows {
+			if row["registered"] == false && row["sessionId"] == byHand {
+				row["role"] = gmRole
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"at": int64(now), "team": buildTeam(file.hires, live, now, statusLine), "contacts": file.contactsJSON(),
+		"at": int64(now), "team": t3Decorate(rows, file.hires, rt.deck.t3), "contacts": file.contactsJSON(),
 	})
 }
 

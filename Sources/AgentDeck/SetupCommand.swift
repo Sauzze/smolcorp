@@ -1,9 +1,11 @@
 import AppKit
 
-/// `--setup`: the whole setup from a terminal, for you or for an agent you ask
-/// to do it, as `smolcorp setup` on Windows and Linux. It opens Smolcorp if
-/// it isn't running, connects your agents, then prints the checklist and
-/// ends with 0 when nothing is in the way, 1 when something is.
+/// `--setup`: setup's checklist from a terminal, for you or for an agent you
+/// ask to run it, as `smolcorp setup` on Windows and Linux. It opens Smolcorp
+/// if it isn't running, then prints the checklist and ends with 0 when nothing
+/// is in the way, 1 when something is. It changes nothing: it holds only the
+/// check-only key, which opens the checklist alone, so what it finds is put
+/// right in Settings (1.26, SK2).
 enum SetupCommand {
     static func run(arguments: [String]) -> Int32 {
         let checkOnly = arguments.contains("--check")
@@ -24,15 +26,9 @@ enum SetupCommand {
                 return 1
             }
         }
-        guard var report = selfTest(base) else {
+        guard let report = selfTest(base) else {
             print("Setup can't be read: is this the Mac Smolcorp runs on, as you, and is it up to date?")
             return 1
-        }
-        if !checkOnly, let hooks = report.checks.first(where: { $0["id"] as? String == "hooks" }),
-           hooks["fix"] as? String == SelfTest.repair {
-            print("Fixing: connecting your agents…")
-            if let problem = send(base, "POST", "/setup/fix?fix=\(SelfTest.repair)&auto=1").problem { print("  \(problem)") }
-            report = selfTest(base) ?? report
         }
         let marks = ["ok": "✓", "fix": "✗", "todo": "•", "info": "i"]
         print("")
@@ -67,15 +63,17 @@ enum SetupCommand {
         return (checks, object["ready"] as? Bool ?? false)
     }
 
-    /// A request to setup's API with the setup key the running app wrote for tools on this Mac.
+    /// The header the check-only key goes in: it opens GET /setup/selftest and nothing else.
+    static let selftestKeyHeader = "x-smolcorp-selftest-key"
+
+    /// A request to setup's checklist with the check-only key the running app wrote for this Mac's terminal.
     private static func send(_ base: String, _ method: String, _ path: String,
                              timeout: TimeInterval = 120) -> (status: Int?, body: Data?, problem: String?) {
         var request = URLRequest(url: URL(string: base + path)!, timeoutInterval: timeout)
         request.httpMethod = method
-        if let key = try? String(contentsOf: Paths.setupKey, encoding: .utf8) {
-            request.setValue(key.trimmingCharacters(in: .whitespacesAndNewlines), forHTTPHeaderField: DeckRouter.setupKeyHeader)
+        if let key = try? String(contentsOf: Paths.selftestKey, encoding: .utf8) {
+            request.setValue(key.trimmingCharacters(in: .whitespacesAndNewlines), forHTTPHeaderField: selftestKeyHeader)
         }
-        request.setValue("1", forHTTPHeaderField: DeckRouter.setupHeader)
         var result: (Int?, Data?, String?) = (nil, nil, nil)
         let done = DispatchSemaphore(value: 0)
         URLSession.shared.dataTask(with: request) { data, response, error in

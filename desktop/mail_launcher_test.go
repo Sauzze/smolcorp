@@ -3,7 +3,6 @@ package desktop
 import (
 	"encoding/json"
 	"io"
-	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -95,8 +94,10 @@ func newFakeLauncherAs(t *testing.T, d *Deck, id, folder, role, hire, shows stri
 		}
 	}()
 	cursor := &cursorMode{bracketed: f.screen.Bracketed}
-	go follow(pipe, f, cursor, func(proof, number string) {
+	go followWith(pipe, f, cursor, func(proof, number string) {
 		postScreenAnswer(server.Client(), server.URL, d.access.HookKey, proof, id, number, f.screen)
+	}, func(proof, number, outcome string) {
+		postPasteAnswer(server.Client(), server.URL, d.access.HookKey, proof, id, number, outcome, f.screen)
 	}, func() {})
 	return f
 }
@@ -123,6 +124,7 @@ func counting(n *int) func() bool { return func() bool { *n++; return true } }
 
 func TestIdleWindowIsPastedThenEnterAndNothingElse(t *testing.T) {
 	for _, bracketed := range []bool{true, false} {
+		stopDecksOf(t)
 		d := newTestDeck(t)
 		f := newFakeLauncher(t, d, "L1", "/work/api", "", "idle-empty", bracketed)
 		f.react = takesTheDraft(t)
@@ -153,6 +155,7 @@ func TestMultiLineGoesWholeInABracketAndAsOneLineWithoutOne(t *testing.T) {
 		t.Errorf("bracketed paste wrote %q", got[0])
 	}
 
+	stopDecksOf(t)
 	d = newTestDeck(t)
 	off := newFakeLauncher(t, d, "L1", "/work/api", "", "idle-empty", false)
 	off.react = takesTheDraft(t)
@@ -167,6 +170,7 @@ func TestMultiLineGoesWholeInABracketAndAsOneLineWithoutOne(t *testing.T) {
 
 func TestOnlyAnIdleWindowIsTypedInto(t *testing.T) {
 	for name, shows := range map[string]string{"busy": "busy-1", "menu": "permission-menu", "trust menu": "trust-menu", "draft": "draft"} {
+		stopDecksOf(t)
 		d := newTestDeck(t)
 		f := newFakeLauncher(t, d, "L1", "/work/api", "", shows, true)
 		commits := 0
@@ -176,6 +180,7 @@ func TestOnlyAnIdleWindowIsTypedInto(t *testing.T) {
 		}
 	}
 	// A screen the launcher can't read (the alternate screen) is unknown, which waits too.
+	stopDecksOf(t)
 	d := newTestDeck(t)
 	f := newFakeLauncher(t, d, "L1", "/work/api", "", "idle-empty", true)
 	f.screen.Write([]byte("\x1b[?1049h"))
@@ -202,6 +207,7 @@ func TestIfTheBoxDoesNotHoldADraftAfterThePasteNoEnterIsSent(t *testing.T) {
 		},
 		"busy": func(f *fakeLauncher, _ string) { f.show("", pane(t, "busy-1")) },
 	} {
+		stopDecksOf(t)
 		d := newTestDeck(t)
 		f := newFakeLauncher(t, d, "L1", "/work/api", "", "idle-empty", true)
 		f.react = react
@@ -216,6 +222,7 @@ func TestIfTheBoxDoesNotHoldADraftAfterThePasteNoEnterIsSent(t *testing.T) {
 		}
 	}
 	// The deck beginning to ask during the settle blocks Return as well.
+	stopDecksOf(t)
 	d := newTestDeck(t)
 	f := newFakeLauncher(t, d, "L1", "/work/api", "", "idle-empty", true)
 	asked := false
@@ -463,7 +470,7 @@ func TestAWindowAnotherHireMayOwnIsNotTyped(t *testing.T) {
 	a, b := launcherHire(), launcherHire()
 	b.ID, b.Name = "bbbbbb123456", "Bo"
 	data, _ := json.Marshal(map[string]any{"version": 1, "hires": []Hire{a, b}})
-	if err := os.WriteFile(registryPath(), data, 0o600); err != nil {
+	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	theirs := newFakeLauncher(t, d, "L1", "/work/api", "", "idle-empty", true)
@@ -477,7 +484,7 @@ func TestAWindowAnotherHireMayOwnIsNotTyped(t *testing.T) {
 	// Once B is fired, the window can only be A's.
 	b.State = "fired"
 	data, _ = json.Marshal(map[string]any{"version": 1, "hires": []Hire{a, b}})
-	os.WriteFile(registryPath(), data, 0o600)
+	writeRegistryFile(registryPath(), data, 0o600)
 	if id, ok := d.hireLauncherID(a); !ok || id != "L1" {
 		t.Errorf("with the other hire fired: %q %v", id, ok)
 	}

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 const placeTestKey = "fake-key-0123456789ABCDEFGHIJ"
@@ -22,9 +24,12 @@ func placeRepo(t *testing.T) string {
 	repo = physical(repo)
 	os.WriteFile(filepath.Join(repo, "sub", "a.txt"), []byte("a"), 0o644)
 	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"add", "."},
-		{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "one"}} {
+		{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "one"}} {
 		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+		if args[0] == "init" {
+			stopSigning(t, repo)
 		}
 	}
 	return repo
@@ -64,7 +69,7 @@ func TestAHireGetsAWorktreeTrustedByItsResolvedPathAndPorts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if place.Branch != "hire/ada-lovelace-012345" || place.Repo != repo || place.Ports != "4100-4103" {
+	if place.Branch != "hire/0123456789ab/ada-lovelace-012345" || place.Repo != repo || place.Ports != "4100-4103" {
 		t.Fatalf("place = %+v", place)
 	}
 	if place.Folder != filepath.Join(place.Worktree, "sub") || place.Worktree != physical(place.Worktree) {
@@ -296,6 +301,38 @@ func TestAHireIDThatIsAPathNeverTouchesAnythingOutsideTheHiresFolder(t *testing.
 	}
 }
 
+// A hire's branch is in a folder of its own, named by its ID (SIERRA's ruling on RT126SAL1R2 N1): the one folder of
+// the repo's branches a Linux desk's view lets it write. Its worktree is taken away at the end with that branch,
+// and only by a record of the same ID; a record from before the folders, on hire/<name>, is still its own.
+func TestAHiresBranchIsInAFolderOfItsOwn(t *testing.T) {
+	isolate(t)
+	repo := placeRepo(t)
+	o := placeOptions(t)
+	place, err := prepareHire(hireRequest{HireID: "0123456789ab", Name: "Bo", Folder: repo, Worktree: true}, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if place.Branch != sandbox.HireBranch("0123456789ab", "bo-012345") || branches(t, repo) != "+ hire/0123456789ab/bo-012345" {
+		t.Fatalf("branch %q; the repo's hire branches: %q", place.Branch, branches(t, repo))
+	}
+	h := Hire{ID: "fedcba987654", Repo: place.Repo, Worktree: place.Worktree, Branch: place.Branch}
+	if removeOwnWorktree(nil, o.Worktrees, h) || branches(t, repo) == "" {
+		t.Fatal("a record of another ID took the hire's worktree")
+	}
+	h.ID = "0123456789ab"
+	if !removeOwnWorktree(nil, o.Worktrees, h) || branches(t, repo) != "" {
+		t.Fatalf("the hire's own worktree wasn't taken with its branch: %q", branches(t, repo))
+	}
+	// One made before branches had a folder of their own.
+	tree := filepath.Join(hiresFolder(repo, o.Worktrees), "cy-abcdef")
+	if out, err := exec.Command("git", "-C", repo, "worktree", "add", "-q", "-b", "hire/cy-abcdef", tree).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if !removeOwnWorktree(nil, o.Worktrees, Hire{ID: "abcdef123456", Repo: repo, Worktree: physical(tree), Branch: "hire/cy-abcdef"}) {
+		t.Error("a hire's worktree from before the branch folders wasn't taken")
+	}
+}
+
 func TestAHireIDIsOnlyEverASlugInThePathAndBranch(t *testing.T) {
 	isolate(t)
 	repo := placeRepo(t)
@@ -304,7 +341,7 @@ func TestAHireIDIsOnlyEverASlugInThePathAndBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if place.Worktree != filepath.Join(physical(o.Worktrees), filepath.Base(repo), "x-hire") || place.Branch != "hire/x-hire" {
+	if place.Worktree != filepath.Join(physical(o.Worktrees), filepath.Base(repo), "x-hire") || place.Branch != "hire/hire/x-hire" {
 		t.Fatalf("place = %+v", place)
 	}
 }
