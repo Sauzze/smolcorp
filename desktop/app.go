@@ -45,6 +45,16 @@ func RunApp() int {
 	}
 	recordPid()
 	defer forgetPid()
+	// This is the app, with a tray and windows: on Windows with WebView2, Setup opens in Smolcorp's own Settings
+	// window, and a browser's Setup only looks. Never under `smolcorp serve` (settingswindow.go). Said before the deck
+	// is made, which reads it for a General Manager started by hand (gmbyhand.go's loadByHandGM).
+	settingsWindowApp.Store(true)
+	// Windows: an update installed over this copy asks it to make way, and
+	// what the last update set aside goes, now nothing runs it.
+	listenForMakeWay()
+	removeOldPrograms()
+	// What a clone left in the support folder when the last run stopped in the middle of one (gmproject.go).
+	clearProjectStaging()
 	deck := NewDeck()
 	refreshHooks()
 	deck.refreshAccountHooks()
@@ -115,6 +125,12 @@ func RunServer() int {
 	}
 	recordPid()
 	defer forgetPid()
+	// Windows: an update installed over this copy asks it to make way, and
+	// what the last update set aside goes, now nothing runs it.
+	listenForMakeWay()
+	removeOldPrograms()
+	// What a clone left in the support folder when the last run stopped in the middle of one (gmproject.go).
+	clearProjectStaging()
 	deck := NewDeck()
 	refreshHooks()
 	deck.refreshAccountHooks()

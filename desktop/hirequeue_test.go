@@ -100,6 +100,7 @@ func stepStates(run hireQueueRun) []string {
 }
 
 func TestNothingIsHiredWithoutThePagesApproval(t *testing.T) {
+	turnOn(t, &templatesOn)
 	// The GM's token, an MCP key, a night job, a hire, a tool, nobody and an MCP key with no name: all refused,
 	// before anything is hired, kept or said.
 	for _, by := range []actor{actorGM, actorHire, actorTool, actorNobody, mcpActor("k1"), mcpActor(""), nightActor("nightly"), actor("")} {
@@ -125,6 +126,7 @@ func TestNothingIsHiredWithoutThePagesApproval(t *testing.T) {
 }
 
 func TestTheQueueHiresTheGMFirstThenEachRoleInOrderWithTheCooldownBetween(t *testing.T) {
+	turnOn(t, &templatesOn)
 	r := newQueueRig(t)
 	if _, err := r.q.start(steps("gm", "builder", "builder", "reviewer"), "Solo builder", actorPage); err != nil {
 		t.Fatal(err)
@@ -147,6 +149,7 @@ func TestTheQueueHiresTheGMFirstThenEachRoleInOrderWithTheCooldownBetween(t *tes
 }
 
 func TestTheGMIsHiredThroughTheGMsWayAndRolesThroughTheRolesWay(t *testing.T) {
+	turnOn(t, &templatesOn)
 	var way []string
 	r := newQueueRig(t)
 	rig := r.q
@@ -162,6 +165,7 @@ func TestTheGMIsHiredThroughTheGMsWayAndRolesThroughTheRolesWay(t *testing.T) {
 }
 
 func TestAHireTurnedAwayAsTooSoonIsTriedAgainAndThenStops(t *testing.T) {
+	turnOn(t, &templatesOn)
 	r := newQueueRig(t)
 	r.answer = func(n int, _ hireStep) (int, string) {
 		if n <= 2 {
@@ -188,6 +192,7 @@ func TestAHireTurnedAwayAsTooSoonIsTriedAgainAndThenStops(t *testing.T) {
 }
 
 func TestTheQueueStopsAtTheFirstRefusalWithItsSentence(t *testing.T) {
+	turnOn(t, &templatesOn)
 	r := newQueueRig(t)
 	const sentence = "Hires need tmux on your Mac to start fenced: install it, then hire again."
 	r.answer = func(n int, s hireStep) (int, string) {
@@ -226,6 +231,7 @@ func TestTheQueueStopsAtTheFirstRefusalWithItsSentence(t *testing.T) {
 }
 
 func TestTheOwnerCancelsAQueueAndWhatIsBeingHiredIsMadeButNothingAfterIt(t *testing.T) {
+	turnOn(t, &templatesOn)
 	r := newQueueRig(t)
 	inside, release := make(chan struct{}), make(chan struct{})
 	r.answer = func(n int, _ hireStep) (int, string) {
@@ -266,6 +272,7 @@ func TestTheOwnerCancelsAQueueAndWhatIsBeingHiredIsMadeButNothingAfterIt(t *test
 }
 
 func TestAStoppedQueueIsCancelledAtOnce(t *testing.T) {
+	turnOn(t, &templatesOn)
 	r := newQueueRig(t)
 	r.answer = func(int, hireStep) (int, string) { return http.StatusConflict, "No." }
 	r.q.start(steps("builder", "tester"), "Solo builder", actorPage)
@@ -279,6 +286,7 @@ func TestAStoppedQueueIsCancelledAtOnce(t *testing.T) {
 }
 
 func TestAQueueRunningAtARestartIsPausedWithAWordAndResumedByTheOwner(t *testing.T) {
+	turnOn(t, &templatesOn)
 	r := newQueueRig(t)
 	inside, release := make(chan struct{}), make(chan struct{})
 	r.answer = func(n int, _ hireStep) (int, string) {
@@ -328,6 +336,7 @@ func TestAQueueRunningAtARestartIsPausedWithAWordAndResumedByTheOwner(t *testing
 }
 
 func TestAHireNotFoundAfterARestartIsTriedAgain(t *testing.T) {
+	turnOn(t, &templatesOn)
 	r := newQueueRig(t)
 	inside, release := make(chan struct{}), make(chan struct{})
 	r.answer = func(int, hireStep) (int, string) { close(inside); <-release; return http.StatusNoContent, "" }
@@ -347,6 +356,7 @@ func TestAHireNotFoundAfterARestartIsTriedAgain(t *testing.T) {
 }
 
 func TestAQueueLeftWaitingTooLongIsLetGoWithAWord(t *testing.T) {
+	turnOn(t, &templatesOn)
 	r := newQueueRig(t)
 	r.answer = func(int, hireStep) (int, string) { return http.StatusConflict, "No." }
 	r.q.start(steps("builder", "tester"), "Solo builder", actorPage)
@@ -375,6 +385,7 @@ func TestAQueueLeftWaitingTooLongIsLetGoWithAWord(t *testing.T) {
 }
 
 func TestTheQueueIsKeptInAPrivateFileAndAPlanSurvivesToo(t *testing.T) {
+	turnOn(t, &templatesOn)
 	r := newQueueRig(t)
 	r.q.mu.Lock()
 	r.q.plan = &hirePlan{ID: "P1", Template: "solo-builder", Name: "Solo builder", Status: hpProposed, Rev: 3, Steps: steps("builder")}
@@ -393,6 +404,7 @@ func TestTheQueueIsKeptInAPrivateFileAndAPlanSurvivesToo(t *testing.T) {
 }
 
 func TestTheQueueTakesOneListAtATimeAndOnlyThoseThatCanBeHired(t *testing.T) {
+	turnOn(t, &templatesOn)
 	r := newQueueRig(t)
 	if _, err := r.q.start(steps("builder", "gm"), "x", actorPage); refusalStatus(err) != http.StatusBadRequest {
 		t.Errorf("the GM not first: %v", err)
@@ -433,6 +445,7 @@ func TestTheQueueTakesOneListAtATimeAndOnlyThoseThatCanBeHired(t *testing.T) {
 }
 
 func TestTheProgressLinesNameWhoIsHiredAndNeverSayABrief(t *testing.T) {
+	turnOn(t, &templatesOn)
 	r := newQueueRig(t)
 	r.q.start(steps("gm", "builder"), "Solo builder", actorPage)
 	r.q.wait()

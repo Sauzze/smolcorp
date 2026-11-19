@@ -75,6 +75,8 @@ const (
 	sessionEndedHeader = "X-Smolcorp-Session-Ended"
 	// A tray link's one-time token, which the page swaps for the cookie.
 	setupTokenHeader = "X-Smolcorp-Setup-Once"
+	// windowSetupHeader carries the token Smolcorp's own Settings window off the Mac was handed (settingswindow.go).
+	windowSetupHeader = "X-Smolcorp-Window-Once"
 	// The office in a browser on this computer, as the deck sees it: see
 	// Access.WindowKey.
 	officeWindowID = "office-window"
@@ -203,7 +205,7 @@ type router struct {
 // request is what the router needs to know about one.
 type request struct {
 	*http.Request
-	isLocal             bool // sent from this computer to a local name, not passed on by a proxy
+	isLocal             bool // sent from this computer to a local name, both ends on the loopback, not passed on by a proxy
 	isAddressedDirectly bool // to an IP address or a local name, as a phone would
 	// Handed on by the real `tailscale serve` on this computer (SN1, peerowner.go): through serve.sock, the other end
 	// Tailscale's own process (on Windows the serve port, OLD-SERVE2), with a proxy's headers naming another device of
@@ -221,8 +223,14 @@ type request struct {
 	// serve, so the routes that wake the owner's phone refuse it (pushsubs.go, SIERRA's ruling (b)).
 	windowsServe bool
 	// windowDevice is whether the key is the paired device the office's window holds on Windows (window.go), whose
-	// key sits in a file on this computer: a phone's for the office, never the owner's tap (accessOwnerTap).
+	// key this run holds in memory and hands to the window in-process (ensureWindowKey): a phone's for the office,
+	// and never the owner's tap, as no window off a Mac is (accessOwnerTap).
 	windowDevice bool
+	// windowsOwnWindow is whether the key is the very one this run made for Windows' own office window (ensureWindowKey,
+	// held in access.windowDeviceKey), sent bare from this computer: that window is the office's own, so the window's
+	// routes let it in (accessWindow). Told by the key the core holds, never by a device's name, which any phones.json
+	// entry can carry. Still windowDevice, so never the owner's tap.
+	windowsOwnWindow bool
 	// ownWindow is whether the key is the Mac app's own office window's, under the Mac app: the one office window
 	// whose key never passes through a browser's address, and so the only one that is the owner's tap.
 	ownWindow bool
@@ -265,6 +273,17 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(remote)
 	fromLoopback, proxied := ip != nil && ip.IsLoopback(), isProxied(r.Header)
+	// …and Smolcorp's own end of the connection on the loopback too, for every route (RT126SWEEP4-P2 F1): a program
+	// here that binds 127.0.0.1 or ::1 and connects to another of this computer's addresses (its Wi-Fi's, lo0's
+	// fe80::1), which the core listens on too, is on the loopback at its own end only. That isn't this computer
+	// asking as setup, the hook, the window's key and a key ask mean it, and a Mac couldn't look its holders up
+	// (askprogram.go). net/http gives every request it serves its end; a request made in a test may have none.
+	toLoopback := true
+	if local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
+		at, _, _ := net.SplitHostPort(local.String())
+		to := net.ParseIP(at) // a zone (fe80::1%lo0) doesn't parse: not the loopback
+		toLoopback = to != nil && to.IsLoopback()
+	}
 	// On a Mac, as its app reads a request (HTTPServer.swift's Request.addressed): `tailscale serve` hands a phone's
 	// request on with whatever Host the phone sent, so a proxy's hand-on is the tailnet's, never addressed directly;
 	// let in only with the phone's text on. Only through serve.sock, the other end Tailscale's own process (SN1,
@@ -278,7 +297,7 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	req := &request{
 		Request: r,
 		// A proxy on this computer passes on someone else's request: never this computer's, for setup, the hook or the window's key.
-		isLocal:             fromLoopback && !proxied && (host == "localhost" || host == "127.0.0.1" || host == "[::1]"),
+		isLocal:             fromLoopback && toLoopback && !proxied && (host == "localhost" || host == "127.0.0.1" || host == "[::1]"),
 		isAddressedDirectly: !fromProxy && (host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasPrefix(host, "[") || ipv4Address.MatchString(host)),
 		isTailnet:           handedOn && proxied && forwardedForTailnet(r.Header),
 		tailnetForward:      handedOn && !proxied,
@@ -354,10 +373,13 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		// over once for a session cookie only this page's requests carry. The
 		// setup key never opens a session, and the cookie is never the key.
 		session := r.Method == http.MethodPost && r.URL.Path == "/setup/session"
+		// Smolcorp's own Settings window off the Mac brings the token it was handed in this process, never a link's
+		// (settingswindow.go): it opens a window session, as the Mac's window's setup-session does.
+		windowed := session && d.redeemWindowSetupToken(r.Header.Get(windowSetupHeader))
 		// Off a Mac, once a phone is paired, no link opens Setup: a tap on the phone does (setupask.go). A link used
 		// before is still reported as used first, below.
-		linkGone := session && r.Header.Get(setupTokenHeader) != "" && d.setupLinkGone()
-		redeemed := session && !linkGone && d.redeemSetupToken(r.Header.Get(setupTokenHeader))
+		linkGone := session && !windowed && r.Header.Get(setupTokenHeader) != "" && d.setupLinkGone()
+		redeemed := windowed || session && !linkGone && d.redeemSetupToken(r.Header.Get(setupTokenHeader))
 		// A link's token already used: another program used it first, and the session it opened ends (setuplink.go).
 		if session && !redeemed {
 			if changes, used := d.usedFirst(r.Header.Get(setupTokenHeader)); used {
@@ -396,9 +418,19 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 				return
 			}
 			d.completeSetup()
-			http.SetCookie(w, &http.Cookie{Name: setupCookie(), Value: d.newSetupSession(r.Header.Get(setupTokenHeader)), Path: "/setup", HttpOnly: true,
+			token := r.Header.Get(setupTokenHeader)
+			if windowed {
+				token = "" // the window's session
+			}
+			http.SetCookie(w, &http.Cookie{Name: setupCookie(), Value: d.newSetupSession(token), Path: "/setup", HttpOnly: true,
 				SameSite: http.SameSiteStrictMode})
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		// Under the Mac app, Setup in a browser only looks: a change, and a read that shows a code or a key, are
+		// Smolcorp's own Settings window's (routes.go's windowOnlyRefusal, the owner's Strict).
+		if why := d.windowOnlyRefusal(r.Request, r.caller); why != "" {
+			writeStatus(w)(http.StatusForbidden, why)
 			return
 		}
 		// The gate service (gates.go) decides: what each caller may use is the route table's (routes.go):
@@ -446,6 +478,11 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		// A browser's Setup cookie, under the Mac app, posts no bot's news (routes.go's windowOnlyRefusal).
+		if why := d.windowOnlyRefusal(r.Request, who); why != "" {
+			writeStatus(w)(http.StatusForbidden, why)
+			return
+		}
 		if v := d.decide(actorOf(who), action{route: &routeAsk{method: r.Method, path: r.URL.Path}}); !v.allowed() {
 			writeStatus(w)(v.status, v.why)
 			return
@@ -459,6 +496,9 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		}
 		// The owner's sessions' key, or a desk's own (hookkeys.go): then the event must be that desk's.
 		desks, desk := currentHookDesks(), ""
+		d.mu.Lock()
+		desks.ownLaunchers = d.launcherHookHashes()
+		d.mu.Unlock()
 		if key := r.Header.Get(hookKeyHeader); !d.isHookKey(key) {
 			if desk = desks.deskForKey(key); desk == "" {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -512,8 +552,21 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		// `smolcorp setup --open` on Windows: Setup in Smolcorp's own Settings window, or where it opens instead.
+		if r.URL.Query().Get("show") == "settings" {
+			instead, err := showSettings(d)
+			switch {
+			case err != nil:
+				writeStatus(w)(http.StatusBadGateway, "Setup could not be opened: "+err.Error())
+			case instead != "":
+				writeStatus(w)(http.StatusOK, instead)
+			default:
+				w.WriteHeader(http.StatusNoContent)
+			}
+			return
+		}
 		if err := showOffice(d); err != nil {
-			http.Error(w, "The browser could not be started: "+err.Error(), http.StatusBadGateway)
+			http.Error(w, raiseFailedWords(d.macHost() != nil)+err.Error(), http.StatusBadGateway)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -714,6 +767,11 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 	} else if phone := d.access.Phones.WithKey(key); phone != nil && private {
 		d.access.Phones.MarkSeen(phone)
 		phoneID, r.windowDevice = phone.ID, phone.isWindowDevice()
+		// Windows' own office window: the key this run handed it in-process, bare, on this computer's loopback. It
+		// never signs (ensureWindowKey pairs it unsigned), so a signature made with the hash phones.json keeps never
+		// gets here.
+		held := d.access.windowDeviceKey
+		r.windowsOwnWindow = r.windowDevice && r.isLocal && held != "" && constantTimeEqual(key, held)
 	}
 	d.mu.Unlock()
 
@@ -769,6 +827,10 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusForbidden, hireWindowElsewhere)
 			return
 		}
+		if r.Method == http.MethodPost && d.officeInABrowser(r, phoneID) {
+			writeStatus(w)(http.StatusForbidden, officeWindowOnly)
+			return
+		}
 		if r.Method == http.MethodGet {
 			_, tmux := hireWays()
 			d.mu.Lock()
@@ -817,6 +879,10 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			}
 			writeJSON(w, http.StatusOK, answer)
 		case http.MethodPost:
+			if d.officeInABrowser(r, phoneID) {
+				writeStatus(w)(http.StatusForbidden, officeWindowOnly)
+				return
+			}
 			openHireInT3(w, d.t3Latest(hire), found)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -1136,6 +1202,13 @@ func (rt *router) launcher(w http.ResponseWriter, r *request) {
 		w.WriteHeader(http.StatusConflict) // that id's launcher is still connected
 		return
 	}
+	if query.Get("sandbox") == "off" {
+		rt.deck.noteNoSandbox(tab)
+	}
+	// Its relay's own key, for its sandboxed agent's events (hookrelay.go): kept before the launcher hears it was.
+	if key := r.Header.Get(launcherRelayKeyHeader); key != "" {
+		rt.deck.keepLauncherHookKey(tab, key)
+	}
 	defer rt.deck.launcherGone(id, tab)
 	keepOpen(w)
 	// Its connection's ends, by which its own process is found for its desk's preview (launcherTab.process).
@@ -1247,7 +1320,12 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodGet && path == "/setup/state":
 		// The Grok Bot app's bots looked for again as setup opens, so a bot made there a moment ago is there.
 		d.rounds.run(func() { d.discoverBots(true) })
-		writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+		state := rt.setupStateFor(r.caller)
+		// Setup in a browser on a Mac: no code to pair with, no secret, and the note that says where things change.
+		if r.caller == callerPage && d.browserBesideTheWindow(r.Request) {
+			state = forABrowserBesideTheWindow(state, d.macHost() != nil)
+		}
+		writeJSON(w, http.StatusOK, state)
 
 	// The deck, for the preview beside the layout editor: the one page a
 	// frame may show, and only one of this deck's own.
@@ -1511,6 +1589,13 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusBadRequest, "That isn't a webhook this deck can use.")
 			return
 		}
+		// The GM may only turn the webhook off (RT126SWEEP2 P4 F3): where it sends, and what, are the owner's, set in
+		// Setup, so a GM can't send the office's news to an address it picked, to outlast it.
+		if r.caller != callerPage && (given.Enabled == nil || *given.Enabled || given.URL != nil || given.Secret != nil ||
+			given.Outside != nil || given.Events != nil) {
+			writeStatus(w)(http.StatusForbidden, webhookOffOnly)
+			return
+		}
 		d.mu.Lock()
 		webhook := config.Webhook
 		if given.Enabled != nil {
@@ -1741,6 +1826,20 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			}
 			claudeInstalls.confirm()
 			writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+			return
+		}
+		// The folder for hires is the projects folder every hire's sandbox holds (desksandbox.go's hireProjectsFolder),
+		// so the page alone moves it, never the GM, itself a desk (RT126SWEEP3 P4 B1). And the GM turns hiring off,
+		// never on again once the owner turned it off (F2), as for the webhook.
+		if r.caller != callerPage && query.Has("folder") {
+			d.mu.Lock()
+			sandboxed := deskSandboxed && !config.SandboxOff
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusForbidden, gmHireFolderWords(sandboxed))
+			return
+		}
+		if r.caller != callerPage && query.Get("enabled") == "1" {
+			writeStatus(w)(http.StatusForbidden, hiringOffOnly)
 			return
 		}
 		folder := strings.TrimSpace(query.Get("folder"))
@@ -2282,6 +2381,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	case r.Method == http.MethodPost && path == "/setup/gm/hire":
 		d.gmHire(w, r)
 
+	// A new project folder, made by the core in the GM's projects folder (gmproject.go; goOnlyRoutes: gm and page).
+	case r.Method == http.MethodPost && path == "/setup/gm/project":
+		d.gmProject(w, r)
+
 	// Whether Claude, Codex and Gemini are signed in (signinstatus.go; goOnlyRoutes lists it: the page alone).
 	case r.Method == http.MethodGet && path == "/setup/accounts/status":
 		rt.accountsStatus(w, r)
@@ -2338,6 +2441,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			return
 		}
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		// The team as `gm team` reads it, for the hires there that keep their own nickname (keepTheirNicknames).
+		live, hires := d.frontDeskLive(), readRegistry(registryPath(), false).hires
+		rows := buildTeam(hires, live, 0, func(string) string { return "" })
 		d.mu.Lock()
 		var places []namePlace
 		for _, s := range d.sessions.All() {
@@ -2345,7 +2451,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		layout := config.Layout
 		layout.Room.Team = maps.Clone(layout.Room.Team)
-		project, name, refused := setNickname(&layout, body, places, config.everyPin())
+		project, name, refused := setNickname(&layout, body, places, config.everyPin(), r.heldTo)
 		if refused == nil {
 			config.Layout = layout
 			config.save()
@@ -2356,7 +2462,11 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			writeStatus(w)(refused.status, refused.message)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"project": project, "nickname": name})
+		answer := map[string]string{"project": project, "nickname": name}
+		if note := nicknameKeptNote(keepTheirNicknames(project, rows, hires, live), r.heldTo != nil); note != "" {
+			answer["note"] = note
+		}
+		writeJSON(w, http.StatusOK, answer)
 
 	// The sandbox's switch and each desk's tag (sandboxswitch.go): the page's alone (routes.json, AQ1).
 	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/setup/sandbox":
@@ -2387,7 +2497,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// Who may write to whom (routes.json: gm and page).
 	case r.Method == http.MethodPost && path == "/setup/gm/contacts":
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
-		pairs, refused := setContacts(registryPath(), body)
+		pairs, refused := setContacts(registryPath(), body, rt.deck.shownNames(readRegistry(registryPath(), false).hires))
 		if refused != nil {
 			writeStatus(w)(refused.status, refused.message)
 			return
@@ -2582,11 +2692,15 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"manager": d.managerState(),
 		// Where hires open: the terminals here that can open them, and tmux if it's there.
 		"hiring": d.hireState(apiKey),
+		// Whether a role hired now starts in its sandbox (on a Mac, with the switch on): the office then asks which
+		// project first and tells the hire, so Setup's roles hints say its first reply asks only its own questions
+		// (FXPICKEDPROJECT).
+		"hiresSandboxed": d.hiresSandboxed(),
 		// The roles, those that come with the app to go back to, and what a
 		// role can be: its agent, whether that agent has an effort and takes a
 		// first message, its badge, and how long each part can be.
 		"roles": map[string]any{
-			"roles": d.config.Roles, "shipped": shippedWithBriefs(), "agents": roleAgents(), "efforts": effortLevels, "badges": roleBadges,
+			"roles": d.config.Roles, "shipped": shippedWithBriefs(), "agents": roleAgents(d.deskSandboxInForce()), "efforts": effortLevels, "badges": roleBadges,
 			"limits": map[string]int{"name": roleNameLimit, "model": roleModelLimit, "instructions": roleInstructionsLimit,
 				"questions": roleQuestionsMost, "question": roleQuestionLimit, "briefFile": roleBriefFileLimit,
 				"briefFileName": roleBriefFileNameLimit, "answer": briefAnswerLimit},
@@ -2647,9 +2761,10 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 	if asks := d.asks.waiting(); asks != nil && who == callerPage {
 		state["terminalAsks"] = asks
 	}
-	// Off a Mac, no terminal is given a key: Setup says why, in the owner's words (terminalask.go).
-	if d.mac.host == nil && who == callerPage {
-		state["terminalAsksOff"] = terminalAskOff(runtime.GOOS)
+	// Where Smolcorp has no Settings window of its own (Linux, a Windows without WebView2), no terminal is given a
+	// key: Setup says why, in the owner's words (terminalask.go).
+	if !d.ownSettingsWindowHeld() && who == callerPage {
+		state["terminalAsksOff"] = terminalAskOffHere()
 	}
 	// A link used first (setuplink.go): on every page until the owner clears it in their own channel.
 	if report := d.access.UsedFirstReport(); report != nil && who == callerPage {
@@ -2716,7 +2831,7 @@ const previewFrames = "http://localhost:*"
 
 // pageFrames is what the office's page may show in a frame, decided as it's served, by who asked for it: the class
 // that lets in the window's routes (accessWindow, as GET /desk/preview's) gets a desk's preview; a paired phone, the
-// Windows window's paired device, the page alone (?deck) and the pairing page get no frame at all. The portable
+// page alone (?deck, as Windows' window loads it) and the pairing page get no frame at all. The portable
 // office's viewer isn't served here: its own CSP (viewer/vercel.json) has default-src 'none' and no frame-src.
 func pageFrames(r *request, phoneID string) string {
 	if accessWindow.lets(r, phoneID) {

@@ -60,7 +60,7 @@ func TestAHireCanRunInTmux(t *testing.T) {
 	}
 	// With no desktop, as over SSH, the session alone: tmux attach shows it.
 	canOpenWindows = func() bool { return false }
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	if status, _ := d.Perform("hire", "", url.Values{}); status != http.StatusNoContent || len(h.tmux) != 2 || len(h.windows) != 1 {
 		t.Errorf("a hire with no desktop: %d, tmux %d, windows %d", status, len(h.tmux), len(h.windows))
 	}

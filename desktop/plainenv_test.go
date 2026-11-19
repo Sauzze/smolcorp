@@ -21,7 +21,7 @@ import (
 // as its window runs them after `smolcorp run`.
 func plainClaudeHire(t *testing.T, d *Deck, h *hiring, account string) []string {
 	t.Helper()
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	opened := len(h.windows)
 	if status, message := d.hireWith(hireSpec{account: account}); status != http.StatusNoContent {
 		t.Fatalf("hire on %q: %d %s", account, status, message)
@@ -142,7 +142,7 @@ func TestATestCopyNeverStartsAPlainClaudeHire(t *testing.T) {
 		named = "A test copy's hires on a named account aren't set up yet, so none is started."
 	}
 	for _, account := range []string{claudeDefaultName, "work"} {
-		d.lastHire = time.Time{}
+		d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 		status, message := d.hireWith(hireSpec{account: account})
 		if status != http.StatusConflict || account == "work" && message != named {
 			t.Errorf("a test copy's plain hire on %q: %d %s", account, status, message)

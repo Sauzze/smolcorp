@@ -175,7 +175,7 @@ func (d *Deck) hireLauncherID(h Hire) (id string, ok bool) {
 	// other open hire works there too, as its window would match just as well. Each by its own place: a
 	// registry's folder is the project a hire was hired into, not where one with a worktree works.
 	ownPlace := func(o Hire) Hire {
-		if o.Worktree != "" {
+		if !o.Worktree.none() {
 			return Hire{Worktree: o.Worktree}
 		}
 		return Hire{Folder: o.Folder}

@@ -19,6 +19,14 @@ func newLauncherSandbox(string, bool, string, Agent, string) (*launcherSandbox, 
 	return nil, errors.New("no sandbox on this computer yet")
 }
 
+func newLauncherSandboxAt(string, string, string, bool, string, Agent, string) (*launcherSandbox, error) {
+	return nil, errors.New("no sandbox on this computer yet")
+}
+
+func newLauncherSandboxPlaced(string, string, string, string, bool, string, Agent, string) (*launcherSandbox, error) {
+	return nil, errors.New("no sandbox on this computer yet")
+}
+
 func (s *launcherSandbox) environment(env []string, _ map[string]string) []string { return env }
 
 func (s *launcherSandbox) command(*pty.Cmd, pty.Pty) (agentStart, error) {
@@ -26,5 +34,9 @@ func (s *launcherSandbox) command(*pty.Cmd, pty.Pty) (agentStart, error) {
 }
 
 func (s *launcherSandbox) close() {}
+
+func (s *launcherSandbox) ownHookKey() string { return "" }
+
+func (s *launcherSandbox) noteConnected() {}
 
 func (s *launcherSandbox) closeOnHangup() {}

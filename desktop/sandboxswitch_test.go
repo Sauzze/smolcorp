@@ -256,7 +256,7 @@ func TestTheGMsBriefIsRefusedAcrossTheSandbox(t *testing.T) {
 	if err := updateRegistry(func(f *registryFile) {
 		for i := range f.hires {
 			if f.hires[i].ID == "d4e5f6" || f.hires[i].ID == "t2" {
-				f.hires[i].Folder, f.hires[i].Brief = folder, brief
+				f.hires[i].Folder, f.hires[i].Brief = keptPath(folder), brief
 			}
 		}
 	}); err != nil {

@@ -213,3 +213,38 @@ func TestAPrivateWriteNeverGoesThroughWhatWasPutBesideIt(t *testing.T) {
 	untouched("a link at the file")
 	holds("over a link at the file", "three\n")
 }
+
+// FXRENAME126A: loading the package finds the support folder (appdirs.ResolveIn) and makes nothing: a run makes it at
+// its start (MakeSupportFolder, from cmd/smolcorp), so a new, empty Smolcorp folder never appears.
+func TestTheSupportFolderIsFoundAtLoadNotMade(t *testing.T) {
+	data, err := os.ReadFile("paths.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "func makeSupportDir() string {")
+	if start < 0 {
+		t.Fatal("no makeSupportDir")
+	}
+	body := src[start:]
+	body = body[:strings.Index(body, "\n}\n")]
+	if strings.Contains(body, "MkdirAll") || !strings.Contains(body, "appdirs.ResolveIn(base, runtime.GOOS)") {
+		t.Errorf("makeSupportDir makes a folder, or doesn't use the resolver:\n%s", body)
+	}
+	// MakeSupportFolder makes the folder found, owner-only, and leaves one that's there as it is.
+	was, wasHeader := supportDir, hookHeaderFile
+	t.Cleanup(func() { useSupportDir(was); hookHeaderFile = wasHeader })
+	dir := filepath.Join(t.TempDir(), "AgentDeck")
+	useSupportDir(dir)
+	MakeSupportFolder()
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() || runtime.GOOS != "windows" && st.Mode().Perm() != 0o700 {
+		t.Fatalf("%s: %v, %v", dir, st, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "registry.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	MakeSupportFolder()
+	if _, err := os.Stat(filepath.Join(dir, "registry.json")); err != nil {
+		t.Error(err)
+	}
+}

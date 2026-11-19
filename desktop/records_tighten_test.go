@@ -119,7 +119,7 @@ func TestOnAMacACopyFromBeforeEachTighteningDoesntFit(t *testing.T) {
 			d, _, _, _ := macDeck(t)
 			old := withAHire(t)
 			editRegistry(func(f *registryFile) {
-				f.hires = append(f.hires, Hire{ID: "gm0001", Name: "GM", Role: gmRole, Folder: homeDir, State: "working"})
+				f.hires = append(f.hires, Hire{ID: "gm0001", Name: "GM", Role: gmRole, Folder: keptPath(homeDir), State: "working"})
 			})
 			d.mu.Lock()
 			d.config.KeystrokesAllowed, d.config.Listen = true, "all"
@@ -227,8 +227,8 @@ func TestOnAMacAResetAfterAFailedCheckKeepsTheTeam(t *testing.T) {
 	withAHire(t)
 	frontDeskMu.Lock()
 	file := readRegistry(registryPath(), true)
-	file.hires = append(file.hires, Hire{ID: "gm0001", Name: "GM", Role: gmRole, Folder: homeDir, State: "working", Scope: homeDir},
-		Hire{ID: "hire03", Name: "Cy", Folder: homeDir, Worktree: filepath.Join(homeDir, "wt-cy"), Branch: "cy", State: "idle"})
+	file.hires = append(file.hires, Hire{ID: "gm0001", Name: "GM", Role: gmRole, Folder: keptPath(homeDir), State: "working", Scope: homeDir},
+		Hire{ID: "hire03", Name: "Cy", Folder: keptPath(homeDir), Worktree: keptPath(filepath.Join(homeDir, "wt-cy")), Branch: "cy", State: "idle"})
 	_ = file.save(registryPath())
 	frontDeskMu.Unlock()
 	mac.recordItems = append(mac.recordItems, newRecordItem("key-planted"))
@@ -246,7 +246,7 @@ func TestOnAMacAResetAfterAFailedCheckKeepsTheTeam(t *testing.T) {
 				t.Errorf("%s: %s is open %v", when, h.Name, open)
 			}
 		}
-		if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == "hire03" }); i < 0 || f.hires[i].Worktree == "" {
+		if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == "hire03" }); i < 0 || f.hires[i].Worktree.none() {
 			t.Errorf("%s: a hire's worktree is gone", when)
 		}
 	}
@@ -387,7 +387,7 @@ func TestOnAMacACopyFromBeforeADroppedRecordDoesntFit(t *testing.T) {
 				frontDeskMu.Lock()
 				defer frontDeskMu.Unlock()
 				file := readRegistry(registryPath(), true)
-				file.hires = append(file.hires, Hire{ID: "hire09", Name: "Di", Folder: homeDir, State: "working"})
+				file.hires = append(file.hires, Hire{ID: "hire09", Name: "Di", Folder: keptPath(homeDir), State: "working"})
 				if err := file.save(registryPath()); err != nil {
 					t.Fatal(err)
 				}
@@ -428,8 +428,13 @@ func TestOnAMacACopyFromBeforeADroppedRecordDoesntFit(t *testing.T) {
 			},
 			counts: func(*Deck, string) bool { return bytes.Equal(heldGuard(guardPath()).data, loose) }},
 	}
+	// While floors from other Macs are off (dormant.go), the same, and said nowhere.
+	rows["peers, off"] = rows["peers"]
 	for name, r := range rows {
 		t.Run(name, func(t *testing.T) {
+			if name == "peers" {
+				turnOn(t, &peersOn)
+			}
 			d, _, phoneKey, _ := macDeck(t)
 			what := r.before(d)
 			if what == "" {
@@ -447,8 +452,11 @@ func TestOnAMacACopyFromBeforeADroppedRecordDoesntFit(t *testing.T) {
 			if r.counts(dropped, what) {
 				t.Fatalf("the broken %s still counts", r.record)
 			}
-			if said, _ := pageState(t, dropped)["recordsDropped"].(string); said != "A record didn't fit and was dropped: "+r.record+
-				". Another program may have changed it; its copies from before no longer count." {
+			want := "A record didn't fit and was dropped: " + r.record + ". Another program may have changed it; its copies from before no longer count."
+			if r.record == "mac-peers.json" && !peersOn {
+				want = ""
+			}
+			if said, _ := pageState(t, dropped)["recordsDropped"].(string); said != want {
 				t.Errorf("Setup says of the drop: %q", said)
 			}
 			r.owner(dropped)
@@ -485,7 +493,7 @@ func TestOnAMacACopyFromBeforeADroppedRecordDoesntFit(t *testing.T) {
 // keys go; after a failed one, what the check dropped is lost for good (and, for a key that couldn't be read,
 // restarting once the keychain is unlocked loses nothing). The page asks the core's words, not its own.
 func TestSetupsResetConfirmSaysWhatAResetLoses(t *testing.T) {
-	loses := "Every phone and Mac pairs again, each hire gets a new key, and what the failed check dropped is lost for good: " +
+	loses := "Every phone pairs again, each hire gets a new key, and what the failed check dropped is lost for good: " +
 		"who may write to whom, your security settings (the front desk, hiring and the webhook too), any guard group you " +
 		"switched off, and the General Manager and any hire held to a project, whom you'll hire again."
 	for _, c := range []struct {
@@ -493,7 +501,7 @@ func TestSetupsResetConfirmSaysWhatAResetLoses(t *testing.T) {
 		stale bool
 		want  string
 	}{
-		{recordsOK, true, "Reset Smolcorp's records? Every phone and Mac pairs again and each hire and the General Manager get " +
+		{recordsOK, true, "Reset Smolcorp's records? Every phone pairs again and each hire and the General Manager get " +
 			"new keys when they next start, while your team, who may write to whom, your settings and your guard stay as they are."},
 		{recordsChanged, false, "Reset Smolcorp's records? " + loses},
 		{recordsInterrupted, false, "Reset Smolcorp's records? " + loses},
@@ -580,6 +588,7 @@ func TestOnAMacAResetAfterAFailedCheckLosesWhatItSays(t *testing.T) {
 // restarts, as Setup says, nothing is lost: the contacts, the GM, the settings and the guard from before all count,
 // and no record is dropped.
 func TestOnAMacWhileTheKeyIsUnreadableARestartLosesNothing(t *testing.T) {
+	turnOn(t, &peersOn) // a Mac paired is among them
 	guardPath := func() string { return filepath.Join(supportDir, hireGuardFile) }
 	loose := []byte(`{"groups":[{"name":"push","on":false}]}`)
 	rows := map[string]func(t *testing.T, d *Deck){
@@ -625,7 +634,7 @@ func TestOnAMacWhileTheKeyIsUnreadableARestartLosesNothing(t *testing.T) {
 			withAHire(t)
 			frontDeskMu.Lock()
 			file := readRegistry(registryPath(), true)
-			file.hires = append(file.hires, Hire{ID: "gm0001", Name: "GM", Role: gmRole, Folder: homeDir, State: "working"})
+			file.hires = append(file.hires, Hire{ID: "gm0001", Name: "GM", Role: gmRole, Folder: keptPath(homeDir), State: "working"})
 			err := file.save(registryPath())
 			frontDeskMu.Unlock()
 			if err != nil {
@@ -700,7 +709,7 @@ func TestOnAMacARegistryThatCantBeReadIsKeptForMending(t *testing.T) {
 		}
 		frontDeskMu.Lock()
 		f := readRegistry(registryPath(), true)
-		f.hires = append(f.hires, Hire{ID: "hire09", Name: "Di", Folder: homeDir, State: "working"})
+		f.hires = append(f.hires, Hire{ID: "hire09", Name: "Di", Folder: keptPath(homeDir), State: "working"})
 		err := f.save(registryPath())
 		frontDeskMu.Unlock()
 		if err != nil {

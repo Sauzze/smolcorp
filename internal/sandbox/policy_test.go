@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -40,7 +41,7 @@ func (s setup) path(p string) string {
 }
 
 func hirePlaces(support string) Places {
-	return Places{GOOS: "darwin", Subject: Hire, Home: home, Support: support, OwnID: "h1", DeskStart: support + "/desk-start",
+	return Places{GOOS: "darwin", Subject: Hire, Home: home, Support: support, OwnID: "h1", ReapMark: testMark, DeskStart: support + "/desk-start",
 		Root: hires + "/h1", Checkout: repo, GitDir: gitDir, OwnWorktree: "h1", OtherWorktrees: []string{"h1", "h2", "gm"},
 		DefaultBranch: "develop", HiresFolder: hires, GMFolder: gmDir, SocketParent: sockets, OwnSockets: sockets + "/h1", TmuxFolder: tmuxFolder,
 		Accounts: []string{home + "/.claude-work"}, InstallRoots: []string{"/Applications/Smolcorp.app", "/opt/homebrew/Cellar/tmux"},
@@ -49,6 +50,9 @@ func hirePlaces(support string) Places {
 		GitNamed: []string{home + "/.gitconfig-work", home + "/.config/standin/ssh_config", "/opt/standin/nc",
 			home + "/dotfiles/githooks/post-checkout", home + "/.config/husky/init.sh"}}
 }
+
+// testMark is the columns' desks' mark (Places.ReapMark).
+const testMark = "reap-0123456789abcdef0123456789abcdef"
 
 func setups() []setup {
 	hire := hirePlaces(realSupport)
@@ -114,6 +118,11 @@ var rows = []row{
 	all("$S/hires/$ID/settings.json", Read, A), all("$S/hires/$ID/settings.json", Write, D),
 	all("$S/hires/$ID/sandbox.sb", Read, A), all("$S/hires/$ID/sandbox.sb", Write, D),
 	all("$S/hires/$ID/BRIEF.md", Read, A), all("$S/hires/$ID/BRIEF.md", Write, D), all("$S/hires/$ID/BRIEF-2.md", Write, D),
+	// …its mark (FXFIREREAPR5): read only, its folder and another mark's name denied; another support folder's mark too.
+	all("$S/hires/$ID/reap.noindex/"+testMark, Read, A), all("$S/hires/$ID/reap.noindex/"+testMark, Write, D),
+	all("$S/hires/$ID/reap.noindex/"+testMark, Move, D), all("$S/hires/$ID/reap.noindex", Read, D),
+	all("$S/hires/$ID/reap.noindex/reap-ffffffffffffffffffffffffffffffff", Read, D), all("$S/hires/$ID/"+testMark, Read, D),
+	{"$R/hires/$ID/reap.noindex/" + testMark, Read, A, A, D},
 	// …its status and report: its work.
 	all("$S/hires/$ID/STATUS.md", Write, A), all("$S/hires/$ID/STATUS-2.md", Write, A), all("$S/hires/$ID/REPORT.md", Write, A),
 	all("$S/hires/$ID/STATUS.md", Read, A),
@@ -154,11 +163,20 @@ var rows = []row{
 	all("$H/.claude.json", Read, D), all("$H/.claude.json", Write, D), all("$H/.claude.json.backup", Read, D),
 	// The other agents' sign-ins.
 	all("$H/.codex/auth.json", Read, D), all("$H/.gemini/oauth_creds.json", Read, D), all("$H/.codex/config.toml", Read, A),
+	// …Grok's, OpenCode's and the MCP servers' too (FXPLANTSTERMR3).
+	all("$H/.grok/auth.json", Read, D), all("$H/.grok/auth.json.lock", Read, D), all("$H/.local/share/opencode/auth.json", Read, D),
+	all("$H/.local/share/opencode/mcp-auth.json", Read, D), all("$H/.codex/.credentials.json", Read, D),
+	all("$H/.gemini/mcp-oauth-tokens.json", Read, D), all("$H/.gemini/gemini-credentials.json", Read, D),
+	all("$H/.grok/config.toml", Read, A), all("$H/.local/share/opencode/opencode.db", Read, D),
+	all("$H/.local/share/opencode/opencode.db-wal", Read, D), all("$H/.local/share/opencode/log/opencode.log", Read, A),
+	all("$H/.grok/user-settings.json", Read, D), all("$H/.grok/wallet.json", Read, D), all("$H/.codex/secrets/local.age", Read, D),
+	all("$H/.codex/.env", Read, D), all("$H/.gemini/.env", Read, D), all("$H/.gemini/a2a-oauth-tokens.json", Read, D),
+	all("$H/.cache/.gemini/oauth_creds.json", Read, D), all("$H/.codex/secrets", Read, D),
 	// The places desks hang from can't be moved or removed.
 	all("$S", Write, D), all("$ROOT", Write, D), all("$H/Projects", Write, D), all("$H", Write, D), all(repo, Write, D),
 	all(home+"/Library/Application Support", Write, D), {"$R", Write, D, D, D},
 	// Smolcorp's install and the programs it resolved.
-	all("/Applications/Smolcorp.app/Contents/MacOS/AgentDeck", Write, D), all("/Applications/Smolcorp.app/Contents/MacOS/AgentDeck", Read, A),
+	all("/Applications/Smolcorp.app/Contents/MacOS/Smolcorp", Write, D), all("/Applications/Smolcorp.app/Contents/MacOS/Smolcorp", Read, A),
 	all("/opt/homebrew/Cellar/tmux/3.5/bin/tmux", Write, D),
 	// Plants.
 	all("$H/.zshrc", Write, D), all("$H/.zshrc", Read, A), all("$H/.bash_profile", Write, D), all("$H/.profile", Write, D),
@@ -168,38 +186,122 @@ var rows = []row{
 	all("/usr/lib/cron/tabs/ada", Write, D), all("/private/var/at/jobs/x", Write, D),
 	all("/opt/homebrew/etc/gitconfig", Write, D), all("/opt/homebrew/etc/gitconfig", Read, A), all("$H/.xdg/git/config", Write, D),
 	all("/opt/homebrew/etc/gitattributes", Write, A), all("/opt/homebrew/etc", Move, D),
+	// …what the terminals Smolcorp opens and drives read at a window's start, and the hired agents' own settings
+	// (FXPLANTSTERM): read, never written, nor their folders made, moved or linked. Their neighbours stay the desk's.
+	all("$H/Library/Preferences/com.apple.Terminal.plist", Write, D), all("$H/Library/Preferences/com.apple.Terminal.plist", Read, A),
+	all("$H/Library/Preferences/com.googlecode.iterm2.plist", Write, D), all("$H/Library/Preferences/com.mitchellh.ghostty.plist", Write, D),
+	all("$H/Library/Preferences/ByHost/com.apple.Terminal.0000.plist", Write, D), all("$H/Library/Preferences/kitty/kitty.conf", Write, D),
+	all("$H/Library/Preferences/com.apple.Terminal.plist.Xa1b2c", Write, D), all("$H/Library/Preferences", Move, D),
+	all("$H/Library/Application Support/iTerm2/DynamicProfiles/p.json", Write, D),
+	all("$H/Library/Application Support/iTerm2/Scripts/AutoLaunch/a.py", Write, D), all("$H/Library/Application Support/iTerm2", Link, D),
+	all("$H/.config/iterm2/AppSupport", Write, D), all("$H/Library/Application Support/com.mitchellh.ghostty/config", Write, D),
+	all("$H/.config/ghostty/config", Write, D), all("$H/.config/ghostty", Write, D), all("$H/.config/ghostty", Move, D),
+	all("$H/.wezterm.lua", Write, D), all("$H/.wezterm.lua", Read, A), all("$H/.wezterm.lua.lock", Write, D), all("$H/.!42!.wezterm.lua", Write, D),
+	all("$H/.config/wezterm/wezterm.lua", Write, D), all("$H/.config/wezterm/keys.lua", Write, D), all("$H/.config/kitty/kitty.conf", Write, D),
+	all("$H/.codex/config.toml", Write, D), all("$H/.codex", Write, D), all("$H/.codex/hooks.json", Write, D),
+	all("$H/.codex/rules/default.rules", Write, D), all("$H/.codex/.env", Write, D), all("$H/.codex/skills/s/SKILL.md", Write, D),
+	all("$H/.codex/shell_snapshots/s.1.sh", Write, D), all("$H/.codex/tmp/arg0-macos/codex-arg0ab/apply_patch", Write, D),
+	all("$H/.codex/plugins/cache/p/hooks/hooks.json", Write, D), all("$H/.codex/AGENTS.md", Write, D), all("$H/.codex/history.jsonl", Write, D),
+	all("$H/.gemini/settings.json", Write, D), all("$H/.gemini/settings.json", Read, A), all("$H/.gemini", Write, D),
+	all("$H/.gemini/trustedFolders.json", Write, D), all("$H/.gemini/policies/auto-saved.toml", Write, D), all("$H/.gemini/.env", Write, D),
+	all("$H/.gemini/commands/c.toml", Write, D), all("$H/.gemini/extensions/e/gemini-extension.json", Write, D),
+	all("$H/.gemini/history/proj/.git/config", Write, D), all("$H/.gemini/history/proj/.gitconfig", Write, D),
+	all("$H/.gemini/trusted_hooks.json", Write, D), all("$H/.gemini/GEMINI.md", Write, D),
+	all("$H/.config/opencode/opencode.json", Write, D), all("$H/.config/opencode/plugins/x.js", Write, D),
+	all("$H/.grok/user-settings.json", Write, D), all("$H/.grok", Link, D), all("$H/.grok/config.toml", Write, D),
+	all("$H/.grok/hooks/h.json", Write, D), all("$H/.grok/trusted_folders.toml", Write, D), all("$H/.grok/auth.json", Write, D),
+	all("$H/.grok/sessions/%2Fp/permission.toml", Write, D), all("$H/.grok/sessions/%2Fp/permission_1.toml", Write, D),
+	all("$H/.grok/sessions/%2Fp/s1/sandbox_grants.toml", Write, D), all("$H/.grok/sessions/%2Fp/sandbox_grants.toml.lock", Write, D),
+	// …their own state included (FXPLANTSTERMR2, R1's B1–B3 and N1): Codex's databases, installation id, rollouts and
+	// log; Gemini CLI's project list, its chats, its projects' memory, its old rg and its checkpoints; Grok's sessions.
+	// No folder of theirs is moved, and no link is made there, symbolic or hard, whatever a later row opens.
+	all("$H/.codex/sessions/2026/11/18/rollout-1.jsonl", Write, D), all("$H/.codex/archived_sessions/rollout-1.jsonl", Write, D),
+	all("$H/.codex/state_5.sqlite", Write, D), all("$H/.codex/state_5.sqlite-wal", Write, D), all("$H/.codex/logs_2.sqlite-shm", Write, D),
+	all("$H/.codex/installation_id", Write, D), all("$H/.codex/installation_id", Link, D), all("$H/.codex/log/codex-tui.log", Write, D),
+	all("$H/.gemini/projects.json", Write, D), all("$H/.gemini/projects.json.lock", Write, D),
+	all("$H/.gemini/tmp/proj/chats/session-1.jsonl", Write, D), all("$H/.gemini/tmp/proj/memory/MEMORY.md", Write, D),
+	all("$H/.gemini/tmp/bin/rg", Write, D), all("$H/.gemini/tmp/proj/.project_root", Write, D), all("$H/.gemini/history/proj", Write, D),
+	all("$H/.grok/sessions/%2Fp/.cwd", Write, D), all("$H/.grok/sessions/%2Fp/s1/updates.jsonl", Write, D), all("$H/.grok/logs/grok.log", Write, D),
+	all("$H/.grok/sessions/%2Fp", Move, D), all("$H/.grok/sessions/%2Fp/s1", Move, D), all("$H/.gemini/tmp/proj", Move, D),
+	all("$H/.gemini/history/newid", Link, D), all("$H/.grok/sessions/%2Fnew", Link, D), all("$H/.config/opencode/plugins/x.js", Link, D),
+	all("$H/.config/opencode", Link, D), all("$H/.codex", Move, D),
+	all("$H/.wezterm.lua-notes", Write, A), all("$H/Library/Caches/x", Write, A), all("$H/Library/Application Support/iTerm2-notes", Write, A),
+	all("$H/.config/opencode-notes", Write, A), all("$H/.local/share/opencode-notes", Write, A), all("$H/.cache/x", Write, A),
+	all("$H/.local/state/x", Write, A), all("$H/.agents-notes", Write, A),
+	// …OpenCode's data, cache and state, and the skills in ~/.agents (FXPLANTSTERMR3): OpenCode runs the programs and
+	// plugins it keeps there, and the owner's Codex, OpenCode and Grok load those skills.
+	all("$H/.local/share/opencode/log/opencode.log", Write, D), all("$H/.local/share/opencode/opencode.db", Write, D),
+	all("$H/.cache/opencode/bin/rg", Write, D), all("$H/.cache/opencode/node_modules/p/index.js", Write, D),
+	all("$H/.cache/opencode/package.json", Write, D), all("$H/.local/state/opencode/kv.json", Write, D),
+	all("$H/.agents/skills/s/SKILL.md", Write, D), all("$H/.agents", Write, D), all("$H/.agents/skills/s/SKILL.md", Read, A),
+	all("$H/.opencode/plugins/p.js", Write, D), all("$H/.opencode/plugins/p.js", Read, A), all("$H/.cache/.gemini/settings.json", Write, D),
+	all("$H/.cache/opencode", Move, D), all("$H/.cache", Move, D), all("$H/.local/share", Move, D), all("$H/.agents", Move, D),
+	all("$H/.cache/opencode/bin/rg", Link, D), all("$H/.agents/skills/s", Link, D), all("$H/.local/state/opencode", Link, D),
+	// …and the keychains (RT126SWEEP2 P4's F1): read, never written, replaced, moved or linked.
+	all("$H/Library/Keychains/login.keychain-db", Write, D), all("$H/Library/Keychains/login.keychain-db", Read, A),
+	all("$H/Library/Keychains/login.keychain-db.sb-1a2b3c4d-Xy9Z", Write, D), all("$H/Library/Keychains/match.keychain-db", Write, D),
+	all("$H/Library/Keychains", Move, D), all("$H/Library/Keychains", Link, D), all("$H/Library/Keychains-notes", Write, A),
 	// The shared git places.
 	all("$G/config", Write, D), all("$G/config", Read, A), all("$G/config.worktree", Write, D), all("$G/hooks/pre-commit", Write, D),
 	all("$G/info/exclude", Write, D), all("$G/objects/info/alternates", Write, D), all("$G/modules/sub/config", Write, D),
 	all("$G/modules/a/b/hooks/post-checkout", Write, D), all("$G/index", Write, D), all("$G/HEAD", Write, D),
 	all("$G/worktrees/h2/HEAD", Write, D), all("$G/worktrees/$WT/HEAD", Write, A), all("$G/worktrees/$WT/index", Write, A),
-	all("$G/worktrees/added-later/HEAD", Write, A),
+	all("$G/worktrees/added-later/HEAD", Write, D), // FXGITROWS2R5 (N2): held, as one there at the start
 	// …and every file git reads to find the repo's config, hooks and objects (SIERRA, 14 Nov): the shared .git's
 	// commondir and gitdir, the other stores' lists, each worktree's registration, its commondir, gitdir and config, the
-	// desk's own included, and the .git at the desk's place. Its own registration's HEAD, logs and submodules stay its.
+	// desk's own included, and the .git at the desk's place. Its own registration's HEAD and logs stay its; its
+	// submodules' git folders, on a Mac, are held whole (FXHIREPROJECTSR9, RT126FIXREVIEW-HIREPROJECTSR8 B2).
 	all("$G/commondir", Write, D), all("$G/commondir", Read, A), all("$G/gitdir", Write, D), all("$G/info/alternates", Write, D),
 	all("$G/objects/info/http-alternates", Write, D), all("$G/worktrees/$WT", Write, D), all("$G/worktrees/new", Write, D),
 	all("$G/worktrees/$WT/commondir", Write, D), all("$G/worktrees/$WT/gitdir", Write, D), all("$G/worktrees/$WT/config.worktree", Write, D),
 	all("$G/worktrees/added-later/commondir", Write, D), all("$G/worktrees/added-later/gitdir", Write, D),
 	all("$G/worktrees/$WT/commondir", Read, A), all("$G/worktrees/$WT/logs/HEAD", Write, A),
-	all("$G/worktrees/$WT/modules/lib/config", Write, A), all("$G/worktrees/$WT/modules/lib/objects/x", Write, A),
+	all("$G/worktrees/$WT/modules/lib/config", Write, D), all("$G/worktrees/$WT/modules/lib/objects/x", Write, D),
+	all("$G/worktrees/$WT/modules", Write, D), all("$G/worktrees/$WT/modules/lib/commondir", Write, D),
+	all("$G/worktrees/$WT/modules/lib/hooks/post-checkout", Write, D), all("$G/worktrees/added-later/modules/x/config", Write, D),
+	all("$G/worktrees/$WT/modules/lib/config", Read, A),
 	all("$G/worktrees/h2/modules/lib/objects/x", Write, D), all("$ROOT/.git", Write, D), all("$ROOT/.git", Read, A),
-	all("$ROOT/.git", Move, D), all("$ROOT/.git", Link, D), all("$ROOT/lib/.git", Write, A),
+	all("$ROOT/.git", Move, D), all("$ROOT/.git", Link, D), all("$ROOT/lib/.git", Write, D), // FXHIREPROJECTSR6: rowGitBelow
 	// …and the entries that make the shared .git a git folder (RT126SAX1R5 B3): their mode, ACL or name, so git never
 	// walks past it to one a desk made above the checkout, which it may. What git makes inside them is still its work.
 	all("$G", Write, D), all("$G/objects", Write, D), all("$G/refs", Write, D), all("$G", Read, A), all("$G/refs", Read, A),
-	all("$G/ORIG_HEAD", Write, D), all("$G/objects/ab", Write, A), all("$G/refs/tags/v1", Write, A),
-	all("$H/.git/config", Write, A), all("$H/Projects/config", Write, A), all("$H/Projects/HEAD", Write, A),
+	all("$G/ORIG_HEAD", Write, D), all("$G/objects/ab", Write, A), all("$G/refs/stash", Write, D),
+	all("$H/Projects/config", Write, A),
+	// …but never at home, which git takes for every folder below it in no repo (FXHIREPROJECTSR1): no ~/.git, nor a
+	// HEAD that makes ~ a bare repo; nor in a folder between ~ and the desk's place (FXHIREPROJECTSR2).
+	all("$H/.git/config", Write, D), all("$H/.git", Write, D), all("$H/.git", Move, D), all("$H/HEAD", Write, D),
+	all("$H/Projects/HEAD", Write, D), all("$H/Projects/.git", Write, D), all("$H/Projects/.git/config", Write, D),
 	// …and the owner's rebase state, whose todo lists hold exec lines; the desk's own is in its registration.
 	all("$G/rebase-merge", Write, D), all("$G/rebase-merge/git-rebase-todo", Write, D), all("$G/rebase-apply/next", Write, D),
 	all("$G/sequencer/todo", Write, D), all("$G/rebase-merge", Move, D), all("$G/worktrees/$WT/rebase-merge/git-rebase-todo", Write, A),
 	// The rest of the shared .git.
-	all("$G/objects/ab/cdef", Write, A), all("$G/refs/heads/feature", Write, A), all("$G/refs/heads/hire/h1", Write, A),
-	all("$G/logs/HEAD", Write, A), all("$G/refs/remotes/origin/main", Write, A),
+	all("$G/objects/ab/cdef", Write, A), all("$G/refs/heads/hire/$ID", Write, A), all("$G/refs/remotes/origin/main", Write, A),
+	// FXGITROWS2: origin/HEAD, rerere's records, other desks' branches, the owner checkout's reflog (RT126SWEEP2).
+	all("$G/refs/remotes/origin/HEAD", Write, D), all("$G/refs/remotes/origin/HEAD.lock", Write, D),
+	all("$G/rr-cache", Write, D), all("$G/rr-cache/0123/postimage", Write, D), all("$G/MERGE_RR", Write, D),
+	all("$G/worktrees/$WT/MERGE_RR.lock", Write, D), all("$G/refs/heads/hire/h9/work", Write, D),
+	all("$G/refs/heads/hire/h9", Write, D), all("$G/logs/refs/heads/hire/h9/work", Write, D),
+	all("$G/refs/heads/hire/$ID/side", Write, A), all("$G/logs/refs/heads/hire/$ID/side", Write, A), all("$G/logs/HEAD", Write, D),
+	all("$G/refs/heads/hire", Move, D),
+	// FXGITROWS2R1 (B1): the ref folders git removes when empty, made by no desk, and their keepers. Below them, as before.
+	all("$G/refs/heads/hire", Write, D), all("$G/logs/refs/heads/hire", Write, D), all("$G/refs/remotes/origin", Write, D),
+	all("$G/refs/heads/hire/.smolcorp-keep", Write, D), all("$G/refs/heads/hire/.smolcorp-keep/x", Write, D),
+	all("$G/refs/remotes/origin/.smolcorp-keep", Write, D), all("$G/logs/refs/heads/hire/.smolcorp-keep", Write, D),
+	all("$G/refs/heads/hire/$ID", Write, A), all("$G/refs/remotes/upstream", Write, A),
+	// FXGITROWS2R4: every branch but the desk's own, and every tag, with their reflogs, as an allowlist: the owner's
+	// branches no row names (feature, topic, mainline, team/x), a new one, refs/heads itself; its own branches, their
+	// locks and reflogs, and the remote-tracking refs stay its own. FXGITROWS2R5: the other refs (stash, notes) are held.
+	all("$G/refs/heads/feature", Write, D), all("$G/refs/heads/topic", Write, D), all("$G/refs/heads/mainline", Write, D),
+	all("$G/refs/heads/team/x", Write, D), all("$G/refs/heads/new", Write, D), all("$G/refs/heads/new.lock", Write, D),
+	all("$G/refs/heads", Write, D), all("$G/logs/refs/heads/topic", Write, D), all("$G/refs/heads/topic", Move, D),
+	all("$G/refs/heads/hire/h1x", Write, D), all("$G/refs/heads/hire/$ID.lock", Write, A), all("$G/refs/heads/hire/$ID/x.lock", Write, A),
+	all("$G/logs/refs/heads/hire/$ID/x", Write, A), all("$G/logs/refs/heads/hire/$ID/x.lock", Write, A),
+	all("$G/refs/tags/v1", Write, D), all("$G/refs/tags/v1.lock", Write, D), all("$G/refs/tags", Write, D),
+	all("$G/logs/refs/tags/v1", Write, D), all("$G/refs/notes/commits", Write, D),
 	// The base branches (SIERRA, 14 Nov): main, master, release/*, the default; packed-refs; the config.
 	all("$G/refs/heads/main", Write, D), all("$G/refs/heads/master", Write, D), all("$G/refs/heads/release/1.26", Write, D),
 	all("$G/refs/heads/release", Write, D), all("$G/refs/heads/develop", Write, D), all("$G/packed-refs", Write, D),
-	all("$G/refs/heads/main", Read, A), all("$G/packed-refs", Read, A), all("$G/refs/heads/mainline", Write, A),
+	all("$G/refs/heads/main", Read, A), all("$G/packed-refs", Read, A), all("$G/packed-refs.lock", Write, A),
 	// …and in a reftable repo, every ref of the shared .git (GITCFG1); the desk's own registration's stay its.
 	all("$G/reftable", Write, D), all("$G/reftable/tables.list", Write, D), all("$G/reftable/0x01-0x02-abcd.ref", Write, D),
 	all("$G/reftable", Move, D), all("$G/reftable/tables.list", Read, A), all("$G/worktrees/$WT/reftable/tables.list", Write, A),
@@ -239,14 +341,14 @@ var rows = []row{
 	all("$H/.config", Move, D), all("$H/.config/systemd", Move, D), all("$H/.config/git", Move, D), all("$H/.claude", Move, D),
 	all("$H/Library", Move, D), all("$S/hires/$ID/claude", Move, D), all("$S/hires", Move, D), all(hires, Move, D),
 	all("/opt/homebrew/Cellar", Move, D), all("/private/tmp", Move, D), all(sockets, Move, D),
-	all("$G/refs/heads", Write, A), all("$G/refs/heads/team/x", Write, A),
+	all("$G/refs/remotes", Write, A), all("$G/refs/remotes/upstream/x", Write, A),
 	all("$H/.config/nvim/init.lua", Write, A),
 	// …nor made a link while they don't exist (RT126SAX1R2 B1′), and a submodule's folder isn't brought in whole. The
 	// core makes the rest before the desk starts (Hold); a desk may still make them.
 	all("$G", Link, D), all("$G/modules", Link, D), all("$G/modules/sub", Link, D), all("$H/.ssh", Link, D), all("$H/.codex", Link, D),
 	all("$H/.gemini", Link, D), all("$H/.config", Link, D), all("$H/.config/systemd", Link, D), all("$S/hires/$ID/claude", Link, D),
 	all("$G/modules/new", Write, D), all("$G/modules/a/modules/b", Write, D),
-	all("$H/.codex", Write, A), all("$H/.config/systemd", Write, A), all("$H/.config/nvim", Link, A),
+	all("$H/.config/systemd", Write, A), all("$H/.config/nvim", Link, A),
 	// …and .git/modules is denied whole (RT126SAX1R4 B1‴): a submodule's git folder as much as any other folder.
 	all("$G/modules", Write, D), all("$G/modules/sub/modules", Write, D), all("$G/modules/sub/modules/x/config", Write, D),
 	all("$G/modules/third_party", Write, D), all("$G/modules/third_party/evil", Write, D),
@@ -257,7 +359,7 @@ var rows = []row{
 	all("$G/modules/sub/objects/ab", Move, D), all("$G/modules/sub/objects/ab/cdef", Read, A),
 	// …and a folder above nothing denied moves as before. refs/tags holds now: a base branch's tag is denied in it
 	// (FXBASEHEADS, SIERRA's ruling #2).
-	all("$G/refs/tags", Move, D), all("$G/refs/heads/topic", Move, A), all("$G/worktrees/$WT/logs", Move, A),
+	all("$G/refs/tags", Move, D), all("$G/refs/remotes/upstream", Move, A), all("$G/worktrees/$WT/logs", Move, A),
 	all("$H/.config/nvim", Move, A), all("$ROOT/pkg", Move, A), all(sockets+"/$ID/sub", Move, A),
 	// Its own place, and normal work.
 	all("$ROOT/main.go", Write, A), all("$ROOT/main.go", Read, A), all("$H/Library/Caches/x", Write, A),
@@ -375,6 +477,9 @@ func TestARootInsideOrContainingTheSupportFolderIsRefused(t *testing.T) {
 		{"no own id", func(p *Places) { p.OwnID = "" }, ErrBadName},
 		{"a worktree a pattern", func(p *Places) { p.OtherWorktrees = []string{"*"} }, ErrBadName},
 		{"a default branch out of refs", func(p *Places) { p.DefaultBranch = "../../config" }, ErrBadName},
+		{"a mark a path", func(p *Places) { p.ReapMark = "../sandbox.sb" }, ErrBadName},
+		{"a mark a pattern", func(p *Places) { p.ReapMark = "reap-*" }, ErrBadName},
+		{"a mark not made by NewReapMark", func(p *Places) { p.ReapMark = "reap-0123456789ABCDEF0123456789abcdef" }, ErrBadName},
 		{"desk-start in another support folder", func(p *Places) {
 			p.Support, p.OtherSupports, p.DeskStart = copyDir, []string{realSupport}, realSupport+"/desk-start"
 		}, ErrDeskStart},
@@ -430,9 +535,21 @@ func TestEverySupportFileHasARowAndOnlyTheListedOnesOpen(t *testing.T) {
 			t.Errorf("%s: read, write, connect %v, want %v", name, got, want)
 		}
 	}
-	for _, name := range []string{"sandbox-canary-1", "serve.sock", "gm-memory", "hires", "nightshift.json", "nightshift.json.bad"} {
+	for _, name := range []string{"sandbox-canary-1", "serve.sock", "gm-memory", "hires", "nightshift.json", "nightshift.json.bad", "signin-1a2b3c", "summary-1a2b3c"} {
 		if why, ok := SupportRow(name); !ok || why == "" {
 			t.Errorf("%s has no row", name)
+		}
+	}
+	// Setup's question about hires' sign-in is asked in a Claude folder of its own there (FXSWEEP3P3 F-4), and a summary
+	// is run in a folder of its own there (RT126SWEEP4 part 3's F1): no desk reads, writes or connects to anything in
+	// either.
+	for _, at := range []string{realSupport + "/signin-1a2b3c", realSupport + "/signin-1a2b3c/settings.json",
+		realSupport + "/summary-1a2b3c", realSupport + "/summary-1a2b3c/.opencode/plugins/x.js"} {
+		read, _ := p.Decide(at, Read)
+		write, _ := p.Decide(at, Write)
+		connect, _ := p.Decide(at, Connect)
+		if got := [3]Verdict{read, write, connect}; got != [3]Verdict{Deny, Deny, Deny} {
+			t.Errorf("%s: read, write, connect %v", at, got)
 		}
 	}
 	if _, ok := SupportRow("a-file-added-later"); ok {
@@ -619,8 +736,8 @@ func TestEveryFolderAboveADeniedPlaceCantBeMoved(t *testing.T) {
 		p := mustNew(t, s.pl)
 		checked := 0
 		for _, r := range p.Rules() {
-			if r.Path == "" || !r.denies() {
-				continue
+			if r.Path == "" || !r.denies() || r.Row == rowGitBelow && strings.Contains(r.Tail, "**") {
+				continue // a git folder below its place: its folders are held by name (gitbelow_test.go)
 			}
 			at := r.Path
 			if r.Tail != "" {
@@ -651,14 +768,20 @@ func TestTheMissingFoldersAboveADeniedPlaceAreMadeFirst(t *testing.T) {
 	for _, s := range setups() {
 		p := mustNew(t, s.pl)
 		held := p.Hold()
-		for _, want := range []string{home + "/.ssh", home + "/.config", home + "/.config/systemd", home + "/.codex",
-			home + "/.gemini", gitDir + "/refs/heads", s.pl.Support + "/hires/" + s.pl.OwnID + "/claude", home + "/.config/standin"} {
+		for _, want := range []string{home + "/.ssh", home + "/.config", home + "/.config/systemd", gitDir + "/refs/remotes",
+			home + "/.cache", home + "/.local", home + "/.local/share", home + "/.local/state",
+			s.pl.Support + "/hires/" + s.pl.OwnID + "/claude", home + "/.config/standin"} {
 			if !slices.Contains(held, want) {
 				t.Errorf("%s: %s isn't in Hold", s.name, want)
 			}
 		}
+		// A hired agent's folder and a terminal's are denied whole (FXPLANTSTERM): a rename onto one is a write there.
 		for _, not := range []string{home + "/.zshrc", home + "/.config/git", home + "/.ssh/rc", home + "/.codex/auth.json", home,
-			s.pl.Support, realSupport, hires, repo, gitDir, gitDir + "/refs", gitDir + "/objects", gitDir + "/hooks", gitDir + "/modules", gitDir + "/modules/sub",
+			home + "/.codex", home + "/.gemini", home + "/.grok", home + "/.config/opencode", home + "/.config/ghostty",
+			home + "/.cache/opencode", home + "/.local/share/opencode", home + "/.local/state/opencode", home + "/.agents",
+			home + "/.opencode", home + "/.cache/.gemini",
+			home + "/Library/Preferences", home + "/Library/Application Support/iTerm2", home + "/Library/Keychains",
+			s.pl.Support, realSupport, hires, repo, gitDir, gitDir + "/refs", gitDir + "/refs/heads", gitDir + "/objects", gitDir + "/hooks", gitDir + "/modules", gitDir + "/modules/sub",
 			gitDir + "/modules/third_party", gitDir + "/modules/third_party/bar", "/", gitDir + "/reftable", home + "/.githooks",
 			hires + "/h1/.husky/_", hires + "/h1/.husky", home + "/dotfiles/hooklib"} {
 			if slices.Contains(held, not) {
@@ -715,7 +838,20 @@ func TestTheMissingFoldersAboveADeniedPlaceAreMadeFirst(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(dir, "elsewhere")); err == nil {
 		t.Error("MakeHold followed a link")
 	}
-	if err := MakeHold([]string{filepath.Join(folders[3], "below-a-file")}); err == nil {
+	// Below a file (ENOTDIR) nothing can be made, by the core or a desk, and the file is held itself (a reftable
+	// repo's .git/refs/heads, FXGITROWS2): left as it is. Any other folder that can't be made fails the start.
+	if err := MakeHold([]string{filepath.Join(folders[3], "below-a-file")}); err != nil {
+		t.Errorf("a folder below a file: %v, want it left", err)
+	}
+	if data, _ := os.ReadFile(folders[3]); string(data) != "standin" {
+		t.Error("the file above a hold folder was changed")
+	}
+	shut := filepath.Join(dir, "shut")
+	if err := os.Mkdir(shut, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(shut, 0o700) })
+	if err := MakeHold([]string{filepath.Join(shut, "inside")}); err == nil && runtime.GOOS != "windows" && os.Geteuid() != 0 {
 		t.Error("a folder that can't be made didn't fail")
 	}
 }
@@ -833,7 +969,7 @@ func TestAProfileInTheDocumentedOrderSaysWhatDecideSays(t *testing.T) {
 // (a folder brought into a git folder, at any depth, and the git folder's HEAD, whose one write let git take it), R3's,
 // and their neighbours, in Decide and in the profile read as Seatbelt reads it: in every column, a desk in its own
 // worktree, and for a desk at the project, where the shared .git's allow is a plain one. A worktree's own submodules
-// live in its registration, worktrees/<id>/modules, and stay its own; another desk's don't.
+// live in its registration, worktrees/<id>/modules: held whole as well since FXHIREPROJECTSR9 (B2), as another desk's.
 func TestInGitModulesNoDeskWritesAnything(t *testing.T) {
 	probes := []struct {
 		at                  string
@@ -849,8 +985,8 @@ func TestInGitModulesNoDeskWritesAnything(t *testing.T) {
 		{"/modules/third_party", D, D}, {"/modules/third_party/evil", D, D}, {"/modules/third_party/evil/config", D, D},
 		{"/modules/new", D, D}, {"/modules/new/objects/x", D, D}, {"/modules/third_party/bar", D, D},
 		{"/modules/third_party/bar/objects/x", D, D}, {"/modules/MODULES/SUB/HEAD", D, D}, {"/modules/sub/../third_party/evil", D, D},
-		{"/worktrees/$WT/modules/sub/objects/x", A, D}, {"/worktrees/$WT/modules/sub/config", A, D},
-		{"/worktrees/$WT/modules/sub/HEAD", A, D}, {"/worktrees/h2/modules/sub/objects/x", D, D},
+		{"/worktrees/$WT/modules/sub/objects/x", D, D}, {"/worktrees/$WT/modules/sub/config", D, D},
+		{"/worktrees/$WT/modules/sub/HEAD", D, D}, {"/worktrees/h2/modules/sub/objects/x", D, D},
 	}
 	// A desk at the project has no registration of its own: h1's is another desk's.
 	atProject := setup{"a desk at the project", hirePlaces(realSupport)}
@@ -883,7 +1019,7 @@ func TestNoDeskMakesTheSharedGitStopBeingAGitFolder(t *testing.T) {
 	}{
 		{"", D}, {"/objects", D}, {"/refs", D}, {"/HEAD", D}, {"/OBJECTS", D}, {"/refs/../objects", D}, {"/./refs", D},
 		{"/rebase-merge", D}, {"/rebase-merge/git-rebase-todo", D}, {"/rebase-apply/next", D}, {"/sequencer/todo", D},
-		{"/objects/ab", A}, {"/objects/ab/cdef", A}, {"/refs/heads/topic", A}, {"/refs/tags/v1", A}, {"/ORIG_HEAD", A},
+		{"/objects/ab", A}, {"/objects/ab/cdef", A}, {"/refs/stash", D}, {"/refs/remotes/o/x", A}, {"/ORIG_HEAD", A},
 	}
 	atProject := setup{"a desk at the project", hirePlaces(realSupport)}
 	atProject.pl.Root, atProject.pl.Checkout, atProject.pl.OwnWorktree = repo, "", ""
@@ -938,8 +1074,8 @@ func TestEveryFolderAboveADeniedPatternPlaceIsHeldOrDenied(t *testing.T) {
 		held := p.Hold()
 		checked := 0
 		for _, r := range p.Rules() {
-			if r.Path == "" || r.Tail == "" || !r.denies() || r.Row == rowAbove {
-				continue
+			if r.Path == "" || r.Tail == "" || !r.denies() || r.Row == rowAbove || r.Row == rowGitBelow && strings.Contains(r.Tail, "**") {
+				continue // a git folder below its place: its folders are held by name (gitbelow_test.go)
 			}
 			for _, sample := range samples(strings.Split(r.Tail, "/")) {
 				at := strings.TrimSuffix(r.Path+"/"+sample, "/")
@@ -1005,8 +1141,10 @@ func TestGitsSubstitutionsOfABaseBranchAreNoDesksOnAMac(t *testing.T) {
 		// A desk's own work.
 		{"$G/objects/ab/cdef", A, ""}, {"$G/objects/pack/pack-ab12.pack", A, ""}, {"$G/objects/pack/pack-ab12.idx", A, ""},
 		{"$G/objects/pack/pack-ab12.rev", A, ""}, {"$G/objects/pack/pack-ab12.bitmap", A, ""}, {"$G/objects/pack/tmp_pack_x", A, ""},
-		{"$G/refs/heads/hire/h1/work", A, ""}, {"$G/logs/refs/heads/hire/h1/work", A, ""}, {"$G/logs/refs/heads/mainline", A, ""},
-		{"$G/refs/tags/v1", A, ""}, {"$G/refs/notes/commits", A, ""}, {"$G/refs/replaced", A, ""},
+		{"$G/refs/heads/hire/$ID/work", A, ""}, {"$G/logs/refs/heads/hire/$ID/work", A, ""}, {"$G/logs/refs/remotes/origin/mainline", A, ""},
+		{"$G/refs/notes/commits", D, rowNotOwnRefs}, {"$G/refs/replaced", D, rowNotOwnRefs}, // FXGITROWS2R5
+		// Every other branch's reflog and every tag (FXGITROWS2R4).
+		{"$G/logs/refs/heads/mainline", D, rowNotOwnBranches}, {"$G/refs/tags/v1", D, rowTags},
 		// The shallow list's lock, which git renames onto it: denied as it is (FXLOCKSIBLINGS flips this pin).
 		{"$G/shallow.lock", D, rowSubstitutions},
 	}
@@ -1108,12 +1246,12 @@ func TestADeniedFilesWritersNamesBesideItAreDeniedAsItIsOnAMac(t *testing.T) {
 			{"$S/nightshift.json.tmp", Write, D, rowSupport},
 		}},
 		{"a desk's own work beside them stays its own", []c{
-			{"$G/refs/heads/hire/h1/work.lock", Write, A, ""}, {"$G/logs/refs/heads/hire/h1/work.lock", Write, A, ""},
+			{"$G/refs/heads/hire/$ID/work.lock", Write, A, ""}, {"$G/logs/refs/heads/hire/$ID/work.lock", Write, A, ""},
 			// Held, never renamed onto packed-refs; a desk's commit, rebase and branch deletion take it.
 			{"$G/packed-refs.lock", Write, A, ""},
 			{"$G/worktrees/$WT/index.lock", Write, A, ""}, {"$G/worktrees/$WT/HEAD.lock", Write, A, ""},
-			{"$G/worktrees/$WT/ORIG_HEAD.lock", Write, A, ""}, {"$G/refs/tags/v2.lock", Write, A, ""},
-			{"$G/refs/remotes/origin/main.lock", Write, A, ""}, {"$G/refs/heads/mainline.lock", Write, A, ""},
+			{"$G/worktrees/$WT/ORIG_HEAD.lock", Write, A, ""}, {"$G/refs/remotes/upstream/x.lock", Write, A, ""},
+			{"$G/refs/remotes/origin/main.lock", Write, A, ""}, {"$G/refs/heads/hire/$ID.lock", Write, A, ""},
 			{"$G/objects/pack/tmp_pack_x", Write, A, ""}, {"$G/objects/ab/tmp_obj_x", Write, A, ""},
 			{"$ROOT/.claude/notes.md", Write, A, ""}, {"$ROOT/settings.json.tmp", Write, A, ""},
 			{"$S/hires/$ID/claude/.claude.json.tmp.4242.1763400000000", Write, A, ""}, {"$S/hires/$ID/STATUS.md", Write, A, ""},
@@ -1193,7 +1331,15 @@ func TestTheOwnersToolsNamesInAFolderAreNoRowWhereADeskWorksOnAMac(t *testing.T)
 		pl.GitNamed = append(slices.Clone(pl.GitNamed), root+"/.gitconfig", root+"/scripts/pre-commit.sh", repo+"/.gitconfig",
 			repo+"/scripts/pre-commit.sh", hires+"/h2/scripts/pre-commit.sh", gmDir+"/.gitconfig")
 		p := mustNew(t, pl)
-		work := []string{key("darwin", root), key("darwin", repo), key("darwin", hires), key("darwin", gmDir)}
+		// The column's own places a desk works in: for every column but the hire under the GM in the projects folder,
+		// root, repo, hires and gmDir, or the projects folder that holds them; for that one, the GM's folder is its
+		// workspace, and gmDir no desk's place (FXGMROOTR1).
+		var work []string
+		for _, place := range []string{root, pl.Checkout, pl.HiresFolder, pl.GMFolder, pl.GMProjects} {
+			if place != "" {
+				work = append(work, key("darwin", place))
+			}
+		}
 		for _, r := range p.Rules() {
 			if !slices.Contains(ownersInFolder, path.Base(r.Tail)) {
 				continue
@@ -1254,11 +1400,11 @@ func TestABaseBranchsNameElsewhereAndTheOwnersStateAreNoDesksOnAMac(t *testing.T
 		c{"$G/Main", Write, D, rowBaseNames},
 		// refs/tags holds, or a desk moves it aside, writes main there, and moves it back.
 		c{"$G/refs/tags", Move, D, rowAbove}, c{"$G/refs/tags", Link, D, rowAbove},
-		// A desk still tags any other name.
-		c{"$G/refs/tags/v2", Write, A, ""}, c{"$G/refs/tags/v2.lock", Write, A, ""}, c{"$G/refs/tags/mainline", Write, A, ""},
-		c{"$G/refs/tags/h1-main", Write, A, ""}, c{"$G/refs/tags/v/main", Write, A, ""}, c{"$G/refs/tags/releases", Write, A, ""},
-		c{"$G/refs/tags/h1/release/1.26", Write, A, ""}, c{"$G/refs/mainline", Write, A, ""}, c{"$G/mainline", Write, A, ""},
-		c{"$G/refs/tags", Write, A, ""}, c{"$G/refs/remotes/origin/main", Write, A, ""}, c{"$G/refs/notes/main", Write, A, ""},
+		// Any other tag is no desk's either since FXGITROWS2R4 (rowTags); another name elsewhere still is.
+		c{"$G/refs/tags/v2", Write, D, rowTags}, c{"$G/refs/tags/v2.lock", Write, D, rowTags}, c{"$G/refs/tags/mainline", Write, D, rowTags},
+		c{"$G/refs/tags/h1-main", Write, D, rowTags}, c{"$G/refs/tags/v/main", Write, D, rowTags}, c{"$G/refs/tags/releases", Write, D, rowTags},
+		c{"$G/refs/tags/h1/release/1.26", Write, D, rowTags}, c{"$G/refs/mainline", Write, D, rowNotOwnRefs}, c{"$G/mainline", Write, D, rowGitTop},
+		c{"$G/refs/tags", Write, D, rowTags}, c{"$G/refs/remotes/origin/main", Write, A, ""}, c{"$G/refs/notes/main", Write, D, rowNotOwnRefs},
 	)
 	var state, ownState []c
 	for _, name := range []string{"MERGE_HEAD", "ORIG_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "AUTO_MERGE"} {
@@ -1271,8 +1417,9 @@ func TestABaseBranchsNameElsewhereAndTheOwnersStateAreNoDesksOnAMac(t *testing.T
 		c{"$G/rebase-apply/next", Write, D, rebase}, c{"$G/rebase-merge", Write, D, rebase})
 	ownState = append(ownState, c{"$G/worktrees/$WT/rebase-merge/git-rebase-todo", Write, A, ""},
 		c{"$G/worktrees/$WT/rebase-apply/next", Write, A, ""},
-		// What the rulings didn't name stays as it was.
-		c{"$G/MERGE_MSG", Write, A, ""}, c{"$G/MERGE_MODE", Write, A, ""}, c{"$G/FETCH_HEAD", Write, A, ""})
+		// What the rulings didn't name is no desk's in its own worktree either since FXGITROWS2R6 (rowGitTop): its own is
+		// in its registration.
+		c{"$G/MERGE_MSG", Write, D, rowGitTop}, c{"$G/MERGE_MODE", Write, D, rowGitTop}, c{"$G/FETCH_HEAD", Write, D, rowGitTop})
 	check := func(t *testing.T, s setup, cases []c) {
 		t.Helper()
 		p := mustNew(t, s.pl)
@@ -1360,8 +1507,10 @@ func TestEveryFullyFoldedSpellingOfAPathIsTheSameRule(t *testing.T) {
 		{"/tmp/smolcorp-501/h2/s", Write, Deny},
 		// What isn't the same name stays its own: the dotless ı, a ligature not in the folding, an accent.
 		{asa + "/.\u017f\u017fh-notes", Read, Allow},
-		{asa + "/p/.git/refs/heads/\u0131stable", Write, Allow},
-		{asa + "/p/.git/refs/heads/stabl\u00e9", Write, Allow},
+		// Beside the .git's own base name (rowBaseNames): the rest of the .git is no desk's since FXGITROWS2R6 (rowGitTop),
+		// so ıstable and stablé are held there too, by that row, not stable's (TestOnAMacThePolicyHoldsTheRestOfTheSharedGit…).
+		{asa + "/p/.git/\u0131stable", Write, Deny},
+		{asa + "/p/.git/stabl\u00e9", Write, Deny}, {asa + "/p/.git/\ufb06able", Write, Deny},
 		{"/tmp/smolcorp-501/h1/s", Write, Allow},
 		{"/private/tmp/smolcorp-501/H1/\u017f", Write, Allow},
 	} {
@@ -1406,7 +1555,7 @@ func TestReviewUnicode17SpellingsOfADeniedPlace(t *testing.T) {
 		}{{"/.ssh/id_ed25519", Read}, {"/.zshrc", Write}, {"/Library/Application Support/AgentDeck/setup-key", Read}, {"/p-hires/h2/main.go", Write}} {
 			plain, _ := p.Decide(c.homeName+at.rest, at.op)
 			other, row := p.Decide(c.other+at.rest, at.op)
-			t.Logf("%s: %v %s: plainly %v, other spelling %v (%q)", c.name, at.op, at.rest, plain, other, row.Row)
+			t.Logf("%s: %v %s → plainly %v, other spelling %v (%q)", c.name, at.op, at.rest, plain, other, row.Row)
 			if plain != Deny || other != Deny {
 				t.Errorf("%s: %v %s: plainly %v, other spelling %v by %q; want both deny", c.name, at.op, at.rest, plain, other, row.Row)
 			}

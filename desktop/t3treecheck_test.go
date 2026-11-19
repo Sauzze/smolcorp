@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -393,5 +394,49 @@ func TestTakeOverRefusesARepoBelowTheWorktreesTop(t *testing.T) {
 		if got := t3NoRepoBelow(context.Background(), r.tree); got != "" {
 			t.Errorf("the check, in time, says %q", got)
 		}
+	})
+}
+
+// FXPOLISHA (RT126FIXREVIEW-WINWORKTREER4's O2): a hooks folder named at the worktree's top is the whole tree. In a big
+// repo, main's listing of it (30,001 files, some 4.8 MB) passed gitOutput's cap, and Take over said the folder
+// "couldn't be read". It is read as it comes now, up to the most files a folder handed over may hold, and the words
+// say so. A small repo's top is still compared file by file (and isn't main's: a worktree's top holds its .git file).
+func TestTakeOverSaysAHooksFolderAtABigReposTopHasTooManyFiles(t *testing.T) {
+	t.Run("a big repo", func(t *testing.T) {
+		r := newDeskRunRig(t)
+		one := filepath.Join(t.TempDir(), "one")
+		if err := os.WriteFile(one, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		blob := gitRepoCmd(t, r.repo, "hash-object", "-w", one)
+		var list strings.Builder
+		for i := range 30001 {
+			fmt.Fprintf(&list, "100644 %s\tdeep/%03d/%s%05d.txt\n", blob, i%100, strings.Repeat("a-long-file-name-", 6), i)
+		}
+		index := filepath.Join(t.TempDir(), "index")
+		with := func(in string, args ...string) string {
+			cmd := exec.Command("git", append([]string{"-C", r.repo}, args...)...)
+			cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+index)
+			cmd.Stdin = strings.NewReader(in)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%v: %v %s", args, err, out)
+			}
+			return strings.TrimSpace(string(out))
+		}
+		with("", "read-tree", "HEAD")
+		with(list.String(), "update-index", "--index-info")
+		commit := gitRepoCmd(t, r.repo, "commit-tree", with("", "write-tree"), "-p", "HEAD", "-m", "big")
+		gitRepoCmd(t, r.repo, "update-ref", "refs/heads/main", commit)
+		if out, err := exec.Command("git", "-C", r.repo, "ls-tree", "-r", "-z", "main^{tree}").Output(); err != nil || len(out) <= gitOutputCap {
+			t.Fatalf("the control: main's listing is %d bytes (%v), not past the cap, so this row proves nothing", len(out), err)
+		}
+		gitRepoCmd(t, r.repo, "config", "core.hooksPath", ".")
+		checkSays(t, r.hire, "the hooks folder your config names (.) has more than 200 files on main, more than Take over can compare")
+	})
+	t.Run("a small repo, compared file by file", func(t *testing.T) {
+		r := newDeskRunRig(t)
+		gitRepoCmd(t, r.repo, "config", "core.hooksPath", ".")
+		checkSays(t, r.hire, "the hooks folder your config names (.) isn't main's")
 	})
 }

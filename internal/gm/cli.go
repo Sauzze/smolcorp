@@ -13,8 +13,9 @@ const usageText = `Usage: smolcorp gm <command> [--json]
 Asks the Smolcorp running on this computer about the team.
 
 Commands:
-  login [-- <command…>]         start a General Manager by hand (Mac): Smolcorp
-                                asks you in its window, with a code to check
+  login [-- <command…>]         start a General Manager by hand (Mac, and
+                                Windows with WebView2): Smolcorp asks you in
+                                its window, with a code to check
                                 against the one printed here; once you click
                                 Allow, the command (claude unless given) starts
                                 here as your GM, its token in its environment
@@ -26,15 +27,14 @@ Commands:
   version                       the app, its API and its features
   accounts                      the Claude accounts the app knows
   hire --role R [--folder F] [--account A] [--model M] [--nickname N]
-       [--floor K] [--worktree] [--api-key] [--t3] [--task TEXT | --task-file F]
+       [--floor K] [--worktree] [--api-key] [--task TEXT | --task-file F]
                                 hire an employee (the folder defaults to the
                                 one set up for new hires). It works in a
-                                worktree of its own beside the folder
-                                (<folder>-hires/<name>), not in the folder
-                                itself: the answer says where. Not the gm role:
-                                the owner hires the GM from Setup. --t3 hires
-                                into T3 Code (experimental; needs T3 Code and its
-                                t3 command): its own worktree and a T3 Code thread
+                                worktree of its own (on a Mac in
+                                ~/.smolcorp/worktrees, elsewhere beside the
+                                folder), not in the folder itself: the answer
+                                says where. Not the gm role:
+                                the owner hires the GM from Setup
   brief <hire> (--text TEXT | --file F)
                                 send a later brief to a hire already working
                                 (it comes to the hire as mail)
@@ -89,12 +89,20 @@ Commands:
                                 about the owner (user) quotes the owner's own
                                 words; a fact may say what you saw instead
   memory withdraw <id>          take back a proposal still waiting
+  project new <name> [--clone <https address>]
+                                start a new project: Smolcorp makes the folder
+                                <name> in your projects folder (a plain one, or
+                                a clone of an https address), as your sandbox
+                                can't. The name is letters, digits, -, _ and .
+                                (64 at most, no dot first or last); a name
+                                that's there already is refused
 
 On Linux and Windows, tile, screens, screen and accounts
 aren't served yet.
 
-To get a new token: on the Mac, ask the owner to rotate it in Smolcorp's setup,
-or start the GM again with login; on Linux and Windows, ask the owner to
+To get a new token: on the Mac, and Windows with WebView2,
+ask the owner to rotate it in Smolcorp's setup, or start the GM again with
+login; on Linux, and Windows without WebView2, ask the owner to
 hire the GM again from Setup.
 
 --json prints the app's answer as it was served. The port is $SMOLCORP_PORT
@@ -132,6 +140,8 @@ func run(args []string, env Env, stdout, stderr io.Writer) int {
 		return runPreview(rest, env, stdout, stderr)
 	case "memory":
 		return runMemory(rest, env, stdout, stderr)
+	case "project":
+		return runProject(rest, env, stdout, stderr)
 	case "login":
 		return runLogin(rest, env, stdout, stderr)
 	default:

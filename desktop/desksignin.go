@@ -65,9 +65,14 @@ func deskSignInRefusal(desk, account string, apiKey bool) string {
 // taken away after. The links fill makes aren't needed to ask.
 func hiresSignIn(account string) signIn { return hiresSignInWith(deskSignInFind, account) }
 
-// hiresSignInWith is hiresSignIn, asking the Claude Code find names.
+// hiresSignInFolderPrefix begins the name of the folder hiresSignIn asks in, in the support folder.
+const hiresSignInFolderPrefix = "signin-"
+
+// hiresSignInWith is hiresSignIn, asking the Claude Code find names. The folder is made in Smolcorp's support folder,
+// which every desk's sandbox denies, as the GM's workspace is (makeGMWorkspace): never in the user's temp folder, where
+// a desk could put a settings.json of its own for the Claude Code asked, outside any sandbox, to read (FXSWEEP3P3 F-4).
 func hiresSignInWith(find func() string, account string) signIn {
-	folder, err := os.MkdirTemp("", "smolcorp-signin-")
+	folder, err := os.MkdirTemp(supportDir, hiresSignInFolderPrefix)
 	if err != nil {
 		return signInUnknown
 	}

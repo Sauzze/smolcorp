@@ -301,7 +301,7 @@ func TestTheFireListsADesksSandboxAtItsStopEvenAfterARestart(t *testing.T) {
 		t.Fatalf("not listed after a restart: %d", len(listed))
 	}
 	pl := listed[1].places
-	if listed[1].policy == nil || pl.OwnID != second.ID || pl.Root != physical(second.Worktree) || pl.Checkout != physical(r.repo) ||
+	if listed[1].policy == nil || pl.OwnID != second.ID || pl.Root != physical(second.Worktree.storedOnly()) || pl.Checkout != physical(r.repo) ||
 		pl.OwnSockets != physical(filepath.Dir(second.TmuxSocket)) || pl.Home != physical(homeDir) || pl.Subject != listed[0].places.Subject {
 		t.Errorf("its sandbox made again: %+v", pl)
 	}

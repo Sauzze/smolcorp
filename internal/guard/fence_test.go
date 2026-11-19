@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -122,8 +123,14 @@ func TestNoHireWritesTheNightShiftsJobs(t *testing.T) {
 			}
 		}
 	}
-	if r := Check("cp x "+dir+"night?hift.json", DefaultGroups()); r == nil || r.Rule != nightFile {
-		t.Errorf("night?hift.json: %+v, want guard: %s", r, nightFile)
+	if r := Check("cp x "+dir+"night?hift.json", DefaultGroups()); r == nil || r.Rule != nightRule {
+		t.Errorf("night?hift.json: %+v, want guard: %s", r, nightRule)
+	}
+	// FXPOLISHA (RT126FIXREVIEW-DORMANTOFF's O4): the refusal's rule names no feature this version leaves off: the
+	// night shift is off, and a hire reads its refusals. Only the command, as the hire wrote it, names the file.
+	if r := Check("echo '{}' > "+dir+"nightshift.json", DefaultGroups()); r == nil ||
+		strings.Contains(strings.ToLower(r.Rule), "night") || r.Error() != "Refused by Smolcorp's hire guard (guard: a file only Smolcorp writes): `> "+dir+"nightshift.json`. A hire doesn't do this; ask the GM, who asks the owner." {
+		t.Errorf("the night file's refusal: %v", r)
 	}
 }
 

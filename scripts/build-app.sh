@@ -109,7 +109,11 @@ fi
 # go stops here, before anything is built.
 "${BUILD_ENV[@]}" "$BUILD_GO" run ./scripts/goversion
 APP_NAME="Smolcorp"
-EXECUTABLE="AgentDeck" # the Swift package's product, named in Info.plist
+# The Swift package's product keeps its target's name, AgentDeck (Package.swift); in the app, the program is
+# Smolcorp, as Info.plist's CFBundleExecutable names it (since 1.26), or macOS finds no program to start
+# (TestTheMacAppsProgramIsSmolcorpWhereverItIsNamed).
+SWIFT_PRODUCT="AgentDeck"
+EXECUTABLE="Smolcorp"
 APP="build/$APP_NAME.app"
 
 ARCHS=()
@@ -123,7 +127,7 @@ if ! swift build -c release ${ARCHS[@]+"${ARCHS[@]}"} >build/build.log 2>&1; the
   echo "The build failed. The messages above say why."
   exit 1
 fi
-BIN="$(swift build -c release ${ARCHS[@]+"${ARCHS[@]}"} --show-bin-path)/$EXECUTABLE"
+BIN="$(swift build -c release ${ARCHS[@]+"${ARCHS[@]}"} --show-bin-path)/$SWIFT_PRODUCT"
 scripts/build-saver.sh "${1:-}"
 
 rm -rf "$APP"

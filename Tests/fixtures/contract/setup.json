@@ -713,7 +713,6 @@
     },
     {
       "callers" : [
-        "gm",
         "page"
       ],
       "note" : "a folder that's there is saved as the folder for your hires; only the refusal, which comes first, is asked",

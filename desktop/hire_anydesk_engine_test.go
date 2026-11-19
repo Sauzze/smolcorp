@@ -26,7 +26,7 @@ func TestARoleHireAtAChosenDeskGoesThroughTheEngine(t *testing.T) {
 			}
 			d.watching.Wait()
 			got := registered(t)
-			if len(got) != 1 || got[0].Role != role || got[0].Worktree == "" || !r.tmux.ran("new-session") || len(h.tmux) != 0 {
+			if len(got) != 1 || got[0].Role != role || got[0].Worktree.none() || !r.tmux.ran("new-session") || len(h.tmux) != 0 {
 				t.Fatalf("not made by the engine: registry %+v, tmux %q, old tmux %q", got, r.tmux.asked, h.tmux)
 			}
 			settings := scriptSettings(r.script(got[0]))
@@ -43,7 +43,7 @@ func TestARoleHireAtAChosenDeskGoesThroughTheEngine(t *testing.T) {
 			// Its session appears, and takes the desk chosen.
 			d.mu.Lock()
 			defer d.mu.Unlock()
-			d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "hired", "cwd": got[0].Folder},
+			d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "hired", "cwd": got[0].Folder.storedOnly()},
 				Claude, "tmux:%1@"+got[0].TmuxSocket, "", got[0].Started+1)
 			for range 3 {
 				keys, _ := d.layout()
@@ -71,7 +71,7 @@ func TestARoleHireUpstairsGoesThroughTheEngineAndSitsOnItsFloor(t *testing.T) {
 		t.Fatalf("not made by the engine: registry %+v", got)
 	}
 	d.mu.Lock()
-	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "hired", "cwd": got[0].Folder},
+	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "hired", "cwd": got[0].Folder.storedOnly()},
 		Claude, "tmux:%1@"+got[0].TmuxSocket, "", got[0].Started+1)
 	d.layout()
 	floor, seat := d.floorOf["hired"], d.seatOf["hired"]

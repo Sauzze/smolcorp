@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"bytes"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -127,5 +128,27 @@ func TestAnAttachOutsideTheSandboxRunsOnlyThroughTheHelper(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(supportDir, "hires", "ab12", "STATUS.md")); err == nil {
 		t.Error("a refused attach wrote the desk's status")
+	}
+}
+
+// RT126FIXREVIEW-GMNICKR1 O1: `smolcorp attach` finds a hire with no nickname of its own by the office's name for its
+// desk, the one `gm team` shows, from the saved layout; a hire's own nickname and name still come first.
+func TestSmolcorpAttachFindsAHireByTheOfficesNameForItsDesk(t *testing.T) {
+	d := newTestDeck(t)
+	managerOn(d)
+	gm, _ := withGMAndAHire(t, d) // Rev (a1b2c3), Janitor (d4e5f6, no nickname) in /work/api
+	sessionAt(d, "s2", "/work/api", "other:/dev/ttys002")
+	if status, text := gmPost(t, d, gm, "/setup/gm/nickname", `{"folder":"/work/api","name":"Jan"}`); status != http.StatusOK {
+		t.Fatalf("nickname: %d %q", status, text)
+	}
+	if h, err := attachedDesk("jan"); err != nil || h.ID != "d4e5f6" {
+		t.Errorf("attach Jan: %+v %v", h, err)
+	}
+	gmPost(t, d, gm, "/setup/gm/nickname", `{"folder":"/work/api","name":"Rev"}`)
+	if h, err := attachedDesk("Rev"); err != nil || h.ID != "a1b2c3" {
+		t.Errorf("attach Rev, with Janitor's desk called Rev too: %+v %v", h, err)
+	}
+	if _, err := attachedDesk("Nobody"); err == nil {
+		t.Error("attach found a desk nobody is called")
 	}
 }

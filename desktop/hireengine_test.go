@@ -108,13 +108,13 @@ func TestAManagedHireIsMadeInOrderAndRegistered(t *testing.T) {
 		t.Fatal(err)
 	}
 	if hire.State != "starting" || hire.Role != "janitor" || hire.Ports != "4100-4103" || hire.Repo != r.repo ||
-		hire.Worktree == "" || !strings.HasPrefix(hire.TmuxSocket, supportDir) {
+		hire.Worktree.none() || !strings.HasPrefix(hire.TmuxSocket, supportDir) {
 		t.Fatalf("hire = %+v", hire)
 	}
 	if got := registered(t); len(got) != 1 || got[0].ID != hire.ID || got[0].State != "starting" {
 		t.Fatalf("registry = %+v", got)
 	}
-	if _, err := os.Stat(filepath.Join(hire.Worktree, "sub", "a.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join(hire.Worktree.storedOnly(), "sub", "a.txt")); err != nil {
 		t.Errorf("no worktree checkout: %v", err)
 	}
 	script := r.script(hire)
@@ -139,8 +139,8 @@ func TestAManagedHireIsMadeInOrderAndRegistered(t *testing.T) {
 		}
 	}
 	// One tmux call, on the hire's own socket, in the worktree; the registry's folder is the project (C3 A5).
-	if len(r.tmux.asked) != 1 || r.tmux.asked[0][0] != "-S" || r.tmux.asked[0][1] != hire.TmuxSocket || !slices.Contains(r.tmux.asked[0], hire.Worktree) ||
-		hire.Folder != r.repo || startedIn(hire) != hire.Worktree {
+	if len(r.tmux.asked) != 1 || r.tmux.asked[0][0] != "-S" || r.tmux.asked[0][1] != hire.TmuxSocket || !slices.Contains(r.tmux.asked[0], hire.Worktree.storedOnly()) ||
+		hire.Folder.storedOnly() != r.repo || hire.storedStart() != hire.Worktree.storedOnly() {
 		t.Errorf("tmux was asked %q", r.tmux.asked)
 	}
 	// The next hire gets the next ports.
@@ -158,7 +158,7 @@ func TestAnAPIKeyHireThroughTheEngineAlwaysApprovesItsKeyTail(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(r.home, ".claude.json"))
-	if !isApproved("0123456789ABCDEFGHIJ", data) || !isTrusted(hire.Worktree, data) {
+	if !isApproved("0123456789ABCDEFGHIJ", data) || !isTrusted(hire.Worktree.storedOnly(), data) {
 		t.Fatalf("the API-key hire's key tail or worktree isn't in .claude.json: %s", data)
 	}
 	if plan, _ := issuedPlan(hire.ID); !plan.APIKey || strings.Contains(planText(plan), placeTestKey) {
@@ -204,6 +204,29 @@ func TestWhenPreTrustRefusesTheEngineMakesNothing(t *testing.T) {
 	}
 	if branches(t, r.repo) != "" || len(r.tmux.asked) != 0 || len(registered(t)) != 0 {
 		t.Error("a worktree, session or registry row was left")
+	}
+}
+
+// A hire refused once its ports were held lets them go at once: the next hire gets the first range, as if the refused
+// one had never asked (FXHIREORDERFLAKE: refused before, it left 4100-4103 held for minutes, and the next hire took
+// 4104-4107).
+func TestAHireRefusedAfterItsPortsLetsThemGoForTheNextHire(t *testing.T) {
+	r := newEngineRig(t)
+	file := filepath.Join(r.home, ".claude.json")
+	r.o.Git = func(dir string, args ...string) (int, string, bool) {
+		status, out, ok := runGit(dir, args...)
+		if len(args) > 1 && args[1] == "add" {
+			os.WriteFile(file, []byte("[]"), 0o600)
+		}
+		return status, out, ok
+	}
+	if _, err := runManagedHire(r.request("janitor"), r.o); err != errHireTrust {
+		t.Fatalf("err = %v, want errHireTrust", err)
+	}
+	writeConfig(t, r.home, "{}")
+	r.o.Git = nil
+	if hire, err := runManagedHire(r.request("janitor"), r.o); err != nil || hire.Ports != "4100-4103" {
+		t.Errorf("the next hire: ports %q, %v", hire.Ports, err)
 	}
 }
 
@@ -340,7 +363,7 @@ func TestOtherHiresOpenAsTheyDid(t *testing.T) {
 		}},
 		{"no tmux", url.Values{"role": {"janitor"}}, func() { tmuxPath = func() string { return "" } }},
 	} {
-		d.lastHire = time.Time{}
+		d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 		c.setup()
 		before := len(h.windows) + len(h.tmux)
 		status, message := d.Perform("hire", "", c.query)
@@ -365,7 +388,7 @@ func TestARoleHireInTmuxKeepsItsRoleLabel(t *testing.T) {
 	d.watching.Wait()
 	hire := registered(t)[0]
 	apply := func(id, tab string) *Session {
-		d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": id, "cwd": hire.Folder}, Claude, tab, "", 100)
+		d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": id, "cwd": hire.Folder.storedOnly()}, Claude, tab, "", 100)
 		return d.sessions.Get(id)
 	}
 	s := apply("s1", "tmux:%1@"+hire.TmuxSocket)
@@ -445,7 +468,7 @@ func TestAHireAtAPinnedDeskKeepsTheOldPath(t *testing.T) {
 func TestHireHeardFromIsAClaudeSessionInItsFolderSinceItWasHired(t *testing.T) {
 	d := newTestDeck(t)
 	folder := t.TempDir()
-	hire := Hire{ID: "h1", Folder: folder, Started: 5000}
+	hire := Hire{ID: "h1", Folder: keptPath(folder), Started: 5000}
 	apply := func(id string, agent Agent, cwd string, at float64) {
 		d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": id, "cwd": cwd}, agent, "tmux:"+id, "", at)
 	}
@@ -484,7 +507,7 @@ func TestARoleHireInTmuxIsWorkingOnceItsSessionReportsToTheDeck(t *testing.T) {
 	hire := registered(t)[0]
 	// Under the deck's lock, as its ingest path holds it: the watcher reads the sessions meanwhile.
 	d.mu.Lock()
-	d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": startedIn(hire)}, Claude, "tmux:s1", "", hire.Started+1)
+	d.sessions.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "s1", "cwd": hire.storedStart()}, Claude, "tmux:s1", "", hire.Started+1)
 	d.mu.Unlock()
 	d.watching.Wait()
 	if got := registered(t); got[0].State != "working" {
@@ -528,8 +551,8 @@ func TestAnEngineHireOnTheGroundFloorStaysThereThoughItsFolderGoesUpstairs(t *te
 	hire := registered(t)[0]
 	// The rule is for the folder above the hire's worktree.
 	d.mu.Lock()
-	d.config.FloorRules = floorRuleList{{filepath.Dir(hire.Folder), 3, false}}
-	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "hired", "cwd": hire.Folder},
+	d.config.FloorRules = floorRuleList{{filepath.Dir(hire.Folder.storedOnly()), 3, false}}
+	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "hired", "cwd": hire.Folder.storedOnly()},
 		Claude, "tmux:%1@"+hire.TmuxSocket, "", hire.Started+1)
 	keys, _ := d.layout()
 	d.mu.Unlock()
@@ -541,7 +564,7 @@ func TestAnEngineHireOnTheGroundFloorStaysThereThoughItsFolderGoesUpstairs(t *te
 	}
 	// Anyone else in that folder goes up by its rule.
 	d.mu.Lock()
-	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "other", "cwd": hire.Folder},
+	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "other", "cwd": hire.Folder.storedOnly()},
 		Claude, "tmux:%9@/tmp/tmux", "", hire.Started+2)
 	d.mu.Unlock()
 	if desks := floorDesks(t, d, 3); len(desks) != 1 || desks[0]["id"] != "other" {
@@ -608,7 +631,7 @@ func TestHiredRoleAtLooksInEveryHireSocketFolder(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "hire-x.sock")
 	for _, socket := range []string{inOwn, inSupport, outside} {
 		if err := updateRegistry(func(f *registryFile) {
-			f.hires = append(f.hires, Hire{ID: newID(), Name: "Janitor", Folder: "/x", Role: "janitor", TmuxSocket: socket, State: "working"})
+			f.hires = append(f.hires, Hire{ID: newID(), Name: "Janitor", Folder: keptPath("/x"), Role: "janitor", TmuxSocket: socket, State: "working"})
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -644,7 +667,7 @@ func TestASocketSpelledThroughALinkIsStillInAHireSocketFolder(t *testing.T) {
 		t.Fatal("the socket's folder is spelled as the hire socket folder: the test proves nothing")
 	}
 	if err := updateRegistry(func(f *registryFile) {
-		f.hires = append(f.hires, Hire{ID: "hire-x", Name: "Janitor", Folder: "/x", Role: "janitor", TmuxSocket: resolved, State: "working"})
+		f.hires = append(f.hires, Hire{ID: "hire-x", Name: "Janitor", Folder: keptPath("/x"), Role: "janitor", TmuxSocket: resolved, State: "working"})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -706,7 +729,7 @@ func TestAnEngineHireIsToldToReadTheBriefWrittenForIt(t *testing.T) {
 	brief := filepath.Join(hireFolder(supportDir, hire.ID), "BRIEF.md")
 	data, err := os.ReadFile(brief)
 	if err != nil || !strings.Contains(string(data), "# Brief: Tester") || !strings.Contains(string(data), "The task, from whoever hired you:\n\nFix the login bug.") ||
-		!strings.Contains(string(data), "`"+tildePath(hire.Worktree)+"`") {
+		!strings.Contains(string(data), "`"+tildePath(hire.Worktree.storedOnly())+"`") {
 		t.Fatalf("the brief: %v\n%s", err, data)
 	}
 	if hire.Brief != brief || registered(t)[0].Brief != brief {
@@ -715,7 +738,7 @@ func TestAnEngineHireIsToldToReadTheBriefWrittenForIt(t *testing.T) {
 	if script := r.script(hire); !strings.Contains(script, "'Read `"+tildePath(brief)+"` and start: it'\\''s your brief, as my Tester") {
 		t.Errorf("the first message doesn't name the brief:\n%s", script)
 	}
-	if entries, _ := os.ReadDir(hire.Worktree); slices.ContainsFunc(entries, func(e os.DirEntry) bool { return strings.HasPrefix(e.Name(), "BRIEF") }) {
+	if entries, _ := os.ReadDir(hire.Worktree.storedOnly()); slices.ContainsFunc(entries, func(e os.DirEntry) bool { return strings.HasPrefix(e.Name(), "BRIEF") }) {
 		t.Error("the brief went in the worktree")
 	}
 	// A role on its own instructions is told them, as before.
@@ -734,9 +757,10 @@ func TestAnEngineHireIsToldToReadTheBriefWrittenForIt(t *testing.T) {
 	}
 }
 
-// Outside git there's no worktree: the brief goes in Smolcorp's briefs folder, named for the desk, and is taken
-// away again if the hire doesn't go ahead.
-func TestAnEngineHireOutsideGitKeepsItsBriefInSmolcorpsFolder(t *testing.T) {
+// Outside git there's no worktree: the brief still goes in the hire's own folder, hires/<id>/ (FXGMHIRE126), never
+// in Smolcorp's briefs folder, which its fence keeps it from changing; and it is taken away again, with that folder,
+// if the hire doesn't go ahead.
+func TestAnEngineHireOutsideGitKeepsItsBriefInItsOwnFolder(t *testing.T) {
 	r := newEngineRig(t)
 	request := r.request("tester")
 	request.Role.Brief = &RoleBrief{Kind: "library", ID: "tester"}
@@ -747,15 +771,21 @@ func TestAnEngineHireOutsideGitKeepsItsBriefInSmolcorpsFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hire.Worktree != "" || filepath.Dir(hire.Brief) != briefsKeptDir() || !strings.HasPrefix(filepath.Base(hire.Brief), "2-tester-") {
+	if !hire.Worktree.none() || hire.Brief != filepath.Join(hireFolder(supportDir, hire.ID), "BRIEF.md") {
 		t.Fatalf("the hire: %+v", hire)
+	}
+	if _, err := os.Stat(hire.Brief); err != nil {
+		t.Fatal(err)
 	}
 	r.tmux.starts = false
 	if _, err := runManagedHire(request, r.o); err == nil {
 		t.Fatal("a hire tmux didn't start went ahead")
 	}
-	if kept, _ := filepath.Glob(filepath.Join(briefsKeptDir(), "*.md")); len(kept) != 1 || kept[0] != hire.Brief {
-		t.Errorf("briefs kept: %v", kept)
+	if kept, _ := filepath.Glob(filepath.Join(supportDir, "hires", "*", "BRIEF*.md")); len(kept) != 1 || kept[0] != hire.Brief {
+		t.Errorf("briefs left: %v", kept)
+	}
+	if kept, _ := filepath.Glob(filepath.Join(briefsKeptDir(), "*.md")); len(kept) != 0 {
+		t.Errorf("briefs in Smolcorp's briefs folder: %v", kept)
 	}
 }
 
@@ -784,11 +814,11 @@ func TestHiresWorktreesGoInTheFolderConfigJSONSets(t *testing.T) {
 	}
 	d.watching.Wait()
 	got := registered(t)
-	if len(got) != 1 || got[0].Worktree == "" {
+	if len(got) != 1 || got[0].Worktree.none() {
 		t.Fatalf("registry %+v", got)
 	}
 	hire := got[0]
-	if parent := physical(filepath.Join(folder, filepath.Base(r.repo))); filepath.Dir(hire.Worktree) != parent {
+	if parent := physical(filepath.Join(folder, filepath.Base(r.repo))); filepath.Dir(hire.Worktree.storedOnly()) != parent {
 		t.Fatalf("the worktree is %q, want it in %q", hire.Worktree, parent)
 	}
 	windowShows(r, pane(t, "idle-empty"), true)
@@ -798,7 +828,7 @@ func TestHiresWorktreesGoInTheFolderConfigJSONSets(t *testing.T) {
 	if kept, _, err := d.fireTmuxHire(hire, false, false); err != nil || kept != "" {
 		t.Fatalf("fire: kept %q, err %v", kept, err)
 	}
-	if _, err := os.Stat(hire.Worktree); err == nil || branches(t, r.repo) != "" {
+	if _, err := os.Stat(hire.Worktree.storedOnly()); err == nil || branches(t, r.repo) != "" {
 		t.Error("the clean worktree in hireWorktrees, or its branch, was left")
 	}
 }
@@ -867,7 +897,7 @@ func TestUnderTheMacAppAnAPIKeyHireGetsTheKeyThroughTheBridgeAndNowhereElse(t *t
 	page := func(heard bool) *httptest.ResponseRecorder {
 		t.Helper()
 		d.mu.Lock()
-		d.lastHire = time.Time{}
+		d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 		d.engine.HeardFrom = func(Hire) bool { return heard }
 		d.mu.Unlock()
 		w := serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer,
@@ -959,7 +989,7 @@ func TestAnAPIKeyHireTheEngineCantTakeIsRefusedNeverPlain(t *testing.T) {
 	}
 	// The same hire on a Claude account opens the old way, so it's the API key that refused it.
 	d.mu.Lock()
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	d.mu.Unlock()
 	if w := serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer,
 		body: `{"role":"janitor","folder":"` + repo + `","answers":[]}`, headers: map[string]string{setupHeader: "1"}}); w.Code != http.StatusOK || len(h.windows) != 1 {
@@ -988,7 +1018,7 @@ func TestAStartScriptLeftByAStoppedCoreIsRemovedAtTheNextStart(t *testing.T) {
 	}
 	// "a" is still starting, "b" was fired meanwhile, "c" has no row at all.
 	err := updateRegistry(func(f *registryFile) {
-		f.hires = append(f.hires, Hire{ID: "aaaaaaaaaaaa", Name: "Janitor", Folder: "/work/a", State: "starting"}, Hire{ID: "bbbbbbbbbbbb", Name: "Cook", Folder: "/work/b", State: "fired"})
+		f.hires = append(f.hires, Hire{ID: "aaaaaaaaaaaa", Name: "Janitor", Folder: keptPath("/work/a"), State: "starting"}, Hire{ID: "bbbbbbbbbbbb", Name: "Cook", Folder: keptPath("/work/b"), State: "fired"})
 	})
 	if err != nil {
 		t.Fatal(err)

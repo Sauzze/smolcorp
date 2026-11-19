@@ -78,7 +78,7 @@ func sparse(t *testing.T, at string, size int64) {
 // save must come back within claudeSwapLimit.
 func fireHire(t *testing.T, place string) map[string]claudePlant {
 	t.Helper()
-	h := Hire{ID: "abcdef000002", Name: "budget", State: "working", Folder: place}
+	h := Hire{ID: "abcdef000002", Name: "budget", State: "working", Folder: keptPath(place)}
 	claudeRegistry(t, h)
 	done := make(chan error, 1)
 	start := time.Now()

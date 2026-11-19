@@ -105,29 +105,72 @@ final class GoCore {
     /// what a hire's pane gets from the Mac on the Swift engine and needs to
     /// work the same: your ssh agent (`git push` over SSH), `LOGNAME`, the text
     /// encoding and the locale's own variables, and `TMUX_TMPDIR`, so both
-    /// engines' hires are in one tmux folder. Nothing else. A Smolcorp opened from
+    /// engines' hires are in one tmux folder; and `agentPlaces`, so the core
+    /// holds an agent's folder you moved. Nothing else. A Smolcorp opened from
     /// a terminal would otherwise hand the core that terminal's whole
     /// environment, its tokens too.
     static let inherited = ["PATH", "HOME", "USER", "LOGNAME", "LANG", "TMPDIR", "SHELL", "SSH_AUTH_SOCK",
                             "__CF_USER_TEXT_ENCODING", "TMUX_TMPDIR",
                             // The locale's categories, a closed list: an open `LC_*` would pass
                             // LC_TERMINAL (iTerm2) and whatever ssh's AcceptEnv carries.
-                            "LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_MESSAGES", "LC_MONETARY", "LC_NUMERIC", "LC_TIME"]
+                            "LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_MESSAGES", "LC_MONETARY", "LC_NUMERIC", "LC_TIME"] + agentPlaces
+
+    /// The variables that move an agent's own folder out of the home folder (`CODEX_HOME`, `GEMINI_CLI_HOME`,
+    /// `GROK_HOME`, the `XDG_*_HOME` OpenCode reads, and the like), or name a file it takes settings or a sign-in
+    /// from: places, never secrets. The core reads them at each desk's start and holds where they point in the desk's
+    /// sandbox, as it holds `~/.codex` (FXAGENTHOMEMAC). Without them here it saw none, and held only the default places.
+    /// The core's own list, in its order: agentHomeVariables, then agentSignInVariables (internal/sandbox/policy.go);
+    /// a Go row fails if the two differ (TestTheMacAppPassesTheCoreEveryAgentPlaceVariable). Last, `ZDOTDIR`, where
+    /// zsh's start files are when you moved them: the core holds them there too (FXSWEEP3P1).
+    static let agentPlaces = ["CODEX_HOME", "CODEX_SQLITE_HOME", "GEMINI_CLI_HOME", "GEMINI_CLI_TRUSTED_FOLDERS_PATH",
+                              "GEMINI_CLI_SYSTEM_SETTINGS_PATH", "GEMINI_CLI_SYSTEM_DEFAULTS_PATH", "GROK_HOME", "GROK_CONFIG_PATH",
+                              "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "OPENCODE_CONFIG_DIR",
+                              "OPENCODE_CONFIG",
+                              "GROK_AUTH_PATH", "GROK_TRACE_UPLOAD_CREDENTIALS_FILE", "OPENCODE_DB",
+                              "ZDOTDIR"]
 
     /// The core's environment: `inherited` from this app's, with the port and folder
     /// a test copy's hires and `smolcorp gm` read, as the Swift engine gives them, and
     /// SMOLCORP_TEST_LISTEN=lan if the copy was opened with it (the core listens on this
     /// Mac only otherwise, as `TestCopy.listensOn`). Never the token.
     /// With the names of `claudeNames` too, never their values: see there.
+    /// An `agentPlaces` variable only when it's a whole path (FXAGENTHOMEMACR2): a desk's sandbox holds
+    /// nothing else, and git and the sign-ins would read a relative one in the temp folder, where desks write.
+    /// Nor one spelled with a `.` or `..` in it, or a doubled `/` (FXAGENTHOMEMACR3): a sandbox holds the place
+    /// as cleaned, while the Mac takes `..` after a link a desk could make. Its name alone goes, in
+    /// `agentPlacesDroppedVariable`, so the core refuses every desk's start in words that name it.
     func environment(base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
-        var environment = base.filter { GoCore.inherited.contains($0.key) }
+        var environment = base.filter {
+            GoCore.inherited.contains($0.key) && (!GoCore.agentPlaces.contains($0.key) || GoCore.isCleanWholePath($0.value))
+        }
         environment["SMOLCORP_PORT"] = String(port)
         environment["SMOLCORP_TEST_SUPPORT_DIR"] = support.path
         if TestCopy.wantsLAN(base) { environment["SMOLCORP_TEST_LISTEN"] = "lan" }
         let names = GoCore.claudeNames(base)
         if !names.isEmpty { environment[GoCore.claudeNamesVariable] = names.joined(separator: ",") }
+        let dropped = GoCore.agentPlaces.filter { base[$0].map { $0.utf8.first == GoCore.slash && !GoCore.isCleanWholePath($0) } ?? false }
+        if !dropped.isEmpty { environment[GoCore.agentPlacesDroppedVariable] = dropped.joined(separator: ",") }
         return environment
     }
+
+    /// Whether value is a whole path with no `.` or `..` in it and no doubled `/` (one or more at its end aside),
+    /// as the core's `sandbox.AgentPlaceUnclean` tells it. Read by its UTF-8 bytes, as the core and the Mac read a
+    /// path: a String's Characters would join a `/` or `.` with a combining mark after it, so `/x/../\u{301}b` would
+    /// pass here while the Mac takes its `..` (RT126AGENTHOMEMACR3 N1).
+    static func isCleanWholePath(_ value: String) -> Bool {
+        var bytes = Array(value.utf8)
+        guard bytes.first == slash else { return false }
+        while bytes.count > 1 && bytes.last == slash { bytes.removeLast() }
+        if bytes == [slash] { return true }
+        return !bytes.dropFirst().split(separator: slash, omittingEmptySubsequences: false)
+            .contains { $0.isEmpty || $0.elementsEqual([dot]) || $0.elementsEqual([dot, dot]) }
+    }
+
+    /// `/` and `.` as UTF-8 bytes, for isCleanWholePath and environment.
+    private static let slash = UInt8(ascii: "/"), dot = UInt8(ascii: ".")
+
+    /// The core's `agentPlacesDroppedVariable` (desktop/desksandbox.go).
+    static let agentPlacesDroppedVariable = "SMOLCORP_AGENT_PLACES_DROPPED"
 
     /// The names of the CLAUDECODE and CLAUDE_CODE_* variables this app was opened with, sorted: a Smolcorp
     /// started from a terminal inside a Claude Code session has that session's. The core never gets them, as

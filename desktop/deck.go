@@ -113,6 +113,10 @@ type Deck struct {
 	// A hire is under way: its agent being looked for, or its terminal opening,
 	// with the lock let go. No other starts until it's done.
 	hiring bool
+	// gmAskedHiring and gmLastHire are hiring and lastHire for the hires the General Manager asks for, which never hold
+	// the owner's or Setup's (FXCOREWORKTREES126, item 5): one GM hire at a time, each within gmHireDeadline.
+	gmAskedHiring bool
+	gmLastHire    time.Time
 	// The engine's stand-ins, for the tests, and the hires it is still watching: see hireengine.go.
 	engine engineOptions
 	// The same for the launcher's way (hirelauncher.go).
@@ -256,6 +260,7 @@ func NewDeck() *Deck {
 		},
 		func() []Hire { return readRegistry(registry, false).hires },
 		d.events.append, d.events.snapshot())
+	d.watchers.shown = d.shownNames
 	// The app's own watches: wanted while the manager and the setting are on; a question is a session asking in a folder.
 	d.watchers.setBuiltins(func() bool {
 		d.mu.Lock()
@@ -333,8 +338,11 @@ func NewDeck() *Deck {
 	d.rounds.every(musicInterval, d.followMusic)
 	// The photos from the last run, now, before the deck is anyone's (their folders' names went with it), then those
 	// past their time as they come.
+	// While photos are off (dormant.go), only the first: what an earlier run left is still deleted, and no sweep starts.
 	clearPhotos(supportDir)
-	d.rounds.every(photoSweepEvery, d.sweepPhotos)
+	if photoOn {
+		d.rounds.every(photoSweepEvery, d.sweepPhotos)
+	}
 	d.hold.file, d.hold.seenFile = holdFile(), holdSeen()
 	// The paste hold's key, under the Mac app only: off a Mac nothing holds (pastehold.go).
 	if d.mac.host != nil {
@@ -360,8 +368,13 @@ func NewDeck() *Deck {
 	if goneDesksSwept {
 		d.rounds.run(d.sweepGoneDesks)
 	}
+	// Plain hires whose launcher went while Smolcorp was stopped are ended (plainhireend.go).
+	if plainHiresSwept {
+		d.sweepPlainHires()
+	}
 	// The night shift: an approved job falls due from now on, and starts its hire (nightstart.go).
-	if nightShiftStarts {
+	// Not while the night shift is off (dormant.go).
+	if nightShiftStarts && nightShiftOn {
 		d.startNight()
 	}
 	return d
@@ -546,7 +559,7 @@ func (d *Deck) ingestAs(desks hookDesks, desk string, event map[string]any, repo
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	desks.launchers = d.launcherHires()
+	desks.launchers, desks.ownLaunchers = d.launcherHires(), d.launcherHookHashes()
 	id, _ := canonical["session_id"].(string)
 	session := d.sessions.Get(id)
 	if session == nil {
@@ -586,7 +599,9 @@ func (d *Deck) ingestAs(desks hookDesks, desk string, event map[string]any, repo
 		}
 	}
 	changed := d.sessions.Apply(canonical, agent, tab, startedIn, at)
-	if s := d.sessions.Get(id); s != nil && desk != "" {
+	// A launcher's own key (a sandboxed plain hire's relay) isn't kept as the desk that reported: it has no row in the
+	// registry, which deskGit holds such a desk's reads to, and its tab says whose session it is.
+	if s := d.sessions.Get(id); s != nil && desk != "" && !strings.HasPrefix(desk, "launcher:") {
 		s.reportedBy = desk
 	}
 	if s := d.sessions.Get(id); s != nil && named != "" && s.unconfirmedFolder != unconfirmed {
@@ -1386,9 +1401,22 @@ func (d *Deck) launcherConnected(id string, agent Agent, folder, role, hire stri
 	}
 	tab := &launcherTab{agent: agent, folder: folder, role: role, desk: -1, commands: make(chan launcherCommand, 32),
 		screenSecret: randomHex(16), gone: make(chan struct{})}
+	plainDesk := ""
+	if pending, found := d.hires[hire]; found && hire != "" {
+		plainDesk = pending.plainDesk
+	}
 	if hire != "" {
 		tab.office = true
+		pending := d.hires[hire]
 		tab.desk, tab.floor, tab.hireID, tab.hired = d.hiredPending(hire)
+		// Made while the sandbox was off: tagged No sandbox for as long as it runs, whatever the switch says later.
+		tab.sandboxOff = tab.hired && pending != nil && pending.sandboxOff
+	}
+	// A plain hire's launcher (plainhireend.go): by its token, or, connected again without it, by its worktree.
+	if tab.hired && plainDesk != "" {
+		tab.plainDesk = plainDesk
+	} else if hire == "" {
+		tab.plainDesk = plainDeskOf(folder)
 	}
 	d.launchers[id] = tab
 	// Back after a restart: the sessions it held are back too.
@@ -1406,6 +1434,9 @@ func (d *Deck) launcherGone(id string, tab *launcherTab) {
 	}
 	delete(d.launchers, id)
 	close(tab.gone) // a look still waiting on it stops waiting
+	if tab.plainDesk != "" {
+		d.plainHireLeft(tab.plainDesk) // its hire is ended once no window of it connects again
+	}
 	if d.sessions.Prune(func(name string) bool { return name != "launcher:"+id }, nowMillis()) {
 		d.changed()
 	}
@@ -1772,10 +1803,12 @@ func (d *Deck) PerformFrom(phone, action, id string, query url.Values) (int, str
 		if hiring && query.Has("desk") && query.Get("desk") == "" {
 			return http.StatusBadRequest, "Unknown desk"
 		}
+		// The project picked in the folder for hires, on a Mac with the sandbox on (FXHIREPROJECTSR4): its name.
+		project := query.Get("project")
 		if floor := query.Get("floor"); floor != "" && floor != "0" {
-			return d.hireUpstairs(floor, query.Get("desk"), query.Get("role"))
+			return d.hireUpstairsIn(floor, query.Get("desk"), query.Get("role"), project)
 		}
-		return d.hire(query.Get("desk"), query.Get("role"))
+		return d.hireWith(hireSpec{desk: query.Get("desk"), roleID: query.Get("role"), project: project})
 	}
 	// A hire in T3 Code's desk: Let go, the lane's, from its card; nothing else reaches it, as there's nothing to type into.
 	if action == "letgo" {

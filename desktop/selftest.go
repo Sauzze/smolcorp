@@ -96,13 +96,14 @@ func (d *Deck) selfTest() []check {
 }
 
 // sandboxLine is the checklist's one sandbox line, on every system (MSYSTACK4, by the merge rule at sandboxCheck):
-// Setup's Sandbox row's line (the method sandboxCheck). On Linux, while no desk starts in a sandbox there (until SA-L4),
-// its words, but L1APPARMOR1's fix status and its one command whenever the start's check of Smolcorp's bubblewrap
-// fails: its fail-closed gate stays, so the checklist isn't ready. L1's own "Hires start in their own sandbox"
-// (sandboxCheck(nil)) is for once L4 starts desks there.
+// Setup's Sandbox row's line (the method sandboxCheck). On Linux while no desk starts in a sandbox there (1.26.0,
+// until SA-L4: desksSandboxedHere is false), that row's "No sandbox on this computer yet" alone: Smolcorp's
+// bubblewrap isn't checked or asked for, as nothing uses it (FXLINUXCLAIMS). Once Linux desks start in their sandbox,
+// L1APPARMOR1's fix status and its one command whenever the start's check of Smolcorp's bubblewrap fails, so the
+// checklist isn't ready; L1's own "Hires start in their own sandbox" (sandboxCheck(nil)) is for then too.
 func (d *Deck) sandboxLine() check {
 	c := d.sandboxCheck(readRegistry(registryPath(), false).hires)
-	if setupSystem == "linux" {
+	if setupSystem == "linux" && desksSandboxedHere {
 		if bwrap := sandboxCheck(checkSandbox()); bwrap.Status == checkFix {
 			c.Status, c.Detail = bwrap.Status, bwrap.Detail
 		}
@@ -110,12 +111,23 @@ func (d *Deck) sandboxLine() check {
 	return c
 }
 
+// RunSandboxUsed is `smolcorp sandbox used`, the Linux installer's question before its one step with sudo: 0 when
+// this computer's desks start in their sandbox (desksSandboxedHere), so Smolcorp's bubblewrap is worth setting up;
+// 1, saying nothing, when they start in none (Linux in 1.26.0, until SA-L4), and the installer then neither sets it
+// up nor mentions it. The same switch gates the checklist's bubblewrap line (sandboxLine), so both come back together.
+func RunSandboxUsed() int {
+	if desksSandboxedHere {
+		return 0
+	}
+	return 1
+}
+
 // checkSandbox is the start's own check of Smolcorp's bubblewrap and its AppArmor profile; the tests change it.
 var checkSandbox = sandbox.CheckBwrap
 
 // sandboxCheck is Linux's line for the hires' sandbox (L1APPARMOR1): ticked when the start's check passes, and in
-// the way when it doesn't, with why and the one command to run, since no hire starts without its sandbox. Until SA-L4
-// starts desks in it, the checklist takes only its fix (sandboxLine).
+// the way when it doesn't, with why and the one command to run, since no hire starts without its sandbox. Reached
+// only once SA-L4 starts desks in it (sandboxLine), and the checklist then takes only its fix.
 func sandboxCheck(err error) check {
 	c := check{ID: "sandbox", Title: "Hires start in their own sandbox"}
 	if err == nil {

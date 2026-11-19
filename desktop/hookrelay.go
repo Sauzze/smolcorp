@@ -3,11 +3,9 @@ package desktop
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -17,13 +15,19 @@ import (
 )
 
 // A plain hire's hook relay (SA-M10). A hire the launcher starts in its sandbox (launchersandbox_darwin.go) can't read
-// the hook key in the support folder, and has no key of its own: only the engine's desks, which have a registry row,
-// get one (hookkeys.go). Nor is it handed the owner's key, which would let it report as the owner's own sessions
-// (AQ3). So its hooks hand their events to its launcher, outside the sandbox, on the hire's own socket, the one unix
-// socket its sandbox lets it reach: the launcher sends each one on to the app with the owner's key, as its own tab says
-// (launcher:<its id>; none for Codex, whose tab the app finds by folder), for its own agent, and with nothing else the
-// hire said about where it runs. So a sandboxed plain hire reports as itself, and can do nothing more with the relay
-// than send an event: no other route, no other tab, no key.
+// the hook key in the support folder, and has no registry row for a key of its own (hookkeys.go). Nor is it handed the
+// owner's key, which would let it report as the owner's own sessions (AQ3). So its hooks hand their events to its
+// launcher, outside the sandbox, on the hire's own socket, the one unix socket its sandbox lets it reach: the launcher
+// sends each one on to the app as its own tab says (launcher:<its id>; none for Codex, whose tab the app finds by
+// folder), for its own agent, and with nothing else the hire said about where it runs. It sends with a hook key of the
+// launcher's own, made at its start and given to the app on its connection (launcherRelayKeyHeader), as an engine desk
+// has one (FXSWEEP3P3 F-3): never the owner's, with which an event could move or end any session of the owner's, or of
+// another plain hire. So a sandboxed plain hire reports as itself, and can do nothing more with the relay than send an
+// event for its own tab: no other route, no other tab, no key.
+
+// launcherRelayKeyHeader is where a launcher gives the app its own hook key, on its connection (/launcher), which the
+// owner's key opens: its relay's events then count for its own tab alone (hookDesks.ownLaunchers).
+const launcherRelayKeyHeader = "X-AgentDeck-Relay-Key"
 
 // hookRelayEnvironment is where a sandboxed plain hire's hook finds its launcher's relay: the socket's whole path.
 const hookRelayEnvironment = "SMOLCORP_HOOK_RELAY"
@@ -134,15 +138,3 @@ func relayHandler(launcher string, agent Agent, base string, key func() (string,
 
 // relayClient is the relay's client to the app.
 var relayClient = &http.Client{Timeout: hookTimeout}
-
-// launcherHookKey is the key the relay sends with: the launcher's own, as it reaches the app with (serveDeck).
-func launcherHookKey() (string, error) {
-	key, err := os.ReadFile(hookKeyFile)
-	if err != nil {
-		return "", err
-	}
-	if secret := strings.TrimSpace(string(key)); secret != "" {
-		return secret, nil
-	}
-	return "", errors.New("no hook key")
-}

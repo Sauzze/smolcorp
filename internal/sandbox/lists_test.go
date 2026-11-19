@@ -114,9 +114,8 @@ func TestEachMachServiceHasItsRowAndNoneOfTheNeverListIsOnIt(t *testing.T) {
 	rows := []string{
 		"com.apple.system.opendirectoryd.libinfo", "com.apple.system.opendirectoryd.membership", "com.apple.system.logger",
 		"com.apple.logd", "com.apple.trustd.agent", "com.apple.SecurityServer", "com.apple.securityd.xpc", "com.apple.FSEvents",
-		"com.apple.SystemConfiguration.configd", "com.apple.system.notification_center", "com.apple.cfprefsd.daemon",
-		"com.apple.cfprefsd.agent", "com.apple.bsd.dirhelper", "com.apple.PowerManagement.control", "com.apple.fonts",
-		"com.apple.FontObjectsServer",
+		"com.apple.SystemConfiguration.configd", "com.apple.system.notification_center",
+		"com.apple.bsd.dirhelper", "com.apple.PowerManagement.control", "com.apple.fonts", "com.apple.FontObjectsServer",
 	}
 	never := []string{
 		"com.apple.windowserver.active", "com.apple.CARenderServer", "com.apple.pasteboard.1",
@@ -125,6 +124,7 @@ func TestEachMachServiceHasItsRowAndNoneOfTheNeverListIsOnIt(t *testing.T) {
 		"com.apple.distributed_notifications@Uv3", "com.apple.tccd", "com.apple.tccd.system", "com.apple.audio.coreaudiod",
 		"com.apple.audio.audiohald", "com.apple.audio.systemsoundserver", "com.apple.cmio.registerassistantservice",
 		"com.apple.replayd", "com.apple.CoreSimulator.CoreSimulatorService", "com.apple.metadata.mds", "com.apple.iohideventsystem",
+		"com.apple.cfprefsd.agent", "com.apple.cfprefsd.daemon",
 	}
 	allowed := MachServices()
 	if len(allowed) != len(rows) {

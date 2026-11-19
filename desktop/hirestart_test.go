@@ -200,7 +200,7 @@ func TestATestCopyNeverHiresClaudeOnTheDefaultAccount(t *testing.T) {
 func TestAHireGetsItsOwnSendKeyAndTheGMNeverDoes(t *testing.T) {
 	isolate(t)
 	file := readRegistry(registryPath(), true)
-	file.hires = append(file.hires, Hire{ID: "gm1", Name: "GM", Role: "gm", Folder: homeDir, State: "starting"}, Hire{ID: "jan1", Name: "Janitor", Role: "janitor", Folder: homeDir, State: "starting"})
+	file.hires = append(file.hires, Hire{ID: "gm1", Name: "GM", Role: "gm", Folder: keptPath(homeDir), State: "starting"}, Hire{ID: "jan1", Name: "Janitor", Role: "janitor", Folder: keptPath(homeDir), State: "starting"})
 	if err := file.save(registryPath()); err != nil {
 		t.Fatal(err)
 	}
@@ -325,11 +325,11 @@ func TestTheGMStartsWithItsPluginAndAgent(t *testing.T) {
 		t.Errorf("no plugin bundled, none loaded:\n%s", script)
 	}
 
-	intro := gmIntroduction("/x/hires", false)
+	intro := gmIntroduction("/x/hires", "", "", false)
 	if !strings.HasPrefix(intro, "You are the General Manager of this team. Your folder is /x/hires.") || strings.Contains(intro, "not available") {
 		t.Errorf("the introduction: %q", intro)
 	}
-	if !strings.Contains(gmIntroduction("/x/hires", true), "The `smolcorp` tools are not available in this copy of Smolcorp") {
+	if !strings.Contains(gmIntroduction("/x/hires", "", "", true), "The `smolcorp` tools are not available in this copy of Smolcorp") {
 		t.Error("the GM isn't told its tools are missing")
 	}
 }

@@ -203,7 +203,7 @@ func TestAHiresRecordedTmuxWinsOverTheOneNowPicked(t *testing.T) {
 	bundledTmux = func() string { return picked }
 	t.Cleanup(func() { bundledTmux = func() string { return "" } })
 	socket := filepath.Join(supportDir, "smolcorp-ab12-cd34")
-	writeRegistry(t, Hire{ID: "ab12-cd34", Name: "Dev", Folder: "/p", TmuxSocket: socket, TmuxProgram: recorded})
+	writeRegistry(t, Hire{ID: "ab12-cd34", Name: "Dev", Folder: keptPath("/p"), TmuxSocket: socket, TmuxProgram: recorded})
 
 	if got := recordedTmux(socket); got != recorded {
 		t.Errorf("recordedTmux: %q, want %q", got, recorded)
@@ -240,8 +240,8 @@ func TestAnOldRowWithoutAPathFallsBackAndSoDoesAGoneOne(t *testing.T) {
 	old := filepath.Join(supportDir, "smolcorp-ab12-cd34")
 	goneSocket := filepath.Join(supportDir, "smolcorp-ef56-0000")
 	writeRegistry(t,
-		Hire{ID: "ab12-cd34", Name: "Dev", Folder: "/p", TmuxSocket: old},
-		Hire{ID: "ef56-0000", Name: "Dev", Folder: "/p", TmuxSocket: goneSocket, TmuxProgram: gone},
+		Hire{ID: "ab12-cd34", Name: "Dev", Folder: keptPath("/p"), TmuxSocket: old},
+		Hire{ID: "ef56-0000", Name: "Dev", Folder: keptPath("/p"), TmuxSocket: goneSocket, TmuxProgram: gone},
 	)
 	for _, socket := range []string{old, goneSocket, ""} {
 		if got := recordedTmux(socket); got != "" {
@@ -256,7 +256,7 @@ func TestAnOldRowWithoutAPathFallsBackAndSoDoesAGoneOne(t *testing.T) {
 	}
 	// A recorded path that isn't a program you can run is no better than a gone one.
 	_, notRunnable := standInTmux(t, 0o644)
-	writeRegistry(t, Hire{ID: "ab12-cd34", Name: "Dev", Folder: "/p", TmuxSocket: old, TmuxProgram: notRunnable})
+	writeRegistry(t, Hire{ID: "ab12-cd34", Name: "Dev", Folder: keptPath("/p"), TmuxSocket: old, TmuxProgram: notRunnable})
 	if got := tmuxDriving(old); got != picked {
 		t.Errorf("a recorded file that can't be run: %q, want %q", got, picked)
 	}
@@ -272,7 +272,7 @@ func TestARecordedTmuxThatIsALinkOrWritableByOthersFallsBack(t *testing.T) {
 	socket := filepath.Join(supportDir, "smolcorp-ab12-cd34")
 	record := func(program string) {
 		t.Helper()
-		writeRegistry(t, Hire{ID: "ab12-cd34", Name: "Dev", Folder: "/p", TmuxSocket: socket, TmuxProgram: program})
+		writeRegistry(t, Hire{ID: "ab12-cd34", Name: "Dev", Folder: keptPath("/p"), TmuxSocket: socket, TmuxProgram: program})
 	}
 	check := func(why, program string, want string) {
 		t.Helper()
@@ -327,7 +327,7 @@ func TestARecordedTmuxThatIsNotUsedIsSaidOnceWithWhyAndTheOneUsed(t *testing.T) 
 	socket := filepath.Join(supportDir, "smolcorp-ab12-cd34")
 	record := func(program string) {
 		t.Helper()
-		writeRegistry(t, Hire{ID: "ab12-cd34", Name: "Dev", Folder: "/p", TmuxSocket: socket, TmuxProgram: program})
+		writeRegistry(t, Hire{ID: "ab12-cd34", Name: "Dev", Folder: keptPath("/p"), TmuxSocket: socket, TmuxProgram: program})
 	}
 	lines := func() []string { return strings.Split(strings.TrimSpace(logged.String()), "\n") }
 
@@ -409,14 +409,14 @@ func TestALinkedTmuxIsRecordedAsTheFileItPointsTo(t *testing.T) {
 
 // The path is written only when known: a 1.25 row, and one made with a stand-in tmux, are as they were.
 func TestTheRecordedTmuxIsWrittenOnlyWhenKnown(t *testing.T) {
-	plain, err := json.Marshal(Hire{ID: "a", Name: "Dev", Folder: "/p"})
+	plain, err := json.Marshal(Hire{ID: "a", Name: "Dev", Folder: keptPath("/p")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(plain), "tmuxProgram") {
 		t.Errorf("a row with no path has one: %s", plain)
 	}
-	kept, _ := json.Marshal(Hire{ID: "a", Name: "Dev", Folder: "/p", TmuxProgram: "/x/tmux"})
+	kept, _ := json.Marshal(Hire{ID: "a", Name: "Dev", Folder: keptPath("/p"), TmuxProgram: "/x/tmux"})
 	if !strings.Contains(string(kept), `"tmuxProgram":"/x/tmux"`) {
 		t.Errorf("the path isn't written: %s", kept)
 	}

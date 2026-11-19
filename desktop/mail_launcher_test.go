@@ -70,7 +70,7 @@ func newFakeLauncherAs(t *testing.T, d *Deck, id, folder, role, hire, shows stri
 	if tab == nil {
 		t.Fatal("launcher not connected")
 	}
-	f := &fakeLauncher{t: t, d: d, id: id, tab: tab, screen: newLauncherScreen(60, 200, true)}
+	f := &fakeLauncher{t: t, d: d, id: id, tab: tab, screen: newLauncherScreen(60, 200, true, westernCP)}
 	mode := ""
 	if bracketed {
 		mode = "\x1b[?2004h"
@@ -115,7 +115,7 @@ func takesTheDraft(t *testing.T) func(*fakeLauncher, string) {
 }
 
 func launcherHire() Hire {
-	return Hire{ID: "abcdef123456", Name: "Rev", Role: "reviewer", Folder: "/work/api", State: "working"}
+	return Hire{ID: "abcdef123456", Name: "Rev", Role: "reviewer", Folder: keptPath("/work/api"), State: "working"}
 }
 
 func noPause(time.Duration) {}
@@ -396,7 +396,7 @@ func TestTheScreenTracksBracketedPasteWithoutChangingWhatItReads(t *testing.T) {
 		}
 	}
 	// Split across two writes, and cleared with the screen's reset.
-	s := newTextScreen(60, 200)
+	s := newTextScreen(60, 200, westernCP)
 	s.Write([]byte("\x1b[?20"))
 	s.Write([]byte("04h"))
 	if !s.Bracketed() {
@@ -489,7 +489,7 @@ func TestAWindowAnotherHireMayOwnIsNotTyped(t *testing.T) {
 		t.Errorf("with the other hire fired: %q %v", id, ok)
 	}
 	// A hire with a worktree isn't matched by the folder it was hired from.
-	a.Worktree = "/work/api-hires/abcdef123456"
+	a.Worktree = keptPath("/work/api-hires/abcdef123456")
 	if _, ok := d.hireLauncherID(a); ok {
 		t.Error("a hire with a worktree was matched by its folder")
 	}

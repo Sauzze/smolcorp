@@ -959,6 +959,70 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertEqual(shown, ["on top false", "close floor"])
     }
 
+    /// The office's ⚙︎ on a Mac (FXBROWSERSTRICT): the core asks the bridge's `settings`, and the shell shows its own
+    /// Settings window, on the main queue, as the menu's Settings… does; Setup in a browser only looks on a Mac. Only
+    /// with the token, as every action. Nothing here shows a window: a stand-in.
+    func testTheCogsSettingsAreTheShellsOwnWindow() {
+        var mac = actions
+        mac.main = terminals
+        var shown: [String] = []
+        mac.showSettings = { then in shown.append("settings" + (then.map { " at #\($0)" } ?? "")) }
+        let stranger = HostBridge.answer(try! JSONSerialization.data(withJSONObject: ["action": "settings", "token": "not-it"]),
+                                         token: token, actions: mac)
+        XCTAssertFalse(isOK(stranger))
+        XCTAssertEqual(shown, [], "never without the token")
+        let asked = HostBridge.answer(try! JSONSerialization.data(withJSONObject: ["action": "settings", "token": token]),
+                                      token: token, actions: mac)
+        XCTAssertTrue(isOK(asked))
+        terminals.sync {}
+        XCTAssertEqual(shown, ["settings"])
+    }
+
+    /// The demo's page on a Mac (FXDEMOMAC): the core asks the bridge's `settings` at `then`, demo= and the demo's folder
+    /// escaped (desktop/demopage.go's demoPageThen), and the shell's own Settings window opens Setup there, since Setup in
+    /// a browser only looks on a Mac. Anything else after # is refused, and nothing is shown. A stand-in: no window.
+    func testTheDemosPageOpensInTheShellsOwnSettingsWindow() {
+        var mac = actions
+        mac.main = terminals
+        var shown: [String] = []
+        mac.showSettings = { then in shown.append(then ?? "settings") }
+        let demo = "demo=%2FUsers%2Fada%2Fmy+demo%2Fsmolcorp-demo"
+        XCTAssertTrue(isOK(HostBridge.answer(try! JSONSerialization.data(withJSONObject: ["action": "settings", "then": demo, "token": token]),
+                                             token: token, actions: mac)))
+        for then in ["", "demo=", "pair", "demo=/Users/ada/x", "demo=%2Fa#b", "demo=%2Fa&k=x", "demo=%2Fa b", "demo=%2Fé", "x&demo=%2Fa"] {
+            let answer = HostBridge.answer(try! JSONSerialization.data(withJSONObject: ["action": "settings", "then": then, "token": token]),
+                                           token: token, actions: mac)
+            XCTAssertFalse(isOK(answer), then)
+        }
+        terminals.sync {}
+        XCTAssertEqual(shown, [demo])
+        XCTAssertEqual(SettingsWindow.address(port: 7710, then: demo).absoluteString, "http://127.0.0.1:7710/setup#" + demo)
+    }
+
+    /// A `%` in the demo's `then` is taken only as an escape, two hex digits after it (RT126DEMOMAC O1): the core's
+    /// escaping never writes another, and on macOS 13 an address with one may not be made, so Settings would stop the app.
+    func testTheDemosPageTakesAPercentOnlyAsAnEscape() {
+        for then in ["demo=%2F", "demo=%2fa%C3%A9", "demo=a%2Fb+c", "demo=%41%7e"] {
+            XCTAssertTrue(HostBridge.settingsThen(then), then)
+            XCTAssertNotNil(URL(string: "http://127.0.0.1:7710/setup#" + then), then)
+        }
+        for then in ["demo=%", "demo=%2", "demo=a%", "demo=%zz", "demo=%2G", "demo=%%41", "demo=%g1", "demo=%2Fa%"] {
+            XCTAssertFalse(HostBridge.settingsThen(then), then)
+        }
+    }
+
+    /// The Go shell's office link hands the bridge's `settings` to the shell's own Settings, set once the shell is made.
+    func testTheOfficeLinkHandsSettingsToTheShell() {
+        let link = OfficeLink(labels: { [:] }, testCopy: false)
+        let mac = link.actions(actions, config: Config())
+        var shown = 0
+        mac.showSettings(nil)
+        XCTAssertEqual(shown, 0, "nothing until the shell sets it")
+        link.showSettings = { _ in shown += 1 }
+        mac.showSettings(nil)
+        XCTAssertEqual(shown, 1)
+    }
+
     /// Under the Go core, the office's window on top is settled as the Swift engine settles it (on once set up,
     /// unless the menu said otherwise), with only that one key put in the core's file: the rest as it was.
     func testTheOnTopSettingIsSettledForTheCoreWithOneKey() throws {

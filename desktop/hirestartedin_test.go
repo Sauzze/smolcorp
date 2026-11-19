@@ -29,15 +29,15 @@ func TestAHireIntoALinkedFolderStartedAtTheSamePlaceInItsWorktree(t *testing.T) 
 	if err := os.Symlink(repo, link); err != nil {
 		t.Skip("links can't be made here:", err)
 	}
-	h := Hire{ID: "abcdef123456", Name: "Rex", Role: "reviewer", Folder: filepath.Join(link, "web"), Repo: physical(repo),
-		Worktree: physical(tree), Branch: "hire/rex-abcdef", TmuxSocket: "/tmp/tmux-501/smolcorp-abcdef123456", State: "working"}
-	if got, want := startedIn(h), filepath.Join(h.Worktree, "web"); got != want {
+	h := Hire{ID: "abcdef123456", Name: "Rex", Role: "reviewer", Folder: keptPath(filepath.Join(link, "web")), Repo: physical(repo),
+		Worktree: keptPath(physical(tree)), Branch: "hire/rex-abcdef", TmuxSocket: "/tmp/tmux-501/smolcorp-abcdef123456", State: "working"}
+	if got, want := h.storedStart(), filepath.Join(h.Worktree.storedOnly(), "web"); got != want {
 		t.Errorf("started in %q, want %q", got, want)
 	}
 	// The project's top, through the same link, is the worktree's top.
 	top := h
-	top.Folder = link
-	if got := startedIn(top); got != top.Worktree {
+	top.Folder = keptPath(link)
+	if got := top.storedStart(); got != top.Worktree.storedOnly() {
 		t.Errorf("hired into the project's top, started in %q, want %q", got, top.Worktree)
 	}
 	// Everything else about it is takeable: its session is on the default account.
@@ -59,13 +59,13 @@ func TestAHireIntoALinkedFolderStartedAtTheSamePlaceInItsWorktree(t *testing.T) 
 func TestAnotherHiresProjectIsNotWhereItWorks(t *testing.T) {
 	d := newTestDeck(t)
 	a := launcherHire() // no worktree: it works in /work/api
-	b := Hire{ID: "bbbbbb123456", Name: "Bo", Role: "tester", Folder: "/work/api-hires/bo-bbbbbb", Worktree: "/work/api-hires/bo-bbbbbb",
+	b := Hire{ID: "bbbbbb123456", Name: "Bo", Role: "tester", Folder: keptPath("/work/api-hires/bo-bbbbbb"), Worktree: keptPath("/work/api-hires/bo-bbbbbb"),
 		Repo: "/work/api", Branch: "hire/bo-bbbbbb", State: "working"}
 	data, _ := json.Marshal(map[string]any{"version": 1, "hires": []Hire{a, b}})
 	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := readRegistry(registryPath(), false).hires[1].Folder; got != "/work/api" {
+	if got := readRegistry(registryPath(), false).hires[1].Folder; got.storedOnly() != "/work/api" {
 		t.Fatalf("the old row's folder reads as %q, want the project", got)
 	}
 	newFakeLauncher(t, d, "L1", "/work/api", "", "idle-empty", true)

@@ -10,7 +10,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
+
+	"github.com/Sauzze/smolcorp/internal/gm"
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 // POST /setup/hire, setup's own hire sheet, as the Mac's BriefRoutes.hireRequest
@@ -52,6 +56,9 @@ type setupHire struct {
 	// byGM: the request came with the GM's token (set by the route, never read from the body), so an ACP role is
 	// refused in the fence's sentence (acpHireRefusal).
 	byGM bool
+	// gmToken: the request came with the GM's token itself (the caller, whichever route), never the page: such a
+	// hire is never into T3 Code (FXSWEEP3P3 F-1). Set by the route, never read from the body.
+	gmToken bool
 	// held: the GM route's hire by a GM held to one project, its scope (hireSpec.held); nil for any other.
 	held *gmScope
 }
@@ -84,6 +91,29 @@ func (h *setupHire) apply(r *engineRequest, managerOn bool) {
 
 const setupHireModelLongest = 60
 
+// The words a hire's model or nickname is refused in, by every route that takes one (setup's sheet, the GM's).
+const (
+	hireModelRefusal    = "A model is a name such as claude-sonnet-5-5."
+	hireNicknameRefusal = "A nickname is one line of at most 40 characters."
+)
+
+// hireModelAllowed is whether model, trimmed already, is one a hire may be given, as the Mac's
+// BriefRoutes.hireRequest allows it: at most 60 ASCII letters, digits and - _ . : [ ]. "" is the role's own.
+func hireModelAllowed(model string) bool {
+	return utf8.RuneCountInString(model) <= setupHireModelLongest && strings.IndexFunc(model, func(r rune) bool {
+		return r > 127 || !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_.:[]", r))
+	}) < 0
+}
+
+// hireNicknameAllowed is whether nickname, trimmed already, is one a hire may be given: one line of at most 40
+// characters, with no control character in it (ESC, NUL, TAB, the C1 ones: words that name a hire print it, and an
+// escape there would be the terminal's, RT126GMHIRE126 O1). "" is none.
+func hireNicknameAllowed(nickname string) bool {
+	return utf8.RuneCountInString(nickname) <= longestNickname && strings.IndexFunc(nickname, func(r rune) bool {
+		return unicode.IsControl(r) || r == '\u2028' || r == '\u2029'
+	}) < 0
+}
+
 // setupHireRequest checks a request's body as the Mac's BriefRoutes.hireRequest:
 // the request, or a status and why not.
 func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home string) (setupHire, int, string) {
@@ -102,15 +132,13 @@ func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home 
 	role := roles[i]
 	model, _ := given["model"].(string)
 	model = strings.Trim(model, " \t")
-	if utf8.RuneCountInString(model) > setupHireModelLongest || strings.IndexFunc(model, func(r rune) bool {
-		return r > 127 || !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_.:[]", r))
-	}) >= 0 {
-		return setupHire{}, http.StatusBadRequest, "A model is a name such as claude-sonnet-5-5."
+	if !hireModelAllowed(model) {
+		return setupHire{}, http.StatusBadRequest, hireModelRefusal
 	}
 	nickname, _ := given["nickname"].(string)
 	nickname = trimSwiftSpace(nickname)
-	if utf8.RuneCountInString(nickname) > longestNickname || strings.ContainsAny(nickname, "\r\n  \u0085") {
-		return setupHire{}, http.StatusBadRequest, "A nickname is one line of at most 40 characters."
+	if !hireNicknameAllowed(nickname) {
+		return setupHire{}, http.StatusBadRequest, hireNicknameRefusal
 	}
 	t3, known := checkedHireEngine(given["engine"])
 	if !known {
@@ -198,6 +226,9 @@ func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home 
 // hireEngineRefusal is the Mac's answer to an engine but a terminal or T3 Code (HireDesk.HireOptions.checked).
 const hireEngineRefusal = `Where it works is "t3" (T3 Code), or left out for a terminal.`
 
+// gmT3HireRefusal is the General Manager's hire into T3 Code, refused (hireFromSetupSheetIntoT3).
+const gmT3HireRefusal = gm.T3HireRefusal
+
 // checkedHireEngine is where a hire asks to work, read as the Mac's HireOptions.checked reads `engine`: T3 Code
 // ("t3"), or a terminal (left out, null, "" or "terminal"). known is false for anything else.
 func checkedHireEngine(given any) (t3, known bool) {
@@ -242,7 +273,15 @@ func checkedSetupFolder(given, home string) (string, int, string) {
 		return "", http.StatusBadRequest, "Hire into a folder inside your home folder."
 	}
 	top, _, _ := strings.Cut(strings.TrimPrefix(folder, home+string(filepath.Separator)), string(filepath.Separator))
-	if top == "Library" || strings.HasPrefix(top, ".") {
+	// ~/Library in any spelling the disk takes for it: a Mac's folds case and Unicode, so ~/library is the same folder
+	// (FXSWEEP3P3 F-9). Compared as the sandbox's Policy compares names (sandbox.Inside).
+	// A hire's own worktree in the core's folder for them (~/.smolcorp/worktrees, FXCOREWORKTREES126) is a project
+	// folder, though hidden: a reviewer is hired into one.
+	inTrees := false
+	if rel, err := filepath.Rel(coreWorktreesFolder(), folder); coreWorktreesOn() && err == nil && filepath.IsLocal(rel) {
+		inTrees = len(strings.Split(rel, string(filepath.Separator))) >= 2 // in a tree, never the folders that hold them
+	}
+	if sandbox.Inside(runtime.GOOS, folder, filepath.Join(home, "Library")) || strings.HasPrefix(top, ".") && !inTrees {
 		machine := "computer's"
 		if runtime.GOOS == "darwin" {
 			machine = "Mac's"
@@ -319,6 +358,9 @@ func (d *Deck) hireFromSetupSheet(h setupHire) (int, any, string) {
 	if status != 0 {
 		return status, nil, why
 	}
+	d.mu.Lock()
+	d.lastPlace = hiredPlace{}
+	d.mu.Unlock()
 	status, message := d.hireAsWith(desk, h.Role, h.Floor, true, &h)
 	if status != http.StatusNoContent {
 		return status, nil, message
@@ -327,6 +369,13 @@ func (d *Deck) hireFromSetupSheet(h setupHire) (int, any, string) {
 	// A hire that went the plain way (another agent, a pinned desk): its task and answers weren't passed on.
 	if message != "" {
 		answer["note"] = message
+	}
+	// The engine's hire placed in a General Manager's own folder: no git ran there (hiregmfolder.go).
+	d.mu.Lock()
+	placed := d.lastPlace.Note
+	d.mu.Unlock()
+	if placed != "" && message == "" {
+		answer["note"] = placed
 	}
 	return http.StatusOK, answer, ""
 }
@@ -355,7 +404,7 @@ func (d *Deck) setupHireRoute(w http.ResponseWriter, method, path string, body i
 		writeStatus(w)(status, why)
 		return true
 	}
-	hire.byGM = who == callerGM
+	hire.byGM, hire.gmToken = who == callerGM, who == callerGM
 	// Hiring off is off for setup's sheet and the GM too: once the request is checked, the
 	// Mac's Deck.hire refuses first, for every caller. Start here's own GM hire
 	// (hireFromSetup) keeps its rule.
@@ -402,6 +451,11 @@ func (d *Deck) hireFromSetupSheetIntoT3(h setupHire, roles []Role) (int, any, st
 	// An ACP role is refused in its own words (the fence's sentence for the GM), not T3 Code's "Claude Code only".
 	if Agent(roles[i].Agent).IsACP() {
 		return http.StatusConflict, nil, acpHireRefusal(roles[i].Agent, h.byGM)
+	}
+	// A hire in T3 Code works outside Smolcorp's sandbox, so the General Manager's routes never make one: only you
+	// do, from Setup in Smolcorp's window (FXSWEEP3P3 F-1). Refused before anything is looked at or made.
+	if h.gmToken {
+		return http.StatusForbidden, nil, gmT3HireRefusal
 	}
 	_, expected, pinned, status, why := d.setupSheetDesk(h)
 	if status != 0 {

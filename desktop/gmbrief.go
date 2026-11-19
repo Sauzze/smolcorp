@@ -47,8 +47,9 @@ func (rt *router) gmBrief(w http.ResponseWriter, r *request) {
 		}
 		// A brief is the GM's words, never the owner's (ownerwords.go).
 		d.owner.notOwners(text)
-		name := file // by file name in the hire's own folder, else by whole path
-		if physical(filepath.Dir(file)) == physical(h.Folder) {
+		// By file name in the hire's own folder, else by whole path; its row's folder is compared only.
+		name := file
+		if physical(filepath.Dir(file)) == physical(h.Folder.storedOnly()) {
 			name = filepath.Base(file)
 		}
 		answer := map[string]any{"ok": true, "file": file}

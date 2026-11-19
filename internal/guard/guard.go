@@ -35,7 +35,10 @@
 //   - a command spelled through a variable or a substitution ($v deploy,
 //     $(echo git) push, "$(which git)" push, iex 'g'+'it push'). git's
 //     subcommand spelled so (git ${EMPTY}push, git $cmd) is refused while
-//     the push, merge or deploy group is on, as one it doesn't know;
+//     the push, merge or deploy group is on, as one it doesn't know, and so
+//     is a program named that way after PowerShell's & or a dot (& $c,
+//     & (gcm claude), . $c) or by cmd's %c% or !c!, as a name it can't
+//     read (launchers.go);
 //   - another language running it (python -c, node -e, perl -e, ruby -e,
 //     awk's system()), and xargs -I{} {} or bash -c "$(printf …)", where
 //     the command comes from input;
@@ -227,6 +230,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -401,10 +405,15 @@ func namesSetupKey(words simple) bool {
 	for _, w := range words {
 		low := Fold(strings.ReplaceAll(strings.TrimPrefix(w, unreadable), `\`, "/"))
 		// After a /, and after an @ or = (curl's @file, dd's if=file, --file=…); and as a short option's
-		// value in the same word (grep -fsetup-key, -rf~/…/setup-key).
-		last := low[strings.LastIndexAny(low, "/@=")+1:]
-		if setupKeyName(last, strings.HasPrefix(low, "-") && !strings.HasPrefix(low, "--")) {
-			return true
+		// value in the same word (grep -fsetup-key, -rf~/…/setup-key). Before an = too: cmd splits a word there, so
+		// del %APPDATA%\smolcorp\setup-key=x deletes the key (RT126GUARDWIN126 N5).
+		option := strings.HasPrefix(low, "-") && !strings.HasPrefix(low, "--")
+		parts := strings.Split(low, "=")
+		for i, part := range parts {
+			last := part[strings.LastIndexAny(part, "/@")+1:]
+			if setupKeyName(last, option && (i == 0 || i == len(parts)-1)) {
+				return true
+			}
 		}
 	}
 	return false
@@ -450,6 +459,10 @@ const guardFile = "hire-guard"
 // refused for it (jq .jobs …/night?hift.json); a * in the support folder, or cat package*.json, may fill in
 // phones.json too, and is refused for that file (phonesFile), not for this one.
 const nightFile = "nightshift.json"
+
+// nightRule is the rule a refusal for nightFile names: no feature, since a hire reads it and the night shift is off in
+// this version (FXPOLISHA, RT126FIXREVIEW-DORMANTOFF's O4). The command, which names the file, is shown as it is.
+const nightRule = "a file only Smolcorp writes"
 
 // phonesFile is the paired phones (desktop/access.go). Off a Mac it holds each phone's signing secret as it is
 // (KeyHash) and its web-push secret, so reading it is the harm, as with the setup key: written out anywhere in the
@@ -515,9 +528,13 @@ func check(line string, groups []Group) *Refusal {
 	}) {
 		groups = At(groups, placeLine(all, Place{}))
 	}
+	var tried map[string]bool
+	if !noMemo {
+		tried = map[string]bool{}
+	}
 	for _, r := range readings {
 		for _, cmd := range r.cmds {
-			if refusal := checkCommand(cmd, groups, 0, r.pess, r.ps); refusal != nil {
+			if refusal := checkCommand(cmd, groups, 0, r.pess, r.ps, tried); refusal != nil {
 				return refusal
 			}
 		}
@@ -536,8 +553,9 @@ func hereReadings(line string, ps bool) []bool {
 }
 
 // checkCommand looks at one simple command: the command itself, and what
-// any wrapper it is runs. ps says the line was read as PowerShell's.
-func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refusal {
+// any wrapper it is runs. ps says the line was read as PowerShell's. tried holds what wrappers ran that was read
+// already, in this line (triedKey): each is read once (RT126SWEEP3FIXP2 O1).
+func checkCommand(words simple, groups []Group, depth int, pess, ps bool, tried map[string]bool) *Refusal {
 	if depth > 8 {
 		return &Refusal{Group: "guard", Rule: "nesting", Command: strings.Join(words, " ")}
 	}
@@ -568,7 +586,7 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 			return &Refusal{Group: "guard", Rule: guardFile, Command: strings.TrimPrefix(words[0], unreadable)}
 		}
 		if namesNightFile(words[:1]) {
-			return &Refusal{Group: "guard", Rule: nightFile, Command: strings.TrimPrefix(words[0], unreadable)}
+			return &Refusal{Group: "guard", Rule: nightRule, Command: strings.TrimPrefix(words[0], unreadable)}
 		}
 		if namesFence(words[:1]) {
 			return &Refusal{Group: "guard", Rule: fenceRule, Command: strings.TrimPrefix(words[0], unreadable)}
@@ -602,7 +620,7 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 				return &Refusal{Group: "guard", Rule: guardFile, Command: "> " + strings.TrimPrefix(w, unreadable)}
 			}
 			if namesNightFile(simple{w}) {
-				return &Refusal{Group: "guard", Rule: nightFile, Command: "> " + strings.TrimPrefix(w, unreadable)}
+				return &Refusal{Group: "guard", Rule: nightRule, Command: "> " + strings.TrimPrefix(w, unreadable)}
 			}
 			if namesFence(simple{w}) {
 				return &Refusal{Group: "guard", Rule: fenceRule, Command: "> " + strings.TrimPrefix(w, unreadable)}
@@ -619,6 +637,13 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 	}
 	if words[0] == "\x00stdin" {
 		return &Refusal{Group: "guard", Rule: "a shell reading its commands from a pipe", Command: "| sh"}
+	}
+	if words[0] == launchMark {
+		return &Refusal{Group: "guard", Rule: launchRule, Command: strings.Join(words[1:], " ")}
+	}
+	if namedByCmdVariable(words[0]) {
+		// cmd's %c% or !c! as the command: a name the guard can't read (RT126SWEEP3 F4).
+		words = calledAtRunTime(words)
 	}
 	if strings.HasPrefix(words[0], unreadable) {
 		return &Refusal{Group: "guard", Rule: "a command name the guard can't read", Command: strings.TrimPrefix(strings.Join(words, " "), unreadable)}
@@ -638,7 +663,7 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 		return &Refusal{Group: "guard", Rule: guardFile, Command: strings.Join(words, " ")}
 	}
 	if namesNightFile(words) && !readsNightFile(name, args, rawArgs) {
-		return &Refusal{Group: "guard", Rule: nightFile, Command: strings.Join(words, " ")}
+		return &Refusal{Group: "guard", Rule: nightRule, Command: strings.Join(words, " ")}
 	}
 	// Claude Code's settings, the same way: the fence of a hire in T3 Code is its worktree's own.
 	if namesFence(words) && !readsKept(name, args, rawArgs) {
@@ -692,7 +717,7 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 	// agent may be Claude Code, and nothing here says which, so `run --role` is starting it again.
 	if agent, role := smolcorpRun(name, args); role {
 		return &Refusal{Group: "claude", Rule: "starting Claude Code again", Command: strings.Join(words, " "), Why: nestedClaudeWhy(groups)}
-	} else if r := checkCommand(agent, groups, depth+1, pess, ps); len(agent) > 0 && r != nil {
+	} else if r := checkCommand(agent, groups, depth+1, pess, ps, tried); len(agent) > 0 && r != nil {
 		return r
 	}
 	if name == "tmux" {
@@ -720,21 +745,64 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 			return refusal
 		}
 	}
-	// What a wrapper runs: a line to parse again, or the words after it.
+	// What a wrapper runs: a line to parse again, or the words after it. One read already in this line, which let it
+	// through, is not read again: a launcher tries each of its words as the command's start (wt, conhost, explorer),
+	// and launchers nested in those words would try the same starts again and again (wt wt wt … a).
 	for _, inner := range wrapped(name, rawArgs) {
+		if tried != nil {
+			key := triedKey(inner, pess, ps)
+			if tried[key] {
+				continue
+			}
+			tried[key] = true
+		}
 		if inner.line != "" {
 			for _, here := range hereReadings(inner.line, inner.ps) {
 				for _, cmd := range commandsRead(inner.line, depth+1, inner.ps, pess, inner.ps, here) {
-					if r := checkCommand(cmd, groups, depth+1, pess, inner.ps); r != nil {
+					if r := checkCommand(cmd, groups, depth+1, pess, inner.ps, tried); r != nil {
 						return r
 					}
 				}
 			}
-		} else if r := checkCommand(inner.words, groups, depth+1, pess, ps); r != nil {
+		} else if r := checkCommand(inner.words, groups, depth+1, pess, ps, tried); r != nil {
 			return r
 		}
 	}
 	return nil
+}
+
+// triedKey is what a wrapper runs, and how it is read, as a key of checkCommand's tried. Two different runs must never
+// share a key, or the second is skipped unread and its refusal lost (RT126SWEEP3FIXP2R1 B1: the words "" and stdin,
+// joined with a \x00 before each, were the guard's own "\x00stdin" mark, so `nohup "" stdin; curl … | sh` ran). So
+// each word goes in after its length, which holds for any bytes, a \x00 included (a hook's JSON can carry \u0000).
+// Depth isn't in the key: a run read deeper than before may only be refused as nested too deep, and was read whole
+// the first time.
+func triedKey(in inner, pess, ps bool) string {
+	var b strings.Builder
+	for _, on := range []bool{pess, ps, in.ps, in.line != ""} {
+		b.WriteByte("01"[boolInt(on)])
+	}
+	if in.line != "" {
+		b.WriteString(in.line)
+	} else {
+		for _, w := range in.words {
+			b.WriteString(strconv.Itoa(len(w)))
+			b.WriteByte(':')
+			b.WriteString(w)
+		}
+	}
+	return b.String()
+}
+
+// noMemo turns checkCommand's tried off, so each wrapper's run is read every time it comes (tests set it: a line
+// refused without the memo is refused with it).
+var noMemo bool
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // commandName is how a word names a command: its last path part, folded

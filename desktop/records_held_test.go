@@ -133,6 +133,7 @@ func (run heldRun) afterTheUnlockedRestart(t *testing.T) {
 }
 
 func TestOnAMacWhileTheKeyIsUnreadableEveryRevocationIsRefused(t *testing.T) {
+	turnOn(t, &peersOn) // a Mac revoked, and floors switched off, are among them
 	rows := []struct {
 		name, method, target, body string
 		// direct, for a change no route of the page's makes: its status and words.

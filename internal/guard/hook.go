@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/Sauzze/smolcorp/internal/appdirs"
@@ -34,13 +33,14 @@ const testSupportEnv = "SMOLCORP_TEST_SUPPORT_DIR"
 
 // supportFile is where hire-guard.json lives when no --rules names it: the
 // Mac app's folder in Application Support, or the same folder desktop/paths.go
-// uses. Never a folder from the environment.
+// uses, found as it finds it (appdirs.Resolve). Never a folder from the
+// environment.
 func supportFile() (string, error) {
-	base, err := os.UserConfigDir()
+	dir, err := appdirs.Resolve()
 	if err != nil {
 		return "", fmt.Errorf("can't find the app's support folder: %v", err)
 	}
-	return filepath.Join(base, appdirs.Name(runtime.GOOS), fileName), nil
+	return filepath.Join(dir, fileName), nil
 }
 
 // deny prints Claude Code's PreToolUse answer for a refusal. If the answer

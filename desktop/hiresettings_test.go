@@ -256,7 +256,7 @@ func TestHireDenyRulesAreInTheMacsOrderAndForms(t *testing.T) {
 	both("//s/claude-install/**")
 	both("//s/claude-install.tmp/**")
 	both("//s/hires/*.sh")
-	for _, p := range []string{"*.json", "*.sh", "*.jsonl", "*.log", "settings*"} {
+	for _, p := range []string{"*.json", "*.sh", "*.jsonl", "*.log", "settings*", "BRIEF*.md"} {
 		both("//s/hires/*/" + p)
 	}
 	// Every desk's own Claude folder (SA-X8, RT126SAX8 F1), this hire's too: Edit whole, Read but its skills and plugins
@@ -641,6 +641,43 @@ func TestHireGroupTurnedOffDropsItsDenyRules(t *testing.T) {
 	}
 	if !slices.Equal(hireCommandRules(groups(true)), on) {
 		t.Fatalf("deploy back on: its rules did not come back")
+	}
+}
+
+// FXGUARDWIN126 #7: the default groups' deny rules refuse gh release's writes, plainly and through npx, and no longer
+// the whole of gh release (list, view and download are reads). The publish group's other rules are as the guard has them.
+func TestTheDenyRulesRefuseOnlyGhReleasesWrites(t *testing.T) {
+	var groups []guardGroup
+	for _, g := range guard.DefaultGroups() {
+		var commands []string
+		for _, r := range g.Commands {
+			commands = append(commands, string(r))
+		}
+		groups = append(groups, guardGroup{Name: g.Name, On: g.On, Commands: commands})
+	}
+	rules := hireCommandRules(groups)
+	var release []string
+	for _, r := range rules {
+		if strings.Contains(r, "gh release") {
+			release = append(release, r)
+		}
+	}
+	var want []string
+	for _, sub := range []string{"create", "new", "delete", "delete-asset", "edit", "upload"} {
+		want = append(want, "Bash(gh release "+sub+":*)", "Bash(npx gh release "+sub+":*)")
+	}
+	if !slices.Equal(release, want) {
+		t.Errorf("gh release's deny rules:\n got %q\nwant %q", release, want)
+	}
+	for _, r := range []string{"Bash(gh release:*)", "Bash(npx gh release:*)"} {
+		if slices.Contains(rules, r) {
+			t.Errorf("%s is still a deny rule", r)
+		}
+	}
+	for _, r := range []string{"Bash(gh pr create:*)", "Bash(npx gh repo delete:*)", "Bash(npm publish:*)", "Bash(gh secret:*)", "Bash(gh variable:*)"} {
+		if !slices.Contains(rules, r) {
+			t.Errorf("%s is missing", r)
+		}
 	}
 }
 

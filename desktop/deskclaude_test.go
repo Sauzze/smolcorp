@@ -346,7 +346,7 @@ func TestAnEngineDesksClaudeFolderIsMadeAtItsStartAndGoesAtItsFire(t *testing.T)
 	d, r, hire := hiredForFire(t, "")
 	folder := deskClaudeFolder(supportDir, hire.ID)
 	whole, err := os.ReadFile(filepath.Join(folder, ".claude.json"))
-	if err != nil || !isTrusted(hire.Worktree, whole) {
+	if err != nil || !isTrusted(hire.Worktree.storedOnly(), whole) {
 		t.Fatalf("the desk's .claude.json (%v) doesn't trust %s:\n%s", err, hire.Worktree, whole)
 	}
 	script := r.script(hire)
@@ -483,7 +483,7 @@ func TestAnEngineDesksClaudeFolderIsBehindEveryFenceButItsPlansAndSessionsWork(t
 	if settings.Plans != deskPlansFor(first.ID) {
 		t.Errorf("plansDirectory %q, want %q", settings.Plans, deskPlansFor(first.ID))
 	}
-	plan := filepath.Join(first.Worktree, filepath.FromSlash(deskPlansFor(first.ID)), "calm-river.md")
+	plan := filepath.Join(first.Worktree.storedOnly(), filepath.FromSlash(deskPlansFor(first.ID)), "calm-river.md")
 	if readDenied(deny, r.home, plan) || readDenied(edits, r.home, plan) {
 		t.Errorf("the desk's own plan %s is denied", plan)
 	}
@@ -491,7 +491,7 @@ func TestAnEngineDesksClaudeFolderIsBehindEveryFenceButItsPlansAndSessionsWork(t
 		t.Fatalf("the plans folder wasn't made in the desk's place: %v", err)
 	}
 	// What a fire asks before it removes the worktree (removeWorkspace): a plan keeps it clean.
-	if status, out, ok := runGit(first.Worktree, "status", "--porcelain"); !ok || status != 0 || out != "" {
+	if status, out, ok := runGit(first.Worktree.storedOnly(), "status", "--porcelain"); !ok || status != 0 || out != "" {
 		t.Errorf("a plan shows in the desk's worktree: %d %q", status, out)
 	}
 
@@ -565,10 +565,10 @@ func TestADeskInARepoSubfolderTrustsItsWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	whole, err := os.ReadFile(filepath.Join(deskClaudeFolder(supportDir, hire.ID), ".claude.json"))
-	if err != nil || !isTrusted(physical(hire.Worktree), whole) || isTrusted(physical(filepath.Join(hire.Worktree, "sub")), whole) {
+	if err != nil || !isTrusted(physical(hire.Worktree.storedOnly()), whole) || isTrusted(physical(filepath.Join(hire.Worktree.storedOnly(), "sub")), whole) {
 		t.Errorf("the desk's .claude.json (%v) doesn't trust its worktree %s alone:\n%s", err, hire.Worktree, whole)
 	}
-	if info, err := os.Lstat(filepath.Join(hire.Worktree, "sub", filepath.FromSlash(deskPlansFor(hire.ID)))); err != nil || !info.IsDir() {
+	if info, err := os.Lstat(filepath.Join(hire.Worktree.storedOnly(), "sub", filepath.FromSlash(deskPlansFor(hire.ID)))); err != nil || !info.IsDir() {
 		t.Errorf("no plans folder where the desk starts: %v", err)
 	}
 }

@@ -34,7 +34,7 @@ func briefFileOf(hire Hire, hires string) string {
 		}
 		return ""
 	}
-	if hire.Worktree == "" {
+	if hire.Worktree.none() {
 		return ""
 	}
 	folder := filepath.Join(hires, hire.ID)

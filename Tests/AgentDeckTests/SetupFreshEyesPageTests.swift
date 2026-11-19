@@ -38,8 +38,10 @@ final class SetupFreshEyesPageTests: XCTestCase {
         let render = try part(page, from: "function renderGmToken(m)", to: "function renderManagerTools")
         XCTAssertFalse(render.contains("gm-token-file"))
         XCTAssertTrue(render.contains("$('gm-rotate-row').hidden = !m.enabled;"), "a new token only where the app makes one")
-        // Off a Mac (Smolcorp on Linux and Windows, no GM started by hand), nothing of it is offered.
-        XCTAssertTrue(render.contains("$('gm-token-head').hidden = $('gm-token').hidden = !onMac();\n    if (!onMac()) return;"))
+        // Where Smolcorp has no Settings window of its own (Linux, a Windows without WebView2: no GM started by hand),
+        // nothing of it is offered. Windows with WebView2 has one (FXWINTOOLASK), as the Mac has.
+        XCTAssertTrue(render.contains("$('gm-token-head').hidden = $('gm-token').hidden = !byHandHere();\n    if (!byHandHere()) return;"))
+        XCTAssertTrue(page.contains("function byHandHere() { return onMac() || !state.terminalAsksOff; }"))
         // Drawn with the manager off too, before renderManager stops there.
         let manager = try part(page, from: "function renderManager()", to: "if (!m.enabled) return;")
         XCTAssertTrue(manager.contains("renderGmToken(m);"))

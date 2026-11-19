@@ -18,7 +18,10 @@ jobs:
     name: Nothing personal committed
     runs-on: ubuntu-latest
     steps:
+      # The whole history, so the release base is here: check-public.sh looks at the lines added since it.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - run: scripts/check-public.sh
 
   # The tmux that will ship inside the Mac app, built from pinned sources (third_party/tmux/SHA256SUMS) by the
@@ -244,7 +247,7 @@ jobs:
           SMOLCORP_SIGN_IDENTITY=- scripts/build-app.sh universal
           APP=build/Smolcorp.app
           for arch in arm64 x86_64; do
-            lipo -archs "$APP/Contents/MacOS/AgentDeck" | grep -qw "$arch" || { echo "::error::the release build has no $arch"; exit 1; }
+            lipo -archs "$APP/Contents/MacOS/Smolcorp" | grep -qw "$arch" || { echo "::error::the release build has no $arch"; exit 1; }
           done
           pieces=("$APP" "$APP/Contents/Resources/bin/smolcorp" "$APP/Contents/Resources/bin/smolcorp-spawn")
           [ -f "$APP/Contents/Resources/bin/tmux" ] && pieces+=("$APP/Contents/Resources/bin/tmux")
@@ -315,13 +318,14 @@ jobs:
           bridge = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
           bridge.settimeout(10)
           bridge.connect(sys.argv[1])
-          bridge.sendall(b"{\"token\":\"not-the-token\",\"action\":\"hello\"}\n")
+          # Closed before it reads anything (a broken pipe on the send) or after (a reset): either way, nothing answered.
           try:
+              bridge.sendall(b"{\"token\":\"not-the-token\",\"action\":\"hello\"}\n")
               answer = bridge.recv(4096)
-          except (ConnectionResetError, socket.timeout):
+          except (BrokenPipeError, ConnectionResetError, socket.timeout):
               answer = b""
           if answer:
-              print("::error::the bridge answered a process that isn't the copy's core: %r" % answer)
+              print("::error::the bridge answered a process other than the copy core: %r" % answer)
               sys.exit(1)
           ' "$SUPPORT/bridge.sock"
           echo "The hardened test copy started and answered (HTTP $code), its core got the key from the app over the bridge, another process got nothing, and it was quit (pid $pid)."

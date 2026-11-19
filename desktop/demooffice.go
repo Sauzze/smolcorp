@@ -35,6 +35,8 @@ type officeTeam struct {
 	on    []demoSwitch // the switches the demo's page turned on and left on
 	// noOpen: the demo's page isn't opened, its link is printed (--no-open).
 	noOpen bool
+	// window: the demo's page opens in Smolcorp's own Settings window here, as ready read it (GET /setup/demo).
+	window bool
 	// wait is how long the demo waits for its General Manager's hire on the page.
 	wait time.Duration
 }
@@ -177,12 +179,18 @@ func (o *officeTeam) ready(out io.Writer) ([]string, error) {
 	var office struct {
 		GMHired bool     `json:"gmHired"`
 		Open    []string `json:"open"`
+		Window  bool     `json:"window"`
 	}
 	if err := o.call(http.MethodGet, "/setup/demo", nil, &office); err != nil {
 		if refused := (demoRefusal{}); errors.As(err, &refused) && refused.status == http.StatusNotFound {
 			return nil, errors.New(demoNotServed())
 		}
 		return nil, err
+	}
+	o.window = office.Window
+	// Beside Smolcorp's own Settings window a browser's Setup only looks: a printed link's Hire would be refused there.
+	if o.noOpen && o.window {
+		return nil, errors.New(demoNoOpenBesideTheWindow)
 	}
 	if o.state.GMHired || office.GMHired {
 		return nil, errors.New("A General Manager is already hired. The demo hires its own: fire yours in the office first, then run the demo again.")
@@ -219,6 +227,12 @@ func (o *officeTeam) off() []demoSwitch {
 
 func (o *officeTeam) leftOn() []demoSwitch { return o.on }
 
+func (o *officeTeam) inWindow() bool { return o.window }
+
+// demoNoOpenBesideTheWindow is why --no-open is refused where Smolcorp has a Settings window of its own (the Mac app,
+// Windows with its window): said before the question, nothing made.
+const demoNoOpenBesideTheWindow = "The demo's page opens in Smolcorp's own Settings window here, so run smolcorp demo without --no-open. Nothing was made."
+
 // demoHireWait is how long the demo waits for you to hire its General Manager on its page.
 const demoHireWait = 15 * time.Minute
 
@@ -251,7 +265,11 @@ func (o *officeTeam) work(ctx context.Context, f demoFolder, roles []string, out
 		if err := o.call(http.MethodPost, "/setup/demo/open?root="+url.QueryEscape(f.root), nil, nil); err != nil {
 			return fmt.Errorf("The demo's page didn't open. %v\nNobody was hired. The demo folder stays: %s", err, f.root)
 		}
-		fmt.Fprintln(out, "Setup is open in your browser at the demo. Check what it says, then click Hire there: that's the one click the demo needs from you.")
+		where := "Setup is open in your browser at the demo."
+		if o.window {
+			where = "Smolcorp's Settings window is open at the demo."
+		}
+		fmt.Fprintln(out, where+" Check what it says, then click Hire there: that's the one click the demo needs from you.")
 	}
 	fmt.Fprintln(out, "Waiting for the General Manager's hire. Nothing is hired until you click; Ctrl-C stops waiting.")
 	if err := o.waitForGM(ctx, f); err != nil {

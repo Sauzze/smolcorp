@@ -1227,7 +1227,7 @@ func (f demoFence) demosBriefFile(rest string, write bool) bool {
 	p := f.paths()
 	low := guard.Fold(name)
 	for _, h := range f.hires() {
-		if h.Brief == "" || !f.inside(h.Folder, "") || h.Worktree != "" && !f.inside(h.Worktree, "") {
+		if h.Brief == "" || !f.inside(h.Folder.storedOnly(), "") || !h.Worktree.none() && !f.inside(h.Worktree.storedOnly(), "") { // compared only
 			continue
 		}
 		brief, in := p.belowAnyCase(f.support, p.resolveExisting(h.Brief))

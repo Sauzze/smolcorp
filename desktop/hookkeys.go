@@ -53,7 +53,13 @@ type hookDesks struct {
 	sockets map[string]string // a desk's tmux socket, as socketPlace spells it → desk id
 	// launchers is each launcher's hire, by launcher id (Deck.launchers), set by whoever holds the deck.
 	launchers map[string]string
+	// ownLaunchers is the hash of each launcher's own hook key, by launcher id: a sandboxed plain hire's relay's
+	// (Deck.launcherHookHashes, FXSWEEP3P3 F-3). Its desk is its tab, launcher:<id> (launcherDesk).
+	ownLaunchers map[string]string
 }
+
+// launcherDesk is the desk of a launcher with a hook key of its own (hookDesks.ownLaunchers): its tab.
+func launcherDesk(id string) string { return "launcher:" + id }
 
 // currentHookDesks is hookDesks as the registry holds it now.
 func currentHookDesks() hookDesks {
@@ -96,6 +102,11 @@ func (k hookDesks) deskForKey(key string) string {
 			desk = id
 		}
 	}
+	for id, hash := range k.ownLaunchers {
+		if constantTimeEqual(hash, given) {
+			desk = launcherDesk(id)
+		}
+	}
 	return desk
 }
 
@@ -110,6 +121,9 @@ func (k hookDesks) deskOfTab(tab string) string {
 	case "launcher":
 		if hire := k.launchers[id]; hire != "" && k.hashes[hire] != "" {
 			return hire
+		}
+		if k.ownLaunchers[id] != "" {
+			return launcherDesk(id)
 		}
 	}
 	return ""
@@ -168,6 +182,24 @@ func deskWorks(l liveSession, h Hire, keyed map[string]string) bool {
 		return l.KeyedDesk == h.ID
 	}
 	return works(l, h)
+}
+
+// launcherHookHashes is the hash of each launcher's own hook key by launcher id, for hookDesks. With the lock held.
+func (d *Deck) launcherHookHashes() map[string]string {
+	hashes := map[string]string{}
+	for id, tab := range d.launchers {
+		if tab.hookHash != "" {
+			hashes[id] = tab.hookHash
+		}
+	}
+	return hashes
+}
+
+// keepLauncherHookKey keeps the hash of a launcher's own hook key, as its connection gave it.
+func (d *Deck) keepLauncherHookKey(tab *launcherTab, key string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	tab.hookHash = hashKey(key)
 }
 
 // launcherHires is each launcher's hire by launcher id, for hookDesks. With the lock held.

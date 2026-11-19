@@ -14,6 +14,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/jchv/go-webview2"
 	"golang.org/x/sys/windows"
 )
 
@@ -84,7 +85,7 @@ func TestLiveWindow(t *testing.T) {
 				_ = os.WriteFile(placeFile, []byte(fmt.Sprintf("%d %d %d %d %v", s.X, s.Y, s.Width, s.Height, s.Maximized)), 0o600)
 			}
 		},
-		created: func(hwnd uintptr) {
+		created: func(hwnd uintptr, _ webview2.WebView) {
 			officeWindow.mu.Lock()
 			officeWindow.hwnd = hwnd
 			officeWindow.mu.Unlock()

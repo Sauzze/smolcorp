@@ -272,7 +272,10 @@ func (d *Deck) talk(id string) (int, any) {
 		return http.StatusNotFound, "That agent has gone."
 	}
 	card.Typing = typing
-	card.Photo = photoTaking(typing, agent)
+	// While photos are off (dormant.go), the card says no, with no words.
+	if photoOn {
+		card.Photo = photoTaking(typing, agent)
+	}
 	card.Size, card.Last = talkLastOf(path)
 	return http.StatusOK, card
 }

@@ -353,7 +353,7 @@ func TestTheWorstCaseDesksWindowsCommandLineStaysUnder30000(t *testing.T) {
 		args := []string{"--settings=" + settingsPath}
 		if gm {
 			args = append(args, "--plugin-dir="+user+`\AppData\Local\Programs\Smolcorp\gm\plugin`, "--agent="+gmPluginName+":"+gmPluginAgent)
-			message += "\n\n" + gmIntroduction(user+`\Projects\`+strings.Repeat("p", 40), false)
+			message += "\n\n" + gmIntroduction(user+`\Projects\`+strings.Repeat("p", 40), "", "", false)
 		}
 		return exeLine(program, append(args, role.arguments(message)...))
 	}

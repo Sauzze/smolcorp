@@ -250,7 +250,7 @@ func TestT3TheFenceHoldsOnARealT3Thread(t *testing.T) {
 		// hasn't; it reads it with lsof (read-only), as a Linux core reads /proc.
 		leaving.Working = func(folder string) ([]int, bool) { return lsofWorkingIn(t, folder), true }
 	}
-	hire := Hire{ID: hireID, Name: "Fence", Folder: repo, Branch: started.Place.Branch, Worktree: worktree, Repo: started.Place.Repo,
+	hire := Hire{ID: hireID, Name: "Fence", Folder: keptPath(repo), Branch: started.Place.Branch, Worktree: keptPath(worktree), Repo: started.Place.Repo,
 		State: "working", Engine: t3Engine, T3Thread: started.Thread, T3Link: started.Link}
 	letGone := false
 	if _, err := t3LetGo(hire, leaving, func(t3Gone) { letGone = true }); err != nil || !letGone {

@@ -12,6 +12,7 @@ import (
 
 // A GM held to one project (gmscope.go) proposes a night job's hire only there (scopedGM is a unix rig).
 func TestAGMHeldToOneProjectProposesOnlyThere(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	d, _, _, _, project := scopedGM(t)
 	ask := func(folder string) verdict {
 		body := `{"name":"n","kind":"hire","role":"tester","brief":"b","folder":"` + folder + `","when":{"every":"daily","at":"02:00"},"limits":{"wallMinutes":30}}`
@@ -33,6 +34,7 @@ func TestAGMHeldToOneProjectProposesOnlyThere(t *testing.T) {
 // can't pass as a task for the GM by spelling "Kind" or saying the kind twice (RT126N1 B2). What it lets through
 // is what it read, and the route reads that back the same.
 func TestAScopedGMCantSpellItsWayOutOfTheProject(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	d, _, _, _, project := scopedGM(t)
 	outside := t.TempDir()
 	rest := `"role":"tester","brief":"b","folder":"` + outside + `","when":{"every":"daily","at":"02:00"},"limits":{"wallMinutes":30}`

@@ -164,7 +164,8 @@ func (d *escapeDesk) appended(t *testing.T, name, rule string) string {
 }
 
 // work runs program in the desk's sandbox (under profile, d.profile when ""), in dir, with HOME and env, for at most
-// limit. startRefusal comes first, as in inside (escape3_darwin_test.go), told the start is in a desk.
+// limit. startRefusal comes first, as in inside (escape3_darwin_test.go), told the start is in a desk. With d.noTerminal,
+// program starts with no controlling terminal.
 func (d *escapeDesk) work(t *testing.T, profile, dir string, limit time.Duration, env []string, program string, args ...string) ran {
 	t.Helper()
 	if err := startRefusal(program, args, true); err != nil {
@@ -178,6 +179,9 @@ func (d *escapeDesk) work(t *testing.T, profile, dir string, limit time.Duration
 	defer cancel()
 	cmd := disclaim.Cmd(exec.CommandContext(ctx, sandboxExec, append([]string{"-f", profile, program}, args...)...))
 	cmd.Dir, cmd.WaitDelay = dir, 5*time.Second
+	if d.noTerminal {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	}
 	cmd.Env = append([]string{"HOME=" + d.home, "LANG=C", "TERM=xterm", "TMPDIR=" + filepath.Join(d.base, "t") + "/"}, env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -576,10 +580,12 @@ func normalWork(t *testing.T, iokit []IOKitClass) map[string]string {
 		owner(w.checkout, "commit", "-q", "-m", "first")
 		owner(w.checkout, "remote", "add", "origin", remote)
 		owner(w.checkout, "push", "-q", "origin", "main")
-		owner(w.checkout, "worktree", "add", "-q", "-b", "h1", w.root)
-		owner(w.checkout, "worktree", "add", "-q", "-b", "h2", filepath.Join(w.home, "app-hires", "h2"))
-		owner(w.checkout, "config", "branch.h1.remote", "origin")
-		owner(w.checkout, "config", "branch.h1.merge", "refs/heads/h1")
+		// Its branch is hire/h1/…, as every real hire's (prepareHire), the only one a desk writes since FXGITROWS2R4
+		// (this stand-in moved in FXGITROWS2R6).
+		owner(w.checkout, "worktree", "add", "-q", "-b", "hire/h1/work", w.root)
+		owner(w.checkout, "worktree", "add", "-q", "-b", "hire/h2/work", filepath.Join(w.home, "app-hires", "h2"))
+		owner(w.checkout, "config", "branch.hire/h1/work.remote", "origin")
+		owner(w.checkout, "config", "branch.hire/h1/work.merge", "refs/heads/hire/h1/work")
 		mustWrite(t, filepath.Join(w.root, ".claude", "settings.json"), "{}")
 		w.prepareWith(t, []string{w.agent}, w.iokit)
 
@@ -593,10 +599,10 @@ func normalWork(t *testing.T, iokit []IOKitClass) map[string]string {
 		worked(t, "git push, to the preset upstream", hire("push", "-q"))
 		worked(t, "git fetch", hire("fetch", "-q"))
 		worked(t, "git pull --rebase", hire("pull", "-q", "--rebase"))
-		if got := owner(w.checkout, "-c", "gpg.ssh.allowedSignersFile="+w.signers, "log", "-1", "--format=%G? %s", "h1"); got != "G the hire's work\n" {
+		if got := owner(w.checkout, "-c", "gpg.ssh.allowedSignersFile="+w.signers, "log", "-1", "--format=%G? %s", "hire/h1/work"); got != "G the hire's work\n" {
 			t.Errorf("the hire's commit, as the owner's git sees it: %q (G is a good signature)", got)
 		}
-		if got, want := owner(w.home, "--git-dir", remote, "rev-parse", "h1"), owner(w.checkout, "rev-parse", "h1"); got != want {
+		if got, want := owner(w.home, "--git-dir", remote, "rev-parse", "hire/h1/work"), owner(w.checkout, "rev-parse", "hire/h1/work"); got != want {
 			t.Errorf("the remote's h1 is %s, the hire's %s", got, want)
 		}
 	})

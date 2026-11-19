@@ -87,6 +87,7 @@ func (standInTeam) ready(out io.Writer) ([]string, error) {
 
 func (standInTeam) off() []demoSwitch    { return nil }
 func (standInTeam) leftOn() []demoSwitch { return nil }
+func (standInTeam) inWindow() bool       { return false } // never said: the dry run asks no question, opens no page
 
 // standInFolder is the project's folder as the stand-in GM writes it in a hire: quoted (shellPath), and on Windows
 // as the demo tells the real GM (demoShellFolder): its long name with /. shellPath's is a hook's there, an 8.3 short

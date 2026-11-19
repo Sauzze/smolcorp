@@ -80,7 +80,9 @@ What Smolcorp sends and never sends, how it keeps strangers out, and using setup
   publish and cloud commands, stay out of your `.env` files and keys, and leave
   Smolcorp's own settings alone. A Claude Code hire made with the manager off,
   and every hire of Codex, Gemini CLI, OpenCode or Grok, gets no fence: see
-  [who gets it, platform by platform](team.md#the-fence-and-who-gets-it). Only
+  [who gets it, platform by platform](team.md#the-fence-and-who-gets-it). On
+  a Mac with the sandbox on, 1.26.0 refuses those four agents' hires: they
+  come back in 1.26.1. Only
   you answer a permission prompt. A script an employee writes and runs can get
   past the fence, and everyone still runs as you.
 - **Use a network you trust.** The connection is plain HTTP on your local
@@ -92,20 +94,31 @@ The setup page is a set of HTTP calls to Smolcorp on this computer. No file
 holds a key to them: the setup key lives in Smolcorp's memory only, new each
 time it starts, so nothing that can read your files can use it.
 
-- **The checklist.** `smolcorp setup` (on a Mac, `AgentDeck --setup`) reads it
+- **The checklist.** `smolcorp setup` (on a Mac,
+  `/Applications/Smolcorp.app/Contents/MacOS/Smolcorp --setup`) reads it
   with the check-only key, in the `selftest-key` file in Smolcorp's folder. That
   key opens `GET /setup/selftest` and nothing else, sent as
   `X-Smolcorp-Selftest-Key`.
 - **Anything more.** A script asks Smolcorp for a key, as `smolcorp demo`,
   `status` and `desks` do: `POST /terminal/ask?kind=tool` (with
-  `X-AgentDeck-Setup: 1`) answers a ticket and a four-digit code to show. Setup
+  `X-AgentDeck-Setup: 1`, Smolcorp's setup header) answers a ticket and a four-digit code to show. Setup
   then shows the ask with the same code, and once you tick that the codes match
   and click **Allow**, `GET /terminal/ask?ticket=…` answers the key, once. Send
   it as `X-Smolcorp-Setup-Key`; it works until Smolcorp quits. Only
-  Smolcorp's own Settings window answers an ask, never Setup in a browser, so
-  this works on a Mac alone for now. On Windows and Linux the ask is refused
-  at once, with why: only your paired phone (and on Windows, Smolcorp's own
-  window) may say yes to a terminal, and neither can yet.
+  Smolcorp's own Settings window answers an ask, never Setup in a browser or
+  the phone, so this works on a Mac and on Windows with WebView2, whose window
+  also names the program that asked. On Linux, on Windows without WebView2 and
+  under `smolcorp serve`, the ask is refused at once, with why. Step by step:
+  [Getting a tool's key](manager/API.md#getting-a-tools-key).
+
+On a Mac, **Open Settings in Browser** is for looking only. Another program on
+your Mac could read that browser's cookie, so every change, pairing a phone,
+its code, and answering an ask happen in Smolcorp's own Settings window (menu
+bar icon, then Settings…). In the browser, each of them says so. Windows with
+WebView2 has its own Settings window too (the tray icon, then Open Setup…), so
+there Setup in a browser is for looking only as well. On Linux, on Windows
+without WebView2, and under `smolcorp serve`, Setup in the browser works as
+before.
 
 A tool's key reads setup state, runs the repair, and flips the plain
 look-and-feel switches (theme, music, dock, keep on top). It can't pair or

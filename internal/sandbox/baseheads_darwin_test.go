@@ -16,7 +16,8 @@ import (
 // desk in its own worktree (python, sbProbe) writes no base branch's name where the owner's git looks before
 // refs/heads (`$G/main`, `refs/main`, `refs/tags/main` and the others, `release/…`, their locks, a file renamed onto
 // one), can't move refs/tags aside, and writes none of the owner checkout's merge, pick, revert or rebase in progress
-// (made, rewritten, renamed onto, removed, their locks). Its own tags and its own worktree's state are still its work.
+// (made, rewritten, renamed onto, removed, their locks). No tag is a desk's since FXGITROWS2R4; its own worktree's
+// state is still its work.
 // A desk at the project still writes the state, its own, and still no base branch's name. Each check is only "ok" or
 // the error's name, and the files are plain text stand-ins nobody's git reads.
 func TestOnAMacTheProfileKeepsABaseBranchsNameAndTheOwnersStateFromADesk(t *testing.T) {
@@ -68,9 +69,11 @@ func TestOnAMacTheProfileKeepsABaseBranchsNameAndTheOwnersStateFromADesk(t *test
 			{"write", git + "/REBASE_HEAD.lock", "", no}, {"write", git + "/AUTO_MERGE", "", no},
 			{"rename", base + "/elsewhere/MERGE_HEAD", git + "/MERGE_HEAD", no},
 			{"mkdir", git + "/rebase-merge", "", no}, {"mkdir", git + "/rebase-apply", "", no},
+			// Any other tag too, since FXGITROWS2R4 (rowTags).
+			{"write", git + "/refs/tags/v2.lock", "", no}, {"write", git + "/refs/tags/v2", "", no},
+			{"write", git + "/refs/tags/mainline", "", no},
 			// …and its own work.
-			{"write", git + "/refs/tags/v2.lock", "", ok}, {"write", git + "/refs/tags/v2", "", ok},
-			{"write", git + "/refs/tags/mainline", "", ok}, {"write", git + "/worktrees/h1/MERGE_HEAD", "", ok},
+			{"write", git + "/worktrees/h1/MERGE_HEAD", "", ok},
 			{"write", git + "/worktrees/h1/ORIG_HEAD.lock", "", ok}, {"write", git + "/worktrees/h1/CHERRY_PICK_HEAD", "", ok},
 			{"mkdir", git + "/worktrees/h1/rebase-merge", "", ok}, {"write", root + "/main.go", "", ok},
 		}},
@@ -130,7 +133,7 @@ func TestOnAMacTheProfileKeepsABaseBranchsNameAndTheOwnersStateFromADesk(t *test
 // commit, by git (`tag main`, `tag release/1.26`, `update-ref refs/main`, `update-ref main`, a tag of master and of
 // release/1.27) and by a stand-in writing the commit's id there (`$G/main`, `refs/main`, `refs/tags/main`, refs/tags
 // moved aside): each is refused, and the owner's `git rev-parse main`, `git show main:README` and `git worktree add … main` still take the
-// owner's main, with no "ambiguous" warning; `release/1.26` too. The desk still tags its own names.
+// owner's main, with no "ambiguous" warning; `release/1.26` too. Since FXGITROWS2R4 the desk tags no name at all.
 func TestOnAMacADesksTagOfABaseBranchsNameNoLongerTakesTheOwnersMain(t *testing.T) {
 	sandboxExecOrSkip(t)
 	git := gitOrSkip(t)
@@ -156,7 +159,7 @@ func TestOnAMacADesksTagOfABaseBranchsNameNoLongerTakesTheOwnersMain(t *testing.
 		hireGit(false, args...)
 	}
 	for _, args := range [][]string{{"tag", "h1-v1"}, {"tag", "mainline"}, {"tag", "v/main"}} {
-		hireGit(true, args...)
+		hireGit(false, args...)
 	}
 	// The stand-in writes the desk's commit id itself, and tries refs/tags moved aside.
 	steps := [][]string{{"write", filepath.Join(d.git, "main")}, {"write", filepath.Join(d.git, "refs", "main")},
@@ -190,8 +193,8 @@ func TestOnAMacADesksTagOfABaseBranchsNameNoLongerTakesTheOwnersMain(t *testing.
 	if data, _ := os.ReadFile(filepath.Join(added, "README")); string(data) != "the owner's checkout" {
 		t.Errorf("the owner's worktree add of main checked out %q", data)
 	}
-	if got := outside(d.checkout, "tag", "--list"); got != "h1-v1\nmainline\nv/main\n" {
-		t.Errorf("the tags: %q, want the desk's own three", got)
+	if got := outside(d.checkout, "tag", "--list"); got != "" {
+		t.Errorf("the tags: %q, want none", got)
 	}
 }
 
@@ -298,8 +301,8 @@ func TestOnAMacADesksOwnRebaseAndPickStillWorkInItsWorktree(t *testing.T) {
 	if data, _ := os.ReadFile(filepath.Join(d.root, "README")); string(data) != "the owner's next" {
 		t.Errorf("the desk's README after its round: %q", data)
 	}
-	if got := outside(d.checkout, "log", "-1", "--format=%s", "h1~1"); got != "the desk's\n" {
-		t.Errorf("the desk's rebase: h1~1 is %q", got)
+	if got := outside(d.checkout, "log", "-1", "--format=%s", "hire/h1/work~1"); got != "the desk's\n" {
+		t.Errorf("the desk's rebase: hire/h1/work~1 is %q", got)
 	}
 	if got := outside(d.checkout, "rev-parse", "main"); got != mainBefore {
 		t.Errorf("main moved: %s, was %s", got, mainBefore)

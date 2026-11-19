@@ -201,6 +201,13 @@ func runPlace(cmd string, args []string, env Env, stdout, stderr io.Writer) int 
 		if name == "" {
 			said = fmt.Sprintf("Took the nickname of whoever works in %s away.", oneLine(folder))
 		}
+		// A hire there that keeps its own nickname from the registry: the app says so, and where it's renamed.
+		var answer struct {
+			Note string `json:"note"`
+		}
+		if json.Unmarshal(raw, &answer) == nil && answer.Note != "" {
+			said += "\n" + plainText(answer.Note)
+		}
 	}
 	if err != nil {
 		return finish(err, stderr)

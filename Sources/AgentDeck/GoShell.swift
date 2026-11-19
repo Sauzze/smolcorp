@@ -31,6 +31,8 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         core = GoCore(port: port, support: support, bridge: bridge)
         instance = InstanceLock(support: support)
         super.init()
+        // The office's ⚙︎, and the demo's page, through the bridge: Settings as the menu opens them.
+        officeLink.showSettings = { [weak self] then in self?.showSettings(then: then) }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -490,6 +492,8 @@ struct ShellMenu: Equatable {
 /// use, for the core to show them as printed and check them as typed.
 final class OfficeLink {
     weak var window: OfficeWindow?
+    /// Smolcorp's own Settings window shown, as the menu's Settings… does, at `then` if given: set by the shell once it's made.
+    var showSettings: (_ then: String?) -> Void = { _ in }
     /// The office's keys, held while the core is ready.
     lazy var keys = OfficeKeyHolder(labels: labels, testCopy: testCopy) { [weak self] in self?.window?.toggle() }
     private let testCopy: Bool
@@ -512,6 +516,9 @@ final class OfficeLink {
             // Setup's Open the office: the page's own ask, never a test copy's window.
             if TestCopy.mayComeForward("the office (from setup)") { self?.window?.show() }
         }
+        // The office's ⚙︎ in its window, and the demo's page (the bridge's settings): GoShellDelegate's showSettings,
+        // never a test copy's.
+        actions.showSettings = { [weak self] then in self?.showSettings(then) }
         actions.officeOnTop = { [weak self] on in
             config.officeOnTop = on
             self?.window?.applyOptions()

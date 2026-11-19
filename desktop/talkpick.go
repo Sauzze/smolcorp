@@ -14,7 +14,8 @@ import (
 // 💬 Talk bubble, pick (1.26, P3): POST /talk/pick?session=&n=&since= answers the prompt a desk began asking at
 // since with its choice n, as a tap on a labelled button in the office's own window. A choice is a key, never text:
 // AskUserQuestion's options and a permission prompt's Yes are the choice's digit, which Claude Code's menus take and
-// answer at once; a permission prompt's No is the agent's Reject, as ✕ presses it.
+// answer at once; a permission prompt's No is the agent's Reject, as ✕ presses it, and so is a question's No, n=no
+// (it has no number), after the same look as any other choice (FXTALKFIX).
 //
 // The guards: the desk still asking that same prompt (else 409, choiceGone), looked at again on the key worker right
 // before the key; its choices offered by label (pickable, else 409: the four keys answer it); n one of them (else
@@ -39,6 +40,8 @@ const (
 	// Why a prompt whose choices aren't offered by label can't be picked: the four keys answer it.
 	talkUseTheKeys = "Its choices can't be picked from here: answer it with the keys."
 	talkNoChoice   = "Unknown choice"
+	// A question's No, which has no number in its menu: n=no, the agent's Reject.
+	talkNo = "no"
 )
 
 // errTalkChoiceGone is a desk that stopped asking, or began asking something else, while its pick waited for the key
@@ -317,8 +320,10 @@ func init() {
 
 // talkPick answers POST /talk/pick for session id.
 func (d *Deck) talkPick(id string, query url.Values) (int, string) {
+	// n is a choice's number, or no: a question's No.
+	no := query.Get("n") == talkNo
 	n, err := strconv.Atoi(query.Get("n"))
-	if err != nil {
+	if err != nil && !no {
 		return http.StatusBadRequest, talkNoChoice
 	}
 	since, err := strconv.ParseInt(query.Get("since"), 10, 64)
@@ -353,12 +358,12 @@ func (d *Deck) talkPick(id string, query url.Values) (int, string) {
 		d.mu.Unlock()
 		return http.StatusConflict, talkUseTheKeys
 	}
-	if n < 1 || n > talkChoices(asking) {
+	if !no && (n < 1 || n > talkChoices(asking)) {
 		d.mu.Unlock()
 		return http.StatusBadRequest, talkNoChoice
 	}
 	tab, agent := s.Tab, s.Agent
-	reject := asking.Kind == "permission" && n == talkPermissionNo
+	reject := no || asking.Kind == "permission" && n == talkPermissionNo
 	key := agent.Reject()
 	if !reject {
 		var ok bool

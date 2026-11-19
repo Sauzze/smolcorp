@@ -59,6 +59,10 @@ func isolate(t *testing.T) string {
 	swept := goneDesksSwept
 	goneDesksSwept = false
 	t.Cleanup(func() { goneDesksSwept = swept })
+	// Nor the start's end of plain hires whose launcher went while it was stopped (plainhireend.go).
+	plainSwept := plainHiresSwept
+	plainHiresSwept = false
+	t.Cleanup(func() { plainHiresSwept = plainSwept })
 	t.Cleanup(func() { goneDesksListed.Lock(); clear(goneDesksListed.lines); goneDesksListed.Unlock() })
 	return homeDir
 }

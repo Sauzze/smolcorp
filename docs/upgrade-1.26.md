@@ -39,12 +39,15 @@ those keys sat in files any program of yours could read, so at its first
 start 1.26 replaces every one of them, once. Links, copies and keys from
 before the update stop working.
 
-- **Pair each phone again**, and each Mac you paired for shared floors.
+- **Pair each phone again.**
 - **Re-hire your hires from 1.24.** They keep running as they started, but
   their keys no longer work (they can't send messages) and they lack 1.26's
   protections: a key of their own for each desk, settings that come with
   their start, and on a Mac the sandbox. Fire each one and hire it again.
-  Smolcorp never stops a desk by itself, so nothing is lost mid-task.
+  Smolcorp never stops a desk by itself, so nothing is lost mid-task. On a
+  Mac with the sandbox on, hire a Claude Code role in place of a Codex, Gemini
+  CLI, OpenCode or Grok hire: 1.26.0 refuses those four there, and they come
+  back in 1.26.1.
 - **A General Manager you start by hand** (Mac) needs a new token: run
   `smolcorp gm login` again.
 - **HTTPS through `tailscale serve`**, if you used it, has to be turned on
@@ -56,6 +59,16 @@ it can't vouch for fall back to their safe defaults: the front desk and
 hiring off, no webhook, the built-in guard plus what your file adds. That is
 always stricter, never looser. Setup names each one, and you set them again
 there.
+
+## On a Mac, two things to do once
+
+- **Restart your Mac** if a hire ran a server or any other background program
+  before you updated. From 1.26, firing a hire, Take over, restart and Hand
+  back end what it started in its sandbox, but a program started before the
+  update ran outside any sandbox, so Smolcorp can't end it.
+- **Remove `.git/rr-cache`** in each repository where a hire worked, unless
+  you use `git rerere` yourself: a conflict resolution a hire recorded there
+  before 1.26 would still be applied to your merges.
 
 ## Where Setup says it
 

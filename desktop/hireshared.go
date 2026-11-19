@@ -42,6 +42,9 @@ type engineRequest struct {
 	Role   Role
 	How    roleStart
 	Folder string
+	// Picked: the project the office picked for it in the folder for hires, by its name there (hirepick.go), which
+	// it is told it works on (FXPICKEDPROJECT); "" for none picked.
+	Picked string
 	// The account: a config folder, the default account, or neither (none named).
 	ConfigDir      string
 	DefaultAccount bool
@@ -93,20 +96,17 @@ const engineAutoMode = runtime.GOOS == "darwin"
 // for every system: Take over (t3takeover.go) refuses a hire without one, on Windows too.
 const hireSocketPrefix = "smolcorp-"
 
-// hireBrief writes a hire's brief where the Mac's HireDesk writes it: a
-// managed hire's (one with a worktree) in its own folder in Smolcorp's, any
-// other's in Smolcorp's briefs folder. Nil for a role on its own
-// instructions, or an agent that takes no first message (Grok).
+// hireBrief writes an engine hire's brief in its own folder in Smolcorp's, hires/<id>/, with or without a worktree:
+// its status files go beside it, where it may write (a GM in a folder that isn't a repo keeps its TEAM-BOARD there).
+// Never in Smolcorp's briefs folder, which holds other desks' briefs and which every desk's fence keeps it from
+// changing. Nil for a role on its own instructions, or an agent that takes no first message (Grok).
 func hireBrief(r engineRequest, place hirePlace, hireID string, now time.Time) (*briefMade, error) {
 	if Agent(r.Role.Agent) == Grok {
 		return nil, nil
 	}
-	managed := ""
-	if place.Worktree != "" {
-		managed = hireFolder(supportDir, hireID)
-	}
+	managed := hireFolder(supportDir, hireID)
 	return makeBrief(briefRequest{role: r.Role, library: editableBriefs(bundledBriefs(), briefTemplatesDir()), folder: place.Folder,
-		pinned: r.How == hiredAtPinnedDesk, desk: r.Desk, answers: r.Answers, task: r.Task, managed: managed, date: now,
+		pinned: r.How == hiredAtPinnedDesk, picked: r.pickedIn(place), desk: r.Desk, answers: r.Answers, task: r.Task, managed: managed, date: now,
 		kept: briefsKeptDir(), write: true})
 }
 
@@ -114,7 +114,7 @@ func hireBrief(r engineRequest, place hirePlace, hireID string, now time.Time) (
 // the brief it was just written, or, for a role on its own instructions, the
 // role's own first message ("" for the path).
 func engineBrief(r engineRequest, place hirePlace, hireID string, now time.Time) (message, brief string, err error) {
-	message = r.Role.firstMessage(place.Folder, r.How)
+	message = r.Role.firstMessageIn(place.Folder, r.How, r.pickedIn(place))
 	if r.Answers != nil {
 		message = r.Role.firstMessageAnswered(place.Folder, r.Answers)
 	}
@@ -125,7 +125,22 @@ func engineBrief(r engineRequest, place hirePlace, hireID string, now time.Time)
 	if made != nil {
 		message, brief = made.firstMessage, made.names.brief
 	}
+	// Placed in a General Manager's own folder (hiregmfolder.go): told so, in its first message.
+	if placedInGMFolder(place.Note) {
+		message += deskStartWords(gmFolderHireLine)
+	}
+	// Where its work is, and how its owner looks at it (FXCOREWORKTREES126, item 8).
+	message += deskStartWords(hireWorkWords(place.Worktree, place.Branch))
 	return message, brief, nil
+}
+
+// pickedIn is the project the office picked for this hire, with the branch of its own worktree of it in place, or
+// the zero value for none picked.
+func (r engineRequest) pickedIn(place hirePlace) pickedStart {
+	if r.Picked == "" {
+		return pickedStart{}
+	}
+	return pickedStart{project: r.Picked, branch: place.Branch}
 }
 
 // briefDesk is the desk a hire's brief is named for: one held on the ground floor, or none.
@@ -205,42 +220,32 @@ func setHire(id, state, notes string) {
 func (d *Deck) hireHeardFrom(h Hire) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	folder := physical(cmpOr(h.Worktree, h.Folder)) // where it works: its worktree if it has one
+	folder := physical(h.storedPlace()) // where it works: its worktree if it has one, compared as its row keeps it
 	return slices.ContainsFunc(d.sessions.All(), func(s *Session) bool {
 		where := physical(s.Folder)
 		return s.Agent == Claude && s.StartedAt >= h.Started && (where == folder || strings.HasPrefix(where, folder+string(filepath.Separator)))
 	})
 }
 
-// startedIn is where an engine hire started: its worktree, at the same place in it as the folder it was
-// hired into is in the repo; that folder itself when it has no worktree. The folder is kept as it was given (a
-// desk's pin may name it through a link) and the repo resolved, so it is placed with its links resolved, as the
-// Mac's HireDesk.prepare places it (physical(request.folder) against the physical repo).
-func startedIn(h Hire) string {
-	if h.Worktree == "" || h.Repo == "" {
-		return h.Folder
-	}
-	if rest, inside := strings.CutPrefix(physical(h.Folder), physical(h.Repo)+string(filepath.Separator)); inside {
-		return filepath.Join(h.Worktree, rest)
-	}
-	return h.Worktree
-}
-
 // hiredPlace is where a hire works, for whoever hired it: the folder it started in, and the branch of its own
 // worktree when it has one (then the folder is that worktree, not the one it was asked to work in).
-type hiredPlace struct{ WorksIn, Branch string }
+// Note is gmFolderLine for a hire placed in a General Manager's own folder (hiregmfolder.go), else "".
+type hiredPlace struct{ WorksIn, Branch, Note string }
 
 // hiredInto is what the Mac's Deck.open keeps of a hire that started, with the lock held: the folder it
 // started in, first among setup's recent ones (Config.noteHire), and, for a hire in a worktree of its own,
 // its nickname on its desk, which the office names by that folder's name (Deck.nicknamed).
 func (d *Deck) hiredInto(h Hire) {
-	folder := startedIn(h)
+	folder := h.storedStart() // its folder's name, for the recent folders and its desk: nothing is done there
 	d.lastPlace = hiredPlace{WorksIn: folder}
-	if h.Worktree != "" {
+	if placedInGMFolder(h.Notes) {
+		d.lastPlace.Note = gmFolderLine
+	}
+	if !h.Worktree.none() {
 		d.lastPlace.Branch = h.Branch
 	}
 	d.config.noteHireFolder(folder)
-	if name := firstRunes(trimSwiftSpace(h.Nickname), nicknameLimit); h.Worktree != "" && name != "" {
+	if name := firstRunes(trimSwiftSpace(h.Nickname), nicknameLimit); !h.Worktree.none() && name != "" {
 		team := maps.Clone(d.config.Layout.Room.Team)
 		if team == nil {
 			team = map[string]TeamMember{}
@@ -327,10 +332,30 @@ const firedWorktreeKept = "It holds changes nobody committed (new files count to
 // look at the tree is a read, and a read is refused on such a config whatever the tree holds (gitRepoConfig), so
 // "changes" would be a guess. The hire was made all the same (FXGITSTATECFGR1's decision 2). git nil is runGit.
 func firedKept(git gitRunner, h Hire) string {
+	if hireTreeMoved(h) {
+		return movedTreeKept(h.Worktree.storedOnly())
+	}
 	if why := repoHookWords(git, h.Repo); why != "" {
 		return "Y" + why[1:] + ", so it couldn't tell whether anything uncommitted is in it. Look at it, then remove it and its branch yourself."
 	}
 	return firedWorktreeKept
+}
+
+// movedTreeKept is why a fire or a clean-up left a hire's worktree that was moved or replaced since its hire
+// (hireTreeMoved), in firedWorktreeKept's form: no git ran there and nothing was removed (FXGMHIRENOGIT126R6).
+func movedTreeKept(worktree string) string {
+	return "It was moved or replaced, so Smolcorp left it alone. To remove it yourself, delete what's at " + worktree +
+		" (only the link, if it's a link), then run git worktree prune in your own checkout."
+}
+
+// treeKeptWhy is a clean-up's words for a hire's worktree it kept: movedTreeKept's for one moved or replaced since its
+// hire, else usual.
+func treeKeptWhy(h Hire, usual string) string {
+	if hireTreeMoved(h) {
+		kept := movedTreeKept(h.Worktree.storedOnly())
+		return strings.ToLower(kept[:1]) + kept[1:]
+	}
+	return usual
 }
 
 // repoHookWords is the cause, in the owner's words, when the config of repo (the owner's checkout) sets a hook: the
@@ -381,8 +406,8 @@ func firedButHeld(h Hire, what string) string {
 	}
 	said += ", but can't save the fire: it can't read the key that seals its records from your login keychain. So " +
 		calledHire(h) + " is still on your team"
-	if h.Worktree != "" {
-		said += ", its worktree kept at " + h.Worktree
+	if !h.Worktree.none() {
+		said += ", its worktree kept at " + h.Worktree.storedOnly()
 	}
 	return said + ", and its key works again after the restart: unlock the keychain, restart Smolcorp, then fire it again."
 }
@@ -444,9 +469,14 @@ func heldFireNote(h Hire) string {
 
 // uncommittedRefusal is why a hire's worktree may not be left, or "": git
 // lists changes nobody committed (as the Mac's fireRefusal), or can't say (and why, when the repo's config sets a
-// hook: repoHookWords).
+// hook: repoHookWords). On a Mac, a tree moved or replaced since its hire (hireTreeMoved) gets no git: its fire goes
+// ahead and keeps it, so nothing in it is lost (FXGMHIRENOGIT126R6).
 func uncommittedRefusal(h Hire, git gitRunner) string {
-	status, out, ok := git(physical(h.Worktree), "status", "--porcelain")
+	tree, err := h.checkedTree()
+	if err != nil {
+		return ""
+	}
+	status, out, ok := git(physical(tree), "status", "--porcelain")
 	if !ok || status != 0 {
 		if why := repoHookWords(git, h.Repo); why != "" {
 			return "Couldn't tell whether " + calledHire(h) + "'s worktree has unsaved work: " + why + ". Fire again with force to go ahead."
@@ -483,14 +513,6 @@ func markFired(id, keptLine string) error {
 			}
 		}
 	})
-}
-
-// place is where h worked: its worktree, or else its folder.
-func (h Hire) place() string {
-	if h.Worktree != "" {
-		return h.Worktree
-	}
-	return h.Folder
 }
 
 // clearFiredGMToken takes the token away after a GM was fired, unless another

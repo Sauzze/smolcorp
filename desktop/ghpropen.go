@@ -35,19 +35,37 @@ func prOpenURL(badge *PRBadge, repo string) string {
 }
 
 // deskPROpen answers POST /desk/pr/open for session id: it opens the desk's pull request in the browser.
+//
+// A desk's session is read as its git panel reads it (deskGit): only in its own place, while that still resolves to
+// itself (deskReadsIn, the hire's checked accessors), so a worktree moved or replaced since its hire has git and gh
+// run nowhere (FXGMHIRENOGIT126R8's found 1, FXCOREWORKTREES126).
 func (d *Deck) deskPROpen(id string) (int, any) {
+	desks := currentHookDesks()
 	d.mu.Lock()
 	s := d.sessions.Get(id)
-	var folder string
+	var folder, desk string
 	var event float64
 	if s != nil {
 		folder, event = cmpOr(s.Project, s.Folder), s.LastEventAt
+		desks.launchers = d.launcherHires()
+		desk = cmpOr(s.reportedBy, desks.deskOfTab(s.Tab))
 	}
 	d.mu.Unlock()
 	if s == nil {
 		return http.StatusNotFound, "That agent has gone."
 	}
-	state := gits.get(folder, event)
+	var state GitState
+	if desk == "" {
+		state = gits.get(folder, event)
+	} else {
+		place, real, note := deskReadsIn(desk, folder)
+		if note != "" {
+			return http.StatusConflict, note
+		}
+		if state = gits.getIn(real, place, event); state.Top != "" && !within(place, physical(state.Top)) {
+			return http.StatusConflict, deskOutsideNote
+		}
+	}
 	badge, _ := prs.For(state)
 	link := prOpenURL(badge, githubRepoOf(state.remote))
 	if link == "" {

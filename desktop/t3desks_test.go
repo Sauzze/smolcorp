@@ -22,8 +22,8 @@ const t3DeskTestID = "abcdef12-0000-4000-8000-00000000d35c"
 // t3DeskHire is a hire in T3 Code as the lane registers it once its thread runs, its worktree beside its repo.
 func t3DeskHire(home, id string) Hire {
 	repo := filepath.Join(home, "repo")
-	return Hire{ID: id, Name: "Reviewer", Nickname: "Rev", Role: "reviewer", Folder: repo, Branch: "hire/rev-" + id[:6],
-		Worktree: filepath.Join(home, "repo-hires", "rev-"+id[:6]), Repo: repo, Model: "claude-sonnet-5-5", Started: 1_761_000_000_000,
+	return Hire{ID: id, Name: "Reviewer", Nickname: "Rev", Role: "reviewer", Folder: keptPath(repo), Branch: "hire/rev-" + id[:6],
+		Worktree: keptPath(filepath.Join(home, "repo-hires", "rev-"+id[:6])), Repo: repo, Model: "claude-sonnet-5-5", Started: 1_761_000_000_000,
 		State: "working", Engine: t3Engine, T3Thread: "mcp:abc-1", T3Link: "https://app.t3.codes/threads/env-1/mcp%3Aabc-1"}
 }
 
@@ -181,7 +181,7 @@ func TestT3DeskOnlyAnOpenHireWithAThreadAndAWorktreeHasADesk(t *testing.T) {
 	}
 	t3Registered(t,
 		one("00000000-a1", func(h *Hire) { h.T3Thread, h.State = "", "starting" }),
-		one("00000000-a2", func(h *Hire) { h.Worktree = "" }),
+		one("00000000-a2", func(h *Hire) { h.Worktree = keptPath("") }),
 		one("00000000-a3", func(h *Hire) { h.State = "fired" }),
 		one("00000000-a4", func(h *Hire) { h.State = "failed" }),
 		one("00000000-a5", func(h *Hire) { h.Engine = "" }),
@@ -201,7 +201,7 @@ func TestT3DeskAnUnregisteredTablessSessionIsStillDropped(t *testing.T) {
 	plain := t3DeskHire(home, "00000000-b1")
 	plain.Engine, plain.T3Thread = "", ""
 	t3Registered(t, plain)
-	hookOn(d, "stray", "SessionStart", plain.Worktree, "", "", 10)
+	hookOn(d, "stray", "SessionStart", plain.Worktree.storedOnly(), "", "", 10)
 	hookOn(d, "elsewhere", "SessionStart", "/work/elsewhere", "", "", 10)
 	// A T3 hire's name or folder alone makes nothing: only its registry entry does.
 	hookOn(d, "named", "SessionStart", "/work/rev-abcdef", "", "", 10)
@@ -215,10 +215,10 @@ func TestT3DeskTheHiresOwnClaudeSessionMakesNoSecondDesk(t *testing.T) {
 	worktree := t3DeskHire(home, t3DeskTestID).Worktree
 	desk := t3DeskID(t3DeskTestID)
 	// Its own Claude Code, through your hooks, with no tab: dropped, its desk is the registry's.
-	hookOn(d, "t3-claude", "SessionStart", worktree, "", worktree, 10)
-	hookOn(d, "t3-claude", "PreToolUse", filepath.Join(worktree, "src"), "", "", 11)
+	hookOn(d, "t3-claude", "SessionStart", worktree.storedOnly(), "", worktree.storedOnly(), 10)
+	hookOn(d, "t3-claude", "PreToolUse", filepath.Join(worktree.storedOnly(), "src"), "", "", 11)
 	// Even with a tab named (a pane handed on in its environment), it's no desk of its own.
-	hookOn(d, "t3-claude-2", "SessionStart", worktree, "tmux:%51@/nowhere/t3-desk-sock", "", 12)
+	hookOn(d, "t3-claude-2", "SessionStart", worktree.storedOnly(), "tmux:%51@/nowhere/t3-desk-sock", "", 12)
 	if knownSession(d, "t3-claude") || knownSession(d, "t3-claude-2") {
 		t.Error("the hire's own session is a session")
 	}
@@ -256,8 +256,8 @@ func TestT3DeskAServerStartedFromATerminalDoesntStealThatTerminalsDesk(t *testin
 	if before < 0 {
 		t.Fatal("the terminal has no desk")
 	}
-	hookOn(d, "t3-claude", "SessionStart", worktree, pane, worktree, 20)
-	hookOn(d, "t3-claude", "UserPromptSubmit", worktree, pane, "", 21)
+	hookOn(d, "t3-claude", "SessionStart", worktree.storedOnly(), pane, worktree.storedOnly(), 20)
+	hookOn(d, "t3-claude", "UserPromptSubmit", worktree.storedOnly(), pane, "", 21)
 	d.mu.Lock()
 	terminal := d.sessions.Get("terminal")
 	tab := ""
@@ -274,18 +274,18 @@ func TestT3DeskAServerStartedFromATerminalDoesntStealThatTerminalsDesk(t *testin
 		t.Errorf("%v", ids)
 	}
 	// A session already at a desk that goes into the worktree stays as it was: only a new one is the hire's.
-	hookOn(d, "terminal", "PreToolUse", worktree, pane, "", 22)
+	hookOn(d, "terminal", "PreToolUse", worktree.storedOnly(), pane, "", 22)
 	d.mu.Lock()
 	folder := d.sessions.Get("terminal").Folder
 	d.mu.Unlock()
-	if folder != worktree {
+	if folder != worktree.storedOnly() {
 		t.Errorf("%q", folder)
 	}
 	// Let go, the worktree is nobody's: a session started there is a desk again, as any.
 	if err := updateRegistry(func(f *registryFile) { f.hires[0].State = "fired" }); err != nil {
 		t.Fatal(err)
 	}
-	hookOn(d, "after", "SessionStart", worktree, "tmux:%52@/nowhere/t3-desk-sock", "", 30)
+	hookOn(d, "after", "SessionStart", worktree.storedOnly(), "tmux:%52@/nowhere/t3-desk-sock", "", 30)
 	if !knownSession(d, "after") {
 		t.Error("a session in a let-go hire's worktree has no desk")
 	}
@@ -318,7 +318,7 @@ func TestT3DeskOnlyAWorktreeWhereHiresAreMadeCounts(t *testing.T) {
 	repo := filepath.Join(home, "repo")
 	hire := t3DeskHire(home, t3DeskTestID)
 	at := func(worktree, worktrees string) bool {
-		hire.Worktree = worktree
+		hire.Worktree = keptPath(worktree)
 		return t3InHiresFolder(hire, worktrees)
 	}
 	hires := filepath.Join(home, "w", "hires")
@@ -340,7 +340,7 @@ func TestT3DeskOnlyAWorktreeWhereHiresAreMadeCounts(t *testing.T) {
 	}
 	// A registry row naming a broad folder: no desk, and a session you start under it is a desk as any.
 	broad := t3DeskHire(home, t3DeskTestID)
-	broad.Worktree = home
+	broad.Worktree = keptPath(home)
 	t3Registered(t, broad)
 	if len(officeDesks(t, d)) != 0 {
 		t.Errorf("%v", deskIDs(officeDesks(t, d)))
@@ -408,10 +408,10 @@ func t3DeskRig(t *testing.T, flags ...string) (*t3Rig, *Deck, Hire) {
 	r, d := t3DeckRig(t, flags...)
 	h := r.t3Hire(r.worktree())
 	h.Nickname, h.Repo, h.T3Link = "Rev", filepath.Join(r.home, "repo"), "https://app.t3.codes/threads/env-1/mcp%3Aabc-1"
-	if err := os.MkdirAll(filepath.Join(h.Worktree, ".claude"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(h.Worktree.storedOnly(), ".claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(h.Worktree, ".claude", "settings.local.json"), []byte("{}"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(h.Worktree.storedOnly(), ".claude", "settings.local.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t3Registered(t, h)
@@ -461,7 +461,7 @@ func TestT3DeskLetGoFromTheDeskFreesItAndKeepsTheLanesRefusals(t *testing.T) {
 	r.fake()
 	status, body := act()
 	var answer map[string]any
-	if status != http.StatusOK || json.Unmarshal([]byte(body), &answer) != nil || answer["ok"] != true || answer["worktree"] != h.Worktree {
+	if status != http.StatusOK || json.Unmarshal([]byte(body), &answer) != nil || answer["ok"] != true || answer["worktree"] != h.Worktree.storedOnly() {
 		t.Fatalf("%d %s", status, body)
 	}
 	if after, _ := registryHire(h.ID); after.State != "fired" {

@@ -49,7 +49,7 @@ func newDeskRunRigAt(t *testing.T, hires string) *deskRunRig {
 	gitRepoCmd(t, r.repo, "add", "a.txt")
 	gitRepoCmd(t, r.repo, "commit", "-q", "-m", "first")
 	gitRepoCmd(t, r.repo, "worktree", "add", "-q", "-b", "hire/ada-abcdef", r.tree)
-	r.hire = Hire{ID: "abcdef123456", Name: "ada", Role: "builder", Folder: r.repo, Repo: r.repo, Worktree: r.tree,
+	r.hire = Hire{ID: "abcdef123456", Name: "ada", Role: "builder", Folder: keptPath(r.repo), Repo: r.repo, Worktree: keptPath(r.tree),
 		Branch: "hire/ada-abcdef", State: "working"}
 	keepRegistry(t)
 	writeRegistry(t, r.hire)
@@ -501,7 +501,7 @@ func TestAHiresTreeInsideTheOwnersCheckoutIsRunAsTheDesks(t *testing.T) {
 		t.Error("the owner's checkout was taken for the desk's tree")
 	}
 
-	holder := Hire{ID: "fedcba654321", Name: "cy", Role: "builder", Folder: r.repo, Repo: r.repo, Worktree: r.base, Branch: "hire/cy", State: "working"}
+	holder := Hire{ID: "fedcba654321", Name: "cy", Role: "builder", Folder: keptPath(r.repo), Repo: r.repo, Worktree: keptPath(r.base), Branch: "hire/cy", State: "working"}
 	writeRegistry(t, r.hire, holder)
 	beside := filepath.Join(r.base, "beside")
 	if err := os.MkdirAll(beside, 0o755); err != nil {

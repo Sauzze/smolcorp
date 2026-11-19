@@ -569,6 +569,8 @@ var phoneRoutes = map[string]bool{
 	// A phone's notifications (PUSH1, pushsubs.go): a paired phone over Tailscale alone (accessPhoneSecure), with a
 	// browser's subscription to a push service, never a phone's text.
 	"/push": false, "/push/off": false,
+	// How many notes the GM proposed wait (FXMEMKEEP, memoryowner.go): the office's own window alone, a count, no text.
+	"/memory/waiting": false,
 }
 
 // phoneRouteCode is one route's code as this test reads it: its paths, its code, and whether only the window reaches it.

@@ -1,12 +1,14 @@
 package desktop
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -103,10 +105,6 @@ func makeGitReadFolder(ctx context.Context, dir, top, gitDir string, read gitRea
 	default:
 		return gitReadFolder{}, errors.New("git couldn't say what HEAD is")
 	}
-	refs, status, err := read(ctx, dir, call, "for-each-ref", "--format=%(objectname) %(refname)", "refs/heads/", "refs/remotes/")
-	if err != nil || status != 0 {
-		return gitReadFolder{}, errors.Join(err, errors.New("git couldn't list the branches"))
-	}
 
 	if err := sweepGitReads(); err != nil {
 		return gitReadFolder{}, err
@@ -116,10 +114,13 @@ func makeGitReadFolder(ctx context.Context, dir, top, gitDir string, read gitRea
 		return gitReadFolder{}, err
 	}
 	f := gitReadFolder{dir: made, format: format}
+	if err := gitListBranchesInto(ctx, dir, read, call, filepath.Join(made, "packed-refs")); err != nil {
+		f.remove()
+		return gitReadFolder{}, err
+	}
 	files := map[string][]byte{
-		"config":      []byte("[core]\n\trepositoryformatversion = 1\n[extensions]\n\tobjectformat = " + format + "\n"),
-		"HEAD":        head,
-		"packed-refs": refs,
+		"config": []byte("[core]\n\trepositoryformatversion = 1\n[extensions]\n\tobjectformat = " + format + "\n"),
+		"HEAD":   head,
 	}
 	for name, from := range map[string]string{"info/exclude": common, "shallow": common, "info/sparse-checkout": gitDir} {
 		data, err := cpReadData(filepath.Join(from, filepath.FromSlash(name)), gitCopiesMost)
@@ -159,6 +160,36 @@ func makeGitReadFolder(ctx context.Context, dir, top, gitDir string, read gitRea
 			"GIT_OBJECT_DIRECTORY=" + filepath.Join(common, "objects")},
 	}
 	return f, nil
+}
+
+// gitListBranchesInto writes the repo's branches and remote branches, as git lists them, to file (the read folder's
+// packed-refs). The listing grows with the repo's branches, so it goes to the file line by line as it comes
+// (gitRecords, FXWINWORKTREER4), up to gitRefsMost bytes, where gitOutput's cap refused a repo of some 45,000
+// branches every read through the core's folder: on a computer, every desk's status, so every fire kept its tree. A
+// reader that keeps its answer instead (a test's) hands it back, and that goes to the file the same way.
+func gitListBranchesInto(ctx context.Context, dir string, read gitReader, call gitCall, file string) error {
+	refs, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	written := bufio.NewWriter(refs)
+	lines := &gitRecords{sep: '\n', most: gitRefsMost, each: func(line []byte) error {
+		_, err := written.Write(line)
+		return errors.Join(err, written.WriteByte('\n'))
+	}}
+	call.stdout = lines
+	kept, status, err := read(ctx, dir, call, "for-each-ref", "--format=%(objectname) %(refname)", "refs/heads/", "refs/remotes/")
+	if err == nil && status == 0 && len(kept) > 0 {
+		_, err = lines.Write(kept)
+	}
+	err = errors.Join(lines.end(), err)
+	if status != 0 && err == nil {
+		err = errors.New("git ended with " + strconv.Itoa(status))
+	}
+	if err = errors.Join(err, written.Flush(), refs.Close()); err != nil {
+		return errors.Join(err, errors.New("git couldn't list the branches"))
+	}
+	return nil
 }
 
 // gitNotForwarded are the keys of a repo's config never handed to the git that reads its files, beyond every key

@@ -572,7 +572,8 @@ func isHookArguments(rest string) bool {
 }
 
 // thisCopysPath is this copy's path as its hooks name it, unquoted: on
-// Windows in its short form, with forward slashes (see shellPath).
+// Windows as windowsHookPath names it, with forward slashes: the path itself,
+// its short form, or the path its double quotes held (see shellPath).
 func thisCopysPath() string {
 	if inside, found := strings.CutPrefix(shellPath(commandLineProgram()), `'`); found {
 		path, _ := unquoteSingle(inside)
@@ -637,9 +638,50 @@ var windowsDrivePath = regexp.MustCompile(`^[A-Za-z]:[/\\]`)
 // or a program after one.
 var secondDrivePath = regexp.MustCompile(`\s[A-Za-z]:[/\\]`)
 
-// windowsPathNeedsQuotes is whether a Windows hook's path, in its short form,
-// must be quoted to run through cmd (Codex) and Git Bash (Claude Code): a
-// drive with short names turned off keeps its spaces, and a short name keeps
+// windowsHookPath is path as a Windows hook names it (shellPath). The agents
+// run hooks through different shells, Codex through cmd, Gemini CLI and Grok
+// through PowerShell, Claude Code through Git Bash or PowerShell, and no one
+// way of quoting suits all three. So it is a path none of them needs quoted,
+// with forward slashes, which read the same in each:
+//   - the path itself, in the usual case (%LOCALAPPDATA%\Smolcorp\smolcorp-cli.exe
+//     for a user name with no space);
+//   - or else its short (8.3) form, if that's plain and names this very file.
+//     An alias isn't stable: one an update moved to Smolcorp.exe, or that a
+//     program set aside (.old-<n>) took, is caught by reading it back
+//     (longOf). refreshHooks writes it again at each start;
+//   - or else the path in double quotes, which cmd and Git Bash run.
+//     PowerShell doesn't: see windowsPathNeedsQuotes.
+func windowsHookPath(path string, shortOf, longOf func(string) (string, error)) string {
+	slashed := strings.ReplaceAll(path, `\`, "/")
+	if plainWindowsPath.MatchString(slashed) {
+		return slashed
+	}
+	want := path
+	if long, err := longOf(path); err == nil {
+		want = long
+	}
+	if short, err := shortOf(path); err == nil {
+		short = strings.ReplaceAll(short, `\`, "/")
+		if back, err := longOf(short); err == nil && plainWindowsPath.MatchString(short) &&
+			strings.EqualFold(strings.ReplaceAll(back, `\`, "/"), strings.ReplaceAll(want, `\`, "/")) {
+			return short
+		}
+	}
+	if windowsPathNeedsQuotes(slashed) {
+		return `"` + slashed + `"`
+	}
+	return slashed
+}
+
+// plainWindowsPath is a path from a drive that no shell an agent runs hooks
+// through reads as more than a path: letters, digits and . _ - ~ between the
+// slashes.
+var plainWindowsPath = regexp.MustCompile(`^[A-Za-z]:(/[A-Za-z0-9._~-]+)+$`)
+
+// windowsPathNeedsQuotes is whether a Windows hook's path, where neither it
+// nor its short form is plain (windowsHookPath), must be quoted to run
+// through cmd (Codex) and Git Bash (Claude Code): a drive with short names
+// turned off keeps its spaces, and a short name keeps
 // & ( ) ', which both read as their own, and ^, which cmd takes out. A lone !
 // is safe unquoted in both.
 // PowerShell (Gemini CLI, Grok) runs neither a quoted path nor one with

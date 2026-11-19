@@ -55,7 +55,7 @@ func (m *macStandIn) sealedItem() (string, bool) {
 func withHiredGM(t *testing.T, state string) {
 	t.Helper()
 	file := readRegistry(registryPath(), true)
-	file.hires = []Hire{{ID: "gm0001", Name: "GM", Role: gmRole, Folder: homeDir, State: state}}
+	file.hires = []Hire{{ID: "gm0001", Name: "GM", Role: gmRole, Folder: keptPath(homeDir), State: state}}
 	if err := file.save(registryPath()); err != nil {
 		t.Fatal(err)
 	}

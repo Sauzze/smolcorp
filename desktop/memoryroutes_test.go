@@ -817,13 +817,13 @@ func TestTheMemoryRoutesRawPathProbes(t *testing.T) {
 // The start message grows by one sentence, the same whatever memory holds (CMDLEN): never a note.
 func TestTheGMsIntroductionGrowsByOneFixedSentence(t *testing.T) {
 	for _, missing := range []bool{false, true} {
-		intro := gmIntroduction("/x/hires", missing)
+		intro := gmIntroduction("/x/hires", "", "", missing)
 		if strings.Count(intro, gmMemorySentence) != 1 || strings.Contains(intro, memoryHeader) {
 			t.Errorf("the introduction (tools missing %v): %q", missing, intro)
 		}
 	}
-	if !strings.Contains(gmIntroduction("/x/hires", false), "so don't look for a token or a key. "+gmMemorySentence) {
-		t.Errorf("where the sentence goes: %q", gmIntroduction("/x/hires", false))
+	if !strings.Contains(gmIntroduction("/x/hires", "", "", false), "so don't look for a token or a key. "+gmMemorySentence) {
+		t.Errorf("where the sentence goes: %q", gmIntroduction("/x/hires", "", "", false))
 	}
 }
 
@@ -831,7 +831,8 @@ func TestTheGMsIntroductionGrowsByOneFixedSentence(t *testing.T) {
 // Setup's line) read it. The brief, the start message, the command line, the environment, the plugin, the events and
 // every gate are written by files that never reach it.
 func TestOnlyTheRoutesAndTheRecordsReachTheStore(t *testing.T) {
-	allowed := map[string]bool{"memory.go": true, "memoryroutes.go": true, "records.go": true, "deck.go": true, "server.go": true}
+	// memoryowner.go is the owner's side of the routes (FXMEMKEEP): Setup's list, keep, edit, drop and forget.
+	allowed := map[string]bool{"memory.go": true, "memoryroutes.go": true, "memoryowner.go": true, "records.go": true, "deck.go": true, "server.go": true}
 	files, _ := filepath.Glob("*.go")
 	found := map[string]bool{}
 	for _, file := range files {

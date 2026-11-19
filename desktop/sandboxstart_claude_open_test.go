@@ -59,7 +59,7 @@ func fireWithASwap(t *testing.T, swap func(claude string), unstick func(claude s
 	newTestDeck(t)
 	freshClaudeHeld(t)
 	place := claudeTree(t, filepath.Join(claudeTempDir(t), "place"), ".claude/settings.json", ".claude/skills/s/SKILL.md")
-	h := Hire{ID: "abcdef000001", Name: "swapped", State: "working", Folder: place}
+	h := Hire{ID: "abcdef000001", Name: "swapped", State: "working", Folder: keptPath(place)}
 	claudeRegistry(t, h)
 	claude := filepath.Join(place, ".claude")
 	var swapped atomic.Bool

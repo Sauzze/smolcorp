@@ -53,7 +53,7 @@ func TestStartHeresGMHireTakesTheAccountAndTheWorktreeAsTheMacs(t *testing.T) {
 		}
 		d.watching.Wait()
 		got := registered(t)
-		if len(got) != 1 || got[0].Role != gmRole || got[0].Account != "work" || (got[0].Worktree != "") != worktree {
+		if len(got) != 1 || got[0].Role != gmRole || got[0].Account != "work" || (!got[0].Worktree.none()) != worktree {
 			t.Fatalf("%s: registry %+v", target, got)
 		}
 		// On the work account's sign-in, through its own Claude folder (SA-X8).
@@ -258,14 +258,14 @@ func TestTheRegistrysFolderIsTheProjectAndOldRowsAreReadSo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hire.Folder != r.repo || registered(t)[0].Folder != r.repo || hire.Worktree == "" {
+	if hire.Folder.storedOnly() != r.repo || registered(t)[0].Folder.storedOnly() != r.repo || hire.Worktree.none() {
 		t.Fatalf("hire %+v", hire)
 	}
 	old := []Hire{
-		{ID: "a1", Name: "A", Folder: "/w/app-hires/a-1", Worktree: "/w/app-hires/a-1", Repo: "/w/app", State: "working"},
-		{ID: "b2", Name: "B", Folder: "/w/app-hires/b-2/sub/x", Worktree: "/w/app-hires/b-2", Repo: "/w/app", State: "working"},
-		{ID: "c3", Name: "C", Folder: "/w/plain", State: "idle"},
-		{ID: "d4", Name: "D", Folder: "/w/app", Worktree: "/w/app-hires/d-4", Repo: "/w/app", State: "working"},
+		{ID: "a1", Name: "A", Folder: keptPath("/w/app-hires/a-1"), Worktree: keptPath("/w/app-hires/a-1"), Repo: "/w/app", State: "working"},
+		{ID: "b2", Name: "B", Folder: keptPath("/w/app-hires/b-2/sub/x"), Worktree: keptPath("/w/app-hires/b-2"), Repo: "/w/app", State: "working"},
+		{ID: "c3", Name: "C", Folder: keptPath("/w/plain"), State: "idle"},
+		{ID: "d4", Name: "D", Folder: keptPath("/w/app"), Worktree: keptPath("/w/app-hires/d-4"), Repo: "/w/app", State: "working"},
 	}
 	data, _ := json.Marshal(map[string]any{"version": 1, "hires": old})
 	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
@@ -273,7 +273,7 @@ func TestTheRegistrysFolderIsTheProjectAndOldRowsAreReadSo(t *testing.T) {
 	}
 	want := []string{"/w/app", filepath.Join("/w/app", "sub", "x"), "/w/plain", "/w/app"}
 	for i, h := range registered(t) {
-		if h.Folder != want[i] {
+		if h.Folder.storedOnly() != want[i] {
 			t.Errorf("%s: folder %q, want %q", h.ID, h.Folder, want[i])
 		}
 	}
@@ -396,7 +396,7 @@ func TestTheGMsRouteSaysAnUnknownRoleFirstAndTakesAFolderBelowAHiddenOne(t *test
 	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","folder":"`+hidden+`"}`); code != http.StatusOK {
 		t.Fatalf("a folder below a hidden one: %d %q", code, text)
 	}
-	if got := registered(t); len(got) != 1 || got[0].Folder != physical(hidden) {
+	if got := registered(t); len(got) != 1 || got[0].Folder.storedOnly() != physical(hidden) {
 		t.Errorf("registry %+v", got)
 	}
 }

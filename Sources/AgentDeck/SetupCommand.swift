@@ -66,17 +66,33 @@ enum SetupCommand {
     /// The header the check-only key goes in: it opens GET /setup/selftest and nothing else.
     static let selftestKeyHeader = "x-smolcorp-selftest-key"
 
+    /// The session the checklist is read through (FXSWEEP3P1, RT126SWEEP3 P1's F4): ephemeral, with no cache, and
+    /// asking the app every time. `URLSession.shared` keeps its cache in `~/Library/Caches`, where a desk can write: a
+    /// fresh entry planted there for `/setup/selftest` would print a checklist the desk wrote.
+    static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: configuration)
+    }()
+
+    /// The request for path, asked of the app itself, never answered from a cache.
+    static func request(_ base: String, _ method: String, _ path: String, timeout: TimeInterval) -> URLRequest {
+        var request = URLRequest(url: URL(string: base + path)!, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
+        request.httpMethod = method
+        return request
+    }
+
     /// A request to setup's checklist with the check-only key the running app wrote for this Mac's terminal.
     private static func send(_ base: String, _ method: String, _ path: String,
                              timeout: TimeInterval = 120) -> (status: Int?, body: Data?, problem: String?) {
-        var request = URLRequest(url: URL(string: base + path)!, timeoutInterval: timeout)
-        request.httpMethod = method
+        var request = request(base, method, path, timeout: timeout)
         if let key = try? String(contentsOf: Paths.selftestKey, encoding: .utf8) {
             request.setValue(key.trimmingCharacters(in: .whitespacesAndNewlines), forHTTPHeaderField: selftestKeyHeader)
         }
         var result: (Int?, Data?, String?) = (nil, nil, nil)
         let done = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        session.dataTask(with: request) { data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode
             let text = data.flatMap { String(data: $0, encoding: .utf8) }?.trimmingCharacters(in: .whitespacesAndNewlines)
             result = (status, data, status.map { $0 >= 400 ? (text ?? "HTTP \($0)") : nil } ?? error?.localizedDescription)

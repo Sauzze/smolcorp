@@ -17,6 +17,7 @@ import (
 
 	"github.com/Sauzze/smolcorp/internal/claudeenv"
 	"github.com/Sauzze/smolcorp/internal/disclaim"
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 // Open in T3 Code (T792), as the Mac app's T3Code.swift: a hire's folder (its
@@ -265,10 +266,17 @@ func t3JSON(s t3Status) map[string]any {
 
 // t3Folder is the folder to open for a hire: its worktree, else its folder. Only a folder that's there, inside
 // the home folder, not the home folder itself and not hidden (nor inside a hidden one). Else a status and why.
+//
+// The hire's place goes through its accessor (checkedPlace, FXCOREWORKTREES126): one moved or replaced since its hire
+// isn't opened, so T3 Code never runs your agent and git where a link put there leads (FXGMHIRENOGIT126R8's found 2).
+// The core's own folder for worktrees (~/.smolcorp/worktrees) is hidden, and is where a hire's worktree is: it opens.
 func t3Folder(h Hire, home string) (string, int, string) {
-	given := cmpOr(h.Worktree, h.Folder)
-	if given == "" {
+	if h.storedPlace() == "" {
 		return "", http.StatusBadRequest, "This hire has no folder to open."
+	}
+	given, err := h.checkedPlace()
+	if err != nil {
+		return "", http.StatusConflict, err.Error()
 	}
 	if info, err := os.Stat(given); err != nil || !info.IsDir() {
 		return "", http.StatusConflict, "This hire's folder isn't there any more."
@@ -288,8 +296,9 @@ func t3Folder(h Hire, home string) (string, int, string) {
 	case err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)):
 		return "", http.StatusConflict, "Only a folder inside your home folder opens in T3 Code."
 	}
+	inCore := coreWorktreesOn() && !h.Worktree.none() && sandbox.Inside(runtime.GOOS, folder, coreWorktreesFolder())
 	for _, part := range strings.Split(rel, string(filepath.Separator)) {
-		if strings.HasPrefix(part, ".") {
+		if strings.HasPrefix(part, ".") && !inCore {
 			return "", http.StatusConflict, "A hidden folder doesn't open in T3 Code."
 		}
 	}

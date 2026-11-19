@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -35,11 +34,12 @@ import (
 //	smolcorp demo                 the real thing, after your OK
 //	smolcorp demo --dry-run       the same steps with stand-ins: no office, no Claude Code, nothing spent
 //	smolcorp demo --in FOLDER     make the demo folder in FOLDER (default: your home folder)
-//	smolcorp demo --no-open       print the link to the demo's page instead of opening it
+//	smolcorp demo --no-open       print the link to the demo's page instead of opening it (where it opens in a browser)
 //
 // The demo never hires: the tool's key it holds can't (the route table). It gets that key by asking the app, once you
 // click Allow in Smolcorp's window (demooffice.go); no file holds it. After your yes it makes the folder,
-// and Smolcorp opens Setup in your browser at the demo (demopage.go): you check it there and click Hire, which
+// and Smolcorp opens Setup at the demo (demopage.go: in its own Settings window where it has one, else in your
+// browser): you check it there and click Hire, which
 // hires the General Manager held to the project. The demo then follows the team.
 
 //go:embed demosample
@@ -72,6 +72,17 @@ type demoTeam interface {
 	off() []demoSwitch
 	// leftOn is the switches the demo turned on and left on, for the last word of the run.
 	leftOn() []demoSwitch
+	// inWindow is whether the demo's page opens in Smolcorp's own Settings window, read by ready: the question says where.
+	inWindow() bool
+}
+
+// demoPageOpens is the question's sentence on where Setup opens at the demo: Smolcorp's Settings window under the Mac
+// app and on Windows with its window, else the browser (Linux, a Windows without WebView2).
+func demoPageOpens(window bool) string {
+	if window {
+		return "After your yes, the demo makes its folder, and Smolcorp's Settings window\nopens at the demo: check it there, and click Hire to hire the General Manager."
+	}
+	return "After your yes, the demo makes its folder, and Setup opens in your browser at\nthe demo: check it there, and click Hire to hire the General Manager."
 }
 
 // demoSwitch is one of Smolcorp's switches the real demo turns on when it's off.
@@ -128,7 +139,7 @@ func RunDemo(args []string) int {
 	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
 	dry := fs.Bool("dry-run", false, "stand-ins for the office and Claude Code: nothing is spent")
 	in := fs.String("in", homeDir, "where to make the demo folder")
-	noOpen := fs.Bool("no-open", false, "print the link to the demo's page instead of opening it in your browser")
+	noOpen := fs.Bool("no-open", false, "print the link to the demo's page instead of opening it in your browser (refused where it opens in Smolcorp's own Settings window)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -181,10 +192,9 @@ plan's usage, as any Claude Code session does, never an API key.
 Nothing is pushed, merged or published: the project has no remote, and the
 team stops before anything ships.
 
-After your yes, the demo makes its folder, and Setup opens in your browser at
-the demo: check it there, and click Hire to hire the General Manager.
+%s
 
-Go on? [y/N] `, demoSwitchesOff(r.team.off()))
+Go on? [y/N] `, demoSwitchesOff(r.team.off()), demoPageOpens(r.team.inWindow()))
 		answer, _ := bufio.NewReader(r.stdin).ReadString('\n')
 		if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
 			fmt.Fprintln(out, "Nothing was made or started.")
@@ -336,7 +346,7 @@ func demoMakeRepo(f demoFolder) error {
 // ownerGitIdentity is the owner's own name and address for a commit, from their git config (reading config runs
 // nothing; --global follows no includes): "" for what they haven't set.
 func ownerGitIdentity(ctx context.Context) (name, email string) {
-	env := slices.DeleteFunc(gitReadEnv(os.Environ(), nil), func(kv string) bool { return strings.HasPrefix(kv, "GIT_CONFIG_GLOBAL=") })
+	env := gitOwnerConfigEnv(os.Environ())
 	value := func(key string) string {
 		out, status, err := execGit(ctx, env, "-C", os.TempDir(), "--no-pager", "config", "--global", "--get", key)
 		if err != nil || status != 0 {
@@ -348,7 +358,8 @@ func ownerGitIdentity(ctx context.Context) (name, email string) {
 }
 
 // demoSettings is the project's .claude/settings.json: the demo's fence before every tool call,
-// and deny rules for the plain forms of what it refuses.
+// and deny rules for the plain forms of what it refuses. A fence that times out, is killed or fails
+// refuses the call (onFailure "block", as the hire's and the GM's hooks: smolcorpHook).
 func demoSettings(root string, roles []string) ([]byte, error) {
 	program := commandLineProgram() // links resolved; on Windows, smolcorp-cli.exe
 	if program == "" {
@@ -360,7 +371,7 @@ func demoSettings(root string, roles []string) ([]byte, error) {
 		"permissions": map[string]any{"deny": []string{"Bash(git push:*)", "Bash(git remote add:*)", "Bash(gh:*)", "PowerShell"}},
 		"hooks": map[string]any{"PreToolUse": []any{map[string]any{
 			"matcher": "*",
-			"hooks":   []any{map[string]any{"type": "command", "command": command, "timeout": 10}},
+			"hooks":   []any{map[string]any{"type": "command", "command": command, "timeout": 10, "onFailure": "block"}},
 		}}},
 	}, "", "  ")
 }

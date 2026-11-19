@@ -98,11 +98,11 @@ func t3TakeOverRefusal(h Hire, session t3Session, home string, testCopy bool) st
 		return name + " runs in a window of Smolcorp's launcher: Take over reaches only a hire in a tmux session of its own, for now."
 	case h.TmuxSocket == "" || !strings.HasPrefix(filepath.Base(h.TmuxSocket), hireSocketPrefix):
 		return "Only a hire Smolcorp runs in a tmux session of its own can be taken over in T3 Code, and " + name + " isn't one."
-	case h.Worktree == "":
+	case h.Worktree.none():
 		return name + " has no worktree of its own, and in T3 Code its fence stays on one, so it can't be taken over."
 	// Where the hire's session started: its folder is the project (as the Mac's registry), so the
-	// session's folder is the worktree plus the folder's place in the project (startedIn).
-	case plainPath(filepath.Clean(startedIn(h))) != plainPath(filepath.Clean(h.Worktree)):
+	// session's folder is the worktree plus the folder's place in the project (storedStart). Compared as stored.
+	case plainPath(filepath.Clean(h.storedStart())) != plainPath(filepath.Clean(h.Worktree.storedOnly())):
 		return name + " works in a folder inside its worktree, and T3 Code takes over only a session started at a project's top."
 	case session.ID == "":
 		return "Smolcorp hasn't heard from " + name + "'s Claude Code yet, so it doesn't know which session to hand over."
@@ -367,6 +367,13 @@ func t3TreeRefusal(name, why string) string {
 	return name + "'s worktree isn't as Smolcorp made it (" + why + "), and in T3 Code your own git runs there, outside any sandbox,"
 }
 
+// t3TreeTurnedWords are why hire h, whose worktree failed its check (hireTreeTurned), wasn't done (taken over, handed
+// back), and that the step (Take over, Hand back) changed nothing.
+func t3TreeTurnedWords(h Hire, done, step string) string {
+	return calledHire(h) + "'s worktree, " + shownPath(h.Worktree.storedOnly()) + ", was moved or replaced since it was hired, so it wasn't " +
+		done + ", and " + step + " changed nothing."
+}
+
 // t3TakeOver takes hire h over in T3 Code, its session being session; it runs git, t3 and T3 Code's internal
 // import. The thread T3 Code runs it in, or a refusal. h has passed t3TakeOverRefusal and the gate.
 func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
@@ -378,6 +385,17 @@ func t3TakeOver(h Hire, session t3Session, ways t3Handing) (string, error) {
 // (said, deskKept), for Take over's answer.
 func t3TakeOverSaid(h Hire, session t3Session, ways t3Handing) (thread, said string, err error) {
 	name := calledHire(h)
+	// Its worktree as a start checks it, first: before the hooks look, the Stop, or anything at its path. One moved or
+	// replaced since its hire (a GM's link to a folder of its own) would have git, the fence and T3 Code act where the
+	// link leads (FXGMHIRENOGIT126R7, B1).
+	if hireTreeTurned(h) {
+		return "", "", t3Refused(http.StatusConflict, t3TreeTurnedWords(h, "taken over", "Take over")+" Fire it, then hire it again.")
+	}
+	// Every act below is at the tree as the accessor gives it, checked (FXCOREWORKTREES126).
+	tree, err := h.checkedTree()
+	if err != nil {
+		return "", "", t3Refused(http.StatusConflict, t3TreeTurnedWords(h, "taken over", "Take over")+" Fire it, then hire it again.")
+	}
 	git := ways.Git
 	if git == nil {
 		git = runGit
@@ -386,14 +404,14 @@ func t3TakeOverSaid(h Hire, session t3Session, ways t3Handing) (thread, said str
 	if program == "" {
 		return "", "", t3Refused(http.StatusConflict, "T3 Code's t3 command isn't there, so nothing was changed.")
 	}
-	fence := filepath.Join(h.Worktree, filepath.FromSlash(t3FenceName))
+	fence := filepath.Join(tree, filepath.FromSlash(t3FenceName))
 	if _, err := os.Lstat(fence); err == nil {
 		return "", "", t3Refused(http.StatusConflict, "This repository keeps its own "+t3FenceName+", so Smolcorp can't put "+name+"'s fence there, and nothing was changed.")
 	}
-	if t3HooksSwitchedOff(h.Worktree, git) {
+	if t3HooksSwitchedOff(tree, git) {
 		return "", "", t3Refused(http.StatusConflict, t3HooksOff)
 	}
-	if _, looked := ways.Holding(h.Worktree, session.ID); !looked {
+	if _, looked := ways.Holding(tree, session.ID); !looked {
 		return "", "", t3Refused(http.StatusConflict, t3CantLook(name))
 	}
 	settings, err := ways.Fence()
@@ -428,7 +446,7 @@ func t3TakeOverSaid(h Hire, session t3Session, ways t3Handing) (thread, said str
 		return "", "", t3Refused(status, joinNote(why, joinNote(wasPutBack, note)))
 	}
 	// 2. Nothing else holds its session, nor works in its worktree.
-	if still, looked := t3WaitFree(h.Worktree, session.ID, ways); !looked || len(still) > 0 {
+	if still, looked := t3WaitFree(tree, session.ID, ways); !looked || len(still) > 0 {
 		why := t3CantLook(name)
 		if looked {
 			why = name + " was stopped, but a process still holds its session or works in its worktree (" + t3StillHeld(still, ways.Name) + "), so it wasn't handed to T3 Code."
@@ -463,7 +481,7 @@ func t3TakeOverSaid(h Hire, session t3Session, ways t3Handing) (thread, said str
 	}
 	// 2c. What it made named .claude or .mcp.json in its worktree is listed and held for you, now that it's stopped,
 	// with what other hires left around it: T3 Code's agent is your own Claude Code, which reads them (CLAUDEPLANT1).
-	if why := claudeGate(h.Worktree, append([]Hire{h}, officeHires()...)); why != "" {
+	if why := claudeGate(tree, append([]Hire{h}, officeHires()...)); why != "" {
 		return giveBack(http.StatusConflict, why)
 	}
 	// 2d. Its worktree as Smolcorp made it, for your own git there (C6): looked at now that nothing works in it, and
@@ -472,15 +490,15 @@ func t3TakeOverSaid(h Hire, session t3Session, ways t3Handing) (thread, said str
 		return giveBack(http.StatusConflict, t3TreeRefusal(name, why)+" so it wasn't handed to T3 Code.")
 	}
 	// 3. The fence on its worktree, kept out of git, before T3 Code hears of the folder.
-	if !t3WriteFence(settings, fence) || !t3Exclude(h.Worktree, git) {
+	if !t3WriteFence(settings, fence) || !t3Exclude(tree, git) {
 		return giveBack(http.StatusInternalServerError, name+"'s fence couldn't be put on its worktree, so it wasn't handed to T3 Code.")
 	}
 	// 4. The worktree as a T3 project of its own.
 	title := calledHire(h) + " · " + h.Branch
-	added := ways.Machine.Run(program, []string{"project", "add", h.Worktree, "--title", title}, t3Within)
+	added := ways.Machine.Run(program, []string{"project", "add", tree, "--title", title}, t3Within)
 	project := ""
 	if added.Ended && added.Code == 0 {
-		project = t3AddedProject(added.Output, h.Worktree)
+		project = t3AddedProject(added.Output, tree)
 	}
 	thread = t3ImportedThread + session.ID
 	if project == "" {
@@ -506,7 +524,7 @@ func t3TakeOverSaid(h Hire, session t3Session, ways t3Handing) (thread, said str
 		return giveBack(http.StatusConflict, name+"'s fence was gone or changed before T3 Code took the session, so it wasn't handed over.")
 	}
 	// 5. THAT session imported, by T3 Code's internal import, into the project just added.
-	if _, err := ways.Call(program, "agentSessions.import", map[string]any{"projectId": project, "expectedWorkspaceRoot": h.Worktree}); err != nil {
+	if _, err := ways.Call(program, "agentSessions.import", map[string]any{"projectId": project, "expectedWorkspaceRoot": tree}); err != nil {
 		return giveBack(http.StatusBadGateway, "T3 Code didn't import "+name+"'s session: "+err.Error()+".")
 	}
 	shown := t3Show(thread, program, ways.Machine)
@@ -535,12 +553,25 @@ func t3TakeOverSaid(h Hire, session t3Session, ways t3Handing) (thread, said str
 // when its fence couldn't be taken off, or a refusal. h has T3Session set.
 func t3HandBack(h Hire, ways t3Handing) (string, error) {
 	name := calledHire(h)
+	// Its worktree as a start checks it, first, as Take over does: the fence is taken off and the session resumed at
+	// its path, so one moved or replaced since its hire is left as it is, and so is T3 Code's project for it, which
+	// you remove there. This also holds Take over's own undo (giveBack) when the tree turned during it.
+	if hireTreeTurned(h) {
+		return "", t3Refused(http.StatusConflict, t3TreeTurnedWords(h, "handed back", "Hand back")+
+			" If T3 Code has a project \""+name+" · "+h.Branch+"\" for it, remove it there yourself.")
+	}
+	// Every act below is at the tree as the accessor gives it, checked (FXCOREWORKTREES126).
+	tree, err := h.checkedTree()
+	if err != nil {
+		return "", t3Refused(http.StatusConflict, t3TreeTurnedWords(h, "handed back", "Hand back")+
+			" If T3 Code has a project \""+name+" · "+h.Branch+"\" for it, remove it there yourself.")
+	}
 	session := h.T3Session
 	program := t3Program(ways.Machine)
 	if program == "" {
 		return "", t3Refused(http.StatusConflict, "Handing "+name+" back needs T3 Code's t3 command, to remove its project there, and it isn't there, so nothing was changed: in T3 Code, open Settings → About and install it, then hand back again.")
 	}
-	if _, looked := ways.Holding(h.Worktree, session); !looked {
+	if _, looked := ways.Holding(tree, session); !looked {
 		return "", t3Refused(http.StatusConflict, t3CantLook(name))
 	}
 	if h.T3Thread != "" {
@@ -555,7 +586,7 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 			}
 		}
 		// 2. Its project removed, so no thread of T3 Code's is left that could open the session again.
-		removed := ways.Machine.Run(program, []string{"project", "remove", h.Worktree, "--force"}, t3Within)
+		removed := ways.Machine.Run(program, []string{"project", "remove", tree, "--force"}, t3Within)
 		if !(removed.Ended && removed.Code == 0) && !t3NoProject(removed) {
 			return "", t3Refused(http.StatusBadGateway, "T3 Code didn't remove "+name+"'s project ("+t3Said(removed)+"), so it wasn't handed back: T3 Code could still open its session.")
 		}
@@ -565,7 +596,7 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 		_ = ways.Save(h.ID, func(r *Hire) { r.T3Thread, r.T3Link = "", "" })
 	}
 	// 3. The hard check: nothing holds the session or works in the worktree, and nothing writes its transcript.
-	still, looked := t3WaitFree(h.Worktree, session, ways)
+	still, looked := t3WaitFree(tree, session, ways)
 	// Take over's copy gone, the desk's own file there: already brought back, so that's the file looked at (F1).
 	transcript, broughtBack := h.T3Transcript, ""
 	if looked && len(still) == 0 {
@@ -584,7 +615,7 @@ func t3HandBack(h Hire, ways t3Handing) (string, error) {
 	}
 	// 4. The fence off the worktree: in its tmux session, its own settings file is its fence.
 	fenceNote := ""
-	fence := filepath.Join(h.Worktree, filepath.FromSlash(t3FenceName))
+	fence := filepath.Join(tree, filepath.FromSlash(t3FenceName))
 	if !t3RemoveFence(fence, filepath.Dir(fence)) {
 		fenceNote = t3FenceKept(h)
 	}
@@ -904,7 +935,7 @@ func t3TakeOverJSON(h Hire, on bool) map[string]any {
 		return nil
 	case h.T3Session != "":
 		return map[string]any{"tag": t3TakeOverTag, "handBack": true}
-	case h.Engine == "" && !h.ViaLauncher && h.TmuxSocket != "" && h.Worktree != "":
+	case h.Engine == "" && !h.ViaLauncher && h.TmuxSocket != "" && !h.Worktree.none():
 		return map[string]any{"tag": t3TakeOverTag, "takeOver": true}
 	}
 	return nil

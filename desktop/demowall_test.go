@@ -97,7 +97,7 @@ func TestAGMHeldToADemoKeepsTheDemosRoles(t *testing.T) {
 	}
 }
 
-// WIN125d (RWIN3 B1): on a real deck, the demo's GM reads its brief (kept in the app's briefs folder) and a hire
+// WIN125d (RWIN3 B1): on a real deck, the demo's GM reads its brief (in its own hires/<id>, FXGMHIRE126) and a hire
 // it made reads its own (in hires/<id>), each by Read and by cat, and writes its STATUS.md beside it, with the
 // fence built as runDemoFence builds it. The rest of the app's folder stays refused by every route: the setup
 // key, the GM's token, the app's state, a hire's settings, another project's hire, a pattern or a link into it.
@@ -115,8 +115,8 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 			tester = h
 		}
 	}
-	if !strings.HasPrefix(gm.Brief, filepath.Join(supportDir, "briefs")+string(filepath.Separator)) ||
-		tester.Worktree == "" || tester.Brief != filepath.Join(supportDir, "hires", tester.ID, "BRIEF.md") {
+	if gm.Brief != filepath.Join(supportDir, "hires", gm.ID, "BRIEF.md") ||
+		tester.Worktree.none() || tester.Brief != filepath.Join(supportDir, "hires", tester.ID, "BRIEF.md") {
 		t.Fatalf("not the briefs RWIN3 probed: the GM's %q, the tester's %q in %q", gm.Brief, tester.Brief, tester.Worktree)
 	}
 	for _, brief := range []string{gm.Brief, tester.Brief} {
@@ -124,17 +124,17 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	gmStatus := strings.TrimSuffix(gm.Brief, ".md") + "-STATUS.md"
+	gmStatus := filepath.Join(filepath.Dir(gm.Brief), "STATUS.md")
 	testerFolder := filepath.Dir(tester.Brief)
 	// Another project's hire, its brief in the app's folder too.
-	other := Hire{ID: "outsider-1", Name: "Outsider", Role: "tester", Folder: filepath.Join(homeDir, "elsewhere"), Brief: filepath.Join(supportDir, "hires", "outsider-1", "BRIEF.md"), State: "working"}
+	other := Hire{ID: "outsider-1", Name: "Outsider", Role: "tester", Folder: keptPath(filepath.Join(homeDir, "elsewhere")), Brief: filepath.Join(supportDir, "hires", "outsider-1", "BRIEF.md"), State: "working"}
 	if err := updateRegistry(func(r *registryFile) { r.hires = append(r.hires, other) }); err != nil {
 		t.Fatal(err)
 	}
 	// Links into the app's folder: one in the hire's worktree, one beside its brief, named as a brief's file.
 	os.WriteFile(filepath.Join(supportDir, "gm-token"), []byte("x"), 0o600)
 	t.Cleanup(func() { os.Remove(filepath.Join(supportDir, "gm-token")) })
-	linkInWorktree, linkBeside := filepath.Join(tester.Worktree, "notes.md"), filepath.Join(testerFolder, "notes.md")
+	linkInWorktree, linkBeside := filepath.Join(tester.Worktree.storedOnly(), "notes.md"), filepath.Join(testerFolder, "notes.md")
 	for _, link := range []string{linkInWorktree, linkBeside} {
 		if err := os.Symlink(filepath.Join(supportDir, "gm-token"), link); err != nil {
 			t.Fatal(err)
@@ -164,14 +164,14 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 		{asGM, write(f.repo, gmStatus)},
 		{asGM, read(f.repo, gmStatus)},
 		{asGM, read(f.repo, filepath.Join(testerFolder, "STATUS.md"))}, // its hire's status
-		{asTester, read(tester.Worktree, tester.Brief)},
-		{asTester, read(tester.Worktree, tildePath(tester.Brief))},
-		{asTester, bashCall("cat "+shellQuoted(tester.Brief), tester.Worktree)},
-		{asTester, write(tester.Worktree, filepath.Join(testerFolder, "STATUS.md"))},
-		{asTester, tool(tester.Worktree, "Edit", map[string]any{"file_path": filepath.Join(testerFolder, "STATUS.md"), "old_string": "a", "new_string": "b"})},
-		{asTester, bashCall("tail -5 "+shellQuoted(filepath.Join(testerFolder, "STATUS.md")), tester.Worktree)},
+		{asTester, read(tester.Worktree.storedOnly(), tester.Brief)},
+		{asTester, read(tester.Worktree.storedOnly(), tildePath(tester.Brief))},
+		{asTester, bashCall("cat "+shellQuoted(tester.Brief), tester.Worktree.storedOnly())},
+		{asTester, write(tester.Worktree.storedOnly(), filepath.Join(testerFolder, "STATUS.md"))},
+		{asTester, tool(tester.Worktree.storedOnly(), "Edit", map[string]any{"file_path": filepath.Join(testerFolder, "STATUS.md"), "old_string": "a", "new_string": "b"})},
+		{asTester, bashCall("tail -5 "+shellQuoted(filepath.Join(testerFolder, "STATUS.md")), tester.Worktree.storedOnly())},
 		// RWIN3 N1: a * in the project is the project's files, not the setup key.
-		{asTester, tool(tester.Worktree, "Glob", map[string]any{"pattern": "*"})},
+		{asTester, tool(tester.Worktree.storedOnly(), "Glob", map[string]any{"pattern": "*"})},
 		{asGM, tool(f.repo, "Glob", map[string]any{"pattern": "bill/*"})},
 		{asGM, tool(f.repo, "Grep", map[string]any{"pattern": "set*"})},
 		{asGM, tool(f.repo, "Grep", map[string]any{"pattern": ".", "glob": "setup-*"})},
@@ -186,7 +186,7 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 	for _, who := range []struct {
 		fence demoFence
 		cwd   string
-	}{{asGM, f.repo}, {asTester, tester.Worktree}} {
+	}{{asGM, f.repo}, {asTester, tester.Worktree.storedOnly()}} {
 		for _, file := range []string{
 			filepath.Join(supportDir, "setup-key"), filepath.Join(supportDir, "gm-token"), filepath.Join(supportDir, "gm-token-kept"),
 			filepath.Join(supportDir, "registry.json"), filepath.Join(supportDir, "config.json"), filepath.Join(supportDir, "hook-key"),
@@ -233,7 +233,7 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 	for _, who := range []struct {
 		fence demoFence
 		cwd   string
-	}{{asGM, f.repo}, {asTester, tester.Worktree}} {
+	}{{asGM, f.repo}, {asTester, tester.Worktree.storedOnly()}} {
 		refused = append(refused,
 			row{who.fence, bashCall("cat ~nobody/registry.json", who.cwd)},
 			row{who.fence, bashCall("cat ~root/Library/Application\\ Support/AgentDeck/registry.json", who.cwd)},
@@ -253,7 +253,7 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 	for _, who := range []struct {
 		fence demoFence
 		cwd   string
-	}{{asGM, f.repo}, {asTester, tester.Worktree}} {
+	}{{asGM, f.repo}, {asTester, tester.Worktree.storedOnly()}} {
 		fromCwd, err := filepath.Rel(who.cwd, supportDir)
 		if err != nil {
 			t.Fatal(err)
@@ -286,7 +286,7 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 	for _, who := range []struct {
 		fence demoFence
 		cwd   string
-	}{{asGM, f.repo}, {asTester, tester.Worktree}} {
+	}{{asGM, f.repo}, {asTester, tester.Worktree.storedOnly()}} {
 		registry, config := filepath.Join(supportDir, "registry.json"), filepath.Join(supportDir, "config.json")
 		relRegistry, err := filepath.Rel(who.cwd, registry)
 		if err != nil {
@@ -338,7 +338,7 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 	}
 	for _, line := range []string{"echo 'Done.' >>" + shellQuoted(filepath.Join(testerFolder, "STATUS.md")), "ls 2>/dev/null", "git diff HEAD~1 -- bill.py",
 		"if [[ -f bill.py ]]; then cat bill.py; fi", "ls [!.]*", "grep -n repeat bill.py"} {
-		if why := asTester.check(bashCall(line, tester.Worktree)); why != "" {
+		if why := asTester.check(bashCall(line, tester.Worktree.storedOnly())); why != "" {
 			t.Errorf("refused %q: %s", line, why)
 		}
 	}
@@ -347,7 +347,7 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 	for _, who := range []struct {
 		fence demoFence
 		cwd   string
-	}{{asGM, f.repo}, {asTester, tester.Worktree}} {
+	}{{asGM, f.repo}, {asTester, tester.Worktree.storedOnly()}} {
 		accented := []demoCall{
 			read(who.cwd, filepath.Join(who.cwd, "docs", "pr\u00e9sentation.md")),
 			write(who.cwd, filepath.Join(who.cwd, "\u00c9quipe", "r\u00e9sum\u00e9.md")),
@@ -382,18 +382,18 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		linkUpper := filepath.Join(tester.Worktree, "upper.md")
+		linkUpper := filepath.Join(tester.Worktree.storedOnly(), "upper.md")
 		if err := os.Symlink(filepath.Join(upper, "registry.json"), linkUpper); err != nil {
 			t.Fatal(err)
 		}
 		// Its own brief, in another case, is still its own.
-		if why := asTester.check(read(tester.Worktree, other(tester.Brief))); why != "" {
+		if why := asTester.check(read(tester.Worktree.storedOnly(), other(tester.Brief))); why != "" {
 			t.Errorf("refused its brief in another case: %s", why)
 		}
 		for _, who := range []struct {
 			fence demoFence
 			cwd   string
-		}{{asGM, f.repo}, {asTester, tester.Worktree}} {
+		}{{asGM, f.repo}, {asTester, tester.Worktree.storedOnly()}} {
 			for _, file := range []string{
 				filepath.Join(upper, "gm-token"), filepath.Join(upper, "registry.json"), filepath.Join(upper, "config.json"),
 				filepath.Join(upper, "setup-key"), strings.ToUpper(filepath.Join(supportDir, "registry.json")),

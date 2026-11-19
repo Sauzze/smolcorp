@@ -89,13 +89,15 @@ func TestTheFolderPickerIsOpenedByThePageAlone(t *testing.T) {
 	if code := serve(t, d, page).Code; code != http.StatusOK || opened != 1 {
 		t.Errorf("the page: %d, the picker opened %d times", code, opened)
 	}
-	// The GM is still given a folder through the hiring settings and the hire-folder route.
-	for _, target := range []string{"/setup/hiring", "/setup/hire-folder"} {
+	// The GM still changes how hires start through the hiring settings, but never the folder for hires: every hire's
+	// sandbox holds it, so it's the page's alone (RT126SWEEP3 P4 B1).
+	for target, want := range map[string]bool{"/setup/hiring": true, "/setup/hiring?folder=" + homeDir: false, "/setup/hire-folder": false} {
 		c := asCaller(callerGM, gm, hireKey)
 		c.method, c.target, c.host, c.from = "POST", target, "localhost:7710", thisComputer
 		c.headers[setupHeader] = "1"
-		if code := serve(t, d, c).Code; code == http.StatusForbidden || code == http.StatusUnauthorized {
-			t.Errorf("the GM on %s: %d, refused", target, code)
+		code := serve(t, d, c).Code
+		if refused := code == http.StatusForbidden || code == http.StatusUnauthorized; refused == want {
+			t.Errorf("the GM on %s: %d, let in %v", target, code, want)
 		}
 	}
 }

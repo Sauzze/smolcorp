@@ -62,3 +62,47 @@ func TestGMLoginChecksTheProgramAsEveryAgentStartIsChecked(t *testing.T) {
 		}
 	}
 }
+
+// Neither `smolcorp help` nor `smolcorp gm help` names a feature this version leaves off (desktop/dormant.go): spend
+// asks, the night shift, company templates, floors from other Macs and photos have no command, and a word typed for
+// one gets the help, as any unknown command does.
+func TestTheHelpNamesNoFeatureThisVersionLeavesOff(t *testing.T) {
+	var gmHelp, gmErrors strings.Builder
+	if gm.Run([]string{"help"}, &gmHelp, &gmErrors) != 0 || !strings.Contains(gmHelp.String(), "smolcorp gm") {
+		t.Fatalf("smolcorp gm help: %q %q", gmHelp.String(), gmErrors.String())
+	}
+	for where, text := range map[string]string{"smolcorp help": usage, "smolcorp gm help": gmHelp.String()} {
+		lower := strings.ToLower(text)
+		for _, word := range []string{"night", "template", "hire plan", "peer", "other mac", "photo", "grant", "allow once"} {
+			if strings.Contains(lower, word) {
+				t.Errorf("%s names %q", where, word)
+			}
+		}
+	}
+	for _, word := range []string{"night", "photo", "peers", "plan", "grants"} {
+		var out, errs strings.Builder
+		if code := gm.Run([]string{word}, &out, &errs); code == 0 || !strings.Contains(errs.String(), "Usage: smolcorp gm") {
+			t.Errorf("smolcorp gm %s: %d %q %q", word, code, out.String(), errs.String())
+		}
+	}
+}
+
+// FXRENAME126A: the support folder is made at a run's start, before its command, as desktop used to make it when it
+// loaded, and never by the Mac app's engine (the app gives it its folder) or by version and help. The folder is the
+// one appdirs.Resolve finds (desktop/paths.go), so a new, empty Smolcorp folder never appears.
+func TestARunMakesTheSupportFolderAtItsStartNotAtLoad(t *testing.T) {
+	for args, want := range map[string]bool{"": true, "serve": true, "run claude": true, "hook stop": true, "setup": true,
+		"guard": true, "gm login": true, "quit": true, "core --bridge x": false, "version": false, "--version": false,
+		"help": false, "--help": false, "-h": false} {
+		if got := makesSupportFolder(strings.Fields(args)); got != want {
+			t.Errorf("%q: %v, want %v", args, got, want)
+		}
+	}
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`args := os\.Args\[1:\]\s*if makesSupportFolder\(args\) \{\s*desktop\.MakeSupportFolder\(\)\s*\}\s*if len\(args\) == 0 \{`).Match(data) {
+		t.Error("main no longer makes the support folder first, before its command")
+	}
+}

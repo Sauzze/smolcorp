@@ -82,10 +82,10 @@ func (d *Deck) deskSession(h Hire) deskLook {
 	}
 	switch {
 	case h.Engine == t3Engine:
-		if h.Worktree == "" {
+		if h.Worktree.none() {
 			return deskLook{known: true} // nothing to look in, and nothing Let go could end
 		}
-		still, looked := t3Leaver().Working(h.Worktree)
+		still, looked := t3Leaver().Working(h.Worktree.storedOnly()) // a process look by the path: nothing runs there
 		return deskLook{what: t3DeskWhat, running: len(still) > 0, known: looked}
 	case h.ViaLauncher:
 		if id, _ := d.launcherOf(h.ID); id != "" {
@@ -122,7 +122,7 @@ func (d *Deck) launcherWaitsFor(id string) bool {
 // idlessWindowIn is whether a window the office opened connected again without its hire's id (its token was used up)
 // in h's worktree, or its folder with none: it may be h's, and can't be told or ended from here (RT126GMEDIT1 B2).
 func (d *Deck) idlessWindowIn(h Hire) bool {
-	tree := physical(hireDir(h))
+	tree := physical(h.storedPlace()) // compared only
 	if tree == "" {
 		return false
 	}
@@ -258,7 +258,7 @@ func (d *Deck) sweepGoneDesks() {
 		}
 		place := h.TmuxSocket
 		if h.Engine == t3Engine {
-			place = h.Worktree
+			place = h.Worktree.storedOnly() // looked at only
 		}
 		if _, err := os.Lstat(place); place == "" || err != nil {
 			continue

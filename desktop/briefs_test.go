@@ -287,7 +287,7 @@ func TestALaterPartIsAddedToTheHiresOwnBriefOnly(t *testing.T) {
 	_ = os.MkdirAll(folder, 0o700)
 	_ = os.WriteFile(filepath.Join(folder, "BRIEF-2.md"), []byte("two"), 0o644)
 	_ = os.WriteFile(filepath.Join(folder, "BRIEF.md"), []byte("one"), 0o644)
-	if got := briefFileOf(Hire{ID: "b", Worktree: "/w"}, hires); got != filepath.Join(folder, "BRIEF-2.md") {
+	if got := briefFileOf(Hire{ID: "b", Worktree: keptPath("/w")}, hires); got != filepath.Join(folder, "BRIEF-2.md") {
 		t.Errorf("a managed hire's: %q", got)
 	}
 	// Not managed, or the file gone or a link: none.

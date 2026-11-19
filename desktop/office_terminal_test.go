@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -34,7 +35,7 @@ class El {
   querySelector(sel) { return this.all().find((c) => c.className.split(' ').includes(sel.slice(1))) || null; }
   find(cls) { return this.all().filter((c) => c.className.split(' ').includes(cls) && !c.hidden); }
   focus() { focused = this; }
-  getContext() { return this.tagName === 'CANVAS' ? { drawImage: (from) => drawn.push(from) } : null; }
+  getContext() { return this.tagName === 'CANVAS' ? { drawImage: (from) => drawn.push(from), clearRect() {}, save() {}, restore() {}, scale() {} } : null; }
 }
 let focused = null;
 const drawn = [], docListeners = {};
@@ -414,3 +415,144 @@ func TestThePixelTerminalWritesTextAndTheConversationKeyOpensIt(t *testing.T) {
 		t.Error("the room's expand(id) no longer keeps a T3 Code desk, or a page with no talk, on the slate")
 	}
 }
+
+// The Pixel Terminal's picture of the office on a Retina Mac's page (FXTALKFIX B3): the room, built from office.js and
+// drawn by node, at two screen pixels to a CSS pixel on a see-through canvas on the page, puts its art on a layer of its
+// own under the canvas (artLayerOf), and the canvas holds only what's over it. The picture draws that layer, then the
+// canvas over it: a copy of the canvas alone would be the names and no room. Every 2D context here keeps what it was
+// asked to draw, so the picture's draws are its pixels' sources. Skipped without node.
+func TestThePixelTerminalsPictureHasTheRoomOnARetinaPage(t *testing.T) {
+	path, err := filepath.Abs("../Resources/web/office.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runNode(t, pictureOnARetinaPage, path)
+}
+
+const pictureOnARetinaPage = `const fs = require('fs');
+let T = 1000;
+global.location = { href: 'http://127.0.0.1/' };
+global.localStorage = { getItem: () => null, setItem() {} };
+global.performance = { now: () => T };
+const need = (ok, what) => { if (!ok) throw new Error(what); };
+// Every 2D context keeps what it was asked to draw, by its canvas.
+const contextOf = (el) => {
+  const store = {};
+  return new Proxy({}, {
+    get(t, k) {
+      if (k in store) return store[k];
+      if (k === 'canvas') return el;
+      if (k === 'measureText') return () => ({ width: 10 });
+      if (k === 'getImageData') return () => ({ data: new Uint8ClampedArray(4) });
+      if (k === 'createLinearGradient' || k === 'createRadialGradient' || k === 'createPattern') return () => ({ addColorStop() {} });
+      if (k === 'getTransform') return () => ({ a: 1, d: 1, e: 0, f: 0 });
+      if (k === 'getLineDash') return () => [];
+      if (k === 'isPointInPath') return () => false;
+      return (...args) => { el.ops.push([k, args]); };
+    },
+    set(t, k, v) { store[k] = v; return true; },
+  });
+};
+// A page's elements: enough DOM for the room, its talk bubble and the Pixel Terminal.
+class El {
+  constructor(tag) {
+    Object.assign(this, { tagName: tag.toUpperCase(), children: [], style: { setProperty() {}, removeProperty() {} }, className: '', hidden: false,
+      disabled: false, value: '', placeholder: '', listeners: {}, attrs: {}, parentNode: null, ops: [], width: 0, height: 0,
+      offsetWidth: 100, offsetHeight: 20, offsetLeft: 0, offsetTop: 0, scrollTop: 0, clientHeight: 60, scrollHeight: 0, ownerDocument: doc });
+  }
+  get parent() { return this.parentNode; }
+  get isConnected() { let el = this; while (el.parentNode) el = el.parentNode; return el === doc.documentElement; }
+  get nextSibling() { const s = this.parentNode && this.parentNode.children; return s ? s[s.indexOf(this) + 1] || null : null; }
+  get classList() { const el = this; return { add(c) { el.className += ' ' + c; }, remove(c) { el.className = el.className.split(' ').filter((x) => x !== c).join(' '); }, contains: (c) => el.className.split(' ').includes(c), toggle() {} }; }
+  set textContent(t) { this.children = [String(t)]; }
+  get textContent() { return this.children.map((c) => (typeof c === 'string' ? c : c.textContent)).join(''); }
+  append(...kids) { for (const k of kids) { if (typeof k !== 'string') { k.remove(); k.parentNode = this; } this.children.push(k); } }
+  appendChild(k) { this.append(k); return k; }
+  prepend(...kids) { for (const k of kids.reverse()) { if (typeof k !== 'string') { k.remove(); k.parentNode = this; } this.children.unshift(k); } }
+  insertBefore(k, before) { k.remove(); k.parentNode = this; const i = this.children.indexOf(before); this.children.splice(i < 0 ? this.children.length : i, 0, k); return k; }
+  replaceChildren(...kids) { this.children = []; this.append(...kids); }
+  remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter((c) => c !== this); this.parentNode = null; }
+  setAttribute(k, v) { this.attrs[k] = v; }
+  getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
+  removeAttribute(k) { delete this.attrs[k]; }
+  addEventListener(type, f) { (this.listeners[type] = this.listeners[type] || []).push(f); }
+  removeEventListener() {}
+  dispatch(type, e = {}) {
+    const ev = { target: this, preventDefault() {}, stopPropagation() { this.stopped = true; }, ...e };
+    for (let el = this; el && !ev.stopped; el = el.parentNode) (el.listeners[type] || []).forEach((f) => f(ev));
+    return ev;
+  }
+  all() { return this.children.filter((c) => typeof c !== 'string').flatMap((c) => [c, ...c.all()]); }
+  querySelector(sel) { return this.all().find((c) => c.className.split(' ').includes(sel.slice(1))) || null; }
+  querySelectorAll() { return []; }
+  find(cls) { return this.all().filter((c) => c.className.split(' ').includes(cls) && !c.hidden); }
+  focus() {}
+  blur() {}
+  contains(el) { for (; el; el = el.parentNode) if (el === this) return true; return false; }
+  getBoundingClientRect() { return { left: 0, top: 0, right: 640, bottom: 360, width: 640, height: 360 }; }
+  setPointerCapture() {}
+  releasePointerCapture() {}
+  getContext() { return this.tagName === 'CANVAS' ? (this.ctx = this.ctx || contextOf(this)) : null; }
+}
+const doc = { hidden: false, listeners: {}, addEventListener() {}, removeEventListener() {}, createElement: (t) => new El(t) };
+doc.documentElement = new El('html');
+doc.body = new El('body');
+doc.head = new El('head');
+doc.documentElement.append(doc.head, doc.body);
+doc.getElementById = (id) => doc.documentElement.all().find((c) => c.id === id) || null;
+let timers = [];
+// A Retina Mac's page: two of the screen's pixels to a CSS pixel, the room's canvas see-through, on the page.
+const win = {
+  devicePixelRatio: 2, document: doc, innerWidth: 640, innerHeight: 800,
+  getComputedStyle: (el) => ({ backgroundColor: 'rgba(0, 0, 0, 0)', display: el.style.display || 'block' }),
+  ResizeObserver: class { observe() {} disconnect() {} },
+  requestAnimationFrame: (f) => { win.raf = f; return 1; }, cancelAnimationFrame() {},
+  setTimeout: (f) => { timers.push(f); return timers.length; }, clearTimeout() {}, addEventListener() {}, removeEventListener() {},
+};
+doc.defaultView = win;
+global.window = win;
+global.document = doc;
+(0, eval)(fs.readFileSync(process.argv[1], 'utf8'));
+
+const session = (id, extra = {}) => ({ id, name: id, state: 'thinking', effort: '', agent: 'claude', model: '', tool: 'Edit', subagents: [],
+  maxPressedAt: null, turnStartedAt: null, dial: false, mic: false, conversation: true, ...extra });
+const res = (status, body) => ({ status, ok: status >= 200 && status < 300, json: async () => body, text: async () => String(body || '') });
+const talk = {
+  get: async (path) => {
+    if (path === '/talk') return res(200, { state: 'thinking', asking: null, last: '', size: 0, typing: { ok: true, lines: true, why: '' } });
+    if (path === '/conversation') return res(200, { items: [], before: null, size: 0 });
+    return res(200, { asking: [] });
+  },
+  post: async () => res(204), flash() {}, tick() {},
+};
+const canvas = new El('canvas');
+doc.body.append(canvas);
+const office = win.AgentOffice.create(canvas, { select() {}, choose() {}, hint() {}, held() {}, talk });
+office.show({ now: Date.now(), keys: [{ session: session('a') }], layout: {}, hiring: { fire: false, hire: false } });
+office.select('a');
+office.setVisible(true);
+const step = (n) => {
+  for (let i = 0; i < n; i++) {
+    T += 100;
+    if (win.raf) { const f = win.raf; win.raf = null; f(T); }
+    const due = timers; timers = [];
+    due.forEach((f) => f());
+  }
+};
+step(200);
+need(canvas.width === 1280 && canvas.height === 720, 'the canvas at the screen\'s pixels: ' + canvas.width + 'x' + canvas.height);
+// The room's art is on its own layer, under the canvas, on the page.
+const view = canvas.parentNode.children[canvas.parentNode.children.indexOf(canvas) - 1];
+need(view && view.tagName === 'CANVAS' && view.attrs['aria-hidden'] === 'true' && view.style.display === '', 'no art layer shown under the canvas');
+need(view.ops.length > 0, 'nothing drawn on the art layer');
+// The Pixel Terminal on desk a, and its picture drawn.
+need(office.expand('a'), 'the Pixel Terminal didn\'t open on desk a');
+step(10);
+const picture = doc.body.find('pt-picture')[0];
+need(picture, 'no picture in the Pixel Terminal');
+const draws = picture.ops.filter((op) => op[0] === 'drawImage').map((op) => op[1][0]);
+need(draws.includes(view), 'the picture has no room in it: only the canvas, the names over the art');
+// The picture is drawn more than once here, so the order is read on its last drawing alone: the art, then the names.
+const last = draws.slice(-2);
+need(last.length === 2 && last[0] === view && last[1] === canvas, 'the picture\'s last drawing isn\'t the art layer, then the canvas over it');
+`

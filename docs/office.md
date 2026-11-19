@@ -251,7 +251,10 @@ setup page (it's off until you do):
   hire walks in through the door with a coffee or a box, and sits at the desk
   you held. It stays there after a refresh, `/clear` and a restart; a desk
   that's taken can't be hired onto. On a pinned project's empty desk, the hire
-  starts in that project instead.
+  starts in that project instead. On a Mac with the sandbox on, the office
+  first asks which project in that folder the hire is for, and the hire works
+  in a worktree of its own of that project, on a branch of its own (in a
+  folder that holds no repository, it works in the folder itself).
 - **Comings and goings**, on the setup page: as above, with the coffee, the box
   and the packing up, or **Plain**, where people just walk in and out.
 
@@ -289,7 +292,10 @@ or add as many of your own as you like.
 A role never assumes what to work on. Its first reply only asks you, all
 together, which project to work on (at a pinned project's desk, whether it's
 that one) and its own questions, such as the Reviewer's branch, base and what
-matters most. It's told to read nothing and run nothing until you've
+matters most. When the office hires into your projects folder on a Mac with
+the sandbox on, it has already asked which project the hire is for: the hire is told that project, and its own
+worktree and branch when the project is a repository, and its first reply
+asks only its own questions. It's told to read nothing and run nothing until you've
 answered, then it gets to work. Each role's questions are yours to change, one per line. Its desk shows the role,
 as in *Reviewer · api-server*, and its badge, and it keeps the role after
 `/clear`. Roles stay on your computer, out of profiles: the phone only knows
@@ -330,3 +336,104 @@ choose **Install Screen Saver…** again.
 On your phone, on a spare screen and in the pop-out window, the office fills a
 rounded window; the screen saver fills each display edge to edge. Either way,
 its edge glows while an agent is waiting on you.
+
+## The Pixel Terminal
+
+Talk to your agents from the office itself: read what they say, answer their
+questions and tell them what to do, without going to their terminals. It's in
+the office's own window on your computer, the one **Show Office** opens (on
+Linux, in your browser). A phone, a spare screen, the screen saver and Setup's
+preview keep the ✓ ✕ keys, as before.
+
+**Click the bubble over an agent's head.** It opens into a small
+conversation: the desk's status in a word, its last few messages, a run of
+tools folded into one dim line ("Changed cart.ts, ran npm test"), and a line
+to type on, *Tell … what to do*. Type, then press Enter or **Send**: your
+words go into that agent, with Return. **Esc**, a click on the floor or a
+second click on the bubble closes it. Rest the mouse on a bubble for a moment
+and its last line shows above it, or its question while it asks.
+
+**When a desk asks you something,** a small bubble over its head shows the
+question, and its buttons where they fit. Click it to open the bubble, which
+has a button per choice: a question's options, numbered, then **No**; or
+**Yes** and **No** for a permission. The line to type on stays greyed
+(*Answer above first*) until the desk stops asking: nothing is ever typed into
+a question. To tell it to do something else, tap **No**, then type. Where the
+choices can't be offered by name, the bubble has the four keys instead: ▲ ▼
+move in its menu, ✓ picks, ✕ says No.
+
+**Needs you.** Where small bubbles would cover each other, the desk that has
+waited longest keeps its own, and the others show the plain "?". The **Needs
+you** key, beside the settings key in the room's corner, counts the desks
+waiting on you: each click opens the next one's bubble, the longest waiting
+first.
+
+**Expand** opens the Pixel Terminal: the desk's whole conversation on a large
+chalkboard screen, the office zooming in and dimming behind it. New lines
+scroll in only while you're at the bottom. In the Mac app, the ▤ conversation
+key opens it too.
+
+| In the Pixel Terminal | What it does |
+|---|---|
+| **Older messages** | Shows the conversation further back. |
+| The question | Its choices, as in the bubble, and the four keys ▲ ▼ ✓ ✕ under them. |
+| The box | Enter sends, Shift+Enter starts a new line. Several lines go as one paste. What you typed for a desk stays there when you switch to another. |
+| The desks beside it | Your other desks, the ones waiting first, each with its status. Click one to switch to it. |
+| **Next question** | The next desk waiting on you, with how many others are. Greyed when no other desk is waiting. |
+| **Shrink to bubble** | Back to the office, with this desk's bubble open. |
+| **Back to office**, Esc, or the office's picture | Back to the office. |
+| **Menu** → **Open in Terminal** (Mac) | With hires running in the background, a window on that hire's own tmux session, as the ⧉ window key opens. |
+
+**With the keyboard:**
+
+| Key | What it does |
+|---|---|
+| Enter, in the office | Opens the picked desk's bubble, an idle one's too |
+| Tab, in the office | Goes through the small question bubbles, the longest waiting first |
+| ↑ ↓ ← → | Move between the buttons under a question |
+| 1 to 9 | Pick that choice, from the bubble or the Pixel Terminal, never while you're typing in the box |
+| N | **Next question**, in the Pixel Terminal, outside the box |
+| Esc | Closes the bubble, or takes the Pixel Terminal back to the office |
+
+In a bubble, the focus starts on the first choice while the desk asks, and on
+the line to type on otherwise. In the Pixel Terminal, Tab stays inside it.
+
+**With a screen reader:** the bubble and the Pixel Terminal are dialogs named
+after their desk, the choices are buttons, and a status is always a word,
+never a colour alone. In the office, you hear when a desk starts asking. In
+the bubble and the Pixel Terminal, you hear the open desk's new lines. A list
+of the desks, waiting ones first, is shown when it has the focus, and opens
+each desk's bubble without the room.
+
+What it does, and doesn't:
+
+- **The conversation is Claude Code's.** Other agents' bubbles say *No
+  conversation for this agent*, and otherwise work as Claude Code's do, but
+  for the buttons.
+- **The buttons are for Claude Code's menus, where Smolcorp can read its
+  screen:** in tmux, WezTerm or kitty, and on a Mac in Terminal or iTerm2. A
+  question gets its options if it's a single question with one answer and nine
+  options at most; a permission gets Yes and No if it's to run a command or to
+  write or edit a file. Everything else gets the four keys: several questions
+  at once, a question with several answers, any other permission, leaving plan
+  mode, a desk in Ghostty or in a `smolcorp run` window, and other agents.
+- **Yes is the menu's first choice.** For its other choices, use ▲ ▼ ✓ in the
+  Pixel Terminal.
+- **A button presses nothing that isn't on screen,** a question's **No**
+  included. Right before the key, Smolcorp reads the desk's screen, and
+  presses only while that question's menu is still there. If it isn't (you
+  answered it or put it away in its own terminal), nothing is pressed, and
+  you're told why. The ▲ ▼ ✓ ✕ keys press as they are.
+- **Typing follows the phone's rules,** without needing the phone's switch:
+  2,000 characters at most, no "!" first, and never into a desk that's asking.
+  WezTerm and kitty take one line at a time, and the box says so before you
+  type.
+- **Not into a Terminal, iTerm2 or Ghostty tab (Mac).** Typing into one would
+  bring its window forward, so the bubble never types into a desk there: it
+  says so in one line, and you type in that tab yourself. It does type into
+  desks in tmux, WezTerm and kitty, and in a `smolcorp run` window.
+- **No bubble** over the office staff, a hire in T3 Code or an idle agent:
+  open an idle desk's bubble with Enter on its desk, or from the desk list. A
+  headless run shows its conversation and its question, with no keys and
+  nothing to type into.
+- **One at a time:** one bubble open, one desk in the Pixel Terminal.

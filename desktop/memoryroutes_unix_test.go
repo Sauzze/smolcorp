@@ -78,7 +78,7 @@ func TestTheCanaryReachesTheGMOnlyThroughTheRoute(t *testing.T) {
 	d.watching.Wait()
 
 	store := filepath.Join(supportDir, memoryFolder)
-	for _, root := range []string{supportDir, gm.Folder, gm.Worktree, hireFolder(supportDir, gm.ID)} {
+	for _, root := range []string{supportDir, gm.Folder.storedOnly(), gm.Worktree.storedOnly(), hireFolder(supportDir, gm.ID)} {
 		if root == "" {
 			continue
 		}

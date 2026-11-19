@@ -78,22 +78,20 @@ func t3HasDesk(h Hire, worktrees string) bool {
 // <repo>-hires beside its repo, or in the repo's folder inside the folder set for hires' worktrees (hiresFolder).
 // A registry row naming any other folder (the home folder, say) gets no desk and keeps no session off a desk.
 func t3InHiresFolder(h Hire, worktrees string) bool {
-	if h.Repo == "" || h.Worktree == "" {
+	if h.Repo == "" || h.Worktree.none() {
 		return false
 	}
 	// Compared as the hire's place keeps them: with no .. left, links resolved.
 	plain := func(path string) string { return plainPath(filepath.Clean(path)) }
-	worktree := filepath.Clean(h.Worktree)
+	worktree := filepath.Clean(h.Worktree.storedOnly()) // compared only
 	if name := filepath.Base(worktree); name == "" || name == "." || name == ".." || name == string(filepath.Separator) {
 		return false
 	}
 	parent := plain(filepath.Dir(worktree))
 	repo := filepath.Clean(h.Repo)
-	parents := []string{hiresFolder(repo, "")}
-	if worktrees != "" {
-		parents = append(parents, hiresFolder(repo, worktrees))
-	}
-	return slices.ContainsFunc(parents, func(p string) bool { return plain(p) == parent })
+	parents := treeFolders(repo, worktrees) // the core's own, the configured one, beside the repo (FXCOREWORKTREES126)
+	return slices.ContainsFunc(parents, func(p string) bool { return plain(p) == parent }) ||
+		coreWorktreesOn() && filepath.Dir(parent) == coreWorktreesFolder()
 }
 
 // seated is the desks, in the registry's order, each brought in line with it and with what the follow last saw.
@@ -133,7 +131,7 @@ func (t *t3Desks) seated(worktrees string, seen func(string) (t3Glance, bool)) [
 		if looked {
 			status = look.Status
 		}
-		s.Folder, s.Project, s.Model = h.Worktree, h.Worktree, h.Model
+		s.Folder, s.Project, s.Model = h.Worktree.storedOnly(), h.Worktree.storedOnly(), h.Model // its desk's names
 		s.State = t3DeskState(status, h.State, t.seenDone[h.ID])
 		s.ToolActivity = t3Doing(s.State)
 		desks = append(desks, t3Seated{session: s, hire: h})
@@ -251,7 +249,7 @@ func (d *Deck) isT3HiresOwn(event map[string]any, startedIn string) bool {
 	var worktrees []string
 	for _, h := range d.t3Desks.registryHires() {
 		if h.Engine == t3Engine && isOpen(h) && t3InHiresFolder(h, d.worktreesFolder(d.engine.worktrees())) {
-			worktrees = append(worktrees, h.Worktree, plainPath(h.Worktree))
+			worktrees = append(worktrees, h.Worktree.storedOnly(), plainPath(h.Worktree.storedOnly())) // compared only
 		}
 	}
 	if len(worktrees) == 0 {

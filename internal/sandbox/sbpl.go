@@ -34,7 +34,8 @@ import (
 //   - Write: file-write* (making, changing, removing, renaming in or out, a symlink) and file-link (a hard link, where
 //     the path is either end: one to a denied file is refused wherever it would be made).
 //   - Connect: network-outbound to the unix socket at the path.
-//   - Move: file-write-unlink, which removing a folder and renaming it away both are, as is replacing it by a rename.
+//   - Move: file-write-unlink, which removing a folder and renaming it away both are, as is replacing it by a rename,
+//     and file-write-mode, -flags, -acl and -owner: chmod, chflags, an ACL and chgrp (RT126SWEEP2's F4).
 //   - Link: file-link, and file-write-create of a symlink (vnode-type SYMLINK).
 //
 // A row's place is a literal, a subpath when it holds everything below, and a regex when it has a Tail: `**` is any
@@ -45,15 +46,39 @@ import (
 // or bytes that aren't UTF-8 in it, a Tail with a class or an escape) fails the whole profile: the desk doesn't start.
 //
 // Sockets, services, signals and network (SA-M2, §A3.1 and §A4.2), from the desk's Services. Right after the header,
-// before any of the file rules: unix sockets, Mach services, IOKit and signals denied by default, then what the desk
-// may still reach: its own socket by its exact path, the sockets on its list (and the agents on it, while Remote Login
-// doesn't answer), the Mach services and IOKit classes on its lists, and signals to its own sandbox only (never
-// `(target others)`, which doesn't hold on macOS 26: C1). The file rules come after, so the `desk-start` socket's
-// allow (its Policy row) opens it past the default, and the support folder's denies still win over any list. Last of
-// all, after every allow, what nothing may open: the local TCP ports on its list, the agents while Remote Login answers (C5: the ssh keys are its Policy's), typing into a terminal (TIOCSTI), Apple
-// Events, opening apps (lsopen) and new launchd jobs. Each allow and deny names the same operation (network-outbound,
-// mach-lookup, iokit-open, signal), as above. Seatbelt checks a unix socket where its path's links lead (T8), so a
-// link at the desk's own socket to another server is refused.
+// before any of the file rules: unix sockets, Mach services, IOKit, signals and terminals denied by default, then what
+// the desk may still reach: its own socket by its exact path, the sockets on its list (and the agents on it, while
+// Remote Login doesn't answer), the Mach services and IOKit classes on its lists, the terminals it made itself, and
+// signals to its own sandbox only (never `(target others)`, which doesn't hold on macOS 26: C1). The file rules come
+// after, so the `desk-start` socket's allow (its Policy row) opens it past the default, and the support folder's denies
+// still win over any list. Last of all, after every allow, what nothing may open: the local TCP ports on its list, the
+// agents while Remote Login answers (C5: the ssh keys are its Policy's), typing into a terminal (TIOCSTI), a terminal's
+// key made by the desk itself, Apple Events, opening apps (lsopen), new launchd jobs, and issuing a sandbox extension,
+// of any class (file-issue-extension: FXFIREREAPR5), or of any other kind (generic-, mach- and iokit-issue-extension:
+// FXFIREREAPR6, which grant no read of the mark, but close the class). A process that takes an extension may do what it
+// grants wherever its own sandbox allows by extension, as App Sandbox's does; a desk could otherwise hand another
+// sandbox a read of its mark (Places.ReapMark) and have that process taken for its own at its stop. A desk's profile
+// allows nothing by extension but its own terminals (macOS's pty key, below, which it can't make or hand on either), so
+// one handed to a desk opens nothing else. Each allow and deny names the same operation (network-outbound,
+// mach-lookup, iokit-open, signal, and a terminal's reads and writes as Read and Write's; its file-revoke is only
+// denied), as above. Seatbelt checks a unix socket where its path's links lead (T8), so a link at the desk's own
+// socket to another server is refused.
+//
+// Terminals (FXPTYOWN, RT126SWEEP2 F2): a desk opens only the ptys it made itself, so it can't read what the owner
+// types in a Terminal, iTerm2 or Ghostty window, or in an attach window, or write to their screens. Every pty's slave
+// (/dev/ttys<n>, and the old /dev/tty[p-w]<x> names) is denied by default, read, write and revoke, as a path; the desk
+// may still open one while it holds macOS's own key to it (the com.apple.sandbox.pty extension), which the kernel gives
+// the process that opened the pty's master (posix_openpt and grantpt), and the children it starts after: its tmux's
+// panes, its agents' ptys, a nested script(1). Not a pty made outside its sandbox, another desk's, one made in another
+// start of its own profile (each sandbox-exec is a sandbox of its own), nor a number it let go and something outside
+// took again. Under `(allow default)` a desk could make itself that key for any path, so making one, of any of the four
+// kinds, is denied last. A terminal it is handed stays its own to use (its stdin, an attach client's window, a plain
+// hire's pty made by its launcher): file-ioctl isn't denied here (tcsetattr on it would be), and /dev/tty, its
+// controlling terminal, is another path. A program that opens its own terminal again by its name (zsh, node's libuv)
+// falls back to /dev/tty or to what it was handed. Nor may a desk revoke() a terminal by its path, which cuts off every
+// other holder of it, a window outside too (FXPTYOWNR1, the review's N1): file-revoke is denied with the reads and
+// writes, and isn't allowed back even on its own ptys, since neither its tmux nor script(1) revokes one. Probed on
+// macOS 26.6.2 (FXPTYOWN, FXPTYOWNR1).
 //
 // Each local port is two lines: `(remote tcp4 "localhost:N")`, which Seatbelt reads as every address of this Mac over
 // IPv4 (127.0.0.1, 0.0.0.0, its network addresses too), and `(remote tcp6 "*:N")`, any address over IPv6. A host can
@@ -108,9 +133,13 @@ type sbRule struct {
 	row   string
 }
 
-// sbPlace is a Seatbelt filter: a literal, a subpath, or a regex, with a vnode type when the rule holds only that.
+// sbPlace is a Seatbelt filter: a literal, a subpath, or a regex, with a vnode type when the rule holds only that,
+// and the subpaths it doesn't hold (a Rule's Except), each a `require-not`.
 type sbPlace struct {
 	kind, text, vnode string
+	except            []string
+	// exceptRe are the regexes of what the rule doesn't hold (a Rule's ExceptTails), each a `require-not`.
+	exceptRe []string
 }
 
 // sbRaw is a filter written as it is, or none ("").
@@ -120,11 +149,20 @@ func (pl sbPlace) String() string {
 	if pl.kind == sbRaw {
 		return pl.text
 	}
-	filter := fmt.Sprintf("(%s %s)", pl.kind, sbString(pl.text))
-	if pl.vnode != "" {
-		return fmt.Sprintf("(require-all %s (vnode-type %s))", filter, pl.vnode)
+	filters := []string{fmt.Sprintf("(%s %s)", pl.kind, sbString(pl.text))}
+	for _, e := range pl.except {
+		filters = append(filters, fmt.Sprintf("(require-not (subpath %s))", sbString(e)))
 	}
-	return filter
+	for _, re := range pl.exceptRe {
+		filters = append(filters, fmt.Sprintf("(require-not (regex %s))", sbString(re)))
+	}
+	if pl.vnode != "" {
+		filters = append(filters, fmt.Sprintf("(vnode-type %s)", pl.vnode))
+	}
+	if len(filters) > 1 {
+		return "(require-all " + strings.Join(filters, " ") + ")"
+	}
+	return filters[0]
 }
 
 func (r sbRule) String() string {
@@ -143,7 +181,7 @@ var (
 	sbRead    = []string{"file-read-data", "file-read-xattr"}
 	sbWrite   = []string{"file-write*", "file-link"}
 	sbConnect = []string{"network-outbound"}
-	sbMove    = []string{"file-write-unlink"}
+	sbMove    = []string{"file-write-unlink", "file-write-mode", "file-write-flags", "file-write-acl", "file-write-owner"}
 )
 
 // sbBuckets are a profile's file rules in the order Seatbelt must read them.
@@ -220,15 +258,39 @@ var (
 		{ops: []string{"mach-lookup"}, row: "Mach services: only those on its list"},
 		{ops: []string{"iokit-open"}, row: "IOKit: only the classes on its list"},
 		{ops: []string{"signal"}, row: "signals: only to its own sandbox (C1)"},
+		{ops: slices.Concat(sbRead, sbWrite, []string{"file-revoke"}), place: sbPlace{text: `(regex "^/dev/tty([p-w][0-9a-f]|s[0-9]+)$")`},
+			row: "terminals: only those it made itself, and never revoked"},
+		// A debugger's hold on a process (FXSWEEP3P1, RT126SWEEP3 P2's B1): lldb, or any program with the right to ask, takes
+		// over an unhardened program of the owner's that runs outside every sandbox (Homebrew's, one the owner built), and
+		// runs what it likes there as the owner. `(deny signal)` doesn't stop it; this does.
+		{ops: []string{"mach-priv-task-port"}, row: "debugging a process: only its own sandbox's"},
 	}
+	sbOwnTerminals = sbRule{allow: true, ops: slices.Concat(sbRead, sbWrite),
+		place: sbPlace{text: `(require-all (regex "^/dev/ttys[0-9]+$") (extension "com.apple.sandbox.pty"))`},
+		row:   "the terminals it made itself: macOS's key to each"}
 	sbSameSandbox = sbRule{allow: true, ops: []string{"signal"}, place: sbPlace{text: "(target same-sandbox)"}, row: "its own processes (C1)"}
 	sbNever       = []sbRule{
 		{ops: []string{"file-ioctl"}, place: sbPlace{text: `(ioctl-command (_IO "t" 114))`}, row: "typing into a terminal (TIOCSTI)"},
+		{ops: []string{"file-issue-extension", "generic-issue-extension", "iokit-issue-extension", "mach-issue-extension"},
+			place: sbPlace{text: `(extension-class "com.apple.sandbox.pty")`}, row: "a terminal's key, made by the desk itself"},
 		{ops: []string{"appleevent-send"}, row: "Apple Events"},
 		{ops: []string{"lsopen"}, row: "opening apps (LaunchServices)"},
 		{ops: []string{"job-creation"}, row: "new launchd jobs"},
+		// FXSWEEP3P1 (RT126SWEEP3 P1's F1): a mount over a folder it may not write (`mount -t devfs devfs .git/hooks`)
+		// hides the owner's files there from the owner's programs and the core, and outlives the desk's processes; and
+		// an unmount would show what the owner's own mount hides. No desk's work mounts anything.
+		{ops: []string{"file-mount", "file-unmount"}, row: "mounting or unmounting a file system"},
+		// FXSWEEP3P1 (RT126SWEEP3 P2's F2): capturing packets, where the owner's group may (Wireshark's ChmodBPF), reads
+		// the desks' and the owner's keys as they cross loopback to Smolcorp.
+		{ops: slices.Concat(sbRead, sbWrite), place: sbPlace{text: `(regex "^/dev/bpf[0-9]*$")`}, row: "capturing packets (/dev/bpf)"},
+		{ops: []string{"file-issue-extension", "generic-issue-extension", "mach-issue-extension", "iokit-issue-extension"}, row: "handing its rights to another process (sandbox extensions, of every kind): its mark stays its sandbox's alone"},
 	}
 )
+
+// sbOwnDebugging lets a desk debug what it started itself, in its own sandbox: no other desk's, nor the owner's
+// (FXSWEEP3P1, after sbDefaults' deny).
+var sbOwnDebugging = sbRule{allow: true, ops: []string{"mach-priv-task-port"}, place: sbPlace{text: "(target same-sandbox)"},
+	row: "debugging its own processes"}
 
 // serviceRules is s for p's desk: the allows that follow the defaults, and the denies that come last.
 func (p *Policy) serviceRules(s Services) (open, shut []sbRule, err error) {
@@ -318,7 +380,7 @@ func (p *Policy) serviceRules(s Services) (open, shut []sbRule, err error) {
 			sbRule{ops: sbConnect, place: sbPlace{kind: "remote tcp4", text: fmt.Sprintf("localhost:%d", port)}, row: "a local port on its list: any address of this Mac"},
 			sbRule{ops: sbConnect, place: sbPlace{kind: "remote tcp6", text: fmt.Sprintf("*:%d", port)}, row: "a local port on its list: any IPv6 address, ::ffff:127.0.0.1 too (C4)"})
 	}
-	return append(open, sbSameSandbox), slices.Concat(ports, shut, sbNever), nil
+	return append(open, sbOwnTerminals, sbSameSandbox, sbOwnDebugging), slices.Concat(ports, shut, sbNever), nil
 }
 
 // sbSection is a profile's lines under one heading.
@@ -338,7 +400,7 @@ func (p *Policy) sections(svc Services) ([]sbSection, error) {
 		return nil, err
 	}
 	return []sbSection{
-		{"Denied by default: unix sockets, Mach services, IOKit, signals", sbDefaults},
+		{"Denied by default: unix sockets, Mach services, IOKit, signals, terminals", sbDefaults},
 		{"What it may still reach", open},
 		{"Allowed places", b.plain},
 		{"Denied places an exception opens", b.wide},
@@ -373,8 +435,30 @@ func (p *Policy) Profile(svc ...Services) (string, error) {
 	return s.String(), nil
 }
 
-// sbPlaceOf is r's place as a Seatbelt filter.
+// sbPlaceOf is r's place as a Seatbelt filter, with the places it doesn't hold.
 func sbPlaceOf(r Rule) (sbPlace, error) {
+	place, err := sbFilterOf(r)
+	if err != nil {
+		return place, err
+	}
+	for _, e := range r.Except {
+		if !sbSpellable(e) {
+			return sbPlace{}, ErrUnspellable
+		}
+		place.except = append(place.except, e)
+	}
+	for _, tail := range r.ExceptTails {
+		except, err := sbFilterOf(Rule{Path: r.Path, Tail: tail, Below: true})
+		if err != nil {
+			return sbPlace{}, err
+		}
+		place.exceptRe = append(place.exceptRe, except.text)
+	}
+	return place, nil
+}
+
+// sbFilterOf is r's Path and Tail as a Seatbelt filter.
+func sbFilterOf(r Rule) (sbPlace, error) {
 	if !sbSpellable(r.Path) || !sbSpellable(r.Tail) {
 		return sbPlace{}, ErrUnspellable
 	}
@@ -452,16 +536,34 @@ func sbComment(row string) string {
 }
 
 // PrepareProfile is what a desk's start on a Mac does with its Policy before the desk's first process (M6 calls it,
-// with <Support>/hires/<OwnID>/sandbox.sb and the desk's Services): it makes the folders the Policy holds that are
-// missing (MakeHold), then writes p's profile with svc (Profile) at file, owner-only, through a new file and a rename,
-// so a desk never finds it half written and a link at file is replaced, not followed. The folder file goes in must
-// exist. Anything that fails fails the start.
+// with <Support>/hires/<OwnID>/sandbox.sb and the desk's Services): it refuses a link in the shared .git's refs/ and logs/ or
+// on the way to a base branch's name (CheckRefPlaces), makes the folders the Policy holds that are missing (MakeHold; in the shared .git's refs/ and
+// logs/, never through a link) and the keepers of the ref folders git would remove (Keep), then writes p's profile
+// with svc (Profile) at file, owner-only, through a new file and a rename, so a desk never finds it half written and
+// a link at file is replaced, not followed. A held folder the owner can't make either (on a volume that isn't there,
+// under a folder of root's) doesn't fail the start: the profile denies writing at and below its first missing folder
+// instead (makeHeld, FXAGENTHOMEMACR1). The folder file goes in must exist. Anything else that fails fails the start.
 func PrepareProfile(p *Policy, file string, svc ...Services) error {
-	profile, err := p.Profile(svc...)
+	if _, err := p.Profile(svc...); err != nil { // before anything is made
+		return err
+	}
+	if err := p.CheckRefPlaces(); err != nil { // no link in refs/ or logs/ (RT126FIXREVIEW-GITROWS2R1's and R2's B1)
+		return err
+	}
+	unmade, err := p.makeHold(p.Hold())
 	if err != nil {
 		return err
 	}
-	if err := MakeHold(p.Hold()); err != nil {
+	kept, err := p.makeHold(p.Keep()) // the ref folders' keepers, and the folders when missing (FXGITROWS2R1)
+	if err != nil {
+		return err
+	}
+	q, err := p.unmadeHeld(append(unmade, kept...))
+	if err != nil {
+		return err
+	}
+	profile, err := q.Profile(svc...)
+	if err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(file), ".sandbox-*.sb")

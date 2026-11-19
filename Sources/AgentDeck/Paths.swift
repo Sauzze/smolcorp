@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-/// Where AgentDeck reads and writes. Its own state lives in
+/// Where Smolcorp reads and writes. Its own state lives in
 /// ~/Library/Application Support/AgentDeck, so the app can be moved or
 /// replaced without losing the paired phones or the deck's layout.
 /// A test copy of the app, for trying a build beside the one in use: started
@@ -143,9 +143,31 @@ enum Paths {
         .appendingPathComponent("smolcorp-tests-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)", isDirectory: true)
 
     /// The real app's folder, as the app finds it: tests compare against it and never use it.
+    /// It is `Application Support/Smolcorp` once that is a real folder holding Smolcorp's state,
+    /// otherwise `Application Support/AgentDeck`, the folder's name since the app was AgentDeck
+    /// (`resolveSupport`, as the Go side's appdirs.Resolve). Nothing here moves or makes either.
     static func realSupport() -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("AgentDeck", isDirectory: true)
+        resolveSupport(in: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0])
+    }
+
+    /// The support folder's old name, and Smolcorp's.
+    static let oldSupportName = "AgentDeck"
+    static let newSupportName = "Smolcorp"
+
+    /// The support folder in `base` (Application Support): the Smolcorp one when it is a real folder,
+    /// not a link, with a registry.json in it that is a plain file; otherwise the old one, there or not.
+    static func resolveSupport(in base: URL) -> URL {
+        let new = base.appendingPathComponent(newSupportName, isDirectory: true)
+        if holdsState(new) { return new }
+        return base.appendingPathComponent(oldSupportName, isDirectory: true)
+    }
+
+    /// Whether `dir` is a real folder (not a link) holding Smolcorp's state: a registry.json that is a plain file.
+    static func holdsState(_ dir: URL) -> Bool {
+        var info = stat()
+        guard lstat(dir.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return false }
+        guard lstat(dir.appendingPathComponent("registry.json").path, &info) == 0 else { return false }
+        return info.st_mode & S_IFMT == S_IFREG
     }
 
     static let support: URL = {

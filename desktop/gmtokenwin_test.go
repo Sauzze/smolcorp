@@ -38,7 +38,7 @@ func plainGMDeck(t *testing.T) (*Deck, *hiring) {
 // and its one-time token.
 func plainRoleHire(t *testing.T, d *Deck, h *hiring, roleID string) (args []string, token string) {
 	t.Helper()
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	opened := len(h.windows)
 	if status, message := d.hireWith(hireSpec{roleID: roleID, fromSetup: true, extra: &setupHire{Role: roleID}}); status != http.StatusNoContent {
 		t.Fatalf("Setup's hire of %s: %d %s", roleID, status, message)

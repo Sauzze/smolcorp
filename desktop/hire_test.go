@@ -34,6 +34,11 @@ func fakeHiring(t *testing.T, tmux string) *hiring {
 	t.Helper()
 	h := &hiring{}
 	saved := []any{installedOpeners, tmuxPath, canOpenWindows, startHire, agentMissing, hooksNotConnected}
+	// The hires' windows are stand-ins: no launcher starts, so none starts its agent in a sandbox, and a plain hire is
+	// neither asked which project nor its place checked (FXHIREPROJECTSR5); a row that wants those says so.
+	savedSandboxed := plainHiresSandboxed
+	plainHiresSandboxed = false
+	t.Cleanup(func() { plainHiresSandboxed = savedSandboxed })
 	t.Cleanup(func() {
 		installedOpeners = saved[0].(func() []hireOpener)
 		tmuxPath = saved[1].(func() string)
@@ -97,6 +102,7 @@ func hiredWith(t *testing.T, window []string) (command []string, token string) {
 func TestAHireOpensATerminalRunningTheLauncher(t *testing.T) {
 	d, h, folder := hiringDeck(t, "")
 	d.config.HireAgent = "codex"
+	hiresOfEveryAgentHere(d)
 	if status, message := d.Perform("hire", "", url.Values{}); status != http.StatusNoContent {
 		t.Fatalf("hire: %d %s", status, message)
 	}
@@ -114,7 +120,7 @@ func TestAHireOpensATerminalRunningTheLauncher(t *testing.T) {
 	if status, _ := d.Perform("hire", "", url.Values{}); status != http.StatusTooManyRequests || len(h.windows) != 1 {
 		t.Errorf("a second hire at once: %d, %d windows", status, len(h.windows))
 	}
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	d.config.HireTerminal = "other"
 	d.Perform("hire", "", url.Values{})
 	if len(h.windows) != 2 || h.windows[1][0] != "other" {
@@ -347,7 +353,7 @@ func TestAHireUpstairsSitsAtTheDeskAndFloorItWasHiredAtInTheFloorsFolder(t *test
 		t.Errorf("3F is %v, want the hire at desk 5", desks)
 	}
 	// That desk taken, it can't be hired at again; and a floor there isn't, isn't.
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	if status, _ := d.Perform("hire", "", url.Values{"desk": {"5"}, "floor": {"2"}}); status != http.StatusConflict {
 		t.Errorf("hire at a taken desk upstairs: %d", status)
 	}
@@ -441,6 +447,7 @@ func TestAnAgentNotFoundWhereHiresStartIsExplained(t *testing.T) {
 func TestNoSecondHireWhileTheFirstsAgentIsLookedFor(t *testing.T) {
 	d, h, _ := hiringDeck(t, "")
 	d.config.HireAgent = "codex"
+	hiresOfEveryAgentHere(d)
 	var second int
 	agentMissing = func(program string) string {
 		// The check takes longer than the cooldown: a second hire, and a change in setup, come meanwhile.
@@ -463,7 +470,7 @@ func TestNoSecondHireWhileTheFirstsAgentIsLookedFor(t *testing.T) {
 	}
 	// Once it's done, the next can go.
 	agentMissing = func(string) string { return "" }
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	if status, _ := d.Perform("hire", "", url.Values{}); status != http.StatusNoContent {
 		t.Errorf("the next hire, once the first is done: %d", status)
 	}
@@ -632,6 +639,7 @@ func TestAClaudeHireGoesAheadWhileAnotherAgentIsntHooked(t *testing.T) {
 func TestAHireOfAnUnhookedAgentIsRefusedThoughAnotherIsHooked(t *testing.T) {
 	d, h, _ := hiringDeckAfter(t, "", func() { hooksOn(t) })
 	d.config.HireAgent = string(Codex)
+	hiresOfEveryAgentHere(d)
 	status, message := d.hireFromSetup("")
 	if status != http.StatusConflict || !strings.HasPrefix(message, "Connect your agents first") || !strings.Contains(message, "Codex") {
 		t.Errorf("Codex hire with Codex unhooked: %d %q, want %d and Connect your agents first naming Codex", status, message, http.StatusConflict)
@@ -688,7 +696,7 @@ func TestAFloorWithItsOwnFolderIsHiredOntoWithNoFolderForNewHires(t *testing.T) 
 		t.Errorf("the hire opened %q in %q, want one in %s", h.windows, h.dirs, atlas)
 	}
 	// The ground floor still needs the folder for new hires.
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	if status, message := d.Perform("hire", "", url.Values{}); status != http.StatusConflict || !strings.Contains(message, "Choose a folder") {
 		t.Errorf("hire on the ground floor: %d %q, want to be told to choose a folder", status, message)
 	}
@@ -711,13 +719,13 @@ func TestATestCopyRefusesAClaudeHireOnEveryRouteBeforeAnythingIsMade(t *testing.
 	onPort(t, 7799)
 	d.config.Floors = checkedFloors(d.config.Floors)
 	for _, query := range []url.Values{{}, {"role": {"janitor"}}, {"role": {"gm"}}, {"role": {"janitor"}, "floor": {"1"}, "desk": {"0"}}} {
-		d.lastHire = time.Time{}
+		d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 		status, message := d.Perform("hire", "", query)
 		if status != http.StatusConflict || !strings.Contains(message, "never hires Claude on the default account") {
 			t.Errorf("hire %v: %d %q", query, status, message)
 		}
 	}
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	if status, message := d.hireFromSetup("gm"); status != http.StatusConflict || !strings.Contains(message, "test copy") {
 		t.Errorf("setup's GM hire: %d %q", status, message)
 	}
@@ -727,7 +735,7 @@ func TestATestCopyRefusesAClaudeHireOnEveryRouteBeforeAnythingIsMade(t *testing.
 	// Another agent would report to the real office through its own hooks: refused too, before anything is
 	// made, as the Mac's test copy refuses it (Deck.testCopyRefusal).
 	d.config.HireAgent = "codex"
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	if status, message := d.Perform("hire", "", url.Values{}); status != http.StatusConflict || message != testCopyOnlyClaude ||
 		len(h.windows) != 0 || !d.lastHire.IsZero() {
 		t.Errorf("a test copy's codex hire: %d %q, %d windows", status, message, len(h.windows))
@@ -740,6 +748,7 @@ func TestATestCopyRefusesAClaudeHireOnEveryRouteBeforeAnythingIsMade(t *testing.
 func TestTheOfficeSaysWhichHiresGetNoFence(t *testing.T) {
 	d, _, _ := hiringDeck(t, "/usr/bin/tmux")
 	d.config.Roles = []Role{{ID: "dev", Name: "Dev", Agent: "claude"}, {ID: "rev", Name: "Rev", Agent: "codex"}}
+	hiresOfEveryAgentHere(d) // the switch-on lines: TestOnAMacSetupAndTheOfficeSayOnlyClaudeCodeIsHiredYet
 	state := func() (dev, rev, anyone any) {
 		d.mu.Lock()
 		defer d.mu.Unlock()

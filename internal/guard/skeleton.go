@@ -31,7 +31,8 @@ import (
 // skeletonSpecial says whether word[i], outside quotes, is a character bash or zsh may give a pattern or
 // expansion meaning: * ? [ ] ^ # ! ( ) { } | < > , = and a ~ that isn't home (home is a ~ that starts the word,
 // or follows = or :), and the @ or + of ksh's @( ) and +( ). A \ outside quotes never reaches here (the lexer
-// takes it as an escape); one inside quotes, and a / anywhere, divide the path.
+// takes it as an escape); one inside quotes, and a / anywhere, divide the path. The guard's kept names take an = after
+// a letter, a digit, a - or a _ as written, and what follows it as a word of its own (equalsAsLetters).
 func skeletonSpecial(word string, unq []bool, i int) bool {
 	if unq != nil && (i >= len(unq) || !unq[i]) {
 		return false

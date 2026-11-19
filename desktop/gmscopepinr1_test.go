@@ -41,8 +41,8 @@ func rtInOther(t *testing.T, other string) string {
 	trees := gitOut(t, other, "worktree", "list", "--porcelain")
 	var rows []string
 	for _, h := range registered(t) {
-		if h.Role != gmRole && (strings.HasPrefix(h.Repo, other) || strings.HasPrefix(h.Folder, other)) {
-			rows = append(rows, h.Repo+" "+h.Worktree)
+		if h.Role != gmRole && (strings.HasPrefix(h.Repo, other) || strings.HasPrefix(h.Folder.storedOnly(), other)) {
+			rows = append(rows, h.Repo+" "+h.Worktree.storedOnly())
 		}
 	}
 	if branches == "" && strings.Count(trees, "worktree ") == 1 && len(rows) == 0 {
@@ -103,6 +103,7 @@ func rtSwap(t *testing.T, folder, other string) func() {
 // B1: a scoped GM's night job in a worktree of the project, swapped for a link to another project after the night's
 // own re-check (nightStartRefusal), as the queue hires it (hireQueueRole, as nightDue's queue calls it).
 func TestRTNightJobSwappedAfterItsRecheck(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	d, _, _, _, project := scopedGM(t)
 	other := placeRepo(t)
 	w := rtBeside(t, project)
@@ -126,6 +127,7 @@ func TestRTNightJobSwappedAfterItsRecheck(t *testing.T) {
 
 // B1, the same through the night shift itself: nightDue re-checks, then its queue hires.
 func TestRTNightJobSwappedAfterItsRecheckThroughNightDue(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	d, _, _, _, project := scopedGM(t)
 	other := placeRepo(t)
 	w := rtBeside(t, project)

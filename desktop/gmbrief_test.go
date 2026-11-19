@@ -62,7 +62,7 @@ func TestAGMBriefAddsADatedPartAndMailsTheHireThenItIsFiredWithoutAnythingTyped(
 			t.Fatalf("%d %s, file %q, mail %+v, typed %v", w.Code, w.Body, data, sent, g.typed())
 		}
 		w = g.fire(t, asGM, map[string]any{"removeWorktree": true})
-		if _, err := os.Stat(g.hire.Worktree); w.Code != http.StatusNoContent || g.r.tmux.up || !g.r.tmux.ran("kill-server") || g.typed() || registered(t)[0].State != "fired" || err == nil {
+		if _, err := os.Stat(g.hire.Worktree.storedOnly()); w.Code != http.StatusNoContent || g.r.tmux.up || !g.r.tmux.ran("kill-server") || g.typed() || registered(t)[0].State != "fired" || err == nil {
 			t.Fatalf("fire: %d %q (worktree %v)", w.Code, w.Body, err)
 		}
 		recap, _ := os.ReadFile(filepath.Join(supportDir, "recaps", g.hire.ID+".md"))

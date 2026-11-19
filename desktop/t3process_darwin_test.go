@@ -138,7 +138,7 @@ func TestT3OnAMacLetGoAndTakeOverLookThroughTheMacApp(t *testing.T) {
 	if pids, looked := defaultT3Leaving().Working(wt); !looked || !slices.Equal(pids, []int{4242}) {
 		t.Errorf("Let go: %v %v", pids, looked)
 	}
-	if pids, looked := d.t3HandingFor(Hire{ID: "abcdef123456", Worktree: wt}).Holding(wt, t3TakeOverSession); !looked || !slices.Equal(pids, []int{4242}) {
+	if pids, looked := d.t3HandingFor(Hire{ID: "abcdef123456", Worktree: keptPath(wt)}).Holding(wt, t3TakeOverSession); !looked || !slices.Equal(pids, []int{4242}) {
 		t.Errorf("Take over: %v %v", pids, looked)
 	}
 	if got := mac.requests(); len(got) != 2 || got[0].Session != "" || got[1].Session != t3TakeOverSession {
@@ -192,7 +192,7 @@ func TestT3OnAMacHandBackResumesOnlyOnceTheMacAppSeesNothingHolding(t *testing.T
 		t.Errorf("resumed with the session held: %q", k.log)
 	}
 	for _, asked := range mac.requests() {
-		if asked.Action != "processes" || asked.Folder != h.Worktree || asked.Session != t3TakeOverSession {
+		if asked.Action != "processes" || asked.Folder != h.Worktree.storedOnly() || asked.Session != t3TakeOverSession {
 			t.Errorf("asked %+v", asked)
 		}
 	}

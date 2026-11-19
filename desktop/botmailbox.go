@@ -332,8 +332,8 @@ func botFree(folder, name string, at time.Time) string {
 func (d *Deck) mailboxBarred() []string {
 	barred := []string{supportDir}
 	for _, h := range readRegistry(registryPath(), false).hires {
-		if h.Worktree != "" {
-			barred = append(barred, h.Worktree)
+		if !h.Worktree.none() {
+			barred = append(barred, h.Worktree.storedOnly()) // compared only
 		}
 	}
 	return barred

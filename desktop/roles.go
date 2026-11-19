@@ -529,7 +529,9 @@ func shippedWithBriefs() []Role {
 // office doesn't know is none.
 func (r Role) checked() (Role, bool) {
 	id := strings.TrimSpace(r.ID)
-	name := strings.TrimSpace(strings.Join(strings.FieldsFunc(r.Name, func(c rune) bool { return c == '\n' || c == '\r' }), " "))
+	// What a hire's words would show escaped (a line end, another control character, a line separator, a bidi
+	// control) goes from a name, as a space: the GM can write roles too (FXPICKEDPROJECTR3, N1).
+	name := strings.TrimSpace(strings.Join(strings.FieldsFunc(r.Name, escapedInWords), " "))
 	name = strings.TrimSpace(string([]rune(name)[:min(len([]rune(name)), roleNameLimit)]))
 	if len(id) < 1 || len(id) > 32 || strings.ContainsFunc(id, func(c rune) bool { return !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') }) || name == "" {
 		return Role{}, false
@@ -683,36 +685,68 @@ const (
 	hiredIntoGeneralFolder
 )
 
+// pickedStart is the project the office picked for a hire before hiring it (hirepick.go: a Mac whose hires start in
+// their sandbox): its name in the folder for hires, and the branch of the hire's own worktree of it ("" for a project
+// that isn't a repo, which it works in itself). The zero value is none picked.
+type pickedStart struct{ project, branch string }
+
+// words are what a hire whose project was picked is told of where it starts, in place of the question which project
+// to work on (FXPICKEDPROJECT): the project by its name, and its own worktree and branch, as a pinned desk's hire is
+// told its desk's project. folder is as it is shown. A project that isn't a repo is the folder it starts in, so it is
+// named once (FXPICKEDPROJECTR1, N1).
+func (p pickedStart) words(folder string) string {
+	if p.branch == "" {
+		return "You've started in " + folder + ", the project you were hired for."
+	}
+	return "You've started in " + folder + ", your own worktree of " + shownInWords(p.project) + ", the project you were hired for, " +
+		"on your own branch " + shownInWords(p.branch) + "."
+}
+
 // firstMessage is what the agent is first told: to only ask, in its first
 // reply, which project to work on and the role's own questions, and to wait
 // for the answers; then the role's instructions. Started where you chose,
 // from a terminal, or at a pinned project's desk, it asks you to confirm
 // that folder instead. A hire's words are the Mac app's.
 func (r Role) firstMessage(folder string, how roleStart) string {
+	return r.firstMessageIn(folder, how, pickedStart{})
+}
+
+// firstMessageIn is firstMessage for a hire whose project the office picked, when picked names one: it is told that
+// project, its worktree and its branch, and asks only the role's own questions (none: it goes on to the role's
+// instructions).
+func (r Role) firstMessageIn(folder string, how roleStart, picked pickedStart) string {
 	if homeDir != "" {
 		if rest, err := filepath.Rel(homeDir, folder); err == nil && !strings.HasPrefix(rest, "..") {
 			folder = filepath.Join("~", rest)
 		}
 	}
-	project := map[roleStart]string{
-		startedHere:            "You've started in " + folder + ". Is that the one to work on?",
-		hiredAtPinnedDesk:      "You've started in " + folder + ", this desk's project. Is that the one to work on?",
-		hiredIntoGeneralFolder: "Which project should you work on: a folder on this computer, or a GitHub repository?",
-	}[how]
-	asked := []string{"1. " + project}
-	for i, question := range r.Questions {
-		asked = append(asked, fmt.Sprintf("%d. %s", i+2, question))
+	folder = shownInWords(folder) // on one line, whatever its name (FXPICKEDPROJECTR1, B1)
+	var asked []string
+	if picked.project == "" {
+		asked = append(asked, "1. "+map[roleStart]string{
+			startedHere:            "You've started in " + folder + ". Is that the one to work on?",
+			hiredAtPinnedDesk:      "You've started in " + folder + ", this desk's project. Is that the one to work on?",
+			hiredIntoGeneralFolder: "Which project should you work on: a folder on this computer, or a GitHub repository?",
+		}[how])
 	}
-	then := "Once I've answered, ask me what to do."
+	for _, question := range r.Questions {
+		asked = append(asked, fmt.Sprintf("%d. %s", len(asked)+1, question))
+	}
+	then := "ask me what to do."
 	if r.Instructions != "" {
-		then = "Once I've answered, as my " + r.Name + ": " + r.Instructions
+		then = "as my " + r.Name + ": " + r.Instructions
 	}
-	general := ""
-	if how == hiredIntoGeneralFolder {
-		general = "You've started in " + folder + ", a general folder, not a project. "
+	told := ""
+	if picked.project != "" {
+		told = picked.words(folder) + " "
+		if len(asked) == 0 {
+			return told + strings.ToUpper(then[:1]) + then[1:]
+		}
+	} else if how == hiredIntoGeneralFolder {
+		told = "You've started in " + folder + ", a general folder, not a project. "
 	}
-	return general + "Your first reply must only ask me the questions below, all together. Don't read code, run commands or start any " +
-		"work until I've answered them.\n\n" + strings.Join(asked, "\n") + "\n\n" + then
+	return told + "Your first reply must only ask me the questions below, all together. Don't read code, run commands or start any " +
+		"work until I've answered them.\n\n" + strings.Join(asked, "\n") + "\n\nOnce I've answered, " + then
 }
 
 // arguments are how the role's agent starts: its model, its effort, and
@@ -762,11 +796,16 @@ func (r Role) resumeArguments(session string) []string {
 }
 
 // roleAgents are the agents a role can be, for the setup page: whether each
-// has an effort, and whether it takes a first message.
-func roleAgents() []map[string]any {
+// has an effort, whether it takes a first message, and notOnMac: why its hires
+// can't start here yet (a Mac's Codex, Gemini CLI, OpenCode and Grok while the
+// sandbox is in force, notonamac.go), which the role editor and the hire sheet
+// show, or "". Every system sends it, so setup's answer has one shape
+// everywhere (the route contract's known gap).
+func roleAgents(sandboxInForce bool) []map[string]any {
 	list := []map[string]any{}
 	for _, agent := range agents {
-		list = append(list, map[string]any{"id": agent, "name": agent.Name(), "effort": agent.HasEffortDial(), "starts": agent != Grok})
+		list = append(list, map[string]any{"id": agent, "name": agent.Name(), "effort": agent.HasEffortDial(), "starts": agent != Grok,
+			"notOnMac": notOnAMacYet(agent, sandboxInForce)})
 	}
 	return list
 }

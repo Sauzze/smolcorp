@@ -200,7 +200,7 @@ func (w *winRig) post(path string, body map[string]any, as string) (int, string)
 func (w *winRig) hire(role string) Hire {
 	w.t.Helper()
 	w.d.mu.Lock()
-	w.d.lastHire = time.Time{}
+	w.d.lastHire, w.d.gmLastHire = time.Time{}, time.Time{}
 	w.d.mu.Unlock()
 	as := winAsGM
 	if role == "gm" {
@@ -245,7 +245,7 @@ func TestTheGMHireOnTheLauncherStartsItsWindowWithTheGuardOfAHireFromTheOffice(t
 			t.Fatal(err)
 		}
 		w.d.mu.Lock()
-		w.d.lastHire = time.Time{}
+		w.d.lastHire, w.d.gmLastHire = time.Time{}, time.Time{}
 		w.d.mu.Unlock()
 		if route {
 			w.hire(role)
@@ -342,7 +342,7 @@ func (w *winRig) standInWorktree(h Hire) (Hire, *[]string) {
 	if err := os.MkdirAll(tree, 0o755); err != nil {
 		w.t.Fatal(err)
 	}
-	h.Repo, h.Worktree, h.Branch = repo, physical(tree), "hire/"+filepath.Base(tree)
+	h.Repo, h.Worktree, h.Branch = repo, keptPath(physical(tree)), "hire/"+filepath.Base(tree)
 	if err := updateRegistry(func(f *registryFile) {
 		for i := range f.hires {
 			if f.hires[i].ID == h.ID {
@@ -392,7 +392,7 @@ func TestTheGMFireOnTheLauncherKeepsTheCleanWorktreeUnlessAskedToRemoveIt(t *tes
 		if status != http.StatusNoContent || text != "" || removed != c.remove || len(rows) != 1 || rows[0].State != "fired" || rows[0].Notes != "" {
 			t.Errorf("%v: %d %q, git asked %q, registry %+v; want 204, removed %v, fired with no note", c.extra, status, text, *asked, rows, c.remove)
 		}
-		if _, err := os.Stat(h.Worktree); err != nil {
+		if _, err := os.Stat(h.Worktree.storedOnly()); err != nil {
 			t.Errorf("%v: the worktree folder went: %v", c.extra, err)
 		}
 	}
@@ -474,7 +474,7 @@ func TestTheGMFireOnTheLauncherRefusesFromTheLaunchersStateAndAnUnknownIdAndEnds
 // A hire that isn't a launcher's window (a tmux one) is refused on Windows in one sentence and nothing is ended; a launcher that stays up on a stop is no fire.
 func TestTheGMFireRefusesAHireThatIsNoLaunchersWindowAndALauncherThatWontStop(t *testing.T) {
 	w := newWinRig(t)
-	other := Hire{ID: "tmuxhire0001", Name: "Janitor", Role: "janitor", State: "working", Folder: homeDir, TmuxSocket: "x.sock"}
+	other := Hire{ID: "tmuxhire0001", Name: "Janitor", Role: "janitor", State: "working", Folder: keptPath(homeDir), TmuxSocket: "x.sock"}
 	if err := updateRegistry(func(f *registryFile) { f.hires = append(f.hires, other) }); err != nil {
 		t.Fatal(err)
 	}
@@ -551,7 +551,7 @@ func TestEverySavedAccountsFolderIsDeniedToALauncherHire(t *testing.T) {
 		where := map[bool]string{false: "the office's hire", true: "the GM's route"}[route]
 		before := len(winRegistry(t))
 		w.d.mu.Lock()
-		w.d.lastHire = time.Time{}
+		w.d.lastHire, w.d.gmLastHire = time.Time{}, time.Time{}
 		w.d.mu.Unlock()
 		if route {
 			// With two accounts it names one, as it must on the Mac (C05).
@@ -568,7 +568,7 @@ func TestEverySavedAccountsFolderIsDeniedToALauncherHire(t *testing.T) {
 			w.d.mu.Lock()
 			saved := w.d.config.ClaudeProfiles
 			w.d.config.ClaudeProfiles = slices.DeleteFunc(slices.Clone(saved), func(p claudeProfile) bool { return p.Name == "work" })
-			w.d.lastHire = time.Time{}
+			w.d.lastHire, w.d.gmLastHire = time.Time{}, time.Time{}
 			w.d.mu.Unlock()
 			status, text := w.d.Perform("hire", "", url.Values{"role": {"janitor"}})
 			w.d.mu.Lock()

@@ -699,7 +699,7 @@ var guardAllowed = map[string]string{
 	"programs_darwin_test.go TestOnAMacAProgramPlantedUnderAnInstallRootIsRefused":              "Smolcorp.app's stand-in script for the resolver, never run; Other.app: an empty folder the sandbox's file probe makes",
 	"programs_darwin_test.go TestOnAMacUsrBinsToolsAreDeniedWithTheDeveloperFolderTheyHandOnTo": "Xcode.app's stand-in git script for the resolver, never run; .app/ in a check of developerRoot's answer",
 	"gitconfig_test.go TestACommandsWordsAreTheShells":                                          "\"open and 'open: unclosed quotes commandWords must refuse, never run",
-	"policy_test.go var rows":                 "/Applications/Smolcorp.app/Contents/MacOS/AgentDeck in the Policy's rows: a path, nothing on disk",
+	"policy_test.go var rows":                 "/Applications/Smolcorp.app/Contents/MacOS/Smolcorp in the Policy's rows: a path, nothing on disk",
 	"escape3_darwin_test.go var guardAllowed": "this list: its reasons name what each declaration may",
 	"policy_test.go hirePlaces":               "/Applications/Smolcorp.app as an install root in the Policy's Places: a path, nothing on disk",
 
@@ -790,6 +790,13 @@ var startSites = map[string]string{
 
 	// FXBASEHEADS'. Its git rows start through (*escapeDesk).inside and outside, funnels.
 	"baseheads_darwin_test.go TestOnAMacTheProfileKeepsABaseBranchsNameAndTheOwnersStateFromADesk": "sandbox-exec under each of the row's two profiles, then python3 with the row's probe",
+
+	// FXPTYOWN's (FXPTYOWNR2). onTerminal is a funnel too.
+	"terminals_darwin_test.go standInTerminal": "python3 with the row's probe's hold, outside or under sandbox-exec (sandboxExecOrSkip) with a desk's profile, after startRefusal",
+	"terminals_darwin_test.go onTerminal":      "sandbox-exec, from sandboxExecOrSkip, with a desk's profile; the program it runs in the sandbox, on a stand-in pty, is its caller's, after startRefusal",
+
+	// FXGITROWS2's (declared in FXGITROWS2R1). Its other starts go through (*escapeDesk).inside and outside, funnels.
+	"gitrows2_darwin_test.go ownerTries": "its caller's git (gitOrSkip), the owner's, outside any sandbox on the row's stand-in repo, after startRefusal",
 }
 
 // startFunnels are the package's start helpers on a Mac (startHelpers), each with whether it starts in a desk's
@@ -802,6 +809,8 @@ var startFunnels = map[string]bool{
 	"escape2_darwin_test.go (*escapeDesk).work":  true,
 	"escape2_darwin_test.go outside":             false,
 	"escape2_darwin_test.go startOutside":        false,
+	"terminals_darwin_test.go onTerminal":        true,
+	"gitrows2_darwin_test.go ownerTries":         false, // FXGITROWS2's, declared in FXGITROWS2R1
 }
 
 // funnel is what the funnel check finds in a start helper. refused: its body opens, before any start, with
@@ -1679,6 +1688,12 @@ var refusalProbeHelpers = map[string]struct {
 	"outside": {false, func(t *testing.T, folder, program string, args []string) { outside(t, folder, nil, program, args...) }},
 	"startOutside": {false, func(t *testing.T, folder, program string, args []string) {
 		startOutside(t, folder, nil, program, args...)
+	}},
+	"onTerminal": {true, func(t *testing.T, folder, program string, args []string) {
+		onTerminal(t, &terminal{pty: os.DevNull}, "", folder, nil, program, args...)
+	}},
+	"ownerTries": {false, func(t *testing.T, folder, program string, args []string) {
+		ownerTries(t, &escapeDesk{home: folder}, program, folder, args...)
 	}},
 }
 

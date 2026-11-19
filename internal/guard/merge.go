@@ -114,6 +114,9 @@ type Place struct {
 	cwd, gitDir, common string
 	fetchesHeads        bool
 
+	// Set by placeIn for a place unknown with a reason of its own to give: past 32 remotes (manyRemotesWhy).
+	unknown string
+
 	// Set by At: the folders above as gitFolderPath reads them, read once for a line.
 	folders *placeFolders
 }
@@ -297,8 +300,11 @@ func placeIn(gitdir string) Place {
 	}
 	remotes := filepath.Join(common, "refs", "remotes")
 	entries, err := os.ReadDir(remotes)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) || len(entries) > 32 {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return Place{}
+	}
+	if len(entries) > 32 {
+		return Place{unknown: manyRemotesWhy}
 	}
 	for _, e := range entries {
 		if e.Type()&fs.ModeSymlink != 0 {
@@ -436,6 +442,19 @@ func onBase(p *Place, args []string, depth int) string {
 		if isHead(name) {
 			m.current = true
 		} else if isBase(name, p, known) {
+			if !known && !isBase(name, &Place{}, true) {
+				// Not main, master or release/*: only the default the guard couldn't read makes it one (FXGUARDWIN126 6e).
+				if p.unknown != "" && !p.moved && depth == 0 && plainGitOptions(args) {
+					return p.unknown // read where it runs, the place has a reason of its own (past 32 remotes)
+				}
+				// Run alone from the folder it runs in, the guard read that place and couldn't read a repository there:
+				// telling it to run there would say nothing (RT126GUARDWIN126 N4).
+				how := defaultHowWhy
+				if !p.moved && depth == 0 && plainGitOptions(args) {
+					how = defaultUnreadWhy
+				}
+				return "The guard can't tell whether " + shownBranch(name) + " is the repository's default branch, so it takes it as a base branch. " + how
+			}
 			return "This moves " + shownBranch(name) + ", " + baseWhy
 		}
 	}
@@ -451,6 +470,9 @@ func onBase(p *Place, args []string, depth int) string {
 		return storedFetchWhy
 	}
 	if m.current && (!known || !p.alone) {
+		if p.unknown != "" && !p.moved && depth == 0 && plainGitOptions(args) {
+			return p.unknown // the place it runs in, read where it runs, has a reason of its own
+		}
 		return cantTellBranch
 	}
 	if m.current {
@@ -467,6 +489,8 @@ func onBase(p *Place, args []string, depth int) string {
 const (
 	baseWhy        = "a base branch (main, master, release/* and the repository's default): what lands there is the owner's. Leave the work on its own branch for review."
 	cantTellBranch = "The guard can't tell which branch this lands on, so it takes it as a base branch: run it alone, in the repository's folder, with no cd, -C or GIT_DIR."
+	// manyRemotesWhy: the guard reads each remote's HEAD for the repository's defaults, and no more than 32 of them.
+	manyRemotesWhy = "This repository has more than 32 remotes, more than the guard reads to learn each one's default branch, so it can't tell whether this lands on a base branch and takes it as one. Leave it to the owner."
 	noBranchWhy    = "The guard can't read the branch this lands on (a detached HEAD, or a HEAD that names no branch), so it takes it as a base branch. Check out the work's own branch first."
 	cantReadWhy    = "The guard can't read this git command in full (an option it doesn't know, or one that moves branches from input or rules it can't see), so it may move a base branch. Spell its options out as git lists them, or leave it to the owner."
 	// configWhy: an alias, autocorrect or include in git's config runs what the guard never sees; a remote's fetch
@@ -474,6 +498,11 @@ const (
 	configWhy      = "An alias, autocorrect or include in git's config runs commands the guard never sees, and a remote's fetch refspec, mirror or push URL moves branches out of its sight. Leave it to the owner."
 	storedFetchWhy = "This fetch would write local branches by refspecs stored in the repository's config (a mirror, or a fetch into refs/heads), or it runs where the guard can't read that config (after a cd, with -C or GIT_DIR, inside a wrapper). Run it alone in the repository's folder, or leave it to the owner."
 	remoteWhy      = "This changes which branches a remote writes or which one the guard reads as the default (a mirror, a push URL, set-head, rename, remove). Leave it to the owner."
+	// defaultHowWhy: the guard reads the repository's default only where the call runs, for a git command alone there.
+	defaultHowWhy = "It reads the default only for a git command run alone from the repository's own folder: run it there, without -C, cd, GIT_DIR or a wrapper."
+	// defaultUnreadWhy: the same, run there already, where the guard couldn't read the repository (none it can read, a
+	// link in its git folder, a read error).
+	defaultUnreadWhy = "It reads the default where the command runs, and couldn't read this repository there (it isn't one, or the guard can't read all of its git folder). Leave it to the owner."
 )
 
 func shownBranch(name string) string {
@@ -1063,12 +1092,19 @@ func gitFolderRefusal(groups []Group, name string, words []string) *Refusal {
 	if !on || name != "" && gitFolderReaders[name] && !(name == "less" && lessWrites(words[1:])) {
 		return nil
 	}
-	var data []bool // a git message's text names no path (dataArgs)
+	var data, code []bool // a git message's text names no path (dataArgs); an interpreter's code is no path glob (codeArgs)
 	if name != "" && name != "=" && len(words) > 1 {
 		data = append([]bool{false}, dataArgs(name, unmark(words[1:]))...)
+		code = append([]bool{false}, codeArgs(name, unmark(words[1:]))...)
 	}
 	for i, w := range words {
 		if i < len(data) && data[i] {
+			continue
+		}
+		if i < len(code) && code[i] && !strings.HasPrefix(w, unreadable) {
+			if codeNamesGitFolder(w, p) {
+				return &Refusal{Group: MergeGroup, Rule: gitFolderRule, Command: strings.Join(unmark(words), " "), Why: gitFolderWhy}
+			}
 			continue
 		}
 		if gitFolderPath(strings.TrimPrefix(w, unreadable), p) {
@@ -1076,6 +1112,76 @@ func gitFolderRefusal(groups []Group, name string, words []string) *Refusal {
 		}
 	}
 	return nil
+}
+
+// codeArgs says which of an interpreter's arguments is the code it is given on the line: python's -c (and py's,
+// pypy's), node's and bun's -e, -p, --eval and --print. Code is text in a language of its own, not a path, so its ( ) [ ]
+// * = aren't read as a pattern that could fill in .git (FXGUARDWIN126 6b: …; print(t) read as …/.gi and t). A path it
+// names written out still is (codeNamesGitFolder). An option the guard doesn't know before the code leaves the code
+// unmarked: it is read as any word.
+func codeArgs(name string, args []string) []bool {
+	code := make([]bool, len(args))
+	switch {
+	case name == "python" || name == "python2" || name == "python3" || name == "py" || name == "pypy" || name == "pypy3" ||
+		strings.HasPrefix(name, "python3.") || strings.HasPrefix(name, "python2."):
+		for i := 0; i < len(args); i++ {
+			a := args[i]
+			if a == "-" || a == "--" || !strings.HasPrefix(a, "-") || strings.HasPrefix(a, "--") {
+				return code // the script, standard input, or a long option it reads on its own
+			}
+			for k := 1; k < len(a); k++ {
+				switch c := a[k]; {
+				case c == 'c':
+					if k < len(a)-1 {
+						code[i] = true // -cCODE
+					} else if i+1 < len(args) {
+						code[i+1] = true
+					}
+					return code
+				case c == 'W' || c == 'X':
+					// A warning filter or an -X option: the rest of the word, or the next one.
+					if k == len(a)-1 {
+						i++
+					}
+					k = len(a)
+				case strings.IndexByte("bBdEhiIOPqRsSuvx", c) < 0:
+					return code // -m runs a module; anything else isn't read
+				}
+			}
+		}
+	case name == "node" || name == "nodejs" || name == "bun":
+		for i := 0; i < len(args); i++ {
+			switch a := args[i]; {
+			case a == "-e" || a == "-p" || a == "-pe" || a == "-ep" || a == "--eval" || a == "--print":
+				if i+1 < len(args) {
+					code[i+1] = true
+				}
+				return code
+			case strings.HasPrefix(a, "--eval=") || strings.HasPrefix(a, "--print="):
+				code[i] = true
+				return code
+			case a == "-r" || a == "--require" || a == "--import" || a == "-C" || a == "--conditions" || a == "--input-type":
+				i++
+			case !strings.HasPrefix(a, "-") || a == "--":
+				return code // the script
+			}
+		}
+	}
+	return code
+}
+
+// codeNamesGitFolder is whether an interpreter's code names a path in a git folder, written out: each run of the
+// letters a path is written with (letters, digits, . _ - ~ $ : / \) is read as a path, its patterns not filled in.
+// open(".git/HEAD", "w") names .git/HEAD.
+func codeNamesGitFolder(code string, p *Place) bool {
+	for _, token := range strings.FieldsFunc(code, func(r rune) bool {
+		return r < utf8.RuneSelf && !isAlnum(r) && strings.IndexRune("._-~$:/\\", r) < 0
+	}) {
+		if gitFolderNamed(token, p, false) {
+			return true
+		}
+	}
+	return false
 }
 
 // lessWrites is whether less's options write a file: -o and -O (--log-file, --LOG-FILE).
@@ -1087,7 +1193,10 @@ func lessWrites(args []string) bool {
 }
 
 // gitFolderPath is whether a word (or what follows an = in it: of=…, --output=…) names a path in a git folder at p.
-func gitFolderPath(word string, p *Place) bool {
+func gitFolderPath(word string, p *Place) bool { return gitFolderNamed(word, p, true) }
+
+// gitFolderNamed is gitFolderPath, its patterns read (globs) or not.
+func gitFolderNamed(word string, p *Place, globs bool) bool {
 	low := Fold(strings.ReplaceAll(word, `\`, "/"))
 	var folders *placeFolders
 	var wide []string
@@ -1105,7 +1214,7 @@ func gitFolderPath(word string, p *Place) bool {
 				}
 			}
 		}
-		if isWild(c, nil) {
+		if globs && isWild(c, nil) {
 			sk := skeletonOf(c, nil)
 			for _, tg := range gitFolderTargets {
 				if couldFill(&sk, &tg) {

@@ -268,7 +268,7 @@ func TestADeskWithoutAWorktreeLosesItsPlansAtItsFireAndNoOneElses(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hire.Worktree != "" || gmHire.Worktree != "" {
+	if !hire.Worktree.none() || !gmHire.Worktree.none() {
 		t.Fatalf("worktrees made: %q %q", hire.Worktree, gmHire.Worktree)
 	}
 	var settings struct {
@@ -278,7 +278,7 @@ func TestADeskWithoutAWorktreeLosesItsPlansAtItsFireAndNoOneElses(t *testing.T) 
 		t.Fatalf("plansDirectory %q (%v), want %q", settings.Plans, err, deskPlansFor(hire.ID))
 	}
 	plan := func(h Hire) string {
-		return filepath.Join(startedIn(h), filepath.FromSlash(deskPlansFor(h.ID)), "calm-river.md")
+		return filepath.Join(h.storedStart(), filepath.FromSlash(deskPlansFor(h.ID)), "calm-river.md")
 	}
 	for _, h := range []Hire{hire, gmHire} {
 		if err := os.WriteFile(plan(h), []byte("# Plan\n"), 0o600); err != nil {
@@ -303,7 +303,7 @@ func TestADeskWithoutAWorktreeLosesItsPlansAtItsFireAndNoOneElses(t *testing.T) 
 	if _, err := os.Lstat(filepath.Dir(plan(gmHire))); err == nil {
 		t.Error("the fired GM's plans are still in its folder")
 	}
-	if info, err := os.Lstat(filepath.Join(startedIn(hire), ".smolcorp", "plans")); err != nil || !info.IsDir() {
+	if info, err := os.Lstat(filepath.Join(hire.storedStart(), ".smolcorp", "plans")); err != nil || !info.IsDir() {
 		t.Errorf("the shared plans folder itself went: %v", err)
 	}
 }
@@ -465,7 +465,7 @@ func TestAFireListsADesksPlaceBeforeItsPlansGo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	place := startedIn(hire)
+	place := hire.storedStart()
 	plans := filepath.Join(place, filepath.FromSlash(deskPlansFor(hire.ID)))
 	for _, at := range []string{filepath.Join(plans, ".claude", "settings.json"), filepath.Join(place, "x", ".mcp.json")} {
 		if err := os.MkdirAll(filepath.Dir(at), 0o700); err != nil {

@@ -85,7 +85,7 @@ func TestAScopedGMsHireFolderSwappedForALinkAfterItsCheckIsNeverHiredInto(t *tes
 			var rows []string
 			for _, h := range registered(t) {
 				if h.Role != gmRole {
-					rows = append(rows, h.Repo+" "+h.Worktree)
+					rows = append(rows, h.Repo+" "+h.Worktree.storedOnly())
 				}
 			}
 			if strings.TrimSpace(branches) != "" || strings.Count(trees, "worktree ") != 1 || len(rows) != 0 {

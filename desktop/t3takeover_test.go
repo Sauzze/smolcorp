@@ -173,7 +173,9 @@ func newT3TakeOverRig(t *testing.T, flags ...string) *t3TakeOverRig {
 	r := newT3Rig(t)
 	r.fake(flags...)
 	repo := r.repo()
-	wt := r.worktree()
+	// A hire made before the core's own folder for worktrees (FXCOREWORKTREES126, item 7): its tree beside the repo,
+	// which every check still takes as a folder for hires' worktrees.
+	wt := filepath.Join(r.home, "repo-hires", "ada-abcdef")
 	r.git(repo, "worktree", "add", "-q", "-b", "hire/ada-abcdef", wt)
 	transcript := filepath.Join(r.home, ".claude", "projects", "-repo-hires-ada-abcdef", t3TakeOverSession+".jsonl")
 	if err := os.MkdirAll(filepath.Dir(transcript), 0o755); err != nil {
@@ -182,7 +184,7 @@ func newT3TakeOverRig(t *testing.T, flags ...string) *t3TakeOverRig {
 	if err := os.WriteFile(transcript, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h := Hire{ID: "abcdef123456", Name: "Ada", Role: "dev", Folder: wt, Worktree: wt, Repo: repo, Branch: "hire/ada-abcdef",
+	h := Hire{ID: "abcdef123456", Name: "Ada", Role: "dev", Folder: keptPath(wt), Worktree: keptPath(wt), Repo: repo, Branch: "hire/ada-abcdef",
 		TmuxSocket: filepath.Join(supportDir, hireSocketPrefix+"abcdef123456"), Model: "claude-haiku-5-5", State: "working"}
 	k := &t3TakeOverRig{t3Rig: r, srv: newT3FakeServer(t, r.home), hire: h, session: t3Session{ID: t3TakeOverSession, Transcript: transcript},
 		saved: h, holders: func() []int { return nil }, looks: true, stat: os.Stat, now: time.Unix(1_000_000, 0), pausedAt: func() {}}
@@ -198,7 +200,7 @@ func (k *t3TakeOverRig) ways() t3Handing {
 		},
 		Holding: func(folder, session string) ([]int, bool) {
 			k.log = append(k.log, "look")
-			if folder != k.hire.Worktree || session != t3TakeOverSession {
+			if folder != k.hire.Worktree.storedOnly() || session != t3TakeOverSession {
 				k.t.Errorf("looked at %s %s", folder, session)
 			}
 			return k.holders(), k.looks
@@ -232,7 +234,7 @@ func (k *t3TakeOverRig) ways() t3Handing {
 }
 
 func (k *t3TakeOverRig) fence() string {
-	return filepath.Join(k.hire.Worktree, ".claude", "settings.local.json")
+	return filepath.Join(k.hire.Worktree.storedOnly(), ".claude", "settings.local.json")
 }
 
 // takenOver is the rig's hire as Take over leaves it: a T3 desk, its fence on its worktree.
@@ -277,7 +279,7 @@ func TestT3TakeOverGateRefusesInOneSentenceEach(t *testing.T) {
 func TestT3TakeOverRefusesEveryHireItCantTakeOver(t *testing.T) {
 	home := "/home/ada"
 	wt := "/home/ada/repo-hires/ada-abcdef"
-	ok := Hire{ID: "abcdef123456", Name: "Ada", Role: "dev", Folder: wt, Worktree: wt, State: "working",
+	ok := Hire{ID: "abcdef123456", Name: "Ada", Role: "dev", Folder: keptPath(wt), Worktree: keptPath(wt), State: "working",
 		TmuxSocket: "/support/" + hireSocketPrefix + "abcdef123456"}
 	session := t3Session{ID: t3TakeOverSession, Transcript: filepath.Join(home, ".claude", "projects", "-x", t3TakeOverSession+".jsonl")}
 	with := func(change func(*Hire)) Hire { h := ok; change(&h); return h }
@@ -297,8 +299,8 @@ func TestT3TakeOverRefusesEveryHireItCantTakeOver(t *testing.T) {
 		{with(func(h *Hire) { h.ViaLauncher, h.TmuxSocket = true, "" }), session, false, "Ada runs in a window of Smolcorp's launcher: Take over reaches only a hire in a tmux session of its own, for now."},
 		{with(func(h *Hire) { h.TmuxSocket = "" }), session, false, "Only a hire Smolcorp runs in a tmux session of its own can be taken over in T3 Code, and Ada isn't one."},
 		{with(func(h *Hire) { h.TmuxSocket = "/tmp/default" }), session, false, "Only a hire Smolcorp runs in a tmux session of its own can be taken over in T3 Code, and Ada isn't one."},
-		{with(func(h *Hire) { h.Worktree = "" }), session, false, "Ada has no worktree of its own, and in T3 Code its fence stays on one, so it can't be taken over."},
-		{with(func(h *Hire) { h.Folder = wt + "/web" }), session, false, "Ada works in a folder inside its worktree, and T3 Code takes over only a session started at a project's top."},
+		{with(func(h *Hire) { h.Worktree = keptPath("") }), session, false, "Ada has no worktree of its own, and in T3 Code its fence stays on one, so it can't be taken over."},
+		{with(func(h *Hire) { h.Folder = keptPath(wt + "/web") }), session, false, "Ada works in a folder inside its worktree, and T3 Code takes over only a session started at a project's top."},
 		{ok, t3Session{}, false, "Smolcorp hasn't heard from Ada's Claude Code yet, so it doesn't know which session to hand over."},
 		{ok, t3Session{ID: "../../etc", Transcript: session.Transcript}, false, "Ada's session id isn't one T3 Code resumes, so it can't be taken over."},
 		{ok, t3Session{ID: t3TakeOverSession, Transcript: "/home/ada/.claude-work/projects/-x/" + t3TakeOverSession + ".jsonl"}, false,
@@ -337,7 +339,7 @@ func TestT3TakeOverStopsTheHireThenFencesImportsThatSessionAndMakesItAT3Desk(t *
 		t.Errorf("t3 ran %q", firsts)
 	}
 	runs := k.runs()
-	if !slices.Equal(runs[0], []string{"project", "add", k.hire.Worktree, "--title", "Ada · hire/ada-abcdef"}) ||
+	if !slices.Equal(runs[0], []string{"project", "add", k.hire.Worktree.storedOnly(), "--title", "Ada · hire/ada-abcdef"}) ||
 		!slices.Equal(runs[1], []string{"auth", "session", "issue", "--scope", "orchestration:operate", "--ttl", "2m", "--label", t3CallLabel, "--json"}) ||
 		!slices.Equal(runs[2], []string{"auth", "session", "revoke", "s-1"}) ||
 		!slices.Equal(runs[3], []string{"thread", "show", thread, "--json"}) {
@@ -352,7 +354,7 @@ func TestT3TakeOverStopsTheHireThenFencesImportsThatSessionAndMakesItAT3Desk(t *
 		t.Error("the fence isn't the hire's")
 	}
 	// THAT session: into the project just added, in its worktree.
-	payload, _ := json.Marshal(map[string]any{"expectedWorkspaceRoot": k.hire.Worktree, "projectId": "p-1"})
+	payload, _ := json.Marshal(map[string]any{"expectedWorkspaceRoot": k.hire.Worktree.storedOnly(), "projectId": "p-1"})
 	if calls := k.srv.made(); !slices.Equal(calls, []string{"agentSessions.import " + string(payload)}) {
 		t.Errorf("T3 Code was asked %q", calls)
 	}
@@ -445,7 +447,7 @@ func TestT3TakeOverAnImportT3CodeRefusesIsHandedBackAtOnce(t *testing.T) {
 		t.Errorf("handed back: %q", tail)
 	}
 	if !slices.ContainsFunc(k.runs(), func(run []string) bool {
-		return slices.Equal(run, []string{"project", "remove", k.hire.Worktree, "--force"})
+		return slices.Equal(run, []string{"project", "remove", k.hire.Worktree.storedOnly(), "--force"})
 	}) || exists(k.fence()) {
 		t.Errorf("%q", k.runs())
 	}
@@ -480,7 +482,7 @@ func TestT3TakeOverAProjectAddedSomewhereElseIsTakenBackAsSmolcorps(t *testing.T
 		t.Errorf("%+v", refused)
 	}
 	if !slices.ContainsFunc(k.runs(), func(run []string) bool {
-		return slices.Equal(run, []string{"project", "remove", k.hire.Worktree, "--force"})
+		return slices.Equal(run, []string{"project", "remove", k.hire.Worktree.storedOnly(), "--force"})
 	}) || len(k.srv.made()) != 1 || !strings.HasPrefix(k.srv.made()[0], "orchestration.forceStopThread ") {
 		t.Errorf("%q %q", k.runs(), k.srv.made())
 	}
@@ -611,7 +613,7 @@ func TestT3HandBackFallsBackToRemovingTheProjectThenTheHardCheck(t *testing.T) {
 				t.Errorf("order:\n%q", k.log)
 			}
 			if !slices.ContainsFunc(k.runs(), func(run []string) bool {
-				return slices.Equal(run, []string{"project", "remove", h.Worktree, "--force"})
+				return slices.Equal(run, []string{"project", "remove", h.Worktree.storedOnly(), "--force"})
 			}) {
 				t.Errorf("the project wasn't removed: %q", k.runs())
 			}
@@ -682,7 +684,7 @@ func TestT3TakeOverNeverKeepsTheThreadOnlyInMemory(t *testing.T) {
 	thread := t3ImportedThread + t3TakeOverSession
 	removed := func(k *t3TakeOverRig) bool {
 		return slices.ContainsFunc(k.runs(), func(run []string) bool {
-			return slices.Equal(run, []string{"project", "remove", k.hire.Worktree, "--force"})
+			return slices.Equal(run, []string{"project", "remove", k.hire.Worktree.storedOnly(), "--force"})
 		})
 	}
 	// failing makes saves number from..to (counted from 1) fail.
@@ -762,8 +764,8 @@ func TestT3HandBackOfAHireAlreadyResumedOnlyClearsTheRegistry(t *testing.T) {
 	resumed.T3Session, resumed.T3Transcript = k.session.ID, k.session.Transcript
 	k.saved = resumed
 	t3Registered(t, resumed)
-	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree,
-		"transcript_path": k.session.Transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree, nowMillis())
+	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree.storedOnly(),
+		"transcript_path": k.session.Transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree.storedOnly(), nowMillis())
 	got := serve(t, d, t3PageCall("POST", "/setup/t3code/handback", `{"id":"`+k.hire.ID+`"}`))
 	if got.Code != http.StatusOK || k.saved.T3Session != "" || k.saved.State != "working" || !slices.Equal(k.log, []string{"save"}) || len(k.runs()) != 0 {
 		t.Errorf("%d %s %+v %q %q", got.Code, got.Body, k.saved, k.log, k.runs())
@@ -784,7 +786,7 @@ func TestT3HandBackOfAHireAlreadyResumedOnlyClearsTheRegistry(t *testing.T) {
 	}
 	// Its session gone from its tmux: the hard check and the resume, as any Hand back.
 	d.Ingest(map[string]any{"hook_event_name": "SessionEnd", "session_id": t3TakeOverSession, "reason": "other"},
-		"claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree, nowMillis())
+		"claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree.storedOnly(), nowMillis())
 	_ = updateRegistry(func(f *registryFile) { f.hires[0] = resumed })
 	k.saved, k.log = resumed, nil
 	if got := serve(t, d, t3PageCall("POST", "/setup/t3code/handback", `{"id":"`+k.hire.ID+`"}`)); got.Code != http.StatusOK ||
@@ -944,8 +946,8 @@ func TestT3TakeOverAndHandBackThroughTheDeckAndItsRoutes(t *testing.T) {
 	d.mu.Unlock()
 	t3Registered(t, k.hire)
 	// Its Claude Code, as its hooks say, at a tab of its own tmux socket.
-	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree,
-		"transcript_path": k.session.Transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree, nowMillis())
+	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree.storedOnly(),
+		"transcript_path": k.session.Transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree.storedOnly(), nowMillis())
 	if got := d.t3SessionOf(k.hire); got != k.session {
 		t.Fatalf("%+v", got)
 	}
@@ -1041,8 +1043,8 @@ func TestT3TakeOverRoutesAreThePagesAloneAndServedByThisAppOnly(t *testing.T) {
 // t3 runs with these argument lists only, never through a shell; the calls go to T3 Code's server on this computer.
 func TestT3TakeOverRunsWithItsPinnedArgumentListsOnly(t *testing.T) {
 	if runs := t3RunsIn(t, "t3takeover.go", ".Run(program, "); !reflect.DeepEqual(runs, []string{
-		`[]string{"project", "add", h.Worktree, "--title", title}`,
-		`[]string{"project", "remove", h.Worktree, "--force"}`,
+		`[]string{"project", "add", tree, "--title", title}`, // the tree as its accessor gives it (FXCOREWORKTREES126)
+		`[]string{"project", "remove", tree, "--force"}`,
 	}) {
 		t.Errorf("%q", runs)
 	}
@@ -1140,7 +1142,7 @@ func TestT3TakeOverAProjectAddedButNotAsAskedIsOnRecordBeforeItsHandedBack(t *te
 	removes := func(k *t3TakeOverRig) int {
 		n := 0
 		for _, run := range k.runs() {
-			if slices.Equal(run, []string{"project", "remove", k.hire.Worktree, "--force"}) {
+			if slices.Equal(run, []string{"project", "remove", k.hire.Worktree.storedOnly(), "--force"}) {
 				n++
 			}
 		}
@@ -1219,8 +1221,8 @@ func TestT3TakeOverLetsGoOfItsDeskAndSlotWhenItPanics(t *testing.T) {
 	d.config.T3CodeEnabled = true
 	d.mu.Unlock()
 	t3Registered(t, k.hire)
-	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree,
-		"transcript_path": k.session.Transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree, nowMillis())
+	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree.storedOnly(),
+		"transcript_path": k.session.Transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree.storedOnly(), nowMillis())
 	func() {
 		defer func() {
 			if recover() == nil {
@@ -1267,8 +1269,8 @@ func TestT3TakeOverAndAFireOfOneHireNeverRunAtOnce(t *testing.T) {
 	d.config.T3CodeEnabled = true
 	d.mu.Unlock()
 	t3Registered(t, k.hire)
-	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree,
-		"transcript_path": k.session.Transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree, nowMillis())
+	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree.storedOnly(),
+		"transcript_path": k.session.Transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree.storedOnly(), nowMillis())
 	takeOver := func() (int, string) {
 		got := serve(t, d, t3PageCall("POST", "/setup/t3code/takeover", `{"id":"`+k.hire.ID+`"}`))
 		return got.Code, got.Body.String()
@@ -1325,8 +1327,8 @@ func TestT3HandBackKeepsTheResumedSocketInItsCheckedSave(t *testing.T) {
 // or gone, is an error and stays as it is.
 func TestT3SavesChangeOnlyAnOpenRow(t *testing.T) {
 	isolate(t)
-	open := Hire{ID: "abcdef123456", Name: "Ada", Folder: "/w", State: "working"}
-	fired := Hire{ID: "fedcba654321", Name: "Bo", Folder: "/w", State: "fired"}
+	open := Hire{ID: "abcdef123456", Name: "Ada", Folder: keptPath("/w"), State: "working"}
+	fired := Hire{ID: "fedcba654321", Name: "Bo", Folder: keptPath("/w"), State: "fired"}
 	t3Registered(t, open, fired)
 	mark := func(r *Hire) { r.T3Session = t3TakeOverSession }
 	if err := t3SaveOpen(open.ID, mark); err != nil {
@@ -1348,10 +1350,10 @@ func TestT3SavesChangeOnlyAnOpenRow(t *testing.T) {
 // other hire's plain script leaves its row as it is, and so does a fired hire's resume script.
 func TestT3AHandedBackHireWhoseResumeScriptWasTakenAwayFails(t *testing.T) {
 	isolate(t)
-	handedBack := Hire{ID: "abcdef123456", Name: "Ada", Folder: "/w", State: "working", Notes: "Owner's note."}
-	starting := Hire{ID: "fedcba654321", Name: "Bo", Folder: "/w", State: "starting"}
-	fired := Hire{ID: "aaaaaa111111", Name: "Cy", Folder: "/w", State: "fired"}
-	working := Hire{ID: "bbbbbb222222", Name: "Di", Folder: "/w", State: "working"}
+	handedBack := Hire{ID: "abcdef123456", Name: "Ada", Folder: keptPath("/w"), State: "working", Notes: "Owner's note."}
+	starting := Hire{ID: "fedcba654321", Name: "Bo", Folder: keptPath("/w"), State: "starting"}
+	fired := Hire{ID: "aaaaaa111111", Name: "Cy", Folder: keptPath("/w"), State: "fired"}
+	working := Hire{ID: "bbbbbb222222", Name: "Di", Folder: keptPath("/w"), State: "working"}
 	t3Registered(t, handedBack, starting, fired, working)
 	for id, name := range map[string]string{handedBack.ID: resumeScriptPrefix + "1.sh", starting.ID: "hire-1.sh", fired.ID: resumeScriptPrefix + "2.sh", working.ID: "hire-2.sh"} {
 		folder := hireFolder(supportDir, id)

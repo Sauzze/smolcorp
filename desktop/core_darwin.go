@@ -10,10 +10,13 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 // RunCore is Smolcorp.app's engine, behind its `engine` switch: the deck's
@@ -39,6 +42,7 @@ import (
 // sent whenever it changes, for the count beside the app's icon. When the app
 // goes, its input ends, and so does the engine.
 func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
+	unsetAgentPlacesNotWhole()
 	input := bufio.NewReaderSize(in, 4096)
 	token, err := readBridgeToken(input, coreTokenWait)
 	if err != nil {
@@ -71,6 +75,8 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 	host = bridge
 	// Hires' windows open in Terminal, iTerm2 or Ghostty, through the app.
 	useMacOpeners(bridge)
+	// What a clone left in the support folder when the last run stopped in the middle of one (gmproject.go).
+	clearProjectStaging()
 	deck := NewDeck()
 	// The other Claude accounts you confirmed, whose entries the Swift engine may have written (HOOKREFRESH1).
 	deck.refreshAccountHooks()
@@ -99,6 +105,31 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 		close(lines)
 	}()
 	return serveShell(deck, lines, out, failed)
+}
+
+// unsetAgentPlacesNotWhole unsets, before anything of the core reads them, each variable that moves an agent's place
+// (sandbox.AgentPlaceVariables) whose value isn't a whole path, an empty one too (FXAGENTHOMEMACR2,
+// RT126AGENTHOMEMACR1 B1). A desk's sandbox holds only whole paths, while git and the sign-in CLIs read a relative one
+// from the folder they run in, the temp folder, which desks can write in: `XDG_CONFIG_HOME=rel` had the core's reads
+// carry the ignore file of a config a desk wrote at $TMPDIR/rel/git/config. The Mac app passes none such either
+// (GoCore.environment).
+//
+// A whole path spelled with a `.` or `..` in it, or a doubled `/` (sandbox.AgentPlaceUnclean), is unset too, and its
+// name kept in agentPlacesDropped, as is each name the Mac app says it dropped so (agentPlacesDroppedVariable): no
+// desk's profile can hold where it leads, so every desk's start is refused in the variable's words, while the owner's
+// own agents still read it (FXAGENTHOMEMACR3, RT126AGENTHOMEMACR2 B1).
+func unsetAgentPlacesNotWhole() {
+	dropped := strings.Split(os.Getenv(agentPlacesDroppedVariable), ",")
+	agentPlacesDropped = nil
+	for _, name := range sandbox.AgentPlaceVariables() {
+		value, set := os.LookupEnv(name)
+		if set && (!filepath.IsAbs(value) || sandbox.AgentPlaceUnclean(value)) {
+			os.Unsetenv(name)
+		}
+		if (set && sandbox.AgentPlaceUnclean(value)) || slices.Contains(dropped, name) {
+			agentPlacesDropped = append(agentPlacesDropped, name)
+		}
+	}
 }
 
 // appHoldsInstance is whether the support folder's instance lock is held, as the app holds it from before it

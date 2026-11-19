@@ -684,9 +684,15 @@ func cleanUpHire(hire Hire, reason string, tmux *hireTmux, removeWorktree func(H
 			tmux.end()
 		}
 	}
+	// What it started may still run in its sandbox once its session is gone: ended, and seen ended, before its
+	// worktree goes (FXFIREREAPR1). One that can't be keeps it, and the row says so.
+	if why := deskReap(hire); why != "" {
+		fail(hire.ID, "Didn't start: "+reason+". "+why+startReapKept)
+		return " " + why + startReapKept
+	}
 	left := ""
-	if hire.Worktree != "" && !removeWorktree(hire) {
-		left = " Its worktree " + hire.Worktree + " was kept: it has changes, or git wouldn't remove it."
+	if !hire.Worktree.none() && !removeWorktree(hire) {
+		left = " Its worktree " + hire.Worktree.storedOnly() + " was kept: " + treeKeptWhy(hire, "it has changes, or git wouldn't remove it.")
 	}
 	fail(hire.ID, "Didn't start: "+reason+"."+left)
 	return left

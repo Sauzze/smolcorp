@@ -30,7 +30,8 @@ os.symlink(outside, os.path.join(root, "notes"))
 print("planted")`
 
 // GITPLANT1 on this Mac, with stand-ins only (FXSAX1R4 Decision 3): a desk at the project, under its own profile,
-// plants a gitfile, a .git folder and a link out in the owner's tree, which the Policy can't deny it. A real git, in a
+// plants a gitfile, a .git folder and a link out in the owner's tree, which the Policy couldn't deny it before
+// FXHIREPROJECTSR6 (now it refuses the first two, and they are made outside the sandbox instead). A real git, in a
 // stand-in repo in the test's temp folder (a fake home, no system or global config, no hooks), then reads the
 // plants' config, a harmless `standin.who`, in vendor and tools: so the check can tell. At the desk's stop the core
 // lists exactly those three and holds them, in its support folder, which the desk can't write; then git there reads
@@ -100,8 +101,14 @@ func TestOnAMacAPlantAtTheProjectIsHeldBeforeTheOwnersGitRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out, err := sandboxed(python, "-I", "-c", planter, repo, outside); err != nil || out != "planted" {
-		t.Fatalf("the stand-in desk didn't plant: %v %q", err, out)
+	// Since FXHIREPROJECTSR6 the Policy denies the .git folder and the gitfile (rowGitBelow): the stand-in desk is
+	// refused at the first. The same plants made outside any sandbox (a desk started before that, the owner's own) are
+	// still listed and held at the stop.
+	if out, err := sandboxed(python, "-I", "-c", planter, repo, outside); err == nil || !strings.Contains(out, "PermissionError") {
+		t.Fatalf("the stand-in desk planted a .git under its profile: %v %q", err, out)
+	}
+	if out, err := run(python, "-I", "-c", planter, repo, outside); err != nil || out != "planted" {
+		t.Fatalf("the plants weren't made: %v %q", err, out)
 	}
 	for _, rel := range []string{"vendor", "tools"} {
 		if got := who(rel); got != "planted" {

@@ -169,8 +169,8 @@ func TestAHireIsReadInItsWorktreeNotTheRepo(t *testing.T) {
 	gitRepoCmd(t, repo, "worktree", "add", "-q", "-b", "hire/ana", worktree)
 	writeRepoFile(t, worktree, "src/c.txt", "c\n")
 	writeRepoFile(t, repo, "only-in-repo.txt", "r\n")
-	h := Hire{Folder: filepath.Join(repo, "src"), Repo: repo, Worktree: worktree}
-	place := startedIn(h)
+	h := Hire{Folder: keptPath(filepath.Join(repo, "src")), Repo: repo, Worktree: keptPath(worktree)}
+	place := h.storedStart()
 	if place != filepath.Join(worktree, "src") {
 		t.Fatalf("startedIn: %s", place)
 	}
@@ -485,6 +485,41 @@ func TestTheOwnersIgnoreFileStillHidesFiles(t *testing.T) {
 	}
 }
 
+// FXAGENTHOMEMAC: the Mac app now gives the core XDG_CONFIG_HOME. On a Mac, git's own ignore file in a moved config
+// folder hides nothing from a read; ~/.config/git's, which a desk's sandbox holds, still does. Elsewhere, where no
+// desk's sandbox runs yet, a read takes the moved folder's, as the owner's git does and the core always did
+// (FXAGENTHOMEMACR1, O1). The owner's own config there is still read for their ignore file and trusted folders, as
+// their git reads it.
+func TestAMovedConfigFoldersIgnoreFileHidesNothingFromARead(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git here")
+	}
+	dir := aGitRepo(t) // made before the stand-in owner's files, which would hide its own
+	home := physical(t.TempDir())
+	moved := filepath.Join(home, "dotfiles", "config")
+	writeRepoFile(t, home, ".config/git/ignore", "*.swp\n")
+	writeRepoFile(t, moved, "git/ignore", "*.txt\n") // as a desk could write it
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", moved)
+	withGitHere(t, gitHereInfo{version: "git version 2.40.0"})
+	writeRepoFile(t, dir, "notes.swp", "x\n")
+	writeRepoFile(t, dir, "kept.txt", "x\n")
+	shown := "kept.txt"
+	if runtime.GOOS != "darwin" {
+		shown = "notes.swp"
+	}
+	if state := realGitState(dir); state.Skipped || state.Changed != 1 || state.Files[0].Path != shown {
+		t.Errorf("%+v", state)
+	}
+	// The owner's settings, from their config in the moved folder (and none in ~/.config/git's).
+	writeRepoFile(t, moved, "git/config", "[core]\n\texcludesfile = ~/ignored\n[safe]\n\tdirectory = /some/repo\n")
+	writeRepoFile(t, home, ".config/git/config", "[core]\n\texcludesfile = ~/wrong\n")
+	if here := askGitHere(); len(here.owner) != 2 || here.owner[0] != [2]string{"core.excludesfile", "~/ignored"} ||
+		here.owner[1] != [2]string{"safe.directory", "/some/repo"} {
+		t.Errorf("the owner's settings: %+v", here)
+	}
+}
+
 func TestBothPathsAgreeOnAnOrdinaryRepo(t *testing.T) {
 	dir := aGitRepo(t)
 	writeRepoFile(t, dir, "a.txt", "one\ntwo changed\n")
@@ -526,17 +561,36 @@ func TestGitIsReadWithNothingToAskAndNoOtherRepoNamed(t *testing.T) {
 		"GIT_CONFIG_COUNT=1", "git_config_key_0=filter.x.clean", "GIT_CONFIG_VALUE_0=prog", "GIT_CONFIG_PARAMETERS='a.b=c'", "GIT_CONFIG_GLOBAL=/g",
 		"GIT_EXTERNAL_DIFF=prog", "GIT_SSH_COMMAND=prog", "GIT_ASKPASS=prog", "GIT_ATTR_SOURCE=HEAD", "GIT_ALLOW_PROTOCOL=file:ext",
 		"GIT_PROTOCOL_FROM_USER=1", "GIT_NO_LAZY_FETCH=0", "GIT_EXEC_PATH=/elsewhere", "GIT_AUTHOR_NAME=kept", "GIT_TEST_SPLIT_INDEX=1", "git_test_x=1",
-		"GIT_TEST_ASSUME_DIFFERENT_OWNER=1", "GIT_LITERAL_PATHSPECS=1", "GIT_GLOB_PATHSPECS=1", "GIT_NOGLOB_PATHSPECS=1", "git_icase_pathspecs=1"}
-	want := "PATH=/bin HOME=/h GIT_AUTHOR_NAME=kept GIT_TEST_ASSUME_DIFFERENT_OWNER=1 GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 GIT_PAGER=cat GIT_ALLOW_PROTOCOL= GIT_NO_LAZY_FETCH=1 " +
+		"GIT_TEST_ASSUME_DIFFERENT_OWNER=1", "GIT_LITERAL_PATHSPECS=1", "GIT_GLOB_PATHSPECS=1", "GIT_NOGLOB_PATHSPECS=1", "git_icase_pathspecs=1",
+		"XDG_CONFIG_HOME=/moved"}
+	want := "PATH=/bin HOME=/h GIT_AUTHOR_NAME=kept GIT_TEST_ASSUME_DIFFERENT_OWNER=1 "
+	if runtime.GOOS != "darwin" {
+		want += "XDG_CONFIG_HOME=/moved " // dropped only where a desk's sandbox runs (FXAGENTHOMEMACR1, O1)
+	}
+	want += "GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 GIT_PAGER=cat GIT_ALLOW_PROTOCOL= GIT_NO_LAZY_FETCH=1 " +
 		"GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=" + os.DevNull + " GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE="
-	// FXREPLACEREFS: gitReadAround, last.
-	around := "GIT_CONFIG_KEY_%d=core.commitGraph GIT_CONFIG_VALUE_%d=false GIT_CONFIG_KEY_%d=core.multiPackIndex GIT_CONFIG_VALUE_%d=false"
-	if got := strings.Join(gitReadEnv(app, nil), " "); got != want+" GIT_CONFIG_COUNT=2 "+fmt.Sprintf(around, 0, 0, 1, 1) {
+	// FXREPLACEREFS: gitReadAround, last. FXWINWORKTREER3: on Windows, the grafts file is the null device, and git's
+	// hint about it is off, after gitReadAround.
+	keys := []string{"core.commitGraph", "core.multiPackIndex"}
+	counts := [2]string{" GIT_CONFIG_COUNT=2 ", " GIT_CONFIG_COUNT=4 "}
+	if runtime.GOOS == "windows" {
+		want += os.DevNull
+		keys = append(keys, "advice.graftFileDeprecated")
+		counts = [2]string{" GIT_CONFIG_COUNT=3 ", " GIT_CONFIG_COUNT=5 "}
+	}
+	around := func(n int) string { // keys, each false, numbered from n
+		var each []string
+		for i, key := range keys {
+			each = append(each, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s GIT_CONFIG_VALUE_%d=false", n+i, key, n+i))
+		}
+		return strings.Join(each, " ")
+	}
+	if got := strings.Join(gitReadEnv(app, nil), " "); got != want+counts[0]+around(0) {
 		t.Errorf("%s", got)
 	}
 	// Config is handed over whole, a key with an "=" in its subsection included.
 	got := strings.Join(gitReadEnv(app, [][2]string{{"filter.x=y.clean", ""}, {"filter.x=y.required", "false"}}), " ")
-	if got != want+" GIT_CONFIG_COUNT=4 GIT_CONFIG_KEY_0=filter.x=y.clean GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=filter.x=y.required GIT_CONFIG_VALUE_1=false "+fmt.Sprintf(around, 2, 2, 3, 3) {
+	if got != want+counts[1]+"GIT_CONFIG_KEY_0=filter.x=y.clean GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=filter.x=y.required GIT_CONFIG_VALUE_1=false "+around(2) {
 		t.Errorf("%s", got)
 	}
 }
@@ -890,6 +944,78 @@ func TestAnAnswerOverTheCapStopsTheCopy(t *testing.T) {
 	}
 }
 
+// FXWINWORKTREER4: a listing read as it comes (gitRecords) gives each whole record once, however git's writes cut
+// it, past gitOutputCap; a record past gitRecordMost, a listing past its bound, a last record cut short, or its
+// reader's error stops it, and every write after.
+func TestAListingReadAsItComesGivesEachRecordWhole(t *testing.T) {
+	var got []string
+	taken := func(record []byte) error { got = append(got, string(record)); return nil }
+	whole := &gitRecords{sep: 0, each: taken}
+	past := strings.Repeat(strings.Repeat("x", 999)+"\x00", gitOutputCap/1000+1) // past the cap, in records of 1,000 bytes
+	for _, chunk := range []string{"one\x00tw", "", "o\x00three", "\x00", past} {
+		if n, err := whole.Write([]byte(chunk)); err != nil || n != len(chunk) {
+			t.Fatalf("%d %v", n, err)
+		}
+	}
+	if err := whole.end(); err != nil || len(got) != 3+gitOutputCap/1000+1 || got[0] != "one" || got[1] != "two" || got[2] != "three" {
+		t.Errorf("%v %d records %q", err, len(got), got[:min(len(got), 3)])
+	}
+
+	long := &gitRecords{sep: 0, each: taken}
+	if _, err := long.Write([]byte(strings.Repeat("x", gitRecordMost))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := long.Write([]byte("a\x00")); !errors.Is(err, errGitTooBig) {
+		t.Errorf("a record past gitRecordMost: %v", err)
+	}
+	bounded := &gitRecords{sep: '\n', most: 10, each: taken}
+	if _, err := bounded.Write([]byte("12345\n12345\n")); !errors.Is(err, errGitTooBig) || !errors.Is(bounded.end(), errGitTooBig) {
+		t.Errorf("a listing past its bound: %v", err)
+	}
+	cut := &gitRecords{sep: '\n', each: taken}
+	if _, err := cut.Write([]byte("whole\nhalf")); err != nil || cut.end() == nil {
+		t.Errorf("a last record cut short: %v %v", err, cut.end())
+	}
+	no := errors.New("no")
+	refused := &gitRecords{sep: '\n', each: func([]byte) error { return no }}
+	if _, err := refused.Write([]byte("a\n")); !errors.Is(err, no) {
+		t.Errorf("the reader's error: %v", err)
+	}
+	if _, err := refused.Write([]byte("b\n")); !errors.Is(err, no) || !errors.Is(refused.end(), no) {
+		t.Errorf("a write after the stop: %v", err)
+	}
+}
+
+// FXWINWORKTREER4: the fire's reader of the index (deskGitlinks) keeps a gitlink's path alone, and stops at a record
+// git never gives or at a gitlink past deskGitlinksMost, so the tree is kept.
+func TestTheFiresIndexReaderKeepsGitlinksAndStopsAtWhatIsntARecord(t *testing.T) {
+	id := strings.Repeat("a", 40)
+	links := &deskGitlinks{}
+	for _, record := range []string{"100644 " + id + " 0\tsub/a.txt", "160000 " + id + " 0\tsub/mod", "120000 " + id + " 0\tlink"} {
+		if err := links.take([]byte(record)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if links.records != 3 || len(links.paths) != 1 || links.paths[0] != "sub/mod" {
+		t.Errorf("%d records, gitlinks %q", links.records, links.paths)
+	}
+	for _, record := range []string{"", "a.txt", "100644 " + id + " 0", "100644 " + id + "\ta.txt", "10064 " + id + " 0\ta.txt",
+		"10064x " + id + " 0\ta.txt", "100644 " + id + " 0\t"} {
+		if err := (&deskGitlinks{}).take([]byte(record)); err == nil {
+			t.Errorf("%q was taken as a record", record)
+		}
+	}
+	many := &deskGitlinks{}
+	for i := range deskGitlinksMost {
+		if err := many.take([]byte(fmt.Sprintf("160000 %s 0\tm/%d", id, i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := many.take([]byte("160000 " + id + " 0\tm/last")); err == nil {
+		t.Errorf("gitlink %d was taken", deskGitlinksMost+1)
+	}
+}
+
 // fakeGit answers like git would for a repo whose git folder is dir, counting its commands, and may block.
 type fakeGit struct {
 	mu      sync.Mutex
@@ -1099,5 +1225,24 @@ func TestTheDeskRouteIsTheWindowsAndTheGMReadsAHireInItsWorktree(t *testing.T) {
 	}
 	if got := m.call(t, asRev, "GET", "/setup/gm/git?hire=h1", ""); got.Code != http.StatusForbidden {
 		t.Errorf("a hire's key: %d", got.Code)
+	}
+}
+
+// FXAGENTHOMEMACR1 (O4): a read of the owner's own config takes XDG_CONFIG_HOME from the environment it's handed,
+// never from the core's own, and has it once.
+func TestAReadOfTheOwnersConfigTakesTheConfigFolderItsHanded(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/the-core-s")
+	env := gitOwnerConfigEnv([]string{"PATH=/bin", "XDG_CONFIG_HOME=/handed", "GIT_CONFIG_GLOBAL=/g"})
+	var xdg []string
+	for _, kv := range env {
+		if value, ok := strings.CutPrefix(kv, "XDG_CONFIG_HOME="); ok {
+			xdg = append(xdg, value)
+		}
+		if strings.HasPrefix(kv, "GIT_CONFIG_GLOBAL=") {
+			t.Errorf("the owner's global config is still off: %s", kv)
+		}
+	}
+	if !slices.Equal(xdg, []string{"/handed"}) {
+		t.Errorf("XDG_CONFIG_HOME: %q, want only /handed", xdg)
 	}
 }
