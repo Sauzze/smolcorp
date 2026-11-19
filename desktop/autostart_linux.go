@@ -29,6 +29,10 @@ func isOpenAtLogin() bool {
 // moveOpenAtLogin turns an entry under the old name into one under the new,
 // so the app isn't started twice at login.
 func moveOpenAtLogin() {
+	// Opening at login is the Smolcorp in use's: a test copy's entry would start the copy in its place (RWTC N3).
+	if testCopyPort() != 0 {
+		return
+	}
 	if _, err := os.Stat(oldAutostartFile()); err == nil {
 		setOpenAtLogin(true)
 		return
@@ -141,6 +145,10 @@ func execQuote(program string) string {
 }
 
 func setOpenAtLogin(enabled bool) {
+	// Opening at login is the Smolcorp in use's: a test copy's entry would start the copy in its place (RWTC N3).
+	if testCopyPort() != 0 {
+		return
+	}
 	_ = os.Remove(oldAutostartFile())
 	if !enabled {
 		_ = os.Remove(autostartFile())

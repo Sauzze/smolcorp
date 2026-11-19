@@ -141,6 +141,9 @@ func TestAMessageIsAnsweredAsTheFixtureAndKeptInTheMacsFormat(t *testing.T) {
 	if _, err := os.Stat(file + ".tmp"); err == nil {
 		t.Error("a temporary file was left behind")
 	}
+	if left, _ := filepath.Glob(file + ".*.tmp"); len(left) != 0 {
+		t.Errorf("a temporary file was left behind: %v", left)
+	}
 }
 
 func TestAnOutboxIsReadBackAfterARestart(t *testing.T) {

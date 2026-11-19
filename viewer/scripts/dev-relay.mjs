@@ -9,7 +9,7 @@
 // A DELETE of the demo id (or of everything) pauses the demo for 2 minutes, as the Mac's Stop would.
 // --ttl changes the 10-minute expiry, for this dev relay only.
 import http from 'node:http';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, copyFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, normalize, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -199,6 +199,9 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// The office's drawing code, copied from its one source as a deploy does (vercel.json's buildCommand), so the
+// page served here never draws an older office. The copy is git-ignored.
+copyFileSync(join(viewer, '..', 'Resources', 'web', 'office.js'), join(pub, 'office.js'));
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`dev relay on http://127.0.0.1:${PORT}  (ttl ${TTL} s, write secret: ${SECRET === 'dev-write-secret-for-this-mac-only' ? 'dev-write-secret-for-this-mac-only' : 'from --secret'})`);
   if (flag('--demo')) console.log(`demo office: http://localhost:${PORT}/v/${DEMO_ID}#k=${DEMO_KEY}`);

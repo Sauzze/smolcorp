@@ -109,16 +109,25 @@ func (rt *router) mailSend(w http.ResponseWriter, r *request) {
 		req.To = to
 	}
 	req.Resolve = func() (mailDest, *mailError) {
+		var found mailDest
+		var refusal *mailError
 		if signer != nil {
-			return d.mailTowardFrom(*signer, to)
+			found, refusal = d.mailTowardFrom(*signer, to)
+		} else {
+			found, refusal = d.mailTarget(to)
 		}
-		return d.mailTarget(to)
+		if refusal == nil {
+			// Between a desk in its sandbox and one without (AQ10, sandboxswitch.go).
+			refusal = d.mailSandboxRefusal(r.caller, signer, found)
+		}
+		return found, refusal
 	}
 	added, refusal := d.mail.add(req)
 	if refusal != nil {
 		writeStatus(w)(refusal.Status, refusal.Message)
 		return
 	}
+	d.owner.notOwners(req.Text) // mail is never the owner's words, even typed into the GM's terminal (ownerwords.go)
 	if added.ToGM && !added.Duplicate && signer != nil {
 		// Kept first, then told: the GM's inbox learns of it as it does of a bot's reply.
 		d.events.append(mailInboxEntry(*signer, added.Message))
@@ -143,7 +152,7 @@ func (d *Deck) mailTowardFrom(signer Hire, name string) (mailDest, *mailError) {
 		return mailDest{GM: true}, nil
 	}
 	file := readRegistry(registryPath(), false)
-	found, why := findHire(name, file.hires)
+	found, why := findHire(name, file.hires, d.shownNames(file.hires))
 	if why != nil {
 		return mailDest{}, refusal
 	}
@@ -163,21 +172,9 @@ func (d *Deck) mailTarget(name string) (mailDest, *mailError) {
 	if asked == "gm" || asked == "the gm" {
 		return mailDest{}, &mailError{http.StatusForbidden, "Mail is never put into the GM's own session. The GM reads its mail with smolcorp gm inbox."}
 	}
-	prefixed := strings.HasPrefix(asked, mailBotPrefix)
-	bare := asked
-	if prefixed {
-		bare = strings.TrimPrefix(asked, mailBotPrefix)
-	}
-	d.mu.Lock()
-	bots := append([]CloudBot(nil), d.cloud.bots...)
-	d.mu.Unlock()
-	var named []CloudBot
-	for _, b := range bots {
-		if b.ID == bare || (!prefixed && strings.ToLower(b.Name) == asked) {
-			named = append(named, b)
-		}
-	}
-	found, why := findHire(name, readRegistry(registryPath(), false).hires)
+	named := d.botsNamed(name)
+	hires := readRegistry(registryPath(), false).hires
+	found, why := findHire(name, hires, d.mailShownNames(hires, named))
 	if why != nil {
 		if why.status == http.StatusNotFound {
 			switch len(named) {
@@ -200,6 +197,37 @@ func (d *Deck) mailTarget(name string) (mailDest, *mailError) {
 		return mailDest{}, &mailError{http.StatusConflict, found.Name + " is already gone."}
 	}
 	return mailDest{ID: found.ID, Name: mailHireName(found)}, nil
+}
+
+// botsNamed is the bots a name stands for in mail from the GM or the owner: by id, by name, or as bot:<id>
+// (mailTarget).
+func (d *Deck) botsNamed(name string) []CloudBot {
+	asked := mailAsked(name)
+	prefixed := strings.HasPrefix(asked, mailBotPrefix)
+	bare := asked
+	if prefixed {
+		bare = strings.TrimPrefix(asked, mailBotPrefix)
+	}
+	d.mu.Lock()
+	bots := append([]CloudBot(nil), d.cloud.bots...)
+	d.mu.Unlock()
+	var named []CloudBot
+	for _, b := range bots {
+		if b.ID == bare || (!prefixed && strings.ToLower(b.Name) == asked) {
+			named = append(named, b)
+		}
+	}
+	return named
+}
+
+// mailShownNames is the office's names mail finds a hire by (shownNames), only when no bot has the name (bots, from
+// botsNamed): a bot keeps the name it had, never shadowed by a desk the office calls that (RT126POLISHB N2). nil
+// when a bot has it, so a hire is found by its id, nickname or name alone.
+func (d *Deck) mailShownNames(hires []Hire, bots []CloudBot) map[string]string {
+	if len(bots) > 0 {
+		return nil
+	}
+	return d.shownNames(hires)
 }
 
 // mailBotDest is a bot as a target: it needs a mailbox folder that is not barred. One that is set but
@@ -240,6 +268,6 @@ func mailInboxEntry(h Hire, m mailMessage) eventEntry {
 	if name == "" {
 		name = mailHireName(h)
 	}
-	return eventEntry{At: int64(m.At), Folder: h.Folder, Kind: eventKindMail,
+	return eventEntry{At: int64(m.At), Folder: h.Folder.storedOnly(), Kind: eventKindMail, // the event's folder: a name only
 		Detail: clean(name) + " (hire " + h.ID + ") wrote to you: " + clean(m.Text)}
 }

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Sauzze/smolcorp/internal/appdirs"
@@ -33,7 +34,8 @@ func portFromEnvironment(text string) int {
 // moved or updated without losing the paired phones: ~/.config/sauzzedeck-pro
 // on Linux, %APPDATA%\SauzzeDeck Pro on Windows, Application Support/AgentDeck
 // on a Mac. They keep the name the app had before it was Smolcorp, as the Mac
-// app keeps AgentDeck's.
+// app keeps AgentDeck's, unless a Smolcorp folder holds the app's state already
+// (appdirs.Resolve). Nothing here makes it: MakeSupportFolder does, at a start.
 var (
 	supportDir  = makeSupportDir()
 	phonesFile  = filepath.Join(supportDir, "phones.json")
@@ -41,11 +43,17 @@ var (
 	hookKeyFile = filepath.Join(supportDir, "hook-key")
 	// The sessions running, and their keys, kept across a restart.
 	sessionsFile = filepath.Join(supportDir, "sessions.json")
-	// The setup page's key, new at every start, for tools of your own on this computer.
-	setupKeyFile = filepath.Join(supportDir, "setup-key")
-	// The key of the office window's own paired device, private like the hook's.
+	// Where earlier versions kept the setup key and the Windows window's key. Both now live in memory only
+	// (SK2): the files are only ever removed, at each start.
+	setupKeyFile  = filepath.Join(supportDir, "setup-key")
 	windowKeyFile = filepath.Join(supportDir, "window-key")
-	homeDir, _    = os.UserHomeDir()
+	// The check-only key, new at every start: it opens GET /setup/selftest and nothing else, for
+	// `smolcorp setup` and the Mac's --setup (selftestkey.go).
+	selftestKeyFile = filepath.Join(supportDir, "selftest-key")
+	homeDir, _      = os.UserHomeDir()
+	// The hook key as the Mac app's report.sh sends it (curl -H @hook-header), set only under the Mac
+	// app (useSupportDir): "" elsewhere, where nothing reads it.
+	hookHeaderFile = ""
 )
 
 func makeSupportDir() string {
@@ -61,20 +69,84 @@ func makeSupportDir() string {
 	if err != nil {
 		base = os.TempDir()
 	}
-	dir := filepath.Join(base, supportDirName(runtime.GOOS))
-	_ = os.MkdirAll(dir, 0o700)
-	return dir
+	return appdirs.ResolveIn(base, runtime.GOOS)
 }
 
-// supportDirName is the folder's name on a system: the one the Mac app writes
+// MakeSupportFolder makes the support folder if it isn't there, as each start of the program did when it loaded:
+// cmd/smolcorp calls it before a command of the app's, never at load, so nothing that only imports this package (or
+// a test binary, whose folder is its own) makes a folder. The folder is the one appdirs.Resolve found: the old name,
+// unless a Smolcorp folder holds the app's state already, so a new, empty one never appears.
+func MakeSupportFolder() {
+	_ = os.MkdirAll(supportDir, 0o700)
+}
+
+// useSupportDir points everything kept in the support folder at dir, before
+// anything is read from it: the Mac app's engine (`smolcorp core`) is given
+// the folder the app chose, a test copy's own among them.
+func useSupportDir(dir string) {
+	supportDir = dir
+	phonesFile = filepath.Join(dir, "phones.json")
+	configFile = filepath.Join(dir, "config.json")
+	hookKeyFile = filepath.Join(dir, "hook-key")
+	sessionsFile = filepath.Join(dir, "sessions.json")
+	setupKeyFile = filepath.Join(dir, "setup-key")
+	windowKeyFile = filepath.Join(dir, "window-key")
+	selftestKeyFile = filepath.Join(dir, "selftest-key")
+	hookHeaderFile = filepath.Join(dir, "hook-header")
+}
+
+// supportDirName is the folder's old name on a system: the one the Mac app writes
 // on a Mac (AgentDeck), so the setup key is found there.
 func supportDirName(goos string) string { return appdirs.Name(goos) }
 
-// writePrivate writes a file only its owner can read, as the keys need.
+// realSupportDir is the owner's real support folder as the resolver finds it (appdirs.Resolve), for a test copy's
+// desks to be denied; "" if there is no config folder.
+func realSupportDir() string {
+	dir, err := appdirs.Resolve()
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
+// writePrivate writes a file only its owner can read, as the keys need: to a new file beside it, then put in its
+// place. The new file is named after the file with a random part (`<name>.<random>.tmp`, os.CreateTemp's), so no
+// one can make it first: it's made by this call alone (O_EXCL), and a file, folder or link at any name that could be
+// guessed beforehand is never written through and stops nothing. It's 0600 from the start, set so again once open,
+// before any of the data goes in, synced to the disk, then renamed over the file: a link at the file's own name is
+// replaced, never followed. On any failure it's taken away. One left by an older Smolcorp at the fixed name it wrote
+// through (`<name>.tmp`) is taken away too, never opened.
 func writePrivate(path string, data []byte) error {
-	temp := path + ".tmp"
-	if err := os.WriteFile(temp, data, 0o600); err != nil {
+	_ = os.Remove(path + ".tmp")
+	if refuse := privateWriteRefused.Load(); refuse != nil {
+		if err := (*refuse)(path); err != nil {
+			return err
+		}
+	}
+	file, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(temp, path)
+	temp := file.Name()
+	err = file.Chmod(0o600)
+	if err == nil {
+		_, err = file.Write(data)
+	}
+	if err == nil {
+		err = file.Sync()
+	}
+	if closed := file.Close(); err == nil {
+		err = closed
+	}
+	if err == nil {
+		err = os.Rename(temp, path)
+	}
+	if err != nil {
+		_ = os.Remove(temp)
+	}
+	return err
 }
+
+// privateWriteRefused, while a test sets it, says which private writes fail before anything is made, as on a full
+// disk: the error for a path, or nil to let it through. Nil, as outside a test, lets every write through.
+var privateWriteRefused atomic.Pointer[func(path string) error]

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -165,7 +166,30 @@ func checkedEdit(before []byte, edited string, change func(root map[string]any))
 // each is a read, an edit and a write, and two at once would lose one's change.
 var claudeJSONLock sync.Mutex
 
-// preTrust trusts folder in file, and when tail isn't nil approves that key's
+// trustBothWindowsSpellings: on Windows a folder is trusted under its own spelling (C:\…), which a tester's
+// .claude.json shows Claude Code keys its projects by, and, while this holds, with forward slashes too (C:/…), until
+// it is proven that no Claude Code reads that one. Set it false to write only C:\….
+const trustBothWindowsSpellings = true
+
+// claudeProjectKeys are the keys folder goes under in .claude.json's projects on system goos (Go's name): the path as
+// it is everywhere but Windows. There, the path in the form physical gives it (the drive letter in upper case, the
+// long name of each folder), its drive letter upper-cased here too should it come any other way, then the same with
+// forward slashes (trustBothWindowsSpellings).
+func claudeProjectKeys(folder, goos string) []string {
+	if goos != "windows" {
+		return []string{folder}
+	}
+	if len(folder) >= 2 && folder[1] == ':' {
+		folder = strings.ToUpper(folder[:1]) + folder[1:]
+	}
+	slashed := strings.ReplaceAll(folder, `\`, "/")
+	if !trustBothWindowsSpellings || slashed == folder {
+		return []string{folder}
+	}
+	return []string{folder, slashed}
+}
+
+// preTrust trusts folder in file, under every key Claude Code may read it by on this system (claudeProjectKeys), and when tail isn't nil approves that key's
 // tail too (an API-key hire; a nil tail is a subscription hire, and a tail of
 // "" is a hire whose key is missing, which is refused with nothing changed, as
 // the Mac refuses, since Claude Code would stop at "use this API key?"), written whole in one go (0600) and read back. Claude Code sessions
@@ -175,6 +199,12 @@ var claudeJSONLock sync.Mutex
 // file, or one not in the shape Claude Code writes, is refused. Nothing in the
 // file is logged or said back.
 func preTrust(folder, file string, tail *string) error {
+	return preTrustOn(runtime.GOOS, folder, file, tail)
+}
+
+// preTrustOn is preTrust as on system goos: a test fakes Windows' keys with it.
+func preTrustOn(goos, folder, file string, tail *string) error {
+	keys := claudeProjectKeys(folder, goos)
 	if tail != nil && *tail == "" {
 		return errors.New("this hire has no API key, so Smolcorp changed nothing: Claude Code would stop at \"use this API key?\"")
 	}
@@ -188,7 +218,12 @@ func preTrust(folder, file string, tail *string) error {
 		return claudeJSONRefusal
 	}
 	for range 2 {
-		written, err := trusting(folder, before)
+		written, err := before, error(nil)
+		for _, key := range keys {
+			if err == nil {
+				written, err = trusting(key, written)
+			}
+		}
 		if err == nil && tail != nil {
 			written, err = approving(*tail, written)
 		}
@@ -203,7 +238,7 @@ func preTrust(folder, file string, tail *string) error {
 			return fmt.Errorf("couldn't write %s", file)
 		}
 		now, err := os.ReadFile(file)
-		if err == nil && isTrusted(folder, now) && (tail == nil || isApproved(*tail, now)) {
+		if err == nil && !slices.ContainsFunc(keys, func(key string) bool { return !isTrusted(key, now) }) && (tail == nil || isApproved(*tail, now)) {
 			return nil
 		}
 		if err != nil {

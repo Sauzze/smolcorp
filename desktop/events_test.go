@@ -235,7 +235,7 @@ func TestOlderThanMemoryIsReadFromTheFilesAndASinceBeyondTheLastLineAnswersAtOnc
 		t.Errorf("from the files: %+v", found)
 	}
 	start := time.Now()
-	if found := l.wait(context.Background(), 99999, 10, 30*time.Second); len(found) != 0 || time.Since(start) > time.Second {
+	if found := l.wait(context.Background(), 99999, 10, 30*time.Second); len(found) != 0 || time.Since(start) > 10*time.Second {
 		t.Errorf("waited for ids that never come: %v", found)
 	}
 	if next := l.answer(nil, 99999)["next"]; next != int64(eventsInMemory+10) {

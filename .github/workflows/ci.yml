@@ -1,7 +1,7 @@
-# Builds both apps on every push and pull request: the Mac app with Swift,
-# and the Windows and Linux app with Go, vetted and tested on each system
-# (on Linux under the race detector too), then built for every download the
-# releases carry.
+# Builds and tests both apps on every push and pull request: the Mac app with
+# Swift, and the Windows and Linux app with Go, vetted and tested on each system
+# (on Linux checked for gofmt's layout and run under the race detector too),
+# then built for every download the releases carry.
 
 name: CI
 
@@ -18,8 +18,151 @@ jobs:
     name: Nothing personal committed
     runs-on: ubuntu-latest
     steps:
+      # The whole history, so the release base is here: check-public.sh looks at the lines added since it.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - run: scripts/check-public.sh
+
+  # The tmux that will ship inside the Mac app, built from pinned sources (third_party/tmux/SHA256SUMS) by the
+  # same script a release uses. The script checks what it built (both architectures, only the Mac's own
+  # libraries, macOS 13 as the oldest, no weak imports, no build paths) and starts a server of it. This job then
+  # runs `check` on the very file it uploads, so a cached build is looked at as hard as a fresh one. A cache hit
+  # takes seconds, a build about 3 minutes. Releases are still built and signed on the maintainer's Mac: this
+  # catches a new weak import from an Xcode update, or a tarball that changed, first.
+  tmux:
+    name: tmux for the Mac app
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      # What the build depends on besides the repo: the Xcode SDK and the compiler (the script hashes both into
+      # its own key). With both in the cache key, a runner image that changes either starts a new cache, so the
+      # result is saved again instead of being rebuilt on every run.
+      - name: Xcode SDK and compiler
+        id: sdk
+        run: |
+          echo "version=$(xcrun --show-sdk-version)" >> "$GITHUB_OUTPUT"
+          echo "clang=$(/usr/bin/clang --version | shasum -a 256 | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            build/third-party
+            build/tmux
+          key: tmux-${{ runner.os }}-${{ runner.arch }}-sdk${{ steps.sdk.outputs.version }}-clang${{ steps.sdk.outputs.clang }}-${{ hashFiles('scripts/build-tmux.sh', 'third_party/tmux/SHA256SUMS') }}
+      # A failing build fails this step, with its own error as the last thing in the log: pipefail makes the
+      # script's status the pipeline's, and the file's path (the script's last line) is read from the log after.
+      - name: Build tmux
+        id: build
+        shell: bash
+        run: |
+          set -o pipefail
+          scripts/build-tmux.sh | tee "$RUNNER_TEMP/build-tmux.log"
+          file="$(tail -n 1 "$RUNNER_TEMP/build-tmux.log")"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+          echo "notices=$(dirname "$file")/THIRD-PARTY-NOTICES.txt" >> "$GITHUB_OUTPUT"
+      # The file that gets uploaded: lipo says x86_64 and arm64, it loads only libSystem and libresolv, minos is
+      # 13.0, `-V` says the pinned version, and then a server on a private socket, a key sent and the pane read
+      # back, the server killed by its PID. The Intel slice runs under Rosetta where the runner has it, and the
+      # step says so where it doesn't.
+      - name: Check the built tmux
+        env:
+          TMUX_FILE: ${{ steps.build.outputs.file }}
+        run: scripts/build-tmux.sh check "$TMUX_FILE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tmux-macos
+          path: |
+            ${{ steps.build.outputs.file }}
+            ${{ steps.build.outputs.notices }}
+
+  # SA-L5: the tmux each Linux download carries, with the guard (third_party/tmux/guard.patch), built by the same
+  # script from the same pinned sources, on each processor's own runner. Ubuntu 22.04, so it needs no glibc newer
+  # than 2.35. The build checks what it made (scripts/linuxtmux: an ELF program for that processor loading only glibc,
+  # the guard's messages, BUILDINFO with the recipe and the file's SHA-256), starts a server of it and tries the
+  # guard. This job then checks the file it keeps again, runs SANDBOX-PLAN's T1-T6 with it against the fake server
+  # and a real server, and the SO_PEERCRED spike, each by name, with SMOLCORP_SANDBOX_REQUIRED=1 so a skip fails.
+  # scripts/release-desktop.sh takes what this job keeps (gh run download) and checks it again before it ships.
+  tmux-linux:
+    name: tmux for Linux, ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch: amd64
+          - os: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # tmux's configure wants a yacc. The rows' stock client is the guarded build with the guard off, so no tmux here.
+      - name: Build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential bison
+      - name: Compiler
+        id: cc
+        run: echo "cc=$( { cc --version; ldd --version 2>&1 | sed -n 1p; } | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            build/third-party
+            build/tmux
+          key: tmux-linux-${{ matrix.arch }}-cc${{ steps.cc.outputs.cc }}-${{ hashFiles('scripts/build-tmux.sh', 'third_party/tmux/SHA256SUMS', 'third_party/tmux/guard.patch') }}
+      - name: Build tmux
+        id: build
+        shell: bash
+        run: |
+          set -o pipefail
+          scripts/build-tmux.sh linux | tee "$RUNNER_TEMP/build-tmux.log"
+          file="$(tail -n 1 "$RUNNER_TEMP/build-tmux.log")"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+          echo "dir=$(dirname "$file")" >> "$GITHUB_OUTPUT"
+      - name: Check the built tmux
+        env:
+          TMUX_FILE: ${{ steps.build.outputs.file }}
+        run: |
+          scripts/build-tmux.sh check "$TMUX_FILE"
+          cat "$(dirname "$TMUX_FILE")/BUILDINFO"
+      - name: T1-T6 and the SO_PEERCRED spike ran and passed
+        shell: bash
+        env:
+          SMOLCORP_TEST_TMUX: ${{ steps.build.outputs.file }}
+          SMOLCORP_SANDBOX_REQUIRED: "1"
+        run: |
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          go test -count=1 -v ./internal/sandbox/tmuxfake/ ./scripts/linuxtmux/ 2>&1 | tee "$RUNNER_TEMP/tmuxfake.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in \
+            TestT1AFileReadByNameIsRefused TestT2AFileWrittenByNameIsRefused TestT3NoEnvironmentIsSent \
+            TestT4AServerWithAnotherPidIsNeverSentAnything TestT5AProgramTheServerNamesIsNotRun \
+            TestT6AnAttachedClientRunsNothingAndKillsNoParent TestTheGuardTakesOnlyItsKindsMessages \
+            TestStreamsStillWorkThroughAGuardedClient TestUncheckedModeSkipsOnlyThePid TestAGuardedClientNeverStartsAServer \
+            TestRealServerT1AHookReadingAFileIsRefused TestRealServerT2AHookWritingAFileIsRefused \
+            TestRealServerT3TheClientsEnvironmentDoesntReachTheServer TestRealServerT4ALinkToAnotherServerIsNotTypedInto \
+            TestRealServerT6AnAttachedClientRunsNothing TestRealServerStreamsStillWork \
+            TestTheBuildStopsWhenTheGuardDidntApply TestSpikeSoPeercredAcrossExecAndAHandedOnSocket \
+            TestTheBuiltTmuxPassesTheCheck
+          do
+            if ! grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/tmuxfake.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          [ "$status" -eq 0 ] && [ "$missing" -eq 0 ]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tmux-linux-${{ matrix.arch }}
+          path: |
+            ${{ steps.build.outputs.dir }}/tmux
+            ${{ steps.build.outputs.dir }}/THIRD-PARTY-NOTICES.txt
+            ${{ steps.build.outputs.dir }}/BUILDINFO
 
   mac:
     name: Mac app
@@ -28,6 +171,164 @@ jobs:
       - uses: actions/checkout@v7
       - run: swift build -c release
       - run: scripts/build-saver.sh
+      # The whole suite. Its tests keep to a support folder of their own and use stand-ins for tmux and the
+      # terminals; the few that drive real tmux panes skip themselves here, where the runner has no tmux and
+      # CI is "true". The time limits stop a hung build or test instead of holding the job for six hours.
+      - name: Build the tests
+        timeout-minutes: 20
+        run: swift build --build-tests
+      - name: Test
+        timeout-minutes: 15
+        run: swift test --skip-build
+
+  # Every Mac build has the hardened runtime (SANDBOX-PLAN §3.3, SK3): the app, the smolcorp command and tmux. This
+  # runs SK3's rows that only a Mac can run, checks the app as a release builds it (scripts/release.sh's own
+  # build-app.sh call, ad hoc), then builds a test copy the way scripts/test-copy.sh does (ad hoc, never anyone's
+  # identity) and proves the hardened copy still starts: hidden, on its own port and folder, its core answering there
+  # and served by the app over the bridge, which knows the core by its audit token and answers no other process. The
+  # copy is then quit by its pid.
+  hardened:
+    name: Mac build, hardened, starts
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # Run by name, as the GM's launcher tests are below: each one must say PASS, so a row that's skipped (no cc or
+      # lipo here), renamed or left out of the build fails the step instead of passing unseen. They check
+      # check-runtime.sh itself (an unhardened file and each opening entitlement fail it), a library injected into a
+      # hardened stand-in, build-app.sh's signing and its dry run, the core's instance lock and the Keychain scan.
+      # One exception: GitHub's Mac runners run with System Integrity Protection off, where the system doesn't strip
+      # DYLD_ variables from a hardened program, so the injected-library row skips there, saying so, when csrutil
+      # status says SIP is disabled. That skip, with its own words, counts here; any other skip or a FAIL doesn't. The
+      # Studio (SIP on) runs the row and proves it.
+      - name: SK3's Mac rows ran and passed
+        shell: bash
+        run: |
+          names=(
+            TestABuildWithoutTheHardenedRuntimeFailsTheCheck
+            TestTheEntitlementsThatOpenAHardenedProgramFailTheCheck
+            TestAnEntitlementOnOneProcessorOnlyFailsTheCheck
+            TestAnInjectedLibraryIsNotLoadedIntoAHardenedProgram
+            TestEveryMacBuildIsSignedWithTheRuntimeAndChecked
+            TestBuildAppsDryRunSaysHowItSignsAndNeverNamesTheLoginKeychain
+            TestTheCoreStartsOnlyWhileTheAppHoldsTheInstanceLock
+            TestTheSmolcorpProgramNeverAsksTheKeychain
+            TestOnAMacTheCallsAreNothing
+          )
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          go test -count=1 -v -run "^($(IFS='|'; echo "${names[*]}"))\$" ./desktop/ ./internal/procmem/ 2>&1 | tee "$RUNNER_TEMP/sk3-tests.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in "${names[@]}"; do
+            if grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/sk3-tests.txt"; then
+              continue
+            fi
+            if [ "$name" = TestAnInjectedLibraryIsNotLoadedIntoAHardenedProgram ] &&
+              grep -qE "^--- SKIP: $name \(" "$RUNNER_TEMP/sk3-tests.txt" &&
+              grep -qF 'SKIPPED, System Integrity Protection is off on this Mac, so DYLD_ variables reach a hardened program (csrutil status says "System Integrity Protection status: disabled.")' "$RUNNER_TEMP/sk3-tests.txt"; then
+              echo "::warning::$name skipped: csrutil status says SIP is off on this runner; the Studio runs it"
+              continue
+            fi
+            echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+            missing=1
+          done
+          [ "$status" -eq 0 ] && [ "$missing" -eq 0 ]
+      # The app as scripts/release.sh builds it before signing it again with the Developer ID: both processors, ad hoc.
+      # Checked here on its own, not through the test copy below, which test-copy.sh signs again itself: an app that
+      # build-app.sh left unhardened fails here even if its own check went with it.
+      - name: The app as a release builds it, hardened
+        shell: bash
+        run: |
+          SMOLCORP_SIGN_IDENTITY=- scripts/build-app.sh universal
+          APP=build/Smolcorp.app
+          for arch in arm64 x86_64; do
+            lipo -archs "$APP/Contents/MacOS/Smolcorp" | grep -qw "$arch" || { echo "::error::the release build has no $arch"; exit 1; }
+          done
+          pieces=("$APP" "$APP/Contents/Resources/bin/smolcorp" "$APP/Contents/Resources/bin/smolcorp-spawn")
+          [ -f "$APP/Contents/Resources/bin/tmux" ] && pieces+=("$APP/Contents/Resources/bin/tmux")
+          scripts/check-runtime.sh "${pieces[@]}"
+          echo "Hardened, each processor: ${pieces[*]}"
+      # A made-up Summary key in the copy's own folder, before it starts (test-copy.sh's own way to give one): the core
+      # can only learn it's there by asking the app over the bridge (desktop/hostshell.go, summaryStore).
+      - name: Build and open a hidden test copy
+        shell: bash
+        run: |
+          mkdir -p build/test-support
+          chmod 700 build/test-support
+          (umask 077; printf '%s\n' "sk-""ant-ci-fake-$(printf 'T3st%.0s' 1 2 3 4 5 6)" > build/test-support/test-api-key)
+          scripts/test-copy.sh 7791 | tee "$RUNNER_TEMP/copy.txt"
+      - name: Every piece hardened, and the copy answering over its bridge
+        shell: bash
+        run: |
+          APP="build/Smolcorp Test.app"
+          SUPPORT=build/test-support
+          pieces=("$APP" "$APP/Contents/Resources/bin/smolcorp" "$APP/Contents/Resources/bin/smolcorp-spawn")
+          [ -f "$APP/Contents/Resources/bin/tmux" ] && pieces+=("$APP/Contents/Resources/bin/tmux")
+          scripts/check-runtime.sh "${pieces[@]}"
+          pid="$(sed -n 's/.*Quit it with: kill \([0-9][0-9]*\).*/\1/p' "$RUNNER_TEMP/copy.txt")"
+          [ -n "$pid" ] || { echo "::error::the hardened test copy didn't start listening"; exit 1; }
+          # Quit by its pid however this step ends.
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          answered=0
+          for _ in $(seq 100); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7791/ || true)"
+            if [ "$code" != "000" ]; then answered=1; break; fi
+            sleep 0.2
+          done
+          [ "$answered" = 1 ] || { echo "::error::the hardened test copy didn't answer on its port"; exit 1; }
+          # Its core, bin/smolcorp core, is the copy's child, under the runtime too.
+          pgrep -P "$pid" -f 'Resources/bin/smolcorp core ' >/dev/null || { echo "::error::the copy's core isn't running"; exit 1; }
+          # One request that must cross the bridge: setup's state asks the app for the Summary key (secret-read), which
+          # the app answers only to a connection carrying the core's audit token. Answered, the key is "store"; refused
+          # or timed out, the core says there's no secret store (noStore). Opened the way a tester's browser opens setup,
+          # since no file holds a setup key (SK2): as it opens, the copy leaves a link in setup-link (Paths.swift,
+          # leaveSetupLink) whose token after #o= works once, for 5 minutes on a Mac, and /setup/session swaps it for a
+          # session cookie (desktop/server.go). The token, the cookie and the state aren't printed.
+          token=""
+          for _ in $(seq 100); do
+            token="$(sed -n 's/.*#o=\([A-Za-z0-9_-][A-Za-z0-9_-]*\).*/\1/p' "$SUPPORT/setup-link" 2>/dev/null | head -n 1 || true)"
+            if [ -n "$token" ]; then break; fi
+            sleep 0.2
+          done
+          [ -n "$token" ] || { echo "::error::the copy left no setup link with a token in $SUPPORT/setup-link within 20 s"; exit 1; }
+          jar="$RUNNER_TEMP/setup-jar"
+          rm -f "$jar"
+          opened="$(umask 077; curl -s --max-time 20 -o /dev/null -w '%{http_code}' -c "$jar" -X POST -H 'X-AgentDeck-Setup: 1' -H "X-Smolcorp-Setup-Once: $token" http://127.0.0.1:7791/setup/session || true)"
+          [ "$opened" = 204 ] || { echo "::error::the copy's setup link didn't open a session (HTTP $opened)"; exit 1; }
+          state="$(curl -s --max-time 20 -b "$jar" http://127.0.0.1:7791/setup/state)"
+          rm -f "$jar"
+          python3 -c '
+          import json, sys
+          summary = json.loads(sys.argv[1])["summary"]
+          if summary.get("key") != {"source": "store"} or summary.get("noStore") is not False:
+              print("::error::the core did not get the Summary key from the app over the bridge: key %r, noStore %r"
+                    % (summary.get("key"), summary.get("noStore")))
+              sys.exit(1)
+          ' "$state"
+          # And a process that isn't the core (this one, the same user) is closed unanswered, before its token is even
+          # read: with no audit token check, this wrong token would get "Not this app's engine." back.
+          [ -S "$SUPPORT/bridge.sock" ] || { echo "::error::the copy has no bridge socket at $SUPPORT/bridge.sock"; exit 1; }
+          python3 -c '
+          import socket, sys
+          bridge = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+          bridge.settimeout(10)
+          bridge.connect(sys.argv[1])
+          # Closed before it reads anything (a broken pipe on the send) or after (a reset): either way, nothing answered.
+          try:
+              bridge.sendall(b"{\"token\":\"not-the-token\",\"action\":\"hello\"}\n")
+              answer = bridge.recv(4096)
+          except (BrokenPipeError, ConnectionResetError, socket.timeout):
+              answer = b""
+          if answer:
+              print("::error::the bridge answered a process other than the copy core: %r" % answer)
+              sys.exit(1)
+          ' "$SUPPORT/bridge.sock"
+          echo "The hardened test copy started and answered (HTTP $code), its core got the key from the app over the bridge, another process got nothing, and it was quit (pid $pid)."
 
   desktop:
     name: Windows and Linux app, on ${{ matrix.os }}
@@ -41,8 +342,117 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # Every Go file laid out as gofmt lays it out: the step names any that isn't and fails.
+      - name: Go files formatted
+        if: runner.os == 'Linux'
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Not formatted with gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
       - run: go vet ./...
-      - run: go test ./...
+      # The GM's end-to-end tests need tmux and fail, not skip, without it.
+      - name: Install tmux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      # ./desktop alone runs past go's default 10 minutes on windows-latest (600 s there, 442 s on ubuntu-latest, run
+      # 44187923724), and a package that runs out stops every row after it unrun: 20 minutes for each package here.
+      - run: go test -timeout 20m ./...
+      # The GM's hire, fire and brief on the launcher's way, Windows' own, run by name: each one must say PASS, so
+      # a test that's skipped, renamed or left out of the build fails the step instead of passing unseen. The
+      # first six are PEGASUS PR3's (managed windows off among them), the last two FXPGS's. It runs even when the
+      # whole suite above failed, so their answer is never hidden behind another test's.
+      - name: The GM's launcher tests ran and passed
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          go test -count=1 -v -run 'TestTheGM' ./desktop/ 2>&1 | tee gm-tests.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in \
+            TestTheGMHireOnTheLauncherStartsItsWindowWithTheGuardOfAHireFromTheOffice \
+            TestTheGMHireWithManagedWindowsOffRefusesNamingTheSwitchAndOpensNothing \
+            TestTheGMFireOnTheLauncherEndsOnlyTheHiresOwnLauncherAndTypesNothing \
+            TestTheGMFireOnTheLauncherRefusesFromTheLaunchersStateAndAnUnknownIdAndEndsNothing \
+            TestTheGMFireRefusesAHireThatIsNoLaunchersWindowAndALauncherThatWontStop \
+            TestTheGMBriefOnTheLauncherAddsToTheFileAndTypesNothing \
+            TestTheGMHireOnTheLauncherOnAFloorWithItsOwnFolderIsRefusedAndOpensNothing \
+            TestTheGMFireOnTheLauncherKeepsTheCleanWorktreeUnlessAskedToRemoveIt
+          do
+            if ! grep -qE "^--- PASS: $name \(" gm-tests.txt; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          rm -f gm-tests.txt
+          if [ "$status" -ne 0 ] || [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+      # VOICEWIN1: the words dictated on the phone (/dictate) and sent from the office's window (/talk/say) reach a
+      # stand-in agent through the real launcher and its terminal (ConPTY on Windows), Return included, and every
+      # refusal types nothing. Run by name, each part must say PASS: a skip or a rename fails the step.
+      - name: Dictated words reach a desk through the real launcher
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set +e
+          go test -count=1 -v -run '^TestDictatedWordsReachAnAgentThroughTheRealLauncher$' ./desktop/ 2>&1 | tee "$RUNNER_TEMP/voice.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in \
+            TestDictatedWordsReachAnAgentThroughTheRealLauncher \
+            TestDictatedWordsReachAnAgentThroughTheRealLauncher/refusals_type_nothing \
+            "TestDictatedWordsReachAnAgentThroughTheRealLauncher/the_phone's_words_and_Return" \
+            "TestDictatedWordsReachAnAgentThroughTheRealLauncher/the_window's_words_and_Return" \
+            TestDictatedWordsReachAnAgentThroughTheRealLauncher/type_only,_no_Return \
+            TestDictatedWordsReachAnAgentThroughTheRealLauncher/several_lines_go_as_one_paste_or_not_at_all
+          do
+            if ! grep -qF -- "--- PASS: $name (" "$RUNNER_TEMP/voice.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          if [ "$status" -ne 0 ] || [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+      # GUARDPS1: the premise of the guard's reading of quoted wildcards on Windows (internal/guard/lex.go,
+      # windowsWild; FXGUARDPS1R1). The real pwsh, powershell and cmd are handed stand-in files and must fill in a * or ?
+      # written in quotes (in a here-string, after > and in -LiteralPath after -- too, and in each item of a comma array),
+      # and cmd's *. and *.jso as Win32 matches them; < >, PowerShell on short names and an argument that starts with a
+      # quote ending at its close are only logged. SMOLCORP_REQUIRE_PWSH=1 turns a shell missing from PATH into a failure, and
+      # each row must say PASS by name, so a skip or a rename fails the step. It runs even when the suite above failed.
+      - name: PowerShell and cmd fill in a wildcard in quotes
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        shell: bash
+        env:
+          SMOLCORP_REQUIRE_PWSH: "1"
+        run: |
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          go test -count=1 -v -run '^TestWindowsShellsFillInAWildcardInQuotes$' ./internal/guard/ 2>&1 | tee "$RUNNER_TEMP/winwild.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in \
+            TestWindowsShellsFillInAWildcardInQuotes \
+            TestWindowsShellsFillInAWildcardInQuotes/pwsh \
+            TestWindowsShellsFillInAWildcardInQuotes/powershell \
+            TestWindowsShellsFillInAWildcardInQuotes/cmd
+          do
+            if ! grep -qE "^ *--- PASS: $name \(" "$RUNNER_TEMP/winwild.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          if [ "$status" -ne 0 ] || [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
       # The same tests under the race detector, which needs cgo: on Linux, whose runner has a C compiler.
       - name: Test with the race detector
         if: runner.os == 'Linux'
@@ -53,3 +463,358 @@ jobs:
           for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
             GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/smolcorp
           done
+
+  # SA-L0 (SANDBOX-PLAN §A3.2, PL126A §4): what each Linux runner lets a sandbox use, recorded, never assumed, before
+  # any Linux sandbox code relies on it. On ubuntu-22.04, on 24.04 (whose AppArmor rule is said to let only the
+  # packaged /usr/bin/bwrap make user namespaces) and on an arm64 runner: does the packaged bwrap make user, pid, mount
+  # and network namespaces, does a filter handed to its --seccomp refuse TIOCSTI and TIOCLINUX, and which Landlock ABI
+  # the kernel has. A copy of bwrap outside /usr/bin and a plain program making its own user namespace are the controls
+  # that show whether the AppArmor rule is at work. The probes run as the runner's own user and change no setting.
+  # The table goes to the log and to the run's summary. A "no" in it is a fact, not a failure: the step fails only
+  # when the rows didn't run.
+  linuxcaps:
+    name: Linux sandbox capabilities, on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # The distribution's own package; the view runs Smolcorp's copy of it, which the product's one command puts in
+      # place with its AppArmor profile (L1APPARMOR1), as the installer does. The probes above still try the packaged
+      # one. No kernel setting is changed.
+      - name: Install bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - name: Put Smolcorp's bubblewrap in place, with the product's own command
+        run: |
+          go build -o "$RUNNER_TEMP/smolcorp" ./cmd/smolcorp
+          sh -c "$("$RUNNER_TEMP/smolcorp" sandbox command)"
+          "$RUNNER_TEMP/smolcorp" sandbox check
+      # Run by name, as the GM's launcher tests are above: each must say PASS, so a probe that's skipped (no bwrap)
+      # or left out fails the step instead of passing unseen.
+      - name: Record what the kernel, AppArmor and bwrap allow
+        shell: bash
+        env:
+          SMOLCORP_LINUXCAPS_REQUIRED: "1"
+          RUNNER_LABEL: ${{ matrix.os }}
+        run: |
+          table="$RUNNER_TEMP/linuxcaps.md"
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          SMOLCORP_LINUXCAPS_TABLE="$table" go test -count=1 -v ./internal/sandbox/ 2>&1 | tee "$RUNNER_TEMP/linuxcaps.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          # Smolcorp's bwrap makes every namespace (L1APPARMOR1). SA-L1's rows: a desk's view starts on it and holds, a
+          # key replaced outside stays hidden, and branches and git config the owner replaces outside stay held
+          # (bwrap_linux_test.go). SA-L3's: the kernel's list of unix sockets read, the mask on the view, and a moved socket
+          # refused on the kernel (mask_linux_test.go).
+          for name in TestLinuxSandboxCapabilitiesAreRecorded TestTheProbeFilterUsesTheKernelsNumbers TestTheProbeFilterRefusesOnlyTheTwoIoctls TestSmolcorpsBwrapMakesEveryNamespace TestTheLinuxViewStartsOnBwrap TestTheViewHidesAKeyReplacedOutside TestTheViewHoldsBranchesAndGitConfigReplacedOutside TestTheComputersListOfUnixSocketsHasTheTestsOwn TestTheMaskStartsOnBwrap TestAMovedSocketFailsTheStartOnTheKernel; do
+            if ! grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/linuxcaps.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          if [ -s "$table" ]; then
+            echo "SA-L0 on $RUNNER_LABEL:"
+            cat "$table"
+            { echo "### SA-L0 on $RUNNER_LABEL"; echo; cat "$table"; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::no capability table was written on $RUNNER_LABEL"
+            missing=1
+          fi
+          [ "$status" -eq 0 ] && [ "$missing" -eq 0 ]
+
+  windows-jail:
+    # SA-W1, Windows' jail spike (internal/sandbox): a hire's restricted token and integrity level, its processes'
+    # access list, its job and the deny entries on its files. GitHub's runner is an administrator holding
+    # SeDebugPrivilege, which opens any process, so those tests skip in the job above. Here they run as a standard
+    # user this job makes, with SMOLCORP_SANDBOX_REQUIRED=1 so a skip fails, and each test must say PASS by name.
+    name: Windows jail, as a standard user
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: The jail's tests pass as a standard user
+        shell: powershell
+        run: |
+          $dir = 'C:\smolcorp-jail'
+          $user = 'smolcorpjail'
+          New-Item -ItemType Directory -Force -Path "$dir\tmp" | Out-Null
+          go test -c -o "$dir\sandbox.test.exe" ./internal/sandbox
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # A standard user, in Users only, with a password made for this run.
+          $password = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N') + 'aA1!') -AsPlainText -Force
+          New-LocalUser -Name $user -Password $password -PasswordNeverExpires | Out-Null
+          Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
+          icacls $dir /grant "${user}:(OI)(CI)F" | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # The redirection goes before echo: in "echo 0> file", cmd reads the 0 as a handle number and the file
+          # stays empty.
+          @(
+            '@echo off',
+            "set TMP=$dir\tmp",
+            "set TEMP=$dir\tmp",
+            'set SMOLCORP_SANDBOX_REQUIRED=1',
+            "`"$dir\sandbox.test.exe`" -test.v -test.count=1 -test.run TestAJail > `"$dir\out.txt`" 2>&1",
+            ">`"$dir\status.txt`" echo %ERRORLEVEL%"
+          ) | Set-Content -Encoding Ascii "$dir\run.cmd"
+          $credential = New-Object System.Management.Automation.PSCredential($user, $password)
+          Start-Process -FilePath cmd.exe -ArgumentList '/c', "`"$dir\run.cmd`"" -Credential $credential `
+            -WorkingDirectory $dir -LoadUserProfile -WindowStyle Hidden -Wait
+          Get-Content "$dir\out.txt"
+          $status = (Get-Content "$dir\status.txt" | Out-String).Trim()
+          $missing = $false
+          foreach ($name in @(
+              'TestAJailedHireCantOpenTheCoreTheGMAnotherHireOrYourOtherPrograms',
+              'TestAJailedHireCantReadTheSupportFolderOrChangeTheProtectedFiles',
+              'TestAJailedHireStaysInItsJob',
+              'TestAJailRefusesAProgramThatBringsItsOwnTokenParentOrBreakaway')) {
+            if (-not (Select-String -Path "$dir\out.txt" -Pattern "^--- PASS: $name \(" -Quiet)) {
+              Write-Output "::error::$name didn't pass as a standard user: it failed, was skipped or didn't run"
+              $missing = $true
+            }
+          }
+          if ($status -ne '0' -or $missing) { exit 1 }
+
+  windows-memory:
+    # T126WINMEM, the sibling of the job above: the tray app and `smolcorp serve` keep their memory, Setup's key in
+    # it, from the user's other programs by the same first step (desktop/memory.go). A stand-in runs each as far as
+    # the end of that step; another process of the same standard user, which this job makes, must be refused when it
+    # asks to read their memory. GitHub's runner is an administrator holding SeDebugPrivilege, so in the desktop job
+    # above the memory row skips and says why; here SMOLCORP_MEMORY_REQUIRED=1 turns a skip into a failure, and the
+    # row must say PASS by name. The office window's row (WebView2 under the access list) runs too, and says PASS or
+    # why it skipped. Each stand-in has 90 seconds to answer, so a WebView2 that never opens can't hang the job.
+    name: Windows core's memory, as a standard user
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: The core's memory is refused to a standard user's other processes
+        shell: powershell
+        run: |
+          $dir = 'C:\smolcorp-memory'
+          $user = 'smolcorpmemory'
+          New-Item -ItemType Directory -Force -Path "$dir\tmp" | Out-Null
+          go test -c -o "$dir\desktop.test.exe" ./desktop
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # A standard user, in Users only, with a password made for this run.
+          $password = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N') + 'aA1!') -AsPlainText -Force
+          New-LocalUser -Name $user -Password $password -PasswordNeverExpires | Out-Null
+          Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $user
+          icacls $dir /grant "${user}:(OI)(CI)F" | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # The redirection goes before echo, as in the job above.
+          @(
+            '@echo off',
+            "set TMP=$dir\tmp",
+            "set TEMP=$dir\tmp",
+            'set SMOLCORP_MEMORY_REQUIRED=1',
+            "`"$dir\desktop.test.exe`" -test.v -test.count=1 -test.run `"TestTheTrayAppAndServeRefuseTheUsersOtherProcessesTheirMemory|TestTheOfficeWindowStillRunsUnderTheAccessList`" > `"$dir\out.txt`" 2>&1",
+            ">`"$dir\status.txt`" echo %ERRORLEVEL%"
+          ) | Set-Content -Encoding Ascii "$dir\run.cmd"
+          $credential = New-Object System.Management.Automation.PSCredential($user, $password)
+          Start-Process -FilePath cmd.exe -ArgumentList '/c', "`"$dir\run.cmd`"" -Credential $credential `
+            -WorkingDirectory $dir -LoadUserProfile -WindowStyle Hidden -Wait
+          Get-Content "$dir\out.txt"
+          $status = (Get-Content "$dir\status.txt" | Out-String).Trim()
+          $name = 'TestTheTrayAppAndServeRefuseTheUsersOtherProcessesTheirMemory'
+          $missing = -not (Select-String -Path "$dir\out.txt" -Pattern "^--- PASS: $name \(" -Quiet)
+          if ($missing) {
+            Write-Output "::error::$name didn't pass as a standard user: it failed, was skipped or didn't run"
+          }
+          if ($status -ne '0' -or $missing) { exit 1 }
+
+  mac-sandbox:
+    # SA-M4 and SA-M5, the Mac's escape tables and its normal-work list (internal/sandbox/escape_darwin_test.go and
+    # escape2_darwin_test.go): a stand-in hire under the real /usr/bin/sandbox-exec and the real profile, made from a
+    # stand-in desk's Policy and the lists. SMOLCORP_SANDBOX_REQUIRED=1 turns a skip into a failure, and each test must
+    # say PASS by name. The guarded tmux is the one the tmux job built. The runner is thrown away after, so the rows
+    # that may not run on a Mac someone uses run here: the keychain row (it makes a keychain), swift test (CLIP1) and
+    # xcodebuild through SA-T2's shim (it writes in the real home's Library).
+    # The TCC rows need a person's Accessibility grant, which GitHub's runners can't give: the Mac Studio runner's.
+    name: Mac sandbox, escape tables and normal work
+    needs: tmux
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: tmux-macos
+          path: build/ci-tmux
+      # The image has node, npm, python3, cargo, git, swift and Chrome, but not pnpm or bun. No package registry: each
+      # is its own project's release from github.com, at the version the rows were first run with, checked against
+      # third_party/js-tools/SHA256SUMS (scripts/fetch-js-tools.sh says where each hash came from). A mismatch stops here.
+      - name: pnpm and bun, pinned by SHA-256
+        shell: bash
+        run: |
+          dir="$(scripts/fetch-js-tools.sh "$RUNNER_TEMP/js-tools" | tail -n 1)"
+          echo "$dir" >> "$GITHUB_PATH"
+      # How a hire looks at a screen in a desk (T126HEADLESSSHELL1): Chrome.app's own headless mode doesn't start under a
+      # desk's profile, chrome-headless-shell does (with --single-process). Chrome for Testing's, pinned, checked against
+      # third_party/chrome-headless-shell/SHA256SUMS; a plain program, never an .app. The Chrome rows run on it.
+      - name: chrome-headless-shell, pinned by SHA-256
+        shell: bash
+        run: |
+          shell="$(scripts/fetch-headless-shell.sh "$RUNNER_TEMP/headless-shell" | tail -n 1)"
+          echo "SMOLCORP_TEST_CHROME=$shell" >> "$GITHUB_ENV"
+      - name: The escape tables and the normal-work list ran and passed
+        shell: bash
+        env:
+          SMOLCORP_SANDBOX_REQUIRED: "1"
+          SMOLCORP_TEST_KEYCHAIN: "1"
+          SMOLCORP_TEST_SWIFT_TEST: "1"
+          SMOLCORP_TEST_XCODEBUILD: "1"
+        run: |
+          # An artifact keeps no file modes.
+          tmux_file="$(find "$PWD/build/ci-tmux" -type f -name tmux | head -n 1)"
+          [ -n "$tmux_file" ] || { echo "::error::the tmux job's build isn't in its artifact"; exit 1; }
+          chmod +x "$tmux_file"
+          export SMOLCORP_TEST_TMUX="$tmux_file"
+          names=(
+            TestOnAMacAHireReachesNoneOfTheOwnersFilesSocketsOrPorts
+            TestOnAMacADescriptorOpenedBeforeTheStartIsntTheDesks
+            TestOnAMacAHireCantSwapItsSandboxForALooserOne
+            TestOnAMacTheListsLetNormalProgramsRun
+            TestOnAMacAHireInALinkedWorktreeCantChangeWhatTheOwnersGitRuns
+            TestOnAMacAHiresTmuxServerReachesNothingOfTheOwners
+            TestOnAMacAHireCantOpenTheInspectorOfANodeOutside
+            TestOnAMacPsAndTopDontStartInADesk
+            TestOnAMacAPlantedLibraryOrModuleNeverRuns
+            TestOnAMacAHireReadsTheItemsSecurityMadeAsTheOwnerDoes
+            TestOnAMacNormalWorkRunsInADesksSandbox
+            TestOnAMacNormalWorkNeedsNoIOKitClass
+            TestOnAMacClaudeCodesDeskFolderWorksAndItsMarketplaceRefreshIsRefused
+            TestOnAMacOpenInADeskLaunchesNothing
+            TestOnAMacTheShimsRunFirstInADeskAndNoDeskChangesThem
+            TestOnAMacSwiftAndXcodebuildWorkInADeskThroughTheShims
+            TestOnAMacNoDeskPlantsWhatAnotherDesksShimRuns
+            TestOnAMacHeadlessShellLooksAtAPageInADesk
+            TestOnAMacAHeadlessShellRunLeavesNothingBehind
+          )
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          go test -count=1 -v -run "^($(IFS='|'; echo "${names[*]}"))\$" ./internal/sandbox/ 2>&1 | tee "$RUNNER_TEMP/mac-sandbox.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in "${names[@]}"; do
+            if ! grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/mac-sandbox.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          # Rows that skip where their tool may not run (a Mac someone uses): a SKIP inside a passing test would pass the
+          # names above, so here each must say PASS of its own.
+          subtests=(
+            "TestOnAMacSwiftAndXcodebuildWorkInADeskThroughTheShims/swift_build_and_test,_through_the_shim,_with_no_flag_typed"
+            "TestOnAMacSwiftAndXcodebuildWorkInADeskThroughTheShims/xcodebuild,_through_the_shim,_with_a_script_phase"
+          )
+          for name in "${subtests[@]}"; do
+            if ! grep -qF -- "--- PASS: $name (" "$RUNNER_TEMP/mac-sandbox.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          # A cost the normal-work list found (a tool that needs what stays off the lists) is said in the summary, and so
+          # is which normal-work rows ran here with no IOKit class at all (cargo, swift test and Chrome among them), for
+          # SIERRA to keep or narrow the IOKit list.
+          grep -E "COST: |IOKIT: " "$RUNNER_TEMP/mac-sandbox.txt" >> "$GITHUB_STEP_SUMMARY" || true
+          [ "$status" -eq 0 ] && [ "$missing" -eq 0 ]
+
+  # UPGRADE1 (a release gate): this build installed over a working 1.24 on Linux and Windows, from the project's own
+  # release downloads, each checked against its SHA-256 in scripts/upgrade/SHA256SUMS before anything of it runs.
+  # scripts/upgrade starts that 1.24 headless (`smolcorp serve`) in a home of its own, gives it a stand-in office
+  # through 1.24's own Setup (a phone paired through its pairing flow, the look, floors, a pin, a webhook) and files
+  # (a team of hires on a Claude account who may write to each other, the General Manager, a guard with a group off),
+  # fake keys only; quits it, puts this build's program in its place, starts it headless, and checks that the team,
+  # its accounts, the guard, the office and the settings carried, nothing is looser, every key changed, and that
+  # `smolcorp setup --check` says in Setup's words what was kept, what reset and which hires from 1.24 to hire again.
+  # Two offices each: one opened up (every interface, hiring, the manager, the webhook on, deploy's guard off) and one
+  # at its strictest, where any change 1.26 makes to a security setting is a loosening. In both, Typing over Wi-Fi
+  # must stay off: 1.24 had no switch for it.
+  upgrade:
+    name: Upgrade from ${{ matrix.from }} (${{ matrix.seed }} office), on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        from: [v1.24.2, v1.24.1]
+        seed: [open, strict]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install ${{ matrix.from }}, give it an office, install this build over it, and check
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux) asset=Smolcorp-Linux-x86_64.tar.gz; program=smolcorp ;;
+            Windows) asset=Smolcorp-Windows-x86_64.zip; program=smolcorp-cli.exe ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/download" "$RUNNER_TEMP/new" "$RUNNER_TEMP/upgrade"
+          # The project's own release, whoever runs this (a fork has none of its own).
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/download/$asset" \
+            "https://github.com/Sauzze/smolcorp/releases/download/${{ matrix.from }}/$asset"
+          go build -ldflags "-X main.version=1.26.0-upgrade-ci" -o "$RUNNER_TEMP/new/$program" ./cmd/smolcorp
+          go run ./scripts/upgrade -version "${{ matrix.from }}" -archive "$RUNNER_TEMP/download/$asset" \
+            -new "$RUNNER_TEMP/new/$program" -work "$RUNNER_TEMP/upgrade" -seed "${{ matrix.seed }}"
+
+  # The Mac's upgrade from 1.24.2, whose office the Swift engine kept: no runner can start that app and set up its
+  # office without someone at the screen (a person grants it the keyboard, and it opens windows), and a release build
+  # of 1.26 reads its record key from the login keychain, which only a test copy is kept from. So the Mac's rows run
+  # in-process, by name: the Swift engine's own files (dates as numbers, the accounts, a GM started by hand, two Macs
+  # paired) under a stand-in Mac app with a stand-in Keychain, sealed as found, nothing looser, Setup's words.
+  upgrade-mac:
+    name: Upgrade from v1.24.2, the Mac's rows
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: The Mac's upgrade rows ran and passed
+        shell: bash
+        run: |
+          names=(
+            TestTheUpdateFrom1242OnAMacSealsTheOfficeAndSaysWhatReset
+            TestAnUpdateWhoseRecordsDidntFitSaysWhatFellBack
+            TestNothingIsLooserAfterTheUpdateFrom1242
+            TestTheUpdateFrom1242KeepsTheOfficeAndSaysWhatReset
+            TestANewFolderSaysNothingOfAnUpdate
+            TestTheUpgradeJobLooksForSetupsOwnWords
+            TestAHireFromBeforeWithAHookKeyOfItsOwnIsntNamed
+            TestAFileFromBeforeTheSwitchHasTypingOverWiFiOff
+          )
+          # GitHub runs bash with -e and pipefail: let a failing go test reach the name check, so each name is reported.
+          set +e
+          go test -count=1 -v -run "^($(IFS='|'; echo "${names[*]}"))\$" ./desktop/ 2>&1 | tee "$RUNNER_TEMP/upgrade-mac.txt"
+          status=${PIPESTATUS[0]}
+          set -e
+          missing=0
+          for name in "${names[@]}"; do
+            if ! grep -qE "^--- PASS: $name \(" "$RUNNER_TEMP/upgrade-mac.txt"; then
+              echo "::error::$name didn't pass here: it failed, was skipped or didn't run"
+              missing=1
+            fi
+          done
+          [ "$status" -eq 0 ] && [ "$missing" -eq 0 ]

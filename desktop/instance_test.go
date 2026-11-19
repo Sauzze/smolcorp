@@ -75,19 +75,19 @@ func TestASecondInstanceAsksTheFirstToShowTheOffice(t *testing.T) {
 	if err := os.Remove(hookKeyFile); err != nil {
 		t.Fatal(err)
 	}
-	if answered, _ := askRunningToShowOffice(port); answered {
+	if answered, _, _ := askRunningToShowOffice(port); answered {
 		t.Fatal("asked with no key on disk")
 	}
 	writeFile(t, hookKeyFile, d.access.HookKey+"\n")
-	if answered, failure := askRunningToShowOffice(port); !answered || failure != "" || shown != 1 {
+	if answered, failure, window := askRunningToShowOffice(port); !answered || failure != "" || window || shown != 1 {
 		t.Fatalf("the running Smolcorp wasn't asked (shown %d)", shown)
 	}
 	// An old Smolcorp, or another program, on that port: false, and the user is told instead.
 	writeFile(t, hookKeyFile, "not-the-key\n")
-	if answered, _ := askRunningToShowOffice(port); answered || shown != 1 {
+	if answered, _, _ := askRunningToShowOffice(port); answered || shown != 1 {
 		t.Fatalf("a wrong key was taken for an answer (shown %d)", shown)
 	}
-	if answered, _ := askRunningToShowOffice(1); answered {
+	if answered, _, _ := askRunningToShowOffice(1); answered {
 		t.Fatal("nothing listens on port 1")
 	}
 }

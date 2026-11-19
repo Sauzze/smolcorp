@@ -70,8 +70,8 @@ func TestTheRecapReadsOnlyPlainFilesInsideTheHiresFolder(t *testing.T) {
 // the hire is fired and the recap is written.
 func TestAPipeInAKeptWorktreeNeverHoldsTheFire(t *testing.T) {
 	_, r, hire := hiredForFire(t, "")
-	os.WriteFile(filepath.Join(hire.Worktree, "new.txt"), []byte("x"), 0o644)
-	if err := syscall.Mkfifo(filepath.Join(hire.Worktree, "STATUS.md"), 0o600); err != nil {
+	os.WriteFile(filepath.Join(hire.Worktree.storedOnly(), "new.txt"), []byte("x"), 0o644)
+	if err := syscall.Mkfifo(filepath.Join(hire.Worktree.storedOnly(), "STATUS.md"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	windowShows(r, pane(t, "idle-empty"), true)

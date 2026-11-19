@@ -1,6 +1,10 @@
 package desktop
 
-import "strings"
+import (
+	"net/http"
+	"slices"
+	"strings"
+)
 
 // routeRow says which callers may use a setup route: one row of the table
 // Tests/fixtures/frontdesk/routes.json, which the Mac app writes from its
@@ -38,11 +42,22 @@ var routeTable = []routeRow{
 	{"POST", "/setup/gm/manager", []string{"gm", "page"}},
 	{"POST", "/setup/gm/token/rotate", []string{"page"}},
 	{"POST", "/setup/gm/by-hand", []string{"page"}},
+	{"GET", "/setup/gm/memory", []string{"gm", "page"}},
+	{"POST", "/setup/gm/memory/propose", []string{"gm", "page"}},
+	{"POST", "/setup/gm/memory/withdraw", []string{"gm", "page"}},
+	{"GET", "/setup/gm/memory/notes", []string{"page"}},
+	{"POST", "/setup/gm/memory/keep", []string{"page"}},
+	{"POST", "/setup/gm/memory/edit", []string{"page"}},
+	{"POST", "/setup/gm/memory/drop", []string{"page"}},
+	{"POST", "/setup/gm/memory/forget", []string{"page"}},
+	{"*", "/setup/gm/memory/*", []string{"page"}},
 	{"*", "/setup/gm/*", []string{"gm", "page"}},
 	{"POST", "/setup/hire", []string{"gm", "page"}},
 	{"POST", "/setup/hire/gm", []string{"gm", "page"}},
+	{"GET", "/setup/hire/gm/preflight", []string{"page"}},
 	{"POST", "/setup/hiring", []string{"gm", "page"}},
-	{"POST", "/setup/hiring/choose", []string{"gm", "page"}},
+	{"POST", "/setup/hiring/choose", []string{"page"}},
+	{"POST", "/setup/hire-folder", []string{"page"}},
 	{"POST", "/setup/roles", []string{"gm", "page"}},
 	{"POST", "/setup/hooks", []string{"gm", "page"}},
 	{"POST", "/setup/unpair", []string{"gm", "page"}},
@@ -76,12 +91,87 @@ var routeTable = []routeRow{
 	{"POST", "/setup/guard", []string{"page"}},
 	{"POST", "/setup/keystrokes", []string{"page"}},
 	{"POST", "/setup/keystrokes/apps", []string{"page"}},
+	{"POST", "/setup/officekey", []string{"page"}},
+	{"POST", "/setup/choices", []string{"page"}},
+	{"POST", "/setup/hire/window", []string{"page"}},
+	{"GET", "/setup/t3code", []string{"page"}},
+	{"POST", "/setup/t3code/open", []string{"page"}},
+	{"POST", "/setup/t3code/letgo", []string{"page"}},
 	{"POST", "/setup/pair", []string{"page"}},
 	{"GET", "/setup/qr.png", []string{"page"}},
 	{"GET", "/setup/viewer/qr.png", []string{"page"}},
 	{"POST", "/setup/viewer/secret", []string{"page"}},
 	{"POST", "/setup/viewer/rotate", []string{"page"}},
 	{"*", "/bots/*", []string{"page", "tool"}},
+	{"GET", "/setup/sandbox", []string{"page"}},
+	{"POST", "/setup/sandbox", []string{"page"}},
+	{"POST", "/setup/sandbox/database", []string{"page"}},
+	{"POST", "/setup/sandbox/restart", []string{"page"}},
+	{"POST", "/setup/sandbox/gitplant", []string{"page"}},
+}
+
+// goOnlyRoutes are setup routes only this app serves (INVENTORY.md's "Served by the Go app only"), so they aren't
+// in the Mac's fixture: Take over in T3 Code and Hand back (t3takeover.go), the page alone; a hire's git state (gitstate.go), a read;
+// Phone over HTTPS (phonehttps.go), all of it the page's alone, the tap that runs `tailscale serve` included; the
+// night shift's jobs (nightshift.go): listed by the page, the GM and a tool, proposed by the GM (or the page), made,
+// changed, approved, paused and deleted by the page alone. An MCP key and a night job are refused them all (gates.go);
+// and a desk's preview address declared (preview.go): the owner from Setup, the GM for a hire, a hire for its own desk.
+// Not under /setup/gm/, so the owner's works with the manager off.
+// The sign-in status (signinstatus.go) is the page's alone too.
+// Signing in to an agent (signinrun.go) is the page's alone too.
+// Floors from other Macs (peers_mac_join.go) are the page's alone too.
+var goOnlyRoutes = []routeRow{
+	{"GET", "/setup/tailnet/status", []string{"page"}},
+	{"GET", "/setup/tailnet/serve", []string{"page"}},
+	{"POST", "/setup/tailnet/serve", []string{"page"}},
+	{"POST", "/setup/t3code/takeover", []string{"page"}},
+	{"POST", "/setup/t3code/handback", []string{"page"}},
+	{"GET", "/setup/gm/git", []string{"gm", "page", "tool"}},
+	// Typing over Wi-Fi (SECWIFI): the owner's page alone, never an agent.
+	{"POST", "/setup/wifityping", []string{"page"}},
+	// The hire queue and its plan (hirequeue.go, hireplan.go): the GM proposes a plan, and only the page asks for
+	// one, approves it, resumes the queue or cancels it. A tool, an MCP key and a hire do none of these.
+	{"GET", "/setup/hire/queue", []string{"gm", "page", "tool"}},
+	{"POST", "/setup/hire/plan", []string{"page"}},
+	{"POST", "/setup/hire/plan/propose", []string{"gm", "page"}},
+	{"POST", "/setup/hire/plan/approve", []string{"page"}},
+	{"POST", "/setup/hire/plan/cancel", []string{"page"}},
+	{"POST", "/setup/hire/queue/resume", []string{"page"}},
+	{"POST", "/setup/hire/queue/cancel", []string{"page"}},
+	// Whether each coding agent is signed in (signinstatus.go): the page alone, never the GM, a hire, a tool or a phone.
+	{"GET", "/setup/accounts/status", []string{"page"}},
+	// Signing in to a coding agent (signinrun.go): the page alone, never the GM, a hire, a tool or a phone.
+	{"POST", "/setup/accounts/login", []string{"page"}},
+	{"GET", "/setup/accounts/login", []string{"page"}},
+	{"POST", "/setup/accounts/login/code", []string{"page"}},
+	{"POST", "/setup/accounts/login/cancel", []string{"page"}},
+	// Floors from other Macs (peers_mac_join.go): the page alone, as pairing a phone is.
+	{"GET", "/setup/peers", []string{"page"}},
+	{"POST", "/setup/peers", []string{"page"}},
+	{"POST", "/setup/peers/code", []string{"page"}},
+	{"POST", "/setup/peers/revoke", []string{"page"}},
+	{"POST", "/setup/peers/join", []string{"page"}},
+	// The owner's yes or no to an ask (grants.go): the page's cookie alone, never a tool's key nor the GM's token.
+	{"POST", "/setup/grants/answer", []string{"page"}},
+	// Smolcorp's records started over, once their key failed its check (records.go): the page alone.
+	{"POST", "/setup/records/reset", []string{"page"}},
+	// The owner's answer to a terminal's ask for a key (terminalask.go): the page alone, under the Mac app its own window.
+	{"POST", "/setup/terminal/answer", []string{"page"}},
+	// "I've seen it" for a Setup link used first (setuplink.go): the page alone, and only the Mac's own window's.
+	{"POST", "/setup/used-first/seen", []string{"page"}},
+	// A setup page's ask for the owner's tap on the phone, and its wait (setupask.go, OLD-TAP1): keyless, from this
+	// computer, served before any caller is asked for, so no caller's row: a tool, the GM and a hire hold nothing here.
+	{"*", "/setup/tap", []string{}},
+	{"GET", nightListPath, []string{"gm", "page", "tool"}},
+	{"POST", nightProposePath, []string{"gm", "page"}},
+	{"POST", nightSavePath, []string{"page"}},
+	{"POST", nightApprovePath, []string{"page"}},
+	{"POST", nightPausePath, []string{"page"}},
+	{"POST", nightDeletePath, []string{"page"}},
+	{"POST", "/setup/preview", []string{"gm", "page", "hire"}},
+	// A new project folder in the GM's projects folder, made by the core (gmproject.go): the GM and the page, as a
+	// hire; an MCP key and a night job are refused at the gate.
+	{"POST", "/setup/gm/project", []string{"gm", "page"}},
 }
 
 // name is how the table spells a caller.
@@ -103,6 +193,11 @@ func (c caller) name() string {
 func routeFor(method, path string) *routeRow {
 	fits := func(row *routeRow) bool { return row.method == "*" || row.method == method }
 	var best *routeRow
+	for i := range goOnlyRoutes {
+		if row := &goOnlyRoutes[i]; fits(row) && row.path == path {
+			return row
+		}
+	}
 	for i := range routeTable {
 		row := &routeTable[i]
 		if !fits(row) {
@@ -120,7 +215,7 @@ func routeFor(method, path string) *routeRow {
 }
 
 // routeAllows is whether a caller may use a route. A route not in the table
-// keeps 1.23's rule: the page, or a tool with the setup-key file.
+// keeps 1.23's rule: the page, or a tool (a tool's key you allowed).
 func routeAllows(who caller, method, path string) bool {
 	row := routeFor(method, path)
 	if row == nil {
@@ -132,6 +227,79 @@ func routeAllows(who caller, method, path string) bool {
 		}
 	}
 	return false
+}
+
+// The owner's Strict (SANDBOX-PLAN §9 Q8, B8): "only Smolcorp's window (Mac, Windows) and your phone can". Where
+// Smolcorp has its own Settings window (under the Mac app, and on Windows with WebView2: settingswindow.go), Setup in a
+// browser (the Mac's Open Settings in Browser, a Windows link) is for looking only, since its cookie is one other
+// programs on this computer can read. So the page's routes have one access class more, "the page, and where Smolcorp
+// has its own Settings window only that window": every route the page may use that changes something, in the table or not (any method but GET
+// and HEAD: /setup/fix, unlisted, is the page's too), and windowOnlyReads, the reads that show a pairing code or hand
+// over a key. A browser's session gets windowOnlyRefusal's words there, and everywhere else reads as before; GET
+// /setup/state leaves out what it would hand over (forABrowserBesideTheWindow). The phone's tap is its own route
+// (/grants/answer), never the page's. With no window of Smolcorp's own (Linux, a Windows without WebView2) nothing
+// changes: Setup opens in the browser there, or by the phone's tap once a phone is paired (setupask.go).
+
+// windowOnlyReads are the reads in the class: each shows a code to pair with or a link that holds a key.
+var windowOnlyReads = []string{
+	"GET /setup/qr.png",         // the phone's pairing code
+	"GET /setup/viewer",         // the viewer's link, which holds its key (setupReadsNoted)
+	"GET /setup/viewer/qr.png",  // the same link
+	"GET /setup/peers",          // the code another Mac pairs with
+	"GET /setup/accounts/login", // a sign-in's link and code
+}
+
+// pageNeedsTheWindow is whether a route the page may use is in the class: where Smolcorp has its own Settings window,
+// that window's alone.
+func pageNeedsTheWindow(method, path string) bool {
+	if method == http.MethodHead {
+		method = http.MethodGet
+	}
+	return method != http.MethodGet || slices.Contains(windowOnlyReads, method+" "+path)
+}
+
+// What a browser's Setup beside Smolcorp's own Settings window is told, in the words of a terminal's ask (terminalask.go).
+const (
+	windowOnlyChange = "Change this in Smolcorp's own Settings window, not in a browser."
+	windowOnlyRead   = "Open this in Smolcorp's own Settings window, not in a browser."
+)
+
+// windowOnlyNote is what the page says at its top in a browser beside Smolcorp's own Settings window, and where that
+// window is: the Mac's menu bar icon, or Windows' tray.
+func windowOnlyNote(mac bool) string {
+	return "This is Setup in a browser: you can look, but you change things in Smolcorp's own Settings window (" + ownWindowWhere(mac) + ")."
+}
+
+// browserBesideTheWindow is whether a page's request comes from a browser's Setup where Smolcorp has its own Settings
+// window (ownSettingsWindow): any session but the one that window opened.
+func (d *Deck) browserBesideTheWindow(r *http.Request) bool {
+	return d.ownSettingsWindow() && !d.isWindowPage(r)
+}
+
+// windowOnlyRefusal is the class's gate, asked by every gate the page's cookie passes (server.go's /setup and /bots/):
+// "" lets the request on; otherwise it's what a browser's Setup beside the window is told.
+func (d *Deck) windowOnlyRefusal(r *http.Request, who caller) string {
+	if who != callerPage || !pageNeedsTheWindow(r.Method, r.URL.Path) || !d.browserBesideTheWindow(r) {
+		return ""
+	}
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return windowOnlyRead
+	}
+	return windowOnlyChange
+}
+
+// forABrowserBesideTheWindow is GET /setup/state for a browser's Setup beside Smolcorp's own Settings window: the
+// phone's pairing code and the webhook's secret left out, as they are for a tool, and the note that says where things
+// change.
+func forABrowserBesideTheWindow(state map[string]any, mac bool) map[string]any {
+	if pairing, ok := state["pairing"].(map[string]any); ok {
+		delete(pairing, "code")
+	}
+	if webhook, ok := state["webhook"].(map[string]any); ok {
+		webhook["secret"] = ""
+	}
+	state["windowOnly"] = windowOnlyNote(mac)
+	return state
 }
 
 // routeRefusal is what a refused caller is told.
@@ -151,8 +319,13 @@ func routeRefusal(method, path string) string {
 // copy (it copies the program that is running, nothing it's handed); and open
 // the firewall for how Smolcorp already listens, which the system asks you to
 // OK. Listening on the Wi-Fi, opening at login and Tailscale are the page's.
-func fixAllowed(who caller, fix, auto string) bool {
-	return who != callerTool || fix == fixRepair && auto == "1" || fix == fixInstall || fix == fixFirewall
+// Under the Mac app (mac), as the Mac's own (DeckRouter.fixRefusal): a tool
+// only repairs, with auto=1, as the Mac app installs and opens itself.
+func fixAllowed(who caller, fix, auto string, mac bool) bool {
+	if who != callerTool || fix == fixRepair && auto == "1" {
+		return true
+	}
+	return !mac && (fix == fixInstall || fix == fixFirewall)
 }
 
 // webhookSecretFor is the webhook's secret for a caller: the setup page's alone,
@@ -162,4 +335,25 @@ func webhookSecretFor(who caller, secret string) string {
 		return secret
 	}
 	return ""
+}
+
+// webhookOffOnly is what the GM is told when it asks POST /setup/webhook for more than {"enabled": false}.
+const webhookOffOnly = "The GM can only turn the webhook off. Where it sends is the owner's to set, in Setup."
+
+// What the GM is told by POST /setup/hiring (RT126SWEEP3 P4 B1, F2): the folder for hires is the owner's alone, as
+// POST /setup/hire-folder is the page's alone in the table, and the GM turns hiring off, never on. Why, only where
+// hires have a sandbox that holds it (RT126SWEEP4-P4 F1): a Mac with the sandbox on; elsewhere the plain words.
+const (
+	hireFolderPageOnly   = "Only the owner chooses the folder for hires, in Setup: every hire's sandbox holds it."
+	hireFolderOwnersOnly = "Only the owner chooses the folder for hires, in Setup."
+	hiringOffOnly        = "The GM can only turn hiring off. Turning it back on is the owner's, in Setup."
+)
+
+// gmHireFolderWords is what the GM is told when it asks to move the folder for hires: the sandbox named only when
+// hires start in one.
+func gmHireFolderWords(sandboxed bool) string {
+	if sandboxed {
+		return hireFolderPageOnly
+	}
+	return hireFolderOwnersOnly
 }

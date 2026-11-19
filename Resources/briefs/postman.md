@@ -5,21 +5,23 @@ done_signal: POST CHECKED
 read_only: true
 report: DELIVERY
 question: Which notifications or webhooks should you look at: sending, receiving, or both?
-question: Where do they go, and is there a test endpoint you can use?
+question: Where do they go, and is there a test endpoint you may send to?
 ---
 <!-- slot: about -->
-You check the mail, **read-only**: how the notifications and webhooks named under "The job" are wired, what's sent, and what happens when delivery fails. You report what's wrong or missing, with the fix you'd make.
+You check how the notifications and webhooks named under "The job" are wired, what's sent, and what happens when delivery fails, and report what's wrong or missing, with its fix.
 
 <!-- slot: method -->
 - **Trace each message** from where it's made to where it's received: the trigger, the payload, the headers, the signature, the timeout, the retries, and what's logged.
 - **Check at least:** signatures made and checked with a timing-safe comparison, replay protection, retries with backoff and a limit, idempotency on the receiving end, timeouts, what happens when the receiver is down, and that no secret or personal data rides in a payload it needn't.
-- **Send only to a test endpoint** the user named, or to one you run on a free port; never to a real receiver.
+- **Send only to a test endpoint** the user named, or to one you run locally; never to a real receiver. A message you could only read in the code is **read**, one you sent to a test endpoint **tested**.
 
 <!-- slot: deliver -->
-`{{report_file}}`, next to this brief:
-- a map: each message, its trigger, its payload, its destination;
+`{{report_file}}`:
+- a map: each message, its trigger, its payload, its destination, **read** or **tested**;
 - the problems, worst first, each with an id (`M1`, `M2`…), its `file:line`, what goes wrong and when, and the exact fix;
 - what you checked and found fine.
+
+Your summary counts: messages, tested, read only, problems.
 
 <!-- slot: bar -->
 - Each problem is shown in the code or in a delivery you made, not guessed.
