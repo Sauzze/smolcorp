@@ -659,14 +659,16 @@ func removeWorkspace(repo, worktree, branch string, git gitRunner) bool {
 // hire. On a Mac, where the core carried the tree into a folder of its own (carryWorktree), only through the roots the
 // carry kept (discardCarriedTree, removeCarriedTreeFolder), never by the tree's path, which whoever can write the
 // folder for hires could have turned into a link since the tree's check: git's status, then its removal, would run
-// where that link leads (FXGMHIRENOGIT126R4, R12). The branch goes as removeWorkspace deletes it. A tree with no carry
-// on record (git checked it out where it is: elsewhere, or a stand-in git) is removed as before (removeWorkspace).
+// where that link leads (FXGMHIRENOGIT126R4, R12). The branch goes as removeWorkspace deletes it. Off a Mac the carry
+// is on record too, with the tree git checked out where it is: its folder, emptied the same way, goes by worktree, once
+// it is still the folder the carry opened (FXCI53). A tree with no carry on record (a stand-in git) is removed as
+// before (removeWorkspace).
 func takeBackTree(repo, worktree, branch string, git gitRunner) {
 	if !discardCarriedTree(branch) {
 		removeWorkspace(repo, worktree, branch, git)
 		return
 	}
-	removeCarriedTreeFolder(branch)
+	removeCarriedTreeFolder(branch, worktree)
 	deleteHireBranch(repo, branch, git)
 }
 

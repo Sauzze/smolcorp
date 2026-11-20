@@ -1149,24 +1149,30 @@ func discardCarriedTree(branch string) bool {
 
 // removeCarriedTreeFolder removes branch's tree folder itself, once discardCarriedTree emptied it, through the folder
 // it is in (no link at that one's name), and only while its name there is still, by Lstat, the very folder the carry
-// made (FXGMHIRENOGIT126R4, R12). A name turned since is left as it is: it may lead elsewhere.
-func removeCarriedTreeFolder(branch string) {
+// made (FXGMHIRENOGIT126R4, R12). A name turned since is left as it is: it may lead elsewhere. Off a Mac, git checked
+// the tree out where it is, and the carry kept no name for it (carryWorktree): the tree is then worktree, the path the
+// caller made it at, and goes the same way, only while that name is still the folder the carry opened (FXCI53).
+func removeCarriedTreeFolder(branch, worktree string) {
 	carriedHires.Lock()
 	c, found := carriedHires.by[branch]
 	carriedHires.Unlock()
-	if !found || c.tree == nil || c.treeName == "" {
+	at := c.treeName
+	if at == "" {
+		at = worktree
+	}
+	if !found || c.tree == nil || at == "" {
 		return
 	}
 	opened, err := c.tree.Stat(".")
 	if err != nil {
 		return
 	}
-	parent, err := openFolderRoot(filepath.Dir(c.treeName))
+	parent, err := openFolderRoot(filepath.Dir(at))
 	if err != nil {
 		return
 	}
 	defer parent.Close()
-	name := filepath.Base(c.treeName)
+	name := filepath.Base(at)
 	if seen, err := parent.Lstat(name); err == nil && seen.IsDir() && os.SameFile(seen, opened) {
 		_ = parent.Remove(name)
 	}

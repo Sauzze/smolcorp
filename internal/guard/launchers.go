@@ -256,13 +256,20 @@ var cmdVariable = regexp.MustCompile(`%[^%\s]+%|![^!\s]+!|^%%?(?:~[A-Za-z]*(?:\$
 // reads as any other.
 func spelledAtRunTime(word string) bool {
 	last, ok := programPart(word)
-	return ok && (strings.ContainsAny(last, "$"+string(subMark)) || cmdVariable.MatchString(last))
+	return ok && (strings.ContainsAny(last, "$"+string(subMark)) || cmdFillsIn(last))
 }
 
 // namedByCmdVariable is whether a command word's last part is cmd's %name% or !name!, which cmd fills in.
 func namedByCmdVariable(word string) bool {
 	last, ok := programPart(word)
-	return ok && cmdVariable.MatchString(last)
+	return ok && cmdFillsIn(last)
+}
+
+// cmdFillsIn is cmdVariable's match of a word's last part. Each of its readings holds a % or a !, so a part with
+// neither isn't read by the pattern at all: a command name a megabyte long (a line of ${ never closed) costs one look for
+// those two, not a pattern's walk over the whole of it, on every command (FXCI53).
+func cmdFillsIn(last string) bool {
+	return strings.ContainsAny(last, "%!") && cmdVariable.MatchString(last)
 }
 
 // programPart is a command word's last part, the program's name; false when the word is a whole line read as one
