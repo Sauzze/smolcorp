@@ -15,11 +15,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 // What the GM asks the app to keep an eye on, kept in watchers.json in the
@@ -208,12 +211,14 @@ type watchers struct {
 	builtinsOn func() bool
 	// unplain is each STATUS.md the last sync gave no built-in for a link on its way, logged once (sayUnplain).
 	unplain map[string]bool
+	// support is Smolcorp's support folder, where no file watch of the General Manager's reads (gmWatchRoots).
+	support string
 }
 
 func newWatchers(folder, home string, roots func() []string, hires func() []Hire, log func(eventEntry) eventEntry, seed []eventEntry) *watchers {
 	_ = os.MkdirAll(folder, 0o700)
 	w := &watchers{
-		file: filepath.Join(folder, "watchers.json"), roots: roots, hires: hires, log: log,
+		file: filepath.Join(folder, "watchers.json"), roots: roots, hires: hires, log: log, support: folder,
 		now: time.Now, newID: randomWatchID, home: func() string { return home },
 		latest: map[string]eventEntry{}, idleSince: map[string]eventEntry{},
 	}
@@ -276,7 +281,17 @@ func (w *watchers) add(given map[string]any, by string, held *gmScope) (watch, *
 		if !filepath.IsAbs(path) {
 			return watch{}, &refusal{http.StatusBadRequest, "Give the file as a full path, or a path inside a hire's folder with \"hire\"."}
 		}
-		inside, base, ok := watchInsideRoot(path, w.roots(), w.home())
+		roots := w.roots()
+		if by == "gm" {
+			if inSupportFolder(path, w.support) {
+				return watch{}, &refusal{http.StatusForbidden, gmWatchSupportRefusal}
+			}
+			roots = gmWatchRoots(roots, w.support)
+		}
+		inside, base, ok := watchInsideRoot(path, roots, w.home())
+		if ok && by == "gm" && inSupportFolder(inside, w.support) {
+			return watch{}, &refusal{http.StatusForbidden, gmWatchSupportRefusal}
+		}
 		if !ok {
 			return watch{}, &refusal{http.StatusForbidden, "Only files inside a hire's folder or the hires folder can be watched."}
 		}
@@ -497,31 +512,48 @@ func findWatchHire(name string, all []Hire, shown map[string]string) (Hire, *ref
 	return found[0], nil
 }
 
-// watchFolder is where a hire works: its worktree, else its folder.
+// watchFolder is where a hire works: its worktree, else its folder, only while it still resolves to itself
+// (checkedPlace, FXCOREWORKTREES126): a watch never reads where a link put there since leads.
 func watchFolder(h Hire) (string, *refusal) {
-	place := h.Worktree
-	if place == "" {
-		place = h.Folder
-	}
-	if place == "" {
+	if h.storedPlace() == "" {
 		return "", &refusal{http.StatusConflict, h.Name + " has no folder."}
+	}
+	place, err := h.checkedPlace()
+	if err != nil {
+		return "", &refusal{http.StatusConflict, err.Error()}
 	}
 	return place, nil
 }
 
+// gmWatchSupportRefusal is a file watch of the General Manager's in Smolcorp's support folder, refused (gmWatchRoots).
+const gmWatchSupportRefusal = "The General Manager can't watch files in Smolcorp's own folder."
+
+// gmWatchRoots are the roots of a file watch the General Manager set, held or not: none in Smolcorp's support folder,
+// support, where every desk's own folder is (its brief, its Claude folder and history), which a GM's sandbox denies it
+// (FXSWEEP3P3 F-2). The owner's watches and the app's own keep every root.
+func gmWatchRoots(roots []string, support string) []string {
+	return slices.DeleteFunc(slices.Clone(roots), func(root string) bool { return inSupportFolder(root, support) })
+}
+
+// inSupportFolder is whether path is the support folder or inside it, in any spelling the disk takes for it, its links
+// followed or not.
+func inSupportFolder(path, support string) bool {
+	return support != "" && path != "" && (sandbox.Inside(runtime.GOOS, path, support) ||
+		sandbox.Inside(runtime.GOOS, plainPath(path), plainPath(support)))
+}
+
 // watchRoots are the folders a file watch may look inside (Deck.watchers' roots):
 // the folders of the hires at work, except the GM's, and the support hires folder
-// (hiresDir).
+// (hiresDir). A hire's worktree or folder moved or replaced since its hire isn't one (checkedPlace,
+// FXCOREWORKTREES126): no watch reads where a link put there leads.
 func watchRoots(hires []Hire, hiresDir string) []string {
 	var roots []string
 	for _, h := range hires {
 		if h.Role == gmRole || !isOpen(h) {
 			continue
 		}
-		if h.Worktree != "" {
-			roots = append(roots, h.Worktree)
-		} else {
-			roots = append(roots, h.Folder)
+		if place, err := h.checkedPlace(); err == nil && place != "" {
+			roots = append(roots, place)
 		}
 	}
 	return append(roots, hiresDir)
@@ -741,7 +773,7 @@ func (w *watchers) tick() {
 	latest, spells := copyEvents(w.latest), copyEvents(w.idleSince)
 	w.mu.Unlock()
 
-	updated, fires := checkWatches(watches, roots, hires, home, latest, spells, ms, waiting, done)
+	updated, fires := checkWatches(watches, roots, hires, home, w.support, latest, spells, ms, waiting, done)
 
 	w.mu.Lock()
 	w.apply(fires, updated)
@@ -765,15 +797,21 @@ func copyEvents(from map[string]eventEntry) map[string]eventEntry {
 
 // checkWatches returns each watch as a look left it (where it has read to, its
 // next time), and what fired. It touches files and nothing else (Watchers.check).
-func checkWatches(watches []watch, roots []string, hires []Hire, home string, latest, idleSince map[string]eventEntry, now float64, waiting map[string]float64, done []string) (updated []watch, fires []watchFire) {
+func checkWatches(watches []watch, roots []string, hires []Hire, home, support string, latest, idleSince map[string]eventEntry, now float64, waiting map[string]float64, done []string) (updated []watch, fires []watchFire) {
+	gmRoots := gmWatchRoots(roots, support)
 	for _, x := range watches {
 		before := x
 		switch x.Kind {
 		case "file":
 			// The path is checked again each time: a link swapped in since doesn't lead out of every root. It can
-			// lead into another hire's root, though.
-			path, base, ok := watchInsideRoot(x.Target, roots, home)
-			if !ok {
+			// lead into another hire's root, though. The General Manager's never reads in the support folder, a
+			// watch set before that rule included (FXSWEEP3P3 F-2).
+			inRoots := roots
+			if x.By == "gm" {
+				inRoots = gmRoots
+			}
+			path, base, ok := watchInsideRoot(x.Target, inRoots, home)
+			if !ok || x.By == "gm" && (inSupportFolder(x.Target, support) || inSupportFolder(path, support)) {
 				break
 			}
 			// So a held GM's watch reads only while its path, kept plain when it was set, still resolves to itself.
@@ -783,6 +821,15 @@ func checkWatches(watches []watch, roots []string, hires []Hire, home string, la
 			// this look, would lead to another root's STATUS.md (RT126WATCHHELDR2 N1).
 			if (x.Held != "" || x.Builtin != "") && path != x.Target {
 				break
+			}
+			// The app's own watch on a hire's STATUS.md in the support folder opens it from that hire's own folder
+			// there alone, as the recap reads it: no other file in the support folder is a built-in's (FXSWEEP3P3R1 B2).
+			if x.Builtin != "" && inSupportFolder(path, support) {
+				own := plainPath(hireFolder(support, x.Hire))
+				if !plainHireID(x.Hire) || path != filepath.Join(own, "STATUS.md") {
+					break
+				}
+				base = own
 			}
 			// A held watch reads only while the GM is still held to its project, or to a folder that holds it: once
 			// the owner holds the GM elsewhere, or not at all, it stops, and the GM can set it again (RT126WATCHHELDR1
@@ -840,11 +887,7 @@ func checkWatches(watches []watch, roots []string, hires []Hire, home string, la
 			}
 			// The hire is gone: nothing will ever go idle again, so the watch is over, as a finished one is.
 			if !slices.ContainsFunc(hires, func(h Hire) bool {
-				place := h.Worktree
-				if place == "" {
-					place = h.Folder
-				}
-				return isOpen(h) && place == x.Target
+				return isOpen(h) && h.storedPlace() == x.Target // compared only
 			}) {
 				x.Repeats, x.FiredAt = false, now
 				break
@@ -863,7 +906,7 @@ func checkWatches(watches []watch, roots []string, hires []Hire, home string, la
 					if name == "" {
 						name = hires[i].Name
 					}
-					folder, state = hires[i].Folder, hires[i].State
+					folder, state = hires[i].Folder.storedOnly(), hires[i].State
 				}
 				fires = append(fires, watchFire{id: x.ID, folder: folder, detail: fmt.Sprintf("%s is gone (%s)", name, state)})
 			}

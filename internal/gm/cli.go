@@ -27,15 +27,14 @@ Commands:
   version                       the app, its API and its features
   accounts                      the Claude accounts the app knows
   hire --role R [--folder F] [--account A] [--model M] [--nickname N]
-       [--floor K] [--worktree] [--api-key] [--t3] [--task TEXT | --task-file F]
+       [--floor K] [--worktree] [--api-key] [--task TEXT | --task-file F]
                                 hire an employee (the folder defaults to the
                                 one set up for new hires). It works in a
-                                worktree of its own beside the folder
-                                (<folder>-hires/<name>), not in the folder
-                                itself: the answer says where. Not the gm role:
-                                the owner hires the GM from Setup. --t3 hires
-                                into T3 Code (experimental; needs T3 Code and its
-                                t3 command): its own worktree and a T3 Code thread
+                                worktree of its own (on a Mac in
+                                ~/.smolcorp/worktrees, elsewhere beside the
+                                folder), not in the folder itself: the answer
+                                says where. Not the gm role:
+                                the owner hires the GM from Setup
   brief <hire> (--text TEXT | --file F)
                                 send a later brief to a hire already working
                                 (it comes to the hire as mail)

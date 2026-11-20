@@ -58,7 +58,7 @@ func TestOnAMacAHireOfAnyAgentButClaudeCodeIsRefusedOnEveryRouteWhileTheSandboxI
 			} {
 				// Each route on its own: a route that opened a window would otherwise leave the next one the cooldown's 429.
 				d.mu.Lock()
-				d.lastHire = time.Time{}
+				d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 				d.mu.Unlock()
 				if status, why := c.hire(); status != http.StatusConflict || why != c.want {
 					t.Errorf("%s: %d %q, want 409 %q", c.name, status, why, c.want)
@@ -85,7 +85,7 @@ func TestOnAMacAHireOfAnyAgentButClaudeCodeIsRefusedOnEveryRouteWhileTheSandboxI
 				t.Errorf("the switch off, the office's hire: %d %q, %d windows, %d in tmux", status, why, len(h.windows), len(h.tmux))
 			}
 			d.mu.Lock()
-			d.lastHire = time.Time{}
+			d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 			d.mu.Unlock()
 			if status, why := post(asPage); status != http.StatusOK || len(h.windows) != 2 {
 				t.Errorf("the switch off, Setup's hire sheet: %d %q, %d windows, %d in tmux", status, why, len(h.windows), len(h.tmux))

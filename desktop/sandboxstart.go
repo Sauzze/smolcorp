@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -926,11 +927,15 @@ func (p claudePlant) same(was claudePlant) bool {
 	return p.Sum != "" && was.Sum != "" && p.Why == was.Why && p.Dir == was.Dir && (p.Dir || p.Sum == was.Sum)
 }
 
-// claudeLook is a place the listing walks, depth folders down (-1, all), passing over the folders skip names.
+// claudeLook is a place the listing walks, depth folders down (-1, all), passing over the folders skip names. A hire's
+// place resolved at its hire (claudePlaceLook) is opened with no link on its way (resolved); one moved or replaced
+// since is held whole, not walked (moved).
 type claudeLook struct {
-	path  string
-	depth int
-	skip  func(string) bool
+	path     string
+	depth    int
+	skip     func(string) bool
+	resolved bool
+	moved    bool
 }
 
 // claudeLooks are the places a desk at pl may make a .claude in: its place, and the home folders pol lets it write
@@ -959,12 +964,31 @@ func claudeLooks(pol *sandbox.Policy, pl sandbox.Places) []claudeLook {
 // listClaudePlantsOf lists and holds what hire h left in its place, its worktree or else its folder, against its
 // checkout: the one listing every fire, failure, Take over and gate calls. It never puts a gone hire on record as
 // listed: only claudeHireEnded does, once its session is known to have ended.
+//
+// Its place as the hire's checked accessor gives it (claudePlaceLook): one moved or replaced since the hire is held
+// whole, for you to check, and never listed through the link put there (RT126SWEEP4 part 3's B2: FXCOREWORKTREES126's
+// listing decision reversed for a moved place).
 func listClaudePlantsOf(h Hire) []claudePlant {
-	place := h.place()
-	if place == "" {
+	if h.storedPlace() == "" {
 		return nil
 	}
-	return holdClaudePlants(h.ID, []claudeLook{{path: place, depth: -1}}, h.Repo)
+	return holdClaudePlants(h.ID, []claudeLook{claudePlaceLook(h)}, h.Repo)
+}
+
+// whyClaudeMoved is a hire's place held whole: it no longer leads where it did at the hire.
+const whyClaudeMoved = "Moved or replaced since the hire: Smolcorp can't tell what the hire left there, so it's held whole."
+
+// claudePlaceLook is the look at hire h's place for the plant listing: the place as checkedPlace gives it, opened with
+// no link on its way when it was resolved at the hire (a worktree, or a folder its row keeps resolved, on a Mac), so a
+// link put on its way after this look is refused rather than followed. A place checkedPlace refuses (moved or replaced
+// since the hire) is held whole as its row keeps it, and nothing through it is listed (RT126SWEEP4 part 3's B2).
+func claudePlaceLook(h Hire) claudeLook {
+	place, err := h.checkedPlace()
+	if err != nil {
+		return claudeLook{path: h.storedPlace(), moved: true}
+	}
+	resolved := runtime.GOOS == "darwin" && (!h.Worktree.none() || h.FolderResolved != "")
+	return claudeLook{path: place, depth: -1, resolved: resolved}
 }
 
 // claudeHireEnded is said once hire id's session is known to have ended: a fire that saw its session or window gone
@@ -1025,6 +1049,10 @@ func walkClaudePlants(looks []claudeLook, reference string) claudeFound {
 	w := newClaudeWalk()
 	found := map[string]claudePlant{}
 	for _, l := range looks {
+		if l.moved { // held whole, never walked (claudePlaceLook)
+			found[l.path] = claudePlant{File: l.path, Why: whyClaudeMoved, In: l.path, Within: l.path}
+			continue
+		}
 		if !w.over {
 			w.walkClaudeLook(l, found)
 		}
@@ -1319,9 +1347,14 @@ func (e claudeLooked) plant(why, in, within string) claudePlant {
 		outside: e.outside}
 }
 
-// walkClaudeLook notes every plant in look l (walkClaude), from its folder, opened by its path as given.
+// walkClaudeLook notes every plant in look l (walkClaude), from its folder, opened by its path as given, or, for a
+// place resolved at its hire, with no link on its way (openResolvedLook).
 func (w *claudeWalk) walkClaudeLook(l claudeLook, found map[string]claudePlant) {
-	dir, err := openClaudeLook(l.path)
+	open := openClaudeLook
+	if l.resolved {
+		open = openResolvedLook
+	}
+	dir, err := open(l.path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:
@@ -1330,6 +1363,17 @@ func (w *claudeWalk) walkClaudeLook(l claudeLook, found map[string]claudePlant) 
 		w.walkClaude(dir, l.path, l, l.depth, found)
 		dir.Close()
 	}
+}
+
+// openResolvedLook opens the folder at path, already resolved, for a look: through a root opened with no link anywhere
+// on its way (openResolvedRoot), so a link put there since it was resolved is refused, never followed.
+func openResolvedLook(path string) (*os.File, error) {
+	root, err := openResolvedRoot(path)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return root.Open(".")
 }
 
 // list is what's in the open folder dir (in a .claude, tree), by name, each looked at through dir: no more than the
@@ -1653,6 +1697,32 @@ func (w *claudeWalk) copyLooked(dir *os.File, name, at string, looked fs.FileInf
 	return err
 }
 
+// removeHeldClaudePlant takes plant p away through the place it was listed in (p.Within), never by its path
+// (RT126SWEEP4 part 3's B2): that place is opened with no link on its way (openResolvedRoot), and p's name in it is
+// removed through that root, a link taken away itself and nothing out of the place reached. In a hire's place, only
+// while that place still leads where it did at the hire (checkedPlace), and then as checkedPlace gives it: one moved or
+// replaced since is refused in its words, and nothing is removed.
+func removeHeldClaudePlant(p claudePlant) error {
+	within := p.Within
+	rel, err := filepath.Rel(within, p.File)
+	if within == "" || err != nil || !filepath.IsLocal(rel) {
+		return errGitPlantGone
+	}
+	if h, ok := registryHire(p.Desk); ok && (within == h.storedPlace() || h.FolderResolved != "" && within == h.FolderResolved) {
+		place, err := h.checkedPlace()
+		if err != nil {
+			return err
+		}
+		within = place
+	}
+	root, err := openResolvedRoot(within)
+	if err != nil {
+		return errGitPlantGone
+	}
+	defer root.Close()
+	return root.RemoveAll(rel)
+}
+
 // claudeNear is whether a and b are the same folder, or one is in the other: as written and with links resolved,
 // case-blind off Linux.
 func claudeNear(a, b string) bool {
@@ -1684,7 +1754,7 @@ func claudeGate(folder string, hires []Hire) string {
 func claudeGateWithin(folder string, hires []Hire, wait time.Duration) (string, bool) {
 	seen, ask := map[string]bool{}, []Hire(nil)
 	for _, h := range hires {
-		if seen[h.ID] || h.place() == "" || !claudeNear(folder, h.place()) {
+		if seen[h.ID] || h.storedPlace() == "" || !claudeNear(folder, h.storedPlace()) { // compared only
 			continue
 		}
 		seen[h.ID] = true
@@ -1722,7 +1792,19 @@ func claudeHeldRefusalWithin(folder string, wait time.Duration) (string, bool) {
 		}
 	}
 	if len(held) > 0 {
-		slices.SortFunc(held, func(a, b claudePlant) int { return strings.Compare(a.File, b.File) })
+		moved := func(p claudePlant) int { // a moved place first: it says the most
+			if p.Why == whyClaudeMoved {
+				return 0
+			}
+			return 1
+		}
+		slices.SortFunc(held, func(a, b claudePlant) int {
+			return cmp.Or(cmp.Compare(moved(a), moved(b)), strings.Compare(a.File, b.File))
+		})
+		if held[0].Why == whyClaudeMoved {
+			return "Smolcorp won't start your Claude Code in " + folder + ": the hire's folder " + held[0].File + " was moved or replaced, " +
+				"so Smolcorp can't tell what it left there; check it yourself, then keep it in Setup if it's yours, and try again.", false
+		}
 		return "Smolcorp won't start your Claude Code in " + folder + ": a hire left " + held[0].File + " (" + held[0].Why +
 			") and it's held for you. Remove it in Setup, or keep it if it's yours, then try again.", false
 	}
@@ -1746,8 +1828,9 @@ func claudeStillChecking(folder, place string) string {
 }
 
 // removeClaudePlant is your "Remove" for the plant held as id: taken away (a link, not what it leads to) if it's
-// still what was listed (the same file, while the core runs). keep is your "Keep": it's yours, so neither it nor
-// anything held in it is held any more, nor listed again unless it changes. Anything else is errGitPlantGone.
+// still what was listed (the same file, while the core runs), through the place it was listed in, never by its path
+// (removeHeldClaudePlant). keep is your "Keep": it's yours, so neither it nor anything held in it is held any more, nor
+// listed again unless it changes. Anything else is errGitPlantGone, or the words of a hire's place moved since.
 func removeClaudePlant(id string, keep bool) error {
 	claudeHeld.Lock()
 	defer claudeHeld.Unlock()
@@ -1761,7 +1844,7 @@ func removeClaudePlant(id string, keep bool) error {
 		if p.Sum == "" || now.Sum != p.Sum || now.Dir != p.Dir || p.info != nil && (now.info == nil || !os.SameFile(now.info, p.info)) {
 			return errGitPlantGone
 		}
-		if err := os.RemoveAll(p.File); err != nil {
+		if err := removeHeldClaudePlant(p); err != nil {
 			return err
 		}
 		delete(claudeHeld.plants, id)

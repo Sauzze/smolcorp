@@ -109,7 +109,9 @@ func gmRefusals(t *testing.T, fixture, path string, rows []gmRow, check func(i i
 }
 
 func TestAGMFireRefusesEveryRowOfFireJSONWithItsStatusAndNeverTypes(t *testing.T) {
-	dirty := func(g *gmRig) { os.WriteFile(filepath.Join(g.hire.Worktree, "new.txt"), []byte("x"), 0o644) }
+	dirty := func(g *gmRig) {
+		os.WriteFile(filepath.Join(g.hire.Worktree.storedOnly(), "new.txt"), []byte("x"), 0o644)
+	}
 	rows := []gmRow{{}, {}, {setup: dirty}, {setup: func(g *gmRig) { g.showing(t, "permission-menu") }}, {setup: func(g *gmRig) { g.r.tmux.up = false; markFired(g.hire.ID, "") }}, // one still running is ended (gonedesk_unix_test.go)
 		{request: map[string]any{"id": "live:s1"}, status: 404},
 		{setup: func(g *gmRig) { g.d.mu.Lock(); g.d.config.HiringEnabled = false; g.d.mu.Unlock() }, status: 403}}
@@ -123,12 +125,12 @@ func TestAGMFireRefusesEveryRowOfFireJSONWithItsStatusAndNeverTypes(t *testing.T
 
 func TestAForcedGMFireKeepsTheWorktreeWithChangesAndSaysWhy(t *testing.T) {
 	g := newGMRig(t, "Rex")
-	os.WriteFile(filepath.Join(g.hire.Worktree, "new.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(g.hire.Worktree.storedOnly(), "new.txt"), []byte("x"), 0o644)
 	w := g.fire(t, true, map[string]any{"force": true, "removeWorktree": true})
 	var got map[string]any
 	json.Unmarshal(w.Body.Bytes(), &got)
-	if _, err := os.Stat(g.hire.Worktree); w.Code != http.StatusOK || got["ok"] != true || got["kept"] != firedWorktreeKept ||
-		got["worktree"] != g.hire.Worktree || got["branch"] != g.hire.Branch || err != nil || g.typed() {
+	if _, err := os.Stat(g.hire.Worktree.storedOnly()); w.Code != http.StatusOK || got["ok"] != true || got["kept"] != firedWorktreeKept ||
+		got["worktree"] != g.hire.Worktree.storedOnly() || got["branch"] != g.hire.Branch || err != nil || g.typed() {
 		t.Fatalf("%d %q (worktree %v)", w.Code, w.Body, err)
 	}
 }
@@ -145,10 +147,10 @@ func TestAGMFireKeepsTheCleanWorktreeUnlessAskedToRemoveIt(t *testing.T) {
 		stopDecksOf(t)
 		g := newGMRig(t, "Rex")
 		if c.dirty {
-			os.WriteFile(filepath.Join(g.hire.Worktree, "new.txt"), []byte("x"), 0o644)
+			os.WriteFile(filepath.Join(g.hire.Worktree.storedOnly(), "new.txt"), []byte("x"), 0o644)
 		}
 		w := g.fire(t, true, c.extra)
-		_, err := os.Stat(g.hire.Worktree)
+		_, err := os.Stat(g.hire.Worktree.storedOnly())
 		if w.Code != http.StatusNoContent || w.Body.Len() != 0 || (err == nil) != c.kept || registered(t)[0].State != "fired" || registered(t)[0].Notes != "" {
 			t.Errorf("%v: %d %q (worktree %v)", c.extra, w.Code, w.Body, err)
 		}
@@ -175,7 +177,7 @@ func TestAGMFireNeverTypesWithOrWithoutForceAndTouchesOnlyTheHiresOwnSocket(t *t
 		g := newGMRig(t, "Rex")
 		g.changeRow(change)
 		w := g.fire(t, true, map[string]any{"force": true})
-		_, tree := os.Stat(g.hire.Worktree)
+		_, tree := os.Stat(g.hire.Worktree.storedOnly())
 		_, repo := os.Stat(g.r.repo) // neither was removed
 		if w.Code != http.StatusConflict || !strings.HasPrefix(w.Body.String(), "Couldn't reach Rex's") || len(g.asked()) != 0 || registered(t)[0].State == "fired" || tree != nil || repo != nil {
 			t.Errorf("%d %q, tmux %q", w.Code, w.Body, g.asked())

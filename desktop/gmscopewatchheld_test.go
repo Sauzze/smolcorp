@@ -37,7 +37,7 @@ func lookOnce(w *watchers) (fires []watchFire, read []watch) {
 	w.mu.Lock()
 	watches := slices.Clone(w.all)
 	w.mu.Unlock()
-	read, fires = checkWatches(watches, w.roots(), w.hires(), w.home(), nil, nil, 0, nil, nil)
+	read, fires = checkWatches(watches, w.roots(), w.hires(), w.home(), w.support, nil, nil, 0, nil, nil)
 	w.mu.Lock()
 	w.apply(fires, read)
 	w.mu.Unlock()

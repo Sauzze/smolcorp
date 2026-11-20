@@ -81,8 +81,9 @@ func TestEachOpenHireGetsItsBuiltinsAndTheGMAndAFiredHireGetNone(t *testing.T) {
 			t.Errorf("a built-in as the Mac sets it: %v", x)
 		}
 	}
-	// Three hires at work, and each has both STATUS files.
-	want := map[string]int{"needs-review": 6, "status": 6, "denied": 3, "limit": 3, "wait": 3}
+	// Three hires at work, and each has both STATUS files in its place, and the one in its own folder in the support
+	// folder, where an engine or launcher hire writes it (FXSWEEP3P3R1 B2).
+	want := map[string]int{"needs-review": 9, "status": 9, "denied": 3, "limit": 3, "wait": 3}
 	for name, n := range want {
 		if count[name] != n {
 			t.Errorf("%s: %d, want %d", name, count[name], n)
@@ -127,9 +128,9 @@ func TestEachOpenHireGetsItsBuiltinsAndTheGMAndAFiredHireGetNone(t *testing.T) {
 	if len(files) != 2 || files[0] != "STATUS.md" || files[1] != filepath.Join(".team", "STATUS.md") {
 		t.Errorf("Rev's status files: %v", files)
 	}
-	// A look again adds nothing.
+	// A look again adds nothing. 27: 9 for each of the three at work (FXSWEEP3P3R1 B2).
 	b.tick()
-	if len(b.builtins("")) != 21 {
+	if len(b.builtins("")) != 27 {
 		t.Errorf("after a second look: %d", len(b.builtins("")))
 	}
 }
@@ -168,12 +169,13 @@ func TestBuiltinsOfAHireGoWhenItIsFiredFailedOrGone(t *testing.T) {
 	b := builtinDeck(t)
 	b.registry(func(f *registryFile) { f.hires[0].State = "fired" })
 	b.tick()
-	if b.builtinsOf("a1b2c3") != 0 || b.builtinsOf("d4e5f6") != 7 || b.builtinsOf("9z9z9z") != 7 {
+	// Nine each: three STATUS files with two watches each (FXSWEEP3P3R1 B2), and three on events.
+	if b.builtinsOf("a1b2c3") != 0 || b.builtinsOf("d4e5f6") != 9 || b.builtinsOf("9z9z9z") != 9 {
 		t.Errorf("a fired hire: %v", b.builtins(""))
 	}
 	b.registry(func(f *registryFile) { f.hires[1].State = "failed" })
 	b.tick()
-	if b.builtinsOf("d4e5f6") != 0 || b.builtinsOf("9z9z9z") != 7 {
+	if b.builtinsOf("d4e5f6") != 0 || b.builtinsOf("9z9z9z") != 9 {
 		t.Errorf("a failed hire: %v", b.builtins(""))
 	}
 	b.registry(func(f *registryFile) { f.hires = f.hires[:1] })
@@ -183,17 +185,17 @@ func TestBuiltinsOfAHireGoWhenItIsFiredFailedOrGone(t *testing.T) {
 	}
 	// One hired later gets its own.
 	b.registry(func(f *registryFile) {
-		f.hires = append(f.hires, Hire{ID: "n3w", Name: "Newbie", Role: "builder", Folder: filepath.Join(b.root, "newbie"), State: "working"})
+		f.hires = append(f.hires, Hire{ID: "n3w", Name: "Newbie", Role: "builder", Folder: keptPath(filepath.Join(b.root, "newbie")), State: "working"})
 	})
 	b.tick()
-	if b.builtinsOf("n3w") != 7 {
+	if b.builtinsOf("n3w") != 9 {
 		t.Errorf("a new hire: %v", b.builtins(""))
 	}
 }
 
 func TestBuiltinsGoWithTheManagerAndWithTheSettingAndComeBack(t *testing.T) {
 	b := builtinDeck(t)
-	if len(b.builtins("")) != 21 {
+	if len(b.builtins("")) != 27 {
 		t.Fatalf("to start with: %d", len(b.builtins("")))
 	}
 	b.watch(`{"kind":"time","target":"mine","minutes":5}`)
@@ -207,7 +209,7 @@ func TestBuiltinsGoWithTheManagerAndWithTheSettingAndComeBack(t *testing.T) {
 	}
 	managerOn(b.d)
 	b.tick()
-	if len(b.builtins("")) != 21 {
+	if len(b.builtins("")) != 27 {
 		t.Fatalf("manager on again: %d", len(b.builtins("")))
 	}
 	// The setting off, with the manager on.
@@ -332,11 +334,11 @@ func TestADeniedPermissionAndAUsageLimitFireOnlyInTheHiresFolder(t *testing.T) {
 	w := b.d.watchers
 	other := readRegistry(registryPath(), false).hires[1].Folder
 	w.observe(eventEntry{ID: 1, At: b.clock.UnixMilli(), Kind: "permissionDenied", Folder: b.root, Detail: "Bash: rm -rf"})
-	w.observe(eventEntry{ID: 2, At: b.clock.UnixMilli(), Kind: "permissionDenied", Folder: other, Detail: "Edit: x"})
+	w.observe(eventEntry{ID: 2, At: b.clock.UnixMilli(), Kind: "permissionDenied", Folder: other.storedOnly(), Detail: "Edit: x"})
 	w.observe(eventEntry{ID: 3, At: b.clock.UnixMilli(), Kind: "permissionDenied", Folder: t.TempDir(), Detail: "nobody's"})
 	w.observe(eventEntry{ID: 4, At: b.clock.UnixMilli(), Kind: "permissionAsked", Folder: b.root, Detail: "Bash"})
 	got := b.firedWords()
-	if len(got) != 2 || got[0] != "denied: permissionDenied in "+filepath.Base(b.root)+": Bash: rm -rf" || got[1] != "denied: permissionDenied in "+filepath.Base(other)+": Edit: x" {
+	if len(got) != 2 || got[0] != "denied: permissionDenied in "+filepath.Base(b.root)+": Bash: rm -rf" || got[1] != "denied: permissionDenied in "+filepath.Base(other.storedOnly())+": Edit: x" {
 		t.Fatalf("denied: %v", got)
 	}
 	if b.fired()[0].Folder != b.root {
@@ -410,7 +412,7 @@ func TestTheDigestIsOnlyWhileAGMIsAtWorkAndTellsWhoDidWhat(t *testing.T) {
 		t.Fatal("a digest with no GM")
 	}
 	b.registry(func(f *registryFile) {
-		f.hires = append(f.hires, Hire{ID: "g1", Name: "General Manager", Role: gmRole, Folder: filepath.Join(b.root, "gm"), State: "working"})
+		f.hires = append(f.hires, Hire{ID: "g1", Name: "General Manager", Role: gmRole, Folder: keptPath(filepath.Join(b.root, "gm")), State: "working"})
 	})
 	b.tick()
 	digest := b.builtins("digest")
@@ -423,7 +425,7 @@ func TestTheDigestIsOnlyWhileAGMIsAtWorkAndTellsWhoDidWhat(t *testing.T) {
 	}
 	// A hire finishes, another is quiet.
 	putFile(t, filepath.Join(b.root, "STATUS.md"), "DONE the thing\n")
-	b.d.watchers.observe(eventEntry{ID: 1, At: b.clock.UnixMilli(), Kind: "idle", Folder: readRegistry(registryPath(), false).hires[1].Folder})
+	b.d.watchers.observe(eventEntry{ID: 1, At: b.clock.UnixMilli(), Kind: "idle", Folder: readRegistry(registryPath(), false).hires[1].Folder.storedOnly()})
 	b.tick()
 	b.clock = b.clock.Add(59 * time.Minute)
 	b.tick()
@@ -455,21 +457,21 @@ func TestADigestNamesWhoIsWaitingAndHowManyAreLeftOut(t *testing.T) {
 	// Folders are told apart by the system's own separator, so they are written with it.
 	w := filepath.FromSlash
 	hires := []Hire{
-		{ID: "1", Name: "A", Folder: "/w/a", State: "working"}, {ID: "2", Name: "B", Nickname: "Bee", Folder: "/w/b", State: "working"},
-		{ID: "3", Name: "C", Folder: "/w/c", State: "working"}, {ID: "4", Name: "D", Folder: "/w/d", State: "working"},
-		{ID: "5", Name: "E", Folder: "/w/e", State: "working"}, {ID: "6", Name: "F", Folder: "/w/f", State: "working"},
-		{ID: "7", Name: "G", Folder: "/w/g", State: "working"}, {ID: "8", Name: "H", Folder: "/w/h", State: "fired"},
-		{ID: "9", Name: "GM", Role: gmRole, Folder: "/w/gm", State: "working"}, {ID: "10", Name: "I", Folder: "/w/i", State: "working"},
+		{ID: "1", Name: "A", Folder: keptPath("/w/a"), State: "working"}, {ID: "2", Name: "B", Nickname: "Bee", Folder: keptPath("/w/b"), State: "working"},
+		{ID: "3", Name: "C", Folder: keptPath("/w/c"), State: "working"}, {ID: "4", Name: "D", Folder: keptPath("/w/d"), State: "working"},
+		{ID: "5", Name: "E", Folder: keptPath("/w/e"), State: "working"}, {ID: "6", Name: "F", Folder: keptPath("/w/f"), State: "working"},
+		{ID: "7", Name: "G", Folder: keptPath("/w/g"), State: "working"}, {ID: "8", Name: "H", Folder: keptPath("/w/h"), State: "fired"},
+		{ID: "9", Name: "GM", Role: gmRole, Folder: keptPath("/w/gm"), State: "working"}, {ID: "10", Name: "I", Folder: keptPath("/w/i"), State: "working"},
 	}
 	for i := range hires {
-		hires[i].Folder = w(hires[i].Folder)
+		hires[i].Folder = keptPath(w(hires[i].Folder.storedOnly()))
 	}
 	got := digestText(hires, map[string]eventEntry{w("/w/i/sub"): {ID: 4, Kind: "idle"}}, map[string]float64{w("/w/a/deep"): 1}, []string{"X", "Y"})
 	want := "Hourly digest. Working: Bee, C, D, E, F, G. Idle: I. Waiting: A. Done since last: X, Y."
 	if got != want {
 		t.Errorf("\n got %s\nwant %s", got, want)
 	}
-	more := append(hires, Hire{ID: "11", Name: "J", Folder: "/w/j", State: "working"})
+	more := append(hires, Hire{ID: "11", Name: "J", Folder: keptPath("/w/j"), State: "working"})
 	if got := digestText(more, nil, nil, nil); !strings.Contains(got, "Working: A, Bee, C, D, E, F +3.") {
 		t.Errorf("more than six: %s", got)
 	}
@@ -491,12 +493,12 @@ func TestBuiltinsSurviveARestartWithoutFiringAgainOrDoubling(t *testing.T) {
 		func() []Hire { return readRegistry(registry, false).hires }, b.d.events.append, nil)
 	again.setBuiltins(func() bool { return true }, nil)
 	again.now = func() time.Time { return b.clock }
-	if len(again.all) != 21 {
+	if len(again.all) != 27 {
 		t.Fatalf("read back: %d", len(again.all))
 	}
 	again.tick()
 	again.tick()
-	if len(b.fired()) != 1 || len(again.all) != 21 {
+	if len(b.fired()) != 1 || len(again.all) != 27 {
 		t.Fatalf("after a restart: %v, %d watches", b.firedWords(), len(again.all))
 	}
 	appendTo(t, status, "DONE two\n")

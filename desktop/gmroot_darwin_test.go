@@ -83,7 +83,9 @@ func newGMRootLayout(t *testing.T) gmRootLayout {
 	homeDir = filepath.Join(base, "home")
 	l := gmRootLayout{base: base, projects: filepath.Join(homeDir, "Projects"), planted: filepath.Join(base, "planted")}
 	l.app, l.lib = filepath.Join(l.projects, "app"), filepath.Join(l.projects, "lib")
-	l.hireTree = filepath.Join(hiresFolder(l.app, ""), "h1")
+	// A hire made before the core's own folder for worktrees, beside its repo in the projects folder (FXCOREWORKTREES126,
+	// item 7): the layout these rows hold desks to.
+	l.hireTree = filepath.Join(legacyHiresFolder(l.app), "h1")
 	l.workspace = filepath.Join(hireFolder(supportDir, "gm1"), "work") // sandbox.Workspace(supportDir, "gm1")
 	for _, repo := range []string{l.app, l.lib} {
 		if err := os.MkdirAll(repo, 0o700); err != nil {
@@ -98,8 +100,8 @@ func newGMRootLayout(t *testing.T) gmRootLayout {
 	}
 	standInOwnersGit(t, l.app, "branch", "develop")
 	standInOwnersGit(t, l.app, "worktree", "add", "-q", "-b", "hire/h1", l.hireTree)
-	l.gm = Hire{ID: "gm1", Name: "General Manager", Role: gmRole, Folder: l.projects, State: "working"}
-	l.hire = Hire{ID: "h1", Name: "Janitor", Role: "janitor", Folder: l.app, Repo: l.app, Worktree: l.hireTree, Branch: "hire/h1", State: "working"}
+	l.gm = Hire{ID: "gm1", Name: "General Manager", Role: gmRole, Folder: keptPath(l.projects), State: "working"}
+	l.hire = Hire{ID: "h1", Name: "Janitor", Role: "janitor", Folder: keptPath(l.app), Repo: l.app, Worktree: keptPath(l.hireTree), Branch: "hire/h1", State: "working"}
 	writeRegistryHires(t, l.gm, l.hire)
 	// What the GM's hire makes besides its sandbox: its own folder, its plans folder where it starts.
 	for _, id := range []string{"gm1", "h1"} {

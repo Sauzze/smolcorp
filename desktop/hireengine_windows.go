@@ -2,6 +2,8 @@
 
 package desktop
 
+import "time"
+
 // The tmux engine is Linux's. On Windows a role's Claude hire is made by the
 // launcher's engine (hirelauncher.go), behind the beta switch: hireAs asks for
 // it by name, so managedHire here only says the tmux way isn't made.
@@ -9,7 +11,7 @@ func (d *Deck) managedHire(roleID, folder string, terminal hireOpener, hasTermin
 	return 0, "", false
 }
 
-func (d *Deck) managedHireWith(roleID, folder, picked string, terminal hireOpener, hasTerminal bool, held, floor int, extra *setupHire) (int, string, bool) {
+func (d *Deck) managedHireWith(roleID, folder, picked string, terminal hireOpener, hasTerminal bool, held, floor int, extra *setupHire, gitBy ...time.Time) (int, string, bool) {
 	return 0, "", false
 }
 

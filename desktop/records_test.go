@@ -81,7 +81,7 @@ func withAHire(t *testing.T) string {
 	t.Helper()
 	frontDeskMu.Lock()
 	file := readRegistry(registryPath(), true)
-	file.hires = append(file.hires, Hire{ID: "hire01", Name: "Ada", Folder: homeDir, State: "working"}, Hire{ID: "hire02", Name: "Bo", Folder: homeDir, State: "working"})
+	file.hires = append(file.hires, Hire{ID: "hire01", Name: "Ada", Folder: keptPath(homeDir), State: "working"}, Hire{ID: "hire02", Name: "Bo", Folder: keptPath(homeDir), State: "working"})
 	file.contacts = []Contact{{From: "hire01", To: "hire02"}}
 	err := file.save(registryPath())
 	frontDeskMu.Unlock()
@@ -247,7 +247,7 @@ func TestOnAMacAProgramCantMintAPhoneAPeerARecordOrAGrant(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	registry := registryFile{hires: []Hire{{ID: "mint01", Name: "Minted", Folder: homeDir, State: "working", Role: gmRole}},
+	registry := registryFile{hires: []Hire{{ID: "mint01", Name: "Minted", Folder: keptPath(homeDir), State: "working", Role: gmRole}},
 		keys: map[string]string{"mint01": hashKey("fake-minted-send")}}
 	records.mu.Lock()
 	saved := records.key

@@ -92,6 +92,9 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 	d.mu.Lock()
 	o := d.engine.withDefaults()
 	o.SandboxOff = d.config.SandboxOff // resumed as a start now would be (AQ1)
+	// The folder hires' worktrees are made in, config.json's hireWorktrees when set, as the engine's start and fire have
+	// it: its place (deskAtOf) is checked and its sandbox made against that folder for hires (FXGMHIRENOGIT126R8).
+	o.Worktrees = d.worktreesFolder(o.Worktrees)
 	o.DatabaseOptIn = d.config.LocalDatabaseAsksPassword
 	roles := slices.Clone(d.config.Roles)
 	d.mu.Unlock()
@@ -145,7 +148,23 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 		if deskSignInRefusal(own, "", false) != "" {
 			return t3Resumed{}, errors.New(t3NotSignedIn)
 		}
-		if makeDeskPlans(startedIn(h), h.ID) != nil {
+		// Its place checked as its start checks it, before its plans are made there, and they go to the folder as
+		// checked, never its path resolved again (FXGMHIRENOGIT126R5).
+		// A resume outside the sandbox isn't held to its place, as its start below isn't.
+		// In its sandbox, the start's own check and words (deskStartFolder); outside it, the accessor's
+		// (FXCOREWORKTREES126).
+		folder, checked, words := "", false, ""
+		if tmux.sandboxed {
+			folder, checked, words = deskStartFolder(h, deskAtOf(h, tmux.socket, profiles, o))
+		} else if checkedFolder, err := h.checkedStart(); err != nil {
+			words = err.Error()
+		} else {
+			folder = checkedFolder
+		}
+		if words != "" {
+			return t3Resumed{}, errors.New(words)
+		}
+		if makeStartPlans(folder, checked, h.ID) != nil {
 			return t3Resumed{}, errors.New("its plans folder couldn't be made.")
 		}
 	}
@@ -178,7 +197,12 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 		return t3Resumed{}, err
 	}
 	// In the folder the session started in (its worktree), never the project the registry names.
-	_, socket, started, err := tmux.start(startedIn(h), command)
+	startIn, err := h.checkedStart() // checked again, just before its start (FXCOREWORKTREES126)
+	if err != nil {
+		deskStarts.forget(h.ID)
+		return t3Resumed{}, err
+	}
+	_, socket, started, err := tmux.start(startIn, command)
 	if err != nil {
 		deskStarts.forget(h.ID)
 		// What the refused start left running in its sandbox is ended first (FXFIREREAPR1): one that can't be says so.

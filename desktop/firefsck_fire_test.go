@@ -23,10 +23,10 @@ import (
 // It shows the owner's git taking the branch as merged, so the case isn't empty.
 func deskCommitsThenForgesMain(t *testing.T, repo string, h Hire) {
 	t.Helper()
-	writeRepoFile(t, h.Worktree, "desk.txt", "desk\n")
-	gitRepoCmd(t, h.Worktree, "add", "desk.txt")
-	gitRepoCmd(t, h.Worktree, "commit", "-q", "-m", "D")
-	madeMergedByAForgedCommit(t, repo, gitRepoCmd(t, repo, "rev-parse", "HEAD"), gitRepoCmd(t, h.Worktree, "rev-parse", "HEAD"))
+	writeRepoFile(t, h.Worktree.storedOnly(), "desk.txt", "desk\n")
+	gitRepoCmd(t, h.Worktree.storedOnly(), "add", "desk.txt")
+	gitRepoCmd(t, h.Worktree.storedOnly(), "commit", "-q", "-m", "D")
+	madeMergedByAForgedCommit(t, repo, gitRepoCmd(t, repo, "rev-parse", "HEAD"), gitRepoCmd(t, h.Worktree.storedOnly(), "rev-parse", "HEAD"))
 	if err := exec.Command("git", "-C", repo, "merge-base", "--is-ancestor", "refs/heads/"+h.Branch, "HEAD").Run(); err != nil {
 		t.Fatalf("the owner's git doesn't take the branch as merged, so this case proves nothing: %v", err)
 	}
@@ -37,7 +37,7 @@ func deskCommitsThenForgesMain(t *testing.T, repo string, h Hire) {
 // made from main, reaches too.
 func keptForTheStore(t *testing.T, repo string, h Hire, said string) {
 	t.Helper()
-	if _, err := os.Stat(h.Worktree); err != nil {
+	if _, err := os.Stat(h.Worktree.storedOnly()); err != nil {
 		t.Errorf("the worktree went: %v", err)
 	}
 	if !strings.Contains(branches(t, repo), h.Branch) {
@@ -75,7 +75,7 @@ func TestAFireKeepsTheWorktreeAndBranchOfABranchMadeToLookMerged(t *testing.T) {
 		windowShows(r, pane(t, "idle-empty"), true)
 		deskCommitsThenForgesMain(t, r.repo, hire)
 		kept, said, err := fireEngineHireSaid(hire, 0, r.o, false)
-		if err != nil || !strings.HasPrefix(kept, "Smolcorp kept Rex's worktree "+hire.Worktree+" and its branch "+hire.Branch+": ") {
+		if err != nil || !strings.HasPrefix(kept, "Smolcorp kept Rex's worktree "+hire.Worktree.storedOnly()+" and its branch "+hire.Branch+": ") {
 			t.Fatalf("kept %q, err %v", kept, err)
 		}
 		if !r.tmux.ran("kill-server") || r.tmux.up {
@@ -93,13 +93,13 @@ func TestAFireWhoseLookCantBeMadeKeepsTheWorktreeAndBranch(t *testing.T) {
 		return 0, "", errors.New("it took over 2 minutes")
 	}
 	kept, said, err := fireEngineHireSaid(hire, 0, r.o, false)
-	want := "Smolcorp kept Rex's worktree " + hire.Worktree + " and its branch " + hire.Branch +
+	want := "Smolcorp kept Rex's worktree " + hire.Worktree.storedOnly() + " and its branch " + hire.Branch +
 		": it couldn't check the repo's stored objects (it took over 2 minutes), so it didn't look at whether the branch is merged." +
 		" To look, run git fsck --full in " + r.repo + "."
 	if err != nil || kept != want || said != want || registered(t)[0].Notes != want || registered(t)[0].State != "fired" {
 		t.Fatalf("kept %q, said %q, err %v, row %+v", kept, said, err, registered(t)[0])
 	}
-	if _, err := os.Stat(hire.Worktree); err != nil || !strings.Contains(branches(t, r.repo), hire.Branch) {
+	if _, err := os.Stat(hire.Worktree.storedOnly()); err != nil || !strings.Contains(branches(t, r.repo), hire.Branch) {
 		t.Errorf("the worktree (%v) or the branch (%q) went", err, branches(t, r.repo))
 	}
 	if !r.tmux.ran("kill-server") {
@@ -117,7 +117,7 @@ func TestTheGMsFireSaysWhyTheWorktreeAndBranchWereKept(t *testing.T) {
 	}
 	note, _ := got["note"].(string)
 	kept, _ := got["kept"].(string)
-	if kept == "" || !strings.HasPrefix(note, kept) || got["worktree"] != g.hire.Worktree || got["branch"] != g.hire.Branch {
+	if kept == "" || !strings.HasPrefix(note, kept) || got["worktree"] != g.hire.Worktree.storedOnly() || got["branch"] != g.hire.Branch {
 		t.Errorf("answer %v", got)
 	}
 	keptForTheStore(t, g.r.repo, g.hire, note)

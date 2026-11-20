@@ -57,7 +57,7 @@ func TestSetupsHireSheetHiresWithWhatItSaid(t *testing.T) {
 	}
 	d.watching.Wait()
 	got := registered(t)
-	if len(got) != 1 || got[0].Nickname != "Ana" || got[0].Model != "claude-sonnet-5-5" || got[0].Worktree == "" || got[0].Brief == "" {
+	if len(got) != 1 || got[0].Nickname != "Ana" || got[0].Model != "claude-sonnet-5-5" || got[0].Worktree.none() || got[0].Brief == "" {
 		t.Fatalf("registry %+v", got)
 	}
 	if !strings.Contains(got[0].Branch, "ana-") {
@@ -79,13 +79,13 @@ func TestSetupsHireSheetHiresWithWhatItSaid(t *testing.T) {
 	d.mu.Lock()
 	recent, team := d.config.RecentHireFolders, d.config.Layout.Room.Team
 	d.mu.Unlock()
-	if got[0].Folder != repo || len(recent) == 0 || recent[0] != got[0].Worktree {
+	if got[0].Folder.storedOnly() != repo || len(recent) == 0 || recent[0] != got[0].Worktree.storedOnly() {
 		t.Errorf("registry folder %q, recent folders %v", got[0].Folder, recent)
 	}
-	if member, ok := team[filepath.Base(got[0].Worktree)]; !ok || member.Name != "Ana" {
+	if member, ok := team[filepath.Base(got[0].Worktree.storedOnly())]; !ok || member.Name != "Ana" {
 		t.Errorf("the desk's name: %+v", team)
 	}
-	if saved := loadConfig().Layout.Room.Team[filepath.Base(got[0].Worktree)]; saved.Name != "Ana" {
+	if saved := loadConfig().Layout.Room.Team[filepath.Base(got[0].Worktree.storedOnly())]; saved.Name != "Ana" {
 		t.Errorf("the nickname isn't saved on its desk: %+v", saved)
 	}
 }
@@ -207,7 +207,7 @@ func TestSetupsHireWithoutAWorktreeWorksInTheFolder(t *testing.T) {
 		t.Errorf("answer %v", body)
 	}
 	d.watching.Wait()
-	if got := registered(t); len(got) != 1 || got[0].Worktree != "" || got[0].Folder != repo {
+	if got := registered(t); len(got) != 1 || !got[0].Worktree.none() || got[0].Folder.storedOnly() != repo {
 		t.Fatalf("registry %+v", got)
 	}
 }
@@ -371,7 +371,7 @@ func TestSetupsHireSaysWhenItsTaskWasntPassedOn(t *testing.T) {
 	i := slices.IndexFunc(d.config.Roles, func(r Role) bool { return r.ID == "accountant" })
 	d.config.Roles[i].Agent = "codex"
 	hiresOfEveryAgentHere(d)
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	status, answer, why = d.hireFromSetupSheet(setupHire{Role: "accountant", Folder: repo, Answers: []string{"x"}, Task: "Count."})
 	if status != http.StatusOK || answer.(map[string]any)["note"] != setupHireNotPassedOn || len(h.windows)+len(h.tmux) == 0 {
 		t.Fatalf("the old way: %d %v %s, opened %q %q", status, answer, why, h.windows, h.tmux)

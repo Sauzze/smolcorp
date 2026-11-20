@@ -815,7 +815,8 @@ var gitDesksPlaces = []string{"worktrees", "refs/heads/hire", "logs/refs/heads/h
 // by gitDesksPlaces, as before.
 func desksPlaces(goos string, pl Places) []string {
 	var keys []string
-	for _, place := range append([]string{pl.Support, pl.SocketParent, pl.TmuxFolder, pl.GMFolder, pl.HiresFolder, pl.Checkout, pl.Root, pl.Projects, pl.GMProjects}, pl.OtherSupports...) {
+	places := append([]string{pl.Support, pl.SocketParent, pl.TmuxFolder, pl.GMFolder, pl.HiresFolder, pl.Checkout, pl.Root, pl.Projects, pl.GMProjects}, pl.OtherSupports...)
+	for _, place := range append(places, pl.Worktrees...) { // and the core's folders for every hire's worktree (FXCOREWORKTREES126)
 		if k := key(goos, place); k != "" {
 			keys = append(keys, k)
 		}
@@ -968,9 +969,10 @@ func symrefText(at string) (string, error) {
 	return strings.TrimSpace(text), nil
 }
 
-// fileStart is the first 1024 bytes of the file at at, none when it isn't there.
+// fileStart is the first 1024 bytes of the file at at, none when it isn't there. Only a plain file is read (openPlain):
+// one swapped since its look for a FIFO is refused, never waited on.
 func fileStart(at string) ([]byte, error) {
-	f, err := os.Open(filepath.FromSlash(at))
+	f, err := openPlain(filepath.FromSlash(at))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	} else if err != nil {
@@ -983,6 +985,21 @@ func fileStart(at string) ([]byte, error) {
 		return nil, err
 	}
 	return b[:n], nil
+}
+
+// openPlain opens the file at at to read it, without waiting on a pipe (keptNoWait), and gives it only if what was
+// opened is a regular file: a FIFO there, put at any moment, is refused at once and never read (RT126SWEEP4 part 3's
+// B1, as the core's cpReadData). A link is followed, as git follows one.
+func openPlain(at string) (*os.File, error) {
+	f, err := os.OpenFile(at, os.O_RDONLY|keptNoWait, 0)
+	if err != nil {
+		return nil, err
+	}
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		f.Close()
+		return nil, &os.PathError{Op: "open", Path: at, Err: errors.New("not a plain file")}
+	}
+	return f, nil
 }
 
 // refEntry is what CheckRefPlaces makes of at, of type mode (info for a regular file): nil for a folder or a file of

@@ -691,8 +691,8 @@ func cleanUpHire(hire Hire, reason string, tmux *hireTmux, removeWorktree func(H
 		return " " + why + startReapKept
 	}
 	left := ""
-	if hire.Worktree != "" && !removeWorktree(hire) {
-		left = " Its worktree " + hire.Worktree + " was kept: it has changes, or git wouldn't remove it."
+	if !hire.Worktree.none() && !removeWorktree(hire) {
+		left = " Its worktree " + hire.Worktree.storedOnly() + " was kept: " + treeKeptWhy(hire, "it has changes, or git wouldn't remove it.")
 	}
 	fail(hire.ID, "Didn't start: "+reason+"."+left)
 	return left

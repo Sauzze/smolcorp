@@ -211,7 +211,7 @@ func (d *Deck) demoRolesRefusal(roles []string) string {
 func demoGMOf(f demoFolder, hires []Hire) *Hire {
 	for i := range hires {
 		h := hires[i]
-		if gmHired(h) && (h.Scope == f.repo || resolveExisting(h.Folder) == f.repo) {
+		if gmHired(h) && (h.Scope == f.repo || resolveExisting(h.Folder.storedOnly()) == f.repo) {
 			return &hires[i]
 		}
 	}

@@ -176,8 +176,8 @@ func (d *Deck) hireIntoT3Now(ask t3Ask, role Role, on bool, profiles []claudePro
 		},
 		DiscardBrief: func() { _ = os.RemoveAll(hireFolder(supportDir, hireID)) },
 		Register: func(place hirePlace) error {
-			hire := Hire{ID: hireID, Name: role.Name, Nickname: ask.Nickname, Role: role.ID, Folder: ask.Folder, Branch: place.Branch,
-				Worktree: place.Worktree, Repo: place.Repo, Model: model, Ports: place.Ports, Started: float64(time.Now().UnixMilli()),
+			hire := Hire{ID: hireID, Name: role.Name, Nickname: ask.Nickname, Role: role.ID, Folder: keptPath(ask.Folder), Branch: place.Branch,
+				Worktree: keptPath(place.Worktree), Repo: place.Repo, Model: model, Ports: place.Ports, Started: float64(time.Now().UnixMilli()),
 				State: "starting", Engine: t3Engine}
 			// Its desk in the office, once its thread runs: on the floor it was hired onto (t3desks.go), kept there.
 			floor := ask.Floor
@@ -267,7 +267,7 @@ func (d *Deck) letGoOfT3(id string) (int, any) {
 		}
 		return http.StatusInternalServerError, err.Error()
 	}
-	return http.StatusOK, map[string]any{"ok": true, "recap": gone.Recap, "note": gone.Note, "worktree": hire.Worktree, "branch": hire.Branch}
+	return http.StatusOK, map[string]any{"ok": true, "recap": gone.Recap, "note": gone.Note, "worktree": hire.Worktree.storedOnly(), "branch": hire.Branch}
 }
 
 // startT3Follow looks at every T3 hire's thread, each no more than every t3FollowEvery, one round at a time off
@@ -385,9 +385,24 @@ func t3FireTakenOver(h Hire) string {
 	return calledHire(h) + " was taken over in T3 Code: hand it back first, then fire it."
 }
 
+// t3FireTurnedWords are the fire's words for hire h, taken over in T3 Code, whose worktree turned since its hire
+// (hireTreeTurned): Hand back refuses it, so its fire went ahead, ended its tmux desk and left the worktree alone. T3
+// Code's project for it and what's at the worktree's path are yours to remove (FXGMHIRENOGIT126R8).
+func t3FireTurnedWords(h Hire) string {
+	name, tree := calledHire(h), h.Worktree.storedOnly()
+	return name + " was taken over in T3 Code, and its worktree, " + tree + ", was moved or replaced since it was hired, " +
+		"so it couldn't be handed back: its tmux desk is ended, and Smolcorp left the worktree alone, with no git run there. " +
+		"Remove its project \"" + name + " · " + h.Branch + "\" in T3 Code yourself, then delete what's at " + tree +
+		" (only the link, if it's a link), then run git worktree prune in your own checkout."
+}
+
 // gmT3FireRefusal is the GM's fire of a hire in T3 Code, refused in the Mac's words (Deck.fire), or "" for any other hire.
+// A hire taken over whose worktree turned since its hire isn't refused: Hand back refuses it, so the fire is the way
+// out (fireEngineHireSaid, FXGMHIRENOGIT126R8).
 func gmT3FireRefusal(h Hire) string {
 	switch {
+	case h.T3Session != "" && hireTreeTurned(h):
+		return ""
 	case h.T3Session != "":
 		return t3FireTakenOver(h)
 	case h.Engine != t3Engine:

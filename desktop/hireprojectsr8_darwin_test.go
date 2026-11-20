@@ -39,7 +39,7 @@ func TestALinkToAFolderThatHoldsARepoStopsItsStart(t *testing.T) {
 	stage := filepath.Join(homeDir, "stage")
 	ownerMade(t, homeDir, "stage/box/", "stage/far/a/", "stage/hop/", "stage/plain/notes.md")
 	r7Repo(t, filepath.Join(l.projects, "group", "p"))
-	h := Hire{ID: "r8l", Name: "Janitor", Role: "janitor", Folder: l.lib, State: "working"}
+	h := Hire{ID: "r8l", Name: "Janitor", Role: "janitor", Folder: keptPath(l.lib), State: "working"}
 	profile := r6Desk(t, l, h.ID, l.lib)
 	got := sandboxedSh(t, profile, l.lib, r6Tries+`t sh -c 'mkdir "$0/z" && cd "$0/z" && /usr/bin/git init -q' "$2/box"
 t hook "$2/box/z/.git/hooks/post-checkout" "$3"
@@ -92,7 +92,7 @@ t ln -s "$2/box" "$1/box"`, l.lib, stage, l.planted)
 // With the link gone it starts, and that repo is held from then on.
 func TestALinkIntoAPackageManagersFolderStopsItsStart(t *testing.T) {
 	l := newHireProjectsLayout(t)
-	h := Hire{ID: "r8p", Name: "Janitor", Role: "janitor", Folder: l.lib, State: "working"}
+	h := Hire{ID: "r8p", Name: "Janitor", Role: "janitor", Folder: keptPath(l.lib), State: "working"}
 	profile := r6Desk(t, l, h.ID, l.lib)
 	got := sandboxedSh(t, profile, l.lib, r6Tries+`t mkdir -p "$1/.build/checkouts/evil"
 t sh -c 'cd "$0/.build/checkouts/evil" && /usr/bin/git init -q' "$1"
@@ -140,7 +140,7 @@ func TestTheOwnersPackageManagerClonesAreHeldFromADesk(t *testing.T) {
 	standInOwnersGit(t, l.lib, "clone", "-q", "--no-hardlinks", "--mirror", dep, mirror)
 	standInOwnersGit(t, l.lib, "clone", "-q", "--shared", "--no-checkout", mirror, checkout)
 	standInOwnersGit(t, checkout, "checkout", "-q", "main")
-	h := Hire{ID: "r8o", Name: "Janitor", Role: "janitor", Folder: l.lib, State: "working"}
+	h := Hire{ID: "r8o", Name: "Janitor", Role: "janitor", Folder: keptPath(l.lib), State: "working"}
 	profile := r6Desk(t, l, h.ID, l.lib)
 	got := sandboxedSh(t, profile, l.lib, r6Tries+`t hook "$1/.build/checkouts/dep/.git/hooks/post-checkout" "$2"
 t sh -c 'echo "[core]" >> "$0/.build/checkouts/dep/.git/config"' "$1"
@@ -226,7 +226,7 @@ t sh -c '/usr/bin/git update-index --add --cacheinfo 160000,$(/usr/bin/git rev-p
 // the first are within the place, the second are walked, bounded.
 func TestPnpmsLinksStillStart(t *testing.T) {
 	l := newHireProjectsLayout(t)
-	h := Hire{ID: "r8n", Name: "Janitor", Role: "janitor", Folder: l.lib, State: "working"}
+	h := Hire{ID: "r8n", Name: "Janitor", Role: "janitor", Folder: keptPath(l.lib), State: "working"}
 	r6Desk(t, l, h.ID, l.lib)
 	store := filepath.Join(homeDir, "Library", "pnpm", "store", "v10", "links")
 	const packages = 400
@@ -262,7 +262,7 @@ func TestPnpmsLinksStillStart(t *testing.T) {
 func r8PlainHire(t *testing.T, d *Deck, h *hiring, launcher string) (Hire, *launcherTab) {
 	t.Helper()
 	d.mu.Lock()
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	d.mu.Unlock()
 	if status, said := d.Perform("hire", "", url.Values{"project": {"lib"}}); status != http.StatusNoContent {
 		t.Fatalf("the plain hire into lib: %d %s", status, said)
@@ -280,7 +280,7 @@ func r8PlainHire(t *testing.T, d *Deck, h *hiring, launcher string) (Hire, *laun
 		}
 	}
 	record, ok := plainHireRecord(desk)
-	if !ok || record.Worktree != folder || !strings.HasPrefix(record.Branch, "hire/"+desk+"/") {
+	if !ok || record.Worktree.storedOnly() != folder || !strings.HasPrefix(record.Branch, "hire/"+desk+"/") {
 		t.Fatalf("its record: %+v %v (window in %q)", record, ok, folder)
 	}
 	tab := d.launcherConnected(launcher, Claude, folder, "", token)
@@ -313,21 +313,21 @@ func TestAPlainHiresEndTakesItsWorktreeAndBranchAway(t *testing.T) {
 	d.config.HiringEnabled = true
 	gone := func(hire Hire) {
 		t.Helper()
-		if _, err := os.Lstat(hire.Worktree); err == nil {
+		if _, err := os.Lstat(hire.Worktree.storedOnly()); err == nil {
 			t.Errorf("%s's worktree is still there", hire.ID)
 		}
 		if branches := standInOwnersGit(t, l.lib, "branch", "--list", hire.Branch); strings.TrimSpace(branches) != "" {
 			t.Errorf("%s's branch is still there: %q", hire.ID, branches)
 		}
 		recap, err := os.ReadFile(filepath.Join(supportDir, "recaps", hire.ID+".md"))
-		if err != nil || !strings.Contains(string(recap), "- Worktree: "+hire.Worktree+" (removed)") || !strings.Contains(string(recap), "- Branch: "+hire.Branch) {
+		if err != nil || !strings.Contains(string(recap), "- Worktree: "+hire.Worktree.storedOnly()+" (removed)") || !strings.Contains(string(recap), "- Branch: "+hire.Branch) {
 			t.Errorf("%s's recap: %q %v", hire.ID, recap, err)
 		}
 	}
 
 	// The fire: the office's fire of its tab tells its launcher to stop; its launcher goes.
 	fired, tab := r8PlainHire(t, d, h, "L1")
-	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "p1", "cwd": fired.Worktree},
+	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "p1", "cwd": fired.Worktree.storedOnly()},
 		Claude, "launcher:L1", "", 200)
 	if status, said := d.Perform("fire", "p1", url.Values{}); status != http.StatusNoContent || !sent(t, tab).Stop {
 		t.Fatalf("its fire: %d %s, and its launcher wasn't told to stop", status, said)
@@ -338,23 +338,23 @@ func TestAPlainHiresEndTakesItsWorktreeAndBranchAway(t *testing.T) {
 
 	// Its window closed with work left in its worktree: both stay, and its recap says where.
 	kept, tab := r8PlainHire(t, d, h, "L2")
-	writeFile(t, filepath.Join(kept.Worktree, "work.txt"), "the hire's work\n")
+	writeFile(t, filepath.Join(kept.Worktree.storedOnly(), "work.txt"), "the hire's work\n")
 	d.launcherGone("L2", tab)
 	r8Ended(t, kept.ID)
-	if _, err := os.Stat(filepath.Join(kept.Worktree, "work.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join(kept.Worktree.storedOnly(), "work.txt")); err != nil {
 		t.Errorf("its work: %v", err)
 	}
 	if branches := standInOwnersGit(t, l.lib, "branch", "--list", kept.Branch); strings.TrimSpace(branches) == "" {
 		t.Errorf("its branch was deleted")
 	}
-	if recap, err := os.ReadFile(filepath.Join(supportDir, "recaps", kept.ID+".md")); err != nil || !strings.Contains(string(recap), "- Worktree: "+kept.Worktree+" (kept)") {
+	if recap, err := os.ReadFile(filepath.Join(supportDir, "recaps", kept.ID+".md")); err != nil || !strings.Contains(string(recap), "- Worktree: "+kept.Worktree.storedOnly()+" (kept)") {
 		t.Errorf("its recap: %q %v", recap, err)
 	}
 
 	// Connected again without its token, in its worktree: ended once that launcher goes, not before.
 	again, tab := r8PlainHire(t, d, h, "L3")
 	d.launcherGone("L3", tab)
-	back := d.launcherConnected("L3", Claude, again.Worktree, "", "")
+	back := d.launcherConnected("L3", Claude, again.Worktree.storedOnly(), "", "")
 	if back == nil || back.plainDesk != again.ID {
 		t.Fatalf("its launcher connected again: %+v", back)
 	}

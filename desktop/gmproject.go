@@ -101,15 +101,20 @@ func gmProjectsFolderFor(gm Hire) (string, string) {
 	if gm.ID == "" {
 		return "", "There's no General Manager now, so there's no projects folder to start a project in."
 	}
-	if gm.Repo != "" || gm.Worktree != "" || gm.Folder == "" {
+	if gm.Repo != "" || !gm.Worktree.none() || gm.Folder.none() {
 		return "", "The General Manager works in a repository, not over a projects folder, so it can't start a project here."
 	}
-	resolved, err := filepath.EvalSymlinks(gm.Folder)
+	// Its folder, only while it still resolves where it was placed (checkedFolder, FXCOREWORKTREES126).
+	checked, err := gm.checkedFolder()
 	if err != nil {
-		return "", "The General Manager's projects folder, " + gm.Folder + ", isn't there."
+		return "", err.Error()
+	}
+	resolved, err := filepath.EvalSymlinks(checked)
+	if err != nil {
+		return "", "The General Manager's projects folder, " + gm.Folder.storedOnly() + ", isn't there."
 	}
 	if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
-		return "", "The General Manager's projects folder, " + gm.Folder + ", isn't a folder."
+		return "", "The General Manager's projects folder, " + gm.Folder.storedOnly() + ", isn't a folder."
 	}
 	return resolved, ""
 }

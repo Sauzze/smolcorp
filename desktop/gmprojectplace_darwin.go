@@ -61,3 +61,28 @@ func (p *projectsPlace) onDiskOf(dir string) (bool, error) {
 
 // movedAcrossDisks is whether moveIn failed because the staging folder and the projects folder are on two disks.
 func movedAcrossDisks(err error) bool { return errors.Is(err, unix.EXDEV) }
+
+// openResolvedRoot opens folder, already resolved, as a root, with no link anywhere on its path (O_NOFOLLOW_ANY): a
+// link put on its way since it was resolved is refused, never followed, and the root is the very folder so opened
+// (FXGMHIRENOGIT126R5). What a desk's start writes in the folder it checked goes through it.
+func openResolvedRoot(folder string) (*os.Root, error) {
+	fd, err := unix.Open(folder, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW_ANY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, &os.PathError{Op: "open", Path: folder, Err: err}
+	}
+	held := os.NewFile(uintptr(fd), folder)
+	defer held.Close()
+	seen, err := held.Stat()
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(folder)
+	if err != nil {
+		return nil, err
+	}
+	if opened, err := root.Stat("."); err != nil || !os.SameFile(seen, opened) {
+		root.Close()
+		return nil, errors.Join(err, errors.New(folder+" was moved while it was opened"))
+	}
+	return root, nil
+}

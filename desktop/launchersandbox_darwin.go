@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/aymanbagabas/go-pty"
 	"golang.org/x/sys/unix"
@@ -49,7 +50,16 @@ type launcherSandbox struct {
 	relay   *hookRelay
 	start   *sandbox.Start
 	closing sync.Once
+	// hookKey is this launcher's own hook key, which its relay sends with (FXSWEEP3P3 F-3), made new at each start
+	// and never written down; connected is closed once the app has it (noteConnected).
+	hookKey      string
+	connected    chan struct{}
+	connectedSay sync.Once
 }
+
+// relayKeyWait is how long an event the relay has before the app has the launcher's own key waits for it: less than
+// the hook's own wait (hookTimeout), and far more than the launcher takes to reach the app after its agent starts.
+const relayKeyWait = 1500 * time.Millisecond
 
 // plainHireIDFor is a new plain hire's id (plainHireTmuxID): a variable, for the tests.
 var plainHireIDFor = plainHireTmuxID
@@ -60,14 +70,17 @@ var launcherStartCommand = sandbox.MacCommand
 // newLauncherSandbox makes the sandbox of a plain hire working in folder, its agent being agent at program: everything
 // up to its start. launcher is the launcher's own id, its tab's (SMOLCORP_SESSION). The error is the owner's words.
 func newLauncherSandbox(folder string, gm bool, launcher string, agent Agent, program string) (*launcherSandbox, error) {
-	return newLauncherSandboxAt("", folder, gm, launcher, agent, program)
+	return newLauncherSandboxAt("", "", folder, gm, launcher, agent, program)
 }
 
 // newLauncherSandboxAt is newLauncherSandbox for the desk the office named, desk (`--desk`, plainDeskID's shape), or
 // a new one for "": an office's plain hire on a Mac works in its own worktree, on the branch the office made for that
 // desk, hire/<desk>/… (FXHIREPROJECTSR7, ruling (W)), so its sandbox is that desk's. Its folder in the support folder
-// is made new either way: a desk named twice doesn't start the second time.
-func newLauncherSandboxAt(desk, folder string, gm bool, launcher string, agent Agent, program string) (_ *launcherSandbox, err error) {
+// is made new either way: a desk named twice doesn't start the second time. A desk the office made no worktree for
+// (a folder in no repo, or a GM's own) works in folder itself, which must still resolve to place, the folder as the
+// rule judged it at its hire (`--place`): its one start is checked as an engine desk's every start is
+// (deskPlacedWords, FXGMHIRENOGIT126R4, R10).
+func newLauncherSandboxAt(desk, place, folder string, gm bool, launcher string, agent Agent, program string) (_ *launcherSandbox, err error) {
 	reapLaunchersGone()
 	id := plainHireIDFor()
 	if desk != "" {
@@ -99,8 +112,32 @@ func newLauncherSandboxAt(desk, folder string, gm bool, launcher string, agent A
 		return refuse(sandboxNotMade, "its launcher's record: "+err.Error())
 	}
 	at := deskAt{ID: id, GM: gm, Root: folder, Socket: s.socket, Accounts: claudeDenyProfiles(savedConfig().ClaudeProfiles),
-		Git: runGit, Programs: []sandbox.Program{{Name: string(agent), Path: program}}}
-	at.Checkout, at.Hires = launcherRepo(folder, savedConfig().HireWorktrees)
+		Git: runGit, Programs: []sandbox.Program{{Name: string(agent), Path: program}}, Worktrees: savedConfig().HireWorktrees}
+	// A desk the office made a worktree for has it on record (keepPlainHire): its start checks that tree is still
+	// the one made, as an engine desk's does (deskTreeWords, FXGMHIRENOGIT126R3, B2), whatever git now finds at folder.
+	// Its checkout and folder for hires are its record's, as deskAtOf gives an engine desk's, and a desk working in its
+	// folder has that folder checked first: no git runs at folder before its check, which a link put there since its
+	// hire would lead elsewhere (FXGMHIRENOGIT126R5, R13).
+	repoAt := folder
+	if desk != "" {
+		// The record's tree as stored: the start check's input (deskStartPlaceWords, just below), as deskAtOf gives it.
+		if record, found := plainHireRecord(desk); found && !record.Worktree.none() && record.Repo != "" {
+			at.Tree, at.TreeRepo = record.Worktree.storedOnly(), record.Repo
+		} else {
+			at.CheckPlaced, at.Placed = true, place
+			repoAt = place
+		}
+		if words := deskStartPlaceWords(at); words != "" {
+			return refuse(words, words)
+		}
+	}
+	if at.Tree != "" {
+		// Hires is the folder beside the repo, as deskAtOf gives it: the core's own folder and a configured one are held
+		// by Places.Worktrees (FXCOREWORKTREES126).
+		at.Checkout, at.Hires = at.TreeRepo, legacyHiresFolder(at.TreeRepo)
+	} else if repoAt != "" {
+		at.Checkout, at.Hires = launcherRepo(repoAt, at.Worktrees)
+	}
 	if s.desk, err = makeDeskSandbox(at); err != nil {
 		return refuse(err.Error(), err.Error())
 	}
@@ -111,7 +148,8 @@ func newLauncherSandboxAt(desk, folder string, gm bool, launcher string, agent A
 	if s.start, err = sandbox.NewStart(s.desk.checks(s.profile)); err != nil {
 		return refuse(sandbox.SandboxExecRefusal, "its check: "+err.Error())
 	}
-	handler := relayHandler(launcher, agent, fmt.Sprintf("http://127.0.0.1:%d", Port), launcherHookKey, relayClient)
+	s.hookKey, s.connected = randomKey(), make(chan struct{})
+	handler := relayHandler(launcher, agent, fmt.Sprintf("http://127.0.0.1:%d", Port), s.relayKey, relayClient)
 	if s.relay, err = startHookRelay(s.socket, handler); err != nil {
 		return refuse(sandboxNotMade, "its hook relay: "+err.Error())
 	}
@@ -119,11 +157,17 @@ func newLauncherSandboxAt(desk, folder string, gm bool, launcher string, agent A
 }
 
 // launcherRepo is, for a plain hire working in folder, the owner's checkout when folder is in a linked worktree of it
-// ("" otherwise), and where that repo's hires' worktrees go (hiresFolder): as the engine's hire in its worktree has
+// ("" otherwise), and the folder beside that repo for its hires' worktrees (legacyHiresFolder): as the engine's hire in its worktree has
 // them (deskAtOf), so the checkout and the other hires' worktrees are held from it as from the engine's
 // (FXHIREPROJECTSR7, ruling (W): an office's plain hire on a Mac works in a worktree of its own). git is asked where
-// the shared .git is; a checkout's is its own .git. "" for both when folder is in no repo, or git can't say.
+// the shared .git is; a checkout's is its own .git. "" for both when folder is in no repo, or git can't say. The rule
+// and git see one spelling of folder, its links resolved once, and a folder whose links couldn't be resolved gets no
+// git (FXGMHIRENOGIT126R2, B2).
 func launcherRepo(folder, worktrees string) (checkout, hires string) {
+	folder, resolved := resolvedFolder(folder)
+	if !resolved || gmOwnsFolder(folder) {
+		return "", "" // no git in a General Manager's own folder (hiregmfolder.go)
+	}
 	status, out, ran := runGit(folder, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
 	lines := strings.Split(out, "\n")
 	if !ran || status != 0 || len(lines) != 2 || !filepath.IsAbs(lines[0]) || !filepath.IsAbs(lines[1]) {
@@ -132,9 +176,36 @@ func launcherRepo(folder, worktrees string) (checkout, hires string) {
 	top, common := physical(lines[0]), physical(lines[1])
 	if filepath.Base(common) == ".git" && filepath.Dir(common) != top {
 		checkout = filepath.Dir(common)
-		return checkout, hiresFolder(checkout, worktrees)
+		return checkout, legacyHiresFolder(checkout)
 	}
-	return "", hiresFolder(top, worktrees)
+	return "", legacyHiresFolder(top)
+}
+
+// relayKey is the key the relay sends with: the launcher's own, once the app has it (its connection named it,
+// serveDeck), never the owner's, which would let the hire report as any of the owner's own sessions (FXSWEEP3P3 F-3).
+// Until then, a little while, an event waits for it.
+func (s *launcherSandbox) relayKey() (string, error) {
+	select {
+	case <-s.connected:
+		return s.hookKey, nil
+	case <-time.After(relayKeyWait):
+		return "", errors.New("the app doesn't have the launcher's hook key yet")
+	}
+}
+
+// ownHookKey is the key the launcher gives the app at each connection (launcherRelayKeyHeader), "" for none.
+func (s *launcherSandbox) ownHookKey() string {
+	if s == nil {
+		return ""
+	}
+	return s.hookKey
+}
+
+// noteConnected is the app's answer to a connection that gave it the launcher's own key: the relay may send with it.
+func (s *launcherSandbox) noteConnected() {
+	if s != nil && s.connected != nil {
+		s.connectedSay.Do(func() { close(s.connected) })
+	}
 }
 
 // environment is env for the agent in its sandbox: its hooks' relay, and set (its own sandbox switched off).

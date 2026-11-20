@@ -80,10 +80,10 @@ func TestAnEngineHireIntoAPickedProjectIsToldItAndNotAskedWhich(t *testing.T) {
 
 // hiresStartFolder is where hire h's agent starts: its own worktree, or the folder it was hired into.
 func hiresStartFolder(h Hire) string {
-	if h.Worktree != "" {
-		return h.Worktree
+	if !h.Worktree.none() {
+		return h.Worktree.storedOnly()
 	}
-	return h.Folder
+	return h.Folder.storedOnly()
 }
 
 // A plain hire of a role into a picked project (the manager off, no tmux for it): its launcher is told the project
@@ -98,7 +98,7 @@ func TestAPlainHireIntoAPickedProjectIsToldItAndNotAskedWhich(t *testing.T) {
 		t.Fatalf("the plain hire with no project: %d %s", status, said)
 	}
 	d.mu.Lock()
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	d.mu.Unlock()
 	if status, said := d.Perform("hire", "", url.Values{"role": {"janitor"}, "project": {"lib"}}); status != http.StatusNoContent {
 		t.Fatalf("the plain hire into lib: %d %s", status, said)
@@ -158,7 +158,7 @@ func engineHireAsksWhich(t *testing.T) {
 	d.watching.Wait()
 	got := registered(t)
 	row := got[len(got)-1]
-	if row.Folder != l.projects || row.Worktree != "" {
+	if row.Folder.storedOnly() != l.projects || !row.Worktree.none() {
 		t.Fatalf("the sandbox off: %+v", row)
 	}
 	data, err := os.ReadFile(row.Brief)

@@ -227,6 +227,59 @@ func TestAStrayAPIKeyHelperIsRefusedUnlessTheAPIKeyAccountWasPicked(t *testing.T
 	}
 }
 
+// A place refused after its ports were held lets them go at once, whichever step refused it: its caller is given no
+// place, so nothing else would until hirePortsHold. A place made keeps them held until its caller lets go.
+func TestARefusedPlaceLetsItsHeldPortsGoAtOnce(t *testing.T) {
+	home := isolate(t)
+	repo := placeRepo(t)
+	file := writeConfig(t, home, "{}")
+	all := func(int) bool { return true }
+	next := func() string {
+		t.Helper()
+		ports := allocateHirePorts(nil, all)
+		releaseHirePorts(ports)
+		return ports
+	}
+	o := placeOptions(t)
+	o.Hold = true
+	// Refused by its check, then by its pre-trust (the config turned just as the worktree was made).
+	refuse := func(hirePlace, string) error { return &hireRefusal{Status: 409, Message: "refused"} }
+	if _, err := prepareHire(hireRequest{HireID: "aaaaaaaaaaaa", Name: "x", Folder: repo, Claude: true, Worktree: true, Check: refuse}, o); err == nil {
+		t.Fatal("the check's refusal didn't refuse the place")
+	}
+	if got := next(); got != "4100-4103" {
+		t.Errorf("after a place its check refused, the next range is %q: its ports are still held", got)
+	}
+	o.Git = func(dir string, args ...string) (int, string, bool) {
+		status, out, ok := runGit(dir, args...)
+		if len(args) > 1 && args[1] == "add" {
+			os.WriteFile(file, []byte("[]"), 0o600)
+		}
+		return status, out, ok
+	}
+	if _, err := prepareHire(hireRequest{HireID: "bbbbbbbbbbbb", Name: "x", Folder: repo, Claude: true, Worktree: true}, o); err != errHireTrust {
+		t.Fatalf("err = %v, want errHireTrust", err)
+	}
+	if got := next(); got != "4100-4103" {
+		t.Errorf("after a place its pre-trust refused, the next range is %q: its ports are still held", got)
+	}
+	// A place made holds its range until its caller lets go.
+	writeConfig(t, home, "{}")
+	o.Git = runGit
+	place, err := prepareHire(hireRequest{HireID: "cccccccccccc", Name: "x", Folder: repo, Claude: true, Worktree: true}, o)
+	if err != nil || place.Ports != "4100-4103" {
+		t.Fatalf("the place: %+v %v", place, err)
+	}
+	t.Cleanup(func() { releaseHirePorts(place.Ports) })
+	if got := next(); got != "4104-4107" {
+		t.Errorf("while a made place holds 4100-4103, the next range is %q", got)
+	}
+	releaseHirePorts(place.Ports)
+	if got := next(); got != "4100-4103" {
+		t.Errorf("once its caller let go, the next range is %q", got)
+	}
+}
+
 func TestPortsAreTheFirstFreeRangeAwayFromTakenOnes(t *testing.T) {
 	all := func(int) bool { return true }
 	for _, c := range []struct {
@@ -315,7 +368,7 @@ func TestAHiresBranchIsInAFolderOfItsOwn(t *testing.T) {
 	if place.Branch != sandbox.HireBranch("0123456789ab", "bo-012345") || branches(t, repo) != "+ hire/0123456789ab/bo-012345" {
 		t.Fatalf("branch %q; the repo's hire branches: %q", place.Branch, branches(t, repo))
 	}
-	h := Hire{ID: "fedcba987654", Repo: place.Repo, Worktree: place.Worktree, Branch: place.Branch}
+	h := Hire{ID: "fedcba987654", Repo: place.Repo, Worktree: keptPath(place.Worktree), Branch: place.Branch}
 	if removeOwnWorktree(nil, o.Worktrees, h) || branches(t, repo) == "" {
 		t.Fatal("a record of another ID took the hire's worktree")
 	}
@@ -328,7 +381,7 @@ func TestAHiresBranchIsInAFolderOfItsOwn(t *testing.T) {
 	if out, err := exec.Command("git", "-C", repo, "worktree", "add", "-q", "-b", "hire/cy-abcdef", tree).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
-	if !removeOwnWorktree(nil, o.Worktrees, Hire{ID: "abcdef123456", Repo: repo, Worktree: physical(tree), Branch: "hire/cy-abcdef"}) {
+	if !removeOwnWorktree(nil, o.Worktrees, Hire{ID: "abcdef123456", Repo: repo, Worktree: keptPath(physical(tree)), Branch: "hire/cy-abcdef"}) {
 		t.Error("a hire's worktree from before the branch folders wasn't taken")
 	}
 }

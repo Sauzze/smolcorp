@@ -86,13 +86,13 @@ func (rt *router) gmFire(w http.ResponseWriter, r *request) {
 	if note != "" { // marked fired with no window closed (hirefire_window.go): 200, saying so, and why a worktree stayed
 		answer := map[string]any{"ok": true, "note": note}
 		if kept != "" {
-			answer["kept"], answer["worktree"], answer["branch"] = kept, h.Worktree, h.Branch
+			answer["kept"], answer["worktree"], answer["branch"] = kept, h.Worktree.storedOnly(), h.Branch
 		}
 		writeJSON(w, http.StatusOK, answer)
 		return
 	}
 	if kept != "" && asked["removeWorktree"] == true { // fire.json: 200 only when removal was asked and the worktree had to stay
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "kept": kept, "worktree": h.Worktree, "branch": h.Branch})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "kept": kept, "worktree": h.Worktree.storedOnly(), "branch": h.Branch})
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

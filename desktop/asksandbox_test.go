@@ -133,7 +133,8 @@ func TestOnAMacAnAskIsJudgedByItsProgramsSandbox(t *testing.T) {
 	}
 	// The words the fail-first rows check are these.
 	for got, want := range map[string]string{askFromASandbox: sweepAskWords, hireFolderPageOnly: sweepFolderPageOnly,
-		hiringOffOnly: sweepHiringOffOnly, officeWindowOnly: sweepOfficeWindow, askNoAsker: sweepNoAskerWords} {
+		hireFolderOwnersOnly: sweepFolderOwnersOnly, hiringOffOnly: sweepHiringOffOnly, officeWindowOnly: sweepOfficeWindow,
+		askNoAsker: sweepNoAskerWords} {
 		if got != want {
 			t.Errorf("%q, the rows check %q", got, want)
 		}

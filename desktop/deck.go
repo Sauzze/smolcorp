@@ -113,6 +113,10 @@ type Deck struct {
 	// A hire is under way: its agent being looked for, or its terminal opening,
 	// with the lock let go. No other starts until it's done.
 	hiring bool
+	// gmAskedHiring and gmLastHire are hiring and lastHire for the hires the General Manager asks for, which never hold
+	// the owner's or Setup's (FXCOREWORKTREES126, item 5): one GM hire at a time, each within gmHireDeadline.
+	gmAskedHiring bool
+	gmLastHire    time.Time
 	// The engine's stand-ins, for the tests, and the hires it is still watching: see hireengine.go.
 	engine engineOptions
 	// The same for the launcher's way (hirelauncher.go).
@@ -555,7 +559,7 @@ func (d *Deck) ingestAs(desks hookDesks, desk string, event map[string]any, repo
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	desks.launchers = d.launcherHires()
+	desks.launchers, desks.ownLaunchers = d.launcherHires(), d.launcherHookHashes()
 	id, _ := canonical["session_id"].(string)
 	session := d.sessions.Get(id)
 	if session == nil {
@@ -595,7 +599,9 @@ func (d *Deck) ingestAs(desks hookDesks, desk string, event map[string]any, repo
 		}
 	}
 	changed := d.sessions.Apply(canonical, agent, tab, startedIn, at)
-	if s := d.sessions.Get(id); s != nil && desk != "" {
+	// A launcher's own key (a sandboxed plain hire's relay) isn't kept as the desk that reported: it has no row in the
+	// registry, which deskGit holds such a desk's reads to, and its tab says whose session it is.
+	if s := d.sessions.Get(id); s != nil && desk != "" && !strings.HasPrefix(desk, "launcher:") {
 		s.reportedBy = desk
 	}
 	if s := d.sessions.Get(id); s != nil && named != "" && s.unconfirmedFolder != unconfirmed {

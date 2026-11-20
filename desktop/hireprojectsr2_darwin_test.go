@@ -94,7 +94,7 @@ func codeLayout(t *testing.T) (gmRootLayout, Hire, string) {
 	standInOwnersGit(t, app, "add", "README")
 	standInOwnersGit(t, app, "commit", "-q", "-m", "first")
 	standInOwnersGit(t, app, "worktree", "add", "-q", "-b", "hire/h3", tree)
-	h := Hire{ID: "h3", Name: "Janitor", Role: "janitor", Folder: app, Repo: app, Worktree: tree, Branch: "hire/h3", State: "working"}
+	h := Hire{ID: "h3", Name: "Janitor", Role: "janitor", Folder: keptPath(app), Repo: app, Worktree: keptPath(tree), Branch: "hire/h3", State: "working"}
 	writeRegistryHires(t, h)
 	setHireFolder(t, clients)
 	if err := os.MkdirAll(hireFolder(supportDir, h.ID), 0o700); err != nil {
@@ -137,8 +137,8 @@ func workLayout(t *testing.T) (gmRootLayout, Hire, string, string) {
 	standInOwnersGit(t, app, "add", "README")
 	standInOwnersGit(t, app, "commit", "-q", "-m", "first")
 	standInOwnersGit(t, app, "worktree", "add", "-q", "-b", "hire/h5", tree)
-	l.gm.Folder = work
-	h := Hire{ID: "h5", Name: "Janitor", Role: "janitor", Folder: app, Repo: app, Worktree: tree, Branch: "hire/h5", State: "working"}
+	l.gm.Folder = keptPath(work)
+	h := Hire{ID: "h5", Name: "Janitor", Role: "janitor", Folder: keptPath(app), Repo: app, Worktree: keptPath(tree), Branch: "hire/h5", State: "working"}
 	writeRegistryHires(t, l.gm, h)
 	setHireFolder(t, l.projects)
 	if err := os.MkdirAll(hireFolder(supportDir, h.ID), 0o700); err != nil {
@@ -206,7 +206,7 @@ func TestADesksOwnGitWorkStillRunsUnderTheHeldFolders(t *testing.T) {
 		l := newGMRootLayout(t)
 		tree := filepath.Join(hiresFolder(l.app, l.app), "h6")
 		standInOwnersGit(t, l.app, "worktree", "add", "-q", "-b", "hire/h6", tree)
-		h := Hire{ID: "h6", Name: "Janitor", Role: "janitor", Folder: l.app, Repo: l.app, Worktree: tree, Branch: "hire/h6", State: "working"}
+		h := Hire{ID: "h6", Name: "Janitor", Role: "janitor", Folder: keptPath(l.app), Repo: l.app, Worktree: keptPath(tree), Branch: "hire/h6", State: "working"}
 		writeRegistryHires(t, h)
 		setHireFolder(t, l.projects)
 		if err := os.MkdirAll(hireFolder(supportDir, h.ID), 0o700); err != nil {

@@ -120,17 +120,31 @@ func makeDeskPlans(place, hireID string) error {
 	if !oneName(hireID) {
 		return errDeskClaude
 	}
+	root, err := os.OpenRoot(place)
+	if err != nil {
+		return errDeskClaude
+	}
+	defer root.Close()
+	return makeDeskPlansIn(root, hireID)
+}
+
+// makeDeskPlansIn is makeDeskPlans in the folder root holds open: a start that checked its folder writes there through
+// a root opened on what it checked (openResolvedRoot, the carry's tree), never by the folder's path again, which whoever
+// can write a folder on its way could turn into a link meanwhile (FXGMHIRENOGIT126R5).
+func makeDeskPlansIn(root *os.Root, hireID string) error {
+	if !oneName(hireID) {
+		return errDeskClaude
+	}
 	top, _, _ := strings.Cut(deskPlansDirectory, "/")
-	for _, folder := range []string{filepath.Join(place, top), filepath.Join(place, filepath.FromSlash(deskPlansDirectory)),
-		filepath.Join(place, filepath.FromSlash(deskPlansFor(hireID)))} {
-		if err := os.Mkdir(folder, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+	for _, folder := range []string{top, filepath.FromSlash(deskPlansDirectory), filepath.FromSlash(deskPlansFor(hireID))} {
+		if err := root.Mkdir(folder, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
 			return errDeskClaude
 		}
-		if info, err := os.Lstat(folder); err != nil || !info.IsDir() {
+		if info, err := root.Lstat(folder); err != nil || !info.IsDir() {
 			return errDeskClaude
 		}
 	}
-	ignore, err := os.OpenFile(filepath.Join(place, top, ".gitignore"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	ignore, err := root.OpenFile(filepath.Join(top, ".gitignore"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, fs.ErrExist) {
 		return nil
 	}
@@ -157,6 +171,14 @@ func removeDeskPlans(place, hireID string) error {
 		return err
 	}
 	defer root.Close()
+	return removeDeskPlansIn(root, hireID)
+}
+
+// removeDeskPlansIn is removeDeskPlans in the folder root holds open (makeDeskPlansIn's undo).
+func removeDeskPlansIn(root *os.Root, hireID string) error {
+	if !oneName(hireID) {
+		return errDeskClaude
+	}
 	for _, folder := range []string{strings.Split(deskPlansDirectory, "/")[0], deskPlansDirectory} {
 		if info, err := root.Lstat(filepath.FromSlash(folder)); err != nil || !info.IsDir() {
 			return nil // nothing made there, or not the core's: nothing to take

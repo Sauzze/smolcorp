@@ -286,8 +286,8 @@ func TestARegistryThatCantBeReadOrHasNoRowStillRunsNothingOfTheTreesConfig(t *te
 					m.afterTheCheck(t, m.hostile(t, filepath.Join(r.repo, ".git")))
 				}
 				if registry == "no row" {
-					writeRegistry(t, Hire{ID: "fedcba654321", Name: "bo", Role: "builder", Folder: r.repo, Repo: r.repo,
-						Worktree: filepath.Join(r.base, "elsewhere"), Branch: "hire/bo", State: "working"})
+					writeRegistry(t, Hire{ID: "fedcba654321", Name: "bo", Role: "builder", Folder: keptPath(r.repo), Repo: r.repo,
+						Worktree: keptPath(filepath.Join(r.base, "elsewhere")), Branch: "hire/bo", State: "working"})
 				} else if err := writeRegistryFile(registryPath(), []byte("{not a registry"), 0o600); err != nil {
 					t.Fatal(err)
 				}

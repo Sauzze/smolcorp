@@ -9,3 +9,7 @@ func (d *Deck) restartInSandbox(string) (int, any) { return http.StatusConflict,
 
 // onOwnTmux: no desk runs on a tmux server of its own here.
 func onOwnTmux(Hire) bool { return false }
+
+// hireTreeTurned: no desk starts in a sandbox here, so a hire's worktree isn't checked as a start checks it on a Mac
+// (deskTreeWords).
+func hireTreeTurned(Hire) bool { return false }

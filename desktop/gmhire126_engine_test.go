@@ -35,7 +35,7 @@ func TestTheGMHireOnTheEngineHonoursAModelAndANickname(t *testing.T) {
 	if len(hires) != 1 || hires[0].Model != "opus" || hires[0].Nickname != "Ada" {
 		t.Fatalf("registry %+v", hires)
 	}
-	if !strings.Contains(filepath.Base(hires[0].Worktree), "ada") || !strings.Contains(hires[0].Branch, "/ada-") {
+	if !strings.Contains(filepath.Base(hires[0].Worktree.storedOnly()), "ada") || !strings.Contains(hires[0].Branch, "/ada-") {
 		t.Errorf("the worktree %q and branch %q aren't named for the nickname", hires[0].Worktree, hires[0].Branch)
 	}
 	if script := r.script(hires[0]); !strings.Contains(script, "'--model=opus'") || strings.Contains(script, "--model=sonnet") {
@@ -56,7 +56,7 @@ func TestAGMOnTheEngineInAFolderThatIsNoRepoKeepsItsBriefInItsOwnFolder(t *testi
 		t.Fatalf("the GM's hire: %d %q", code, text)
 	}
 	hires := registered(t)
-	if len(hires) != 1 || hires[0].Role != gmRole || hires[0].Worktree != "" {
+	if len(hires) != 1 || hires[0].Role != gmRole || !hires[0].Worktree.none() {
 		t.Fatalf("registry %+v", hires)
 	}
 	gm, own := hires[0], hireFolder(supportDir, hires[0].ID)

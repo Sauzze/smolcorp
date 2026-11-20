@@ -41,7 +41,7 @@ func TestALaunchersStartRefusalSaysWhichOneItIs(t *testing.T) {
 func TestTheLaunchersRouteTellsAGoneRowFromAChangedSettingsFile(t *testing.T) {
 	d := newTestDeck(t)
 	r := newHireSettingsRig(t)
-	claudeRegistry(t, Hire{ID: "abc123", Name: "Ada", Folder: r.root, State: "starting", ViaLauncher: true})
+	claudeRegistry(t, Hire{ID: "abc123", Name: "Ada", Folder: keptPath(r.root), State: "starting", ViaLauncher: true})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) { d.startEnvRoute(w, q.URL.Query()) }))
 	t.Cleanup(server.Close)
 	for _, c := range []struct {

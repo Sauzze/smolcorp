@@ -82,7 +82,7 @@ func r9Hire(t *testing.T, l gmRootLayout, id string) Hire {
 		t.Fatalf("the hire: %v", err)
 	}
 	t.Logf("prepareHire took %v", time.Since(began))
-	h := Hire{ID: id, Name: "Janitor", Role: "janitor", Folder: place.Folder, Repo: place.Repo, Worktree: place.Worktree, Branch: place.Branch, State: "working"}
+	h := Hire{ID: id, Name: "Janitor", Role: "janitor", Folder: keptPath(place.Folder), Repo: place.Repo, Worktree: keptPath(place.Worktree), Branch: place.Branch, State: "working"}
 	writeRegistryHires(t, l.hire, h)
 	if err := os.MkdirAll(hireFolder(supportDir, id), 0o700); err != nil {
 		t.Fatal(err)
@@ -119,12 +119,12 @@ func TestTheSubmodulesInAHiresWorktreeAreHeldFromIt(t *testing.T) {
 				standInOwnersGit(t, l.hireTree, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init")
 			}
 			tree := h.Worktree
-			registration := strings.TrimSpace(standInOwnersGit(t, tree, "rev-parse", "--path-format=absolute", "--git-dir"))
+			registration := strings.TrimSpace(standInOwnersGit(t, tree.storedOnly(), "rev-parse", "--path-format=absolute", "--git-dir"))
 			gitFolder := filepath.Join(registration, "modules", "sub")
-			if data, err := os.ReadFile(filepath.Join(tree, "sub", "README")); err != nil || string(data) != "the owner's\n" {
+			if data, err := os.ReadFile(filepath.Join(tree.storedOnly(), "sub", "README")); err != nil || string(data) != "the owner's\n" {
 				t.Fatalf("the submodule isn't checked out in the hire's worktree: %q %v", data, err)
 			}
-			if got := strings.TrimSpace(standInOwnersGit(t, filepath.Join(tree, "sub"), "rev-parse", "--path-format=absolute", "--git-dir")); got != gitFolder {
+			if got := strings.TrimSpace(standInOwnersGit(t, filepath.Join(tree.storedOnly(), "sub"), "rev-parse", "--path-format=absolute", "--git-dir")); got != gitFolder {
 				t.Fatalf("the submodule's git folder is %s, want %s", got, gitFolder)
 			}
 			profile, _ := l.profile(t, h)
@@ -132,24 +132,24 @@ func TestTheSubmodulesInAHiresWorktreeAreHeldFromIt(t *testing.T) {
 			if err := os.WriteFile(fsm, []byte("#!/bin/sh\necho planted > '"+l.planted+"'\n"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			got := sandboxedSh(t, profile, tree, r9HeldTries, gitFolder, fsm)
+			got := sandboxedSh(t, profile, tree.storedOnly(), r9HeldTries, gitFolder, fsm)
 			if want := "refused refused refused refused refused refused"; strings.Join(got, " ") != want {
 				t.Errorf("config, hook, info, a folder, MODULES/sub/config, git config:\n got %q\nwant %q", got, want)
 			}
-			got = sandboxedSh(t, profile, tree, r6Tries+`c="-c user.name=Hire -c user.email=hire@example.invalid -c commit.gpgsign=false"
+			got = sandboxedSh(t, profile, tree.storedOnly(), r6Tries+`c="-c user.name=Hire -c user.email=hire@example.invalid -c commit.gpgsign=false"
 t sh -c 'echo edited >> sub/README'
 t sh -c '/usr/bin/git -C sub '"$c"' commit -q -a -m sub'
 t sh -c 'echo edited >> README && /usr/bin/git add README && /usr/bin/git '"$c"' commit -q -m readme'`)
 			if want := "ok refused ok"; strings.Join(got, " ") != want {
 				t.Errorf("edit a file in the submodule, commit in it, commit the project's file:\n got %q\nwant %q", got, want)
 			}
-			standInOwnersGit(t, tree, "status", "--porcelain")
+			standInOwnersGit(t, tree.storedOnly(), "status", "--porcelain")
 			if _, err := os.Lstat(l.planted); err == nil {
 				t.Errorf("the owner's git status in the hire's worktree ran what it planted")
 			}
 			// Its commondir, which would name another folder for the submodule's config, last: on the tree before, the
 			// write passed and broke the folder for the look above.
-			got = sandboxedSh(t, profile, tree, r6Tries+`t sh -c 'printf "%s\n" "$1" > "$0/commondir"' "$1" "$2"`, gitFolder, filepath.Join(l.lib, ".git"))
+			got = sandboxedSh(t, profile, tree.storedOnly(), r6Tries+`t sh -c 'printf "%s\n" "$1" > "$0/commondir"' "$1" "$2"`, gitFolder, filepath.Join(l.lib, ".git"))
 			if strings.Join(got, " ") != "refused" {
 				t.Errorf("its submodule's commondir: %q", got)
 			}
@@ -185,7 +185,7 @@ done`, registration)
 // leads nowhere.
 func TestALinkWhoseWayCantBeFollowedStopsItsStart(t *testing.T) {
 	l := newHireProjectsLayout(t)
-	h := Hire{ID: "r9o", Name: "Janitor", Role: "janitor", Folder: l.lib, State: "working"}
+	h := Hire{ID: "r9o", Name: "Janitor", Role: "janitor", Folder: keptPath(l.lib), State: "working"}
 	r6Desk(t, l, h.ID, l.lib)
 	locked := filepath.Join(homeDir, "stage", "locked")
 	if err := os.MkdirAll(filepath.Join(locked, "box"), 0o700); err != nil {
@@ -223,7 +223,7 @@ func TestAHardLinkedMirrorInAPackageManagersFolderSaysToBuildAgain(t *testing.T)
 	r7Repo(t, dep)
 	mirror := filepath.Join(l.lib, ".build", "repositories", "dep-1a2b3c4d")
 	standInOwnersGit(t, l.lib, "clone", "-q", "--mirror", dep, mirror)
-	h := Hire{ID: "r9m", Name: "Janitor", Role: "janitor", Folder: l.lib, State: "working"}
+	h := Hire{ID: "r9m", Name: "Janitor", Role: "janitor", Folder: keptPath(l.lib), State: "working"}
 	writeRegistryHires(t, l.hire, h)
 	if err := os.MkdirAll(hireFolder(supportDir, h.ID), 0o700); err != nil {
 		t.Fatal(err)
@@ -242,10 +242,10 @@ func TestASubmoduleTheOwnerHasntInitialisedStaysSoInAHiresWorktree(t *testing.T)
 	r9SubmoduleProject(t, l)
 	standInOwnersGit(t, l.app, "submodule", "deinit", "-q", "-f", "sub")
 	h := r9Hire(t, l, "a1b2c3d4e5f6")
-	if entries, err := os.ReadDir(filepath.Join(h.Worktree, "sub")); err != nil || len(entries) != 0 {
+	if entries, err := os.ReadDir(filepath.Join(h.Worktree.storedOnly(), "sub")); err != nil || len(entries) != 0 {
 		t.Errorf("the hire's sub: %v %v, want an empty folder", entries, err)
 	}
-	registration := strings.TrimSpace(standInOwnersGit(t, h.Worktree, "rev-parse", "--path-format=absolute", "--git-dir"))
+	registration := strings.TrimSpace(standInOwnersGit(t, h.Worktree.storedOnly(), "rev-parse", "--path-format=absolute", "--git-dir"))
 	if _, err := os.Lstat(filepath.Join(registration, "modules")); err == nil {
 		t.Errorf("a git folder was made for a submodule the owner hasn't initialised")
 	}
@@ -258,7 +258,7 @@ func TestASubmoduleTheOwnerHasntInitialisedStaysSoInAHiresWorktree(t *testing.T)
 // owner's own checkout; a removed one says nothing of it.
 func TestAKeptWorktreesRecapSaysNotToRunGitInIt(t *testing.T) {
 	shortSupport(t)
-	h := Hire{ID: "abc123", Name: "Janitor", Folder: t.TempDir(), Worktree: "/p/app-hires/janitor-abc123", Branch: "hire/abc123/janitor"}
+	h := Hire{ID: "abc123", Name: "Janitor", Folder: keptPath(t.TempDir()), Worktree: keptPath("/p/app-hires/janitor-abc123"), Branch: "hire/abc123/janitor"}
 	read := func(removed bool) string {
 		data, err := os.ReadFile(writeRecap(h, "", removed, time.Unix(0, 0)))
 		if err != nil {

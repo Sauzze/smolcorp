@@ -29,6 +29,7 @@
 
 ;; Denied places an exception opens
 (deny file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.ssh/[^/]*(/.*)?$")) ; ssh keys while Remote Login answers
+(deny file-write* file-link (subpath "/Users/ada/Worktrees")) ; other desks' places
 (deny file-write* file-link (subpath "/private/tmp/smolcorp-501")) ; the socket folder
 (deny file-read-data file-read-xattr file-write* file-link network-outbound (subpath "/Users/ada/Library/Application Support/AgentDeck")) ; the support folder, whole
 (deny file-write* file-link (subpath "/Users/ada/Projects")) ; the GM's projects: read only
@@ -291,6 +292,12 @@
 (deny file-write* file-link (literal "/Users/ada/Library/HEAD")) ; plants the owner's programs run later: a git folder above the places
 (deny file-write* file-link (subpath "/Users/ada/Projects/.git")) ; plants the owner's programs run later: a git folder above the places
 (deny file-write* file-link (literal "/Users/ada/Projects/HEAD")) ; plants the owner's programs run later: a git folder above the places
+(deny file-write* file-link (subpath "/Users/ada/.smolcorp/worktrees/.git")) ; plants the owner's programs run later: a git folder above the places
+(deny file-write* file-link (literal "/Users/ada/.smolcorp/worktrees/HEAD")) ; plants the owner's programs run later: a git folder above the places
+(deny file-write* file-link (subpath "/Users/ada/.smolcorp/.git")) ; plants the owner's programs run later: a git folder above the places
+(deny file-write* file-link (literal "/Users/ada/.smolcorp/HEAD")) ; plants the owner's programs run later: a git folder above the places
+(deny file-write* file-link (subpath "/Users/ada/Worktrees/.git")) ; plants the owner's programs run later: a git folder above the places
+(deny file-write* file-link (literal "/Users/ada/Worktrees/HEAD")) ; plants the owner's programs run later: a git folder above the places
 (deny file-write* file-link (literal "/opt/homebrew/etc/gitconfig")) ; plants the owner's programs run later: git's other config
 (deny file-write* file-link (literal "/opt/homebrew/etc/gitconfig.lock")) ; plants the owner's programs run later: git's other config
 (deny file-write* file-link (literal "/opt/homebrew/etc/gitconfig.new")) ; plants the owner's programs run later: git's other config
@@ -477,6 +484,8 @@
 (deny file-write* file-link (literal "/Users/ada/Library/Application Support/AgentDeck/hires/gm1/work/HEAD")) ; plants the owner's programs run later: a git folder below its place
 (deny file-write* file-link (subpath "/Applications/Smolcorp.app")) ; programs that run outside
 (deny file-write* file-link (subpath "/opt/homebrew/Cellar/tmux")) ; programs that run outside
+(deny file-write* file-link (subpath "/Users/ada/.smolcorp/worktrees")) ; other desks' places
+(deny file-write* file-link (literal "/Users/ada/.smolcorp")) ; other desks' places: the folders above the folder for hires' worktrees
 (deny file-write* file-link (regex "^(/[^/]+)*/\\.claude$")) ; a .claude folder can't be made, moved or removed
 (deny file-write* file-link (regex "^(/[^/]+)*/\\.claude/settings\\.json$")) ; fences and hooks
 (deny file-write* file-link (regex "^(/[^/]+)*/\\.claude/settings\\.json[^/]*$")) ; fences and hooks
@@ -832,6 +841,24 @@
 (deny file-write-create (require-all (literal "/Users/ada/Projects") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Projects/HEAD")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/Projects/HEAD") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.smolcorp/worktrees/.git")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.smolcorp/worktrees/.git") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.smolcorp/worktrees")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.smolcorp/worktrees") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.smolcorp")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.smolcorp") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.smolcorp/worktrees/HEAD")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.smolcorp/worktrees/HEAD") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.smolcorp/.git")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.smolcorp/.git") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.smolcorp/HEAD")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.smolcorp/HEAD") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Worktrees/.git")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Worktrees/.git") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Worktrees")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Worktrees") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Worktrees/HEAD")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Worktrees/HEAD") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/opt/homebrew/etc/gitconfig")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/opt/homebrew/etc/gitconfig") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/opt/homebrew/etc")) ; the folders above a denied place can't be moved or removed

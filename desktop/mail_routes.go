@@ -268,6 +268,6 @@ func mailInboxEntry(h Hire, m mailMessage) eventEntry {
 	if name == "" {
 		name = mailHireName(h)
 	}
-	return eventEntry{At: int64(m.At), Folder: h.Folder, Kind: eventKindMail,
+	return eventEntry{At: int64(m.At), Folder: h.Folder.storedOnly(), Kind: eventKindMail, // the event's folder: a name only
 		Detail: clean(name) + " (hire " + h.ID + ") wrote to you: " + clean(m.Text)}
 }

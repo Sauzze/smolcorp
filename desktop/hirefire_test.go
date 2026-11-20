@@ -71,7 +71,7 @@ func TestAFireRefusesAtAQuestionDraftBusyOrAnUnreadableWindowAndChangesNothing(t
 			if r.tmux.ran("kill-server") || !r.tmux.up {
 				t.Error("the session was ended")
 			}
-			if _, err := os.Stat(hire.Worktree); err != nil || registered(t)[0].State != "starting" {
+			if _, err := os.Stat(hire.Worktree.storedOnly()); err != nil || registered(t)[0].State != "starting" {
 				t.Errorf("worktree or state changed: %v %+v", err, registered(t))
 			}
 			if strings.Contains(c.want, "janitor") || strings.Contains(c.want, "Janitor") {
@@ -148,7 +148,7 @@ func TestAFireOfAnIdleHireEndsItOnItsOwnSocketAndRemovesItsCleanWorktree(t *test
 	if !r.tmux.ran("kill-server") || r.tmux.up {
 		t.Error("the session wasn't ended")
 	}
-	if _, err := os.Stat(hire.Worktree); err == nil || branches(t, r.repo) != "" {
+	if _, err := os.Stat(hire.Worktree.storedOnly()); err == nil || branches(t, r.repo) != "" {
 		t.Error("the clean worktree or its branch was left")
 	}
 	if got := registered(t); got[0].State != "fired" {
@@ -158,13 +158,13 @@ func TestAFireOfAnIdleHireEndsItOnItsOwnSocketAndRemovesItsCleanWorktree(t *test
 
 func TestAForcedFireKeepsAWorktreeWithChangesAndSaysWhyInLowerCase(t *testing.T) {
 	_, r, hire := hiredForFire(t, "")
-	os.WriteFile(filepath.Join(hire.Worktree, "new.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(hire.Worktree.storedOnly(), "new.txt"), []byte("x"), 0o644)
 	windowShows(r, pane(t, "idle-empty"), true)
 	kept, err := fireEngineHire(hire, 0, r.o, true)
 	if err != nil || kept != firedWorktreeKept {
 		t.Fatalf("kept %q, err %v", kept, err)
 	}
-	if _, err := os.Stat(hire.Worktree); err != nil {
+	if _, err := os.Stat(hire.Worktree.storedOnly()); err != nil {
 		t.Error("a worktree with changes was removed")
 	}
 	got := registered(t)[0]
@@ -240,7 +240,7 @@ func TestAFireWhileTheRecordsKeyIsUnreadableEndsTheSessionButSavesNothing(t *tes
 			if now, _ := os.ReadFile(registryPath()); !bytes.Equal(now, saved) {
 				t.Errorf("the registry file was written while the key can't be read: %s", now)
 			}
-			if _, err := os.Stat(hire.Worktree); err != nil {
+			if _, err := os.Stat(hire.Worktree.storedOnly()); err != nil {
 				t.Errorf("the worktree went: %v", err)
 			}
 			got := registered(t)[0]
@@ -254,7 +254,7 @@ func TestAFireWhileTheRecordsKeyIsUnreadableEndsTheSessionButSavesNothing(t *tes
 			refused, ok := err.(*hireRefusal)
 			if !ok || refused.Status != http.StatusConflict || refused.Message != firedButHeld(hire, "session") ||
 				!strings.Contains(refused.Message, "Smolcorp ended Rex's session and took its key away for now, but can't save the fire") ||
-				!strings.Contains(refused.Message, "its worktree kept at "+hire.Worktree) {
+				!strings.Contains(refused.Message, "its worktree kept at "+hire.Worktree.storedOnly()) {
 				t.Fatalf("err = %v", err)
 			}
 			if m, _ := d.mail.get("m-rex"); m.State != mailFailed {
@@ -271,7 +271,7 @@ func TestTheActFireRouteFiresAnEngineHireThroughTheRefusals(t *testing.T) {
 	d, r, hire := hiredForFire(t, "Rex")
 	tab := "tmux:%1@" + hire.TmuxSocket
 	d.config.HiringEnabled = true
-	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "cwd": hire.Worktree},
+	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "cwd": hire.Worktree.storedOnly()},
 		Claude, tab, "", 200)
 	windowShows(r, pane(t, "permission-menu"), true)
 	d.engine = r.o
@@ -323,7 +323,7 @@ func TestAFailedKillIsNeverAFire(t *testing.T) {
 	if err == nil || err.Error() != "Couldn't end Janitor's tmux session, so nothing was changed." {
 		t.Fatalf("err = %v", err)
 	}
-	if _, err := os.Stat(hire.Worktree); err != nil || registered(t)[0].State != "starting" {
+	if _, err := os.Stat(hire.Worktree.storedOnly()); err != nil || registered(t)[0].State != "starting" {
 		t.Errorf("worktree or state changed: %v %+v", err, registered(t))
 	}
 	if _, err := os.Stat(filepath.Join(supportDir, "recaps")); err == nil {
@@ -333,7 +333,7 @@ func TestAFailedKillIsNeverAFire(t *testing.T) {
 
 func TestAFireStopsAtUncommittedChangesBeforeAnythingIsEndedUnlessForced(t *testing.T) {
 	_, r, hire := hiredForFire(t, "Rex")
-	os.WriteFile(filepath.Join(hire.Worktree, "new.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(hire.Worktree.storedOnly(), "new.txt"), []byte("x"), 0o644)
 	windowShows(r, pane(t, "idle-empty"), true)
 	want := "Rex has changes that aren't committed: ?? new.txt. Commit them, or fire with force."
 	if _, err := fireEngineHire(hire, 0, r.o, false); err == nil || err.Error() != want {
@@ -367,7 +367,7 @@ func TestAnEngineHireIsKnownByItsRowWhateverWayItsTabSpellsTheSocket(t *testing.
 	windowShows(r, pane(t, "permission-menu"), true)
 	d.engine = r.o
 	d.config.HiringEnabled = true
-	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "cwd": hire.Worktree},
+	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "cwd": hire.Worktree.storedOnly()},
 		Claude, "tmux:%1@"+spelt, "", 200)
 	if status, message := d.Perform("fire", "s1", url.Values{}); status != http.StatusConflict || !strings.HasPrefix(message, "Rex is waiting") {
 		t.Fatalf("fire by a spelling of the socket: %d %q", status, message)
@@ -395,7 +395,7 @@ func TestAFireWithTmuxThatCantBeAskedChangesNothing(t *testing.T) {
 	if _, err := fireEngineHire(hire, 0, r.o, false); err == nil || err.Error() != "Couldn't reach Janitor's tmux session, so nothing was changed." {
 		t.Fatalf("err = %v", err)
 	}
-	if _, err := os.Stat(hire.Worktree); err != nil || registered(t)[0].State != "starting" || !r.tmux.up {
+	if _, err := os.Stat(hire.Worktree.storedOnly()); err != nil || registered(t)[0].State != "starting" || !r.tmux.up {
 		t.Error("something changed")
 	}
 }
@@ -538,7 +538,15 @@ func TestAFireKeepsAWorktreeThatIsNotTheHiresOwnAndStillMarksTheHireFired(t *tes
 		change func(h *Hire, o *engineOptions)
 	}{
 		{"on another branch", func(h *Hire, o *engineOptions) { h.Branch = "hire/someone-else" }},
-		{"outside the hires folder", func(h *Hire, o *engineOptions) { o.Worktrees = t.TempDir() }},
+		// Its tree outside every folder for hires' worktrees (its row says so, resolved): since FXCOREWORKTREES126 every
+		// such folder of its repo counts, the configured one too, so the tree itself is put elsewhere.
+		{"outside the hires folder", func(h *Hire, o *engineOptions) {
+			elsewhere := filepath.Join(physical(t.TempDir()), filepath.Base(h.Worktree.storedOnly()))
+			if err := os.Rename(h.Worktree.storedOnly(), elsewhere); err != nil {
+				t.Fatal(err)
+			}
+			h.Worktree = keptPath(elsewhere)
+		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, r, hire := hiredForFire(t, "")
@@ -549,7 +557,7 @@ func TestAFireKeepsAWorktreeThatIsNotTheHiresOwnAndStillMarksTheHireFired(t *tes
 			if err != nil || kept == "" {
 				t.Fatalf("kept %q, err %v", kept, err)
 			}
-			if _, err := os.Stat(hire.Worktree); err != nil {
+			if _, err := os.Stat(hire.Worktree.storedOnly()); err != nil {
 				t.Error("a worktree that isn't the hire's own was removed")
 			}
 			if got := registered(t)[0]; got.State != "fired" || !strings.Contains(got.Notes, "was kept") {
@@ -563,7 +571,7 @@ func TestTheActFireRouteTakesForceOnlyWhenItIsOne(t *testing.T) {
 	d, r, hire := hiredForFire(t, "Rex")
 	tab := "tmux:%1@" + hire.TmuxSocket
 	d.config.HiringEnabled = true
-	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "cwd": hire.Worktree},
+	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "cwd": hire.Worktree.storedOnly()},
 		Claude, tab, "", 200)
 	windowShows(r, pane(t, "busy-1"), true)
 	d.engine = r.o
@@ -595,7 +603,7 @@ func TestAFireOfAHireWhoseSessionIsGoneButSocketFileIsThereEndsNothingAndMarksIt
 	if got := registered(t)[0].State; got != "fired" {
 		t.Errorf("state = %q", got)
 	}
-	if _, err := os.Stat(hire.Worktree); err == nil {
+	if _, err := os.Stat(hire.Worktree.storedOnly()); err == nil {
 		t.Error("the clean worktree was left")
 	}
 }
@@ -631,8 +639,8 @@ func TestAFireThroughTheRoutePrunesTheHiresSessionsAndKeepsOthers(t *testing.T) 
 	d, r, hire := hiredForFire(t, "Rex")
 	tab := "tmux:%1@" + hire.TmuxSocket
 	d.config.HiringEnabled = true
-	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "cwd": hire.Worktree}, Claude, tab, "", 200)
-	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s2", "cwd": hire.Folder}, Claude, "tmux:%9@/x/other", "", 200)
+	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s1", "cwd": hire.Worktree.storedOnly()}, Claude, tab, "", 200)
+	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s2", "cwd": hire.Folder.storedOnly()}, Claude, "tmux:%9@/x/other", "", 200)
 	windowShows(r, pane(t, "idle-empty"), true)
 	d.engine = r.o
 	if status, message := d.Perform("fire", "s1", url.Values{}); status != http.StatusNoContent {
@@ -681,7 +689,7 @@ func TestTheRecapTakesTheLastCostTheLastFiveStatusLinesFromTeamStatusAndTheHired
 
 func TestTheRecapOfAKeptWorktreeSaysKept(t *testing.T) {
 	_, r, hire := hiredForFire(t, "")
-	os.WriteFile(filepath.Join(hire.Worktree, "new.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(hire.Worktree.storedOnly(), "new.txt"), []byte("x"), 0o644)
 	if recap := firedWith(t, r, hire, pane(t, "idle-empty"), true); !strings.Contains(recap, "(kept)") || strings.Contains(recap, "(removed)") {
 		t.Errorf("recap:\n%s", recap)
 	}
@@ -690,7 +698,7 @@ func TestTheRecapOfAKeptWorktreeSaysKept(t *testing.T) {
 func TestAnUncommittedRefusalListsTenFilesAndSaysHowManyMore(t *testing.T) {
 	_, r, hire := hiredForFire(t, "Rex")
 	for i := 0; i < 12; i++ {
-		os.WriteFile(filepath.Join(hire.Worktree, "f"+strings.Repeat("x", i)+".txt"), []byte("x"), 0o644)
+		os.WriteFile(filepath.Join(hire.Worktree.storedOnly(), "f"+strings.Repeat("x", i)+".txt"), []byte("x"), 0o644)
 	}
 	windowShows(r, pane(t, "idle-empty"), true)
 	_, err := fireEngineHire(hire, 0, r.o, false)
@@ -705,7 +713,7 @@ func TestAnUncommittedRefusalListsTenFilesAndSaysHowManyMore(t *testing.T) {
 func TestARecapOfAHireWithANonPlainIdIsNamedBySlugOfItsId(t *testing.T) {
 	shortSupport(t)
 	folder := t.TempDir()
-	h := Hire{ID: "Odd ID/..x", Name: "Odd", Folder: folder}
+	h := Hire{ID: "Odd ID/..x", Name: "Odd", Folder: keptPath(folder)}
 	file := writeRecap(h, "", false, time.Unix(0, 0))
 	if want := filepath.Join(supportDir, "recaps", hireSlug(h.ID)+".md"); file != want || hireSlug(h.ID) == h.ID {
 		t.Fatalf("file %q, want %q", file, want)
@@ -752,12 +760,12 @@ func TestACleanFireLeavesTheHiresNotesAsTheyAreInTheRegistry(t *testing.T) {
 func TestAKeptFirePutsTheKeptLineBeforeTheNotesAndNeverReplacesThem(t *testing.T) {
 	_, r, hire := hiredForFire(t, "")
 	setNotes(t, "owner wrote this")
-	os.WriteFile(filepath.Join(hire.Worktree, "new.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(hire.Worktree.storedOnly(), "new.txt"), []byte("x"), 0o644)
 	windowShows(r, pane(t, "idle-empty"), true)
 	if _, err := fireEngineHire(hire, 0, r.o, true); err != nil {
 		t.Fatal(err)
 	}
-	want := "Its worktree " + hire.Worktree + " was kept: it holds changes nobody committed (new files count too), or git wouldn't remove it.\nowner wrote this"
+	want := "Its worktree " + hire.Worktree.storedOnly() + " was kept: it holds changes nobody committed (new files count too), or git wouldn't remove it.\nowner wrote this"
 	if got := registered(t)[0]; got.State != "fired" || got.Notes != want {
 		t.Errorf("notes = %q, want %q", got.Notes, want)
 	}
@@ -770,7 +778,7 @@ func TestNotesEditedAfterTheFireBeganAreKeptCleanOrKept(t *testing.T) {
 			_, r, hire := hiredForFire(t, "")
 			setNotes(t, "before")
 			if kept {
-				os.WriteFile(filepath.Join(hire.Worktree, "new.txt"), []byte("x"), 0o644)
+				os.WriteFile(filepath.Join(hire.Worktree.storedOnly(), "new.txt"), []byte("x"), 0o644)
 			}
 			windowShows(r, pane(t, "idle-empty"), true)
 			editingNotesOnKill(t, r, "edited meanwhile")
@@ -788,12 +796,12 @@ func TestNotesEditedAfterTheFireBeganAreKeptCleanOrKept(t *testing.T) {
 
 func TestAKeptFireWithNoNotesLeavesJustTheKeptLine(t *testing.T) {
 	_, r, hire := hiredForFire(t, "")
-	os.WriteFile(filepath.Join(hire.Worktree, "new.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(hire.Worktree.storedOnly(), "new.txt"), []byte("x"), 0o644)
 	windowShows(r, pane(t, "idle-empty"), true)
 	if _, err := fireEngineHire(hire, 0, r.o, true); err != nil {
 		t.Fatal(err)
 	}
-	want := "Its worktree " + hire.Worktree + " was kept: it holds changes nobody committed (new files count too), or git wouldn't remove it."
+	want := "Its worktree " + hire.Worktree.storedOnly() + " was kept: it holds changes nobody committed (new files count too), or git wouldn't remove it."
 	if got := registered(t)[0].Notes; got != want {
 		t.Errorf("notes = %q, want %q", got, want)
 	}
@@ -817,7 +825,7 @@ func TestAFireWithTmuxThatCantBeAskedAfterTheKillRefusesAndChangesNothing(t *tes
 	if err == nil || err.Error() != "Couldn't end Janitor's tmux session, so nothing was changed." {
 		t.Fatalf("err = %v", err)
 	}
-	if _, err := os.Stat(hire.Worktree); err != nil || registered(t)[0].State != "starting" {
+	if _, err := os.Stat(hire.Worktree.storedOnly()); err != nil || registered(t)[0].State != "starting" {
 		t.Errorf("worktree or state changed: %v %+v", err, registered(t))
 	}
 	if _, err := os.Stat(filepath.Join(supportDir, "recaps")); err == nil {
@@ -854,10 +862,10 @@ func TestAFailedHireIsAnsweredAsAlreadyGoneLikeAFiredOne(t *testing.T) {
 
 func TestTheRecapReadsStatusFromAKeptWorktreeButFromTheFolderWhenItIsRemoved(t *testing.T) {
 	shortSupport(t)
-	folder, worktree := t.TempDir(), t.TempDir()
+	folder, worktree := t.TempDir(), physical(t.TempDir()) // a row keeps its tree resolved
 	os.WriteFile(filepath.Join(folder, "STATUS.md"), []byte("folder line\n"), 0o644)
 	os.WriteFile(filepath.Join(worktree, "STATUS.md"), []byte("kept line\n"), 0o644)
-	h := Hire{ID: "abc123", Name: "Janitor", Folder: folder, Worktree: worktree}
+	h := Hire{ID: "abc123", Name: "Janitor", Folder: keptPath(folder), Worktree: keptPath(worktree)}
 	read := func(removed bool) string {
 		data, err := os.ReadFile(writeRecap(h, "", removed, time.Unix(0, 0)))
 		if err != nil {
@@ -906,7 +914,7 @@ func TestOnAMacAFireWhileTheKeyIsUnreadableIsWhatTheOwnerIsTold(t *testing.T) {
 		t.Error("hire02's key made in this run works after its fire")
 	}
 	if err := updateRegistry(func(f *registryFile) {
-		f.hires = append(f.hires, Hire{ID: "hire09", Name: "Nell", Folder: homeDir, State: "working"})
+		f.hires = append(f.hires, Hire{ID: "hire09", Name: "Nell", Folder: keptPath(homeDir), State: "working"})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -961,7 +969,7 @@ func TestAFireKeptByAHookInTheReposConfigSaysSo(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, gone := os.Stat(hire.Worktree)
+			_, gone := os.Stat(hire.Worktree.storedOnly())
 			if !hooked {
 				if kept != "" || gone == nil {
 					t.Fatalf("the control: a clean worktree on a repo with no hook was kept (%q), so this row proves nothing", kept)
@@ -972,7 +980,7 @@ func TestAFireKeptByAHookInTheReposConfigSaysSo(t *testing.T) {
 			if kept != "Y"+why {
 				t.Errorf("kept = %q, want %q", kept, "Y"+why)
 			}
-			if want := "Its worktree " + hire.Worktree + " was kept: y" + why; registered(t)[0].Notes != want {
+			if want := "Its worktree " + hire.Worktree.storedOnly() + " was kept: y" + why; registered(t)[0].Notes != want {
 				t.Errorf("notes = %q, want %q", registered(t)[0].Notes, want)
 			}
 			if gone != nil {

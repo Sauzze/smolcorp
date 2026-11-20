@@ -60,7 +60,7 @@ func TestT3AFireRacingATakeOverIsRefused(t *testing.T) {
 // again, and T3 Code's project would stay); its notes and nickname still change, and once handed back it can be.
 func TestT3ARegistryEditDoesntMarkAHireTakenOverGone(t *testing.T) {
 	isolate(t)
-	h := Hire{ID: "abcdef123456", Name: "Ada", Role: "dev", Folder: "/w", State: "idle", Engine: t3Engine, T3Session: t3TakeOverSession}
+	h := Hire{ID: "abcdef123456", Name: "Ada", Role: "dev", Folder: keptPath("/w"), State: "idle", Engine: t3Engine, T3Session: t3TakeOverSession}
 	t3Registered(t, h)
 	for _, state := range []string{"fired", "failed"} {
 		_, refused := editHire(registryPath(), []byte(`{"id":"abcdef123456","state":"`+state+`"}`), noDeskSession)

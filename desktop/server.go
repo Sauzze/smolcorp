@@ -205,7 +205,7 @@ type router struct {
 // request is what the router needs to know about one.
 type request struct {
 	*http.Request
-	isLocal             bool // sent from this computer to a local name, not passed on by a proxy
+	isLocal             bool // sent from this computer to a local name, both ends on the loopback, not passed on by a proxy
 	isAddressedDirectly bool // to an IP address or a local name, as a phone would
 	// Handed on by the real `tailscale serve` on this computer (SN1, peerowner.go): through serve.sock, the other end
 	// Tailscale's own process (on Windows the serve port, OLD-SERVE2), with a proxy's headers naming another device of
@@ -273,6 +273,17 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(remote)
 	fromLoopback, proxied := ip != nil && ip.IsLoopback(), isProxied(r.Header)
+	// …and Smolcorp's own end of the connection on the loopback too, for every route (RT126SWEEP4-P2 F1): a program
+	// here that binds 127.0.0.1 or ::1 and connects to another of this computer's addresses (its Wi-Fi's, lo0's
+	// fe80::1), which the core listens on too, is on the loopback at its own end only. That isn't this computer
+	// asking as setup, the hook, the window's key and a key ask mean it, and a Mac couldn't look its holders up
+	// (askprogram.go). net/http gives every request it serves its end; a request made in a test may have none.
+	toLoopback := true
+	if local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
+		at, _, _ := net.SplitHostPort(local.String())
+		to := net.ParseIP(at) // a zone (fe80::1%lo0) doesn't parse: not the loopback
+		toLoopback = to != nil && to.IsLoopback()
+	}
 	// On a Mac, as its app reads a request (HTTPServer.swift's Request.addressed): `tailscale serve` hands a phone's
 	// request on with whatever Host the phone sent, so a proxy's hand-on is the tailnet's, never addressed directly;
 	// let in only with the phone's text on. Only through serve.sock, the other end Tailscale's own process (SN1,
@@ -286,7 +297,7 @@ func (rt *router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	req := &request{
 		Request: r,
 		// A proxy on this computer passes on someone else's request: never this computer's, for setup, the hook or the window's key.
-		isLocal:             fromLoopback && !proxied && (host == "localhost" || host == "127.0.0.1" || host == "[::1]"),
+		isLocal:             fromLoopback && toLoopback && !proxied && (host == "localhost" || host == "127.0.0.1" || host == "[::1]"),
 		isAddressedDirectly: !fromProxy && (host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasPrefix(host, "[") || ipv4Address.MatchString(host)),
 		isTailnet:           handedOn && proxied && forwardedForTailnet(r.Header),
 		tailnetForward:      handedOn && !proxied,
@@ -485,6 +496,9 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 		}
 		// The owner's sessions' key, or a desk's own (hookkeys.go): then the event must be that desk's.
 		desks, desk := currentHookDesks(), ""
+		d.mu.Lock()
+		desks.ownLaunchers = d.launcherHookHashes()
+		d.mu.Unlock()
 		if key := r.Header.Get(hookKeyHeader); !d.isHookKey(key) {
 			if desk = desks.deskForKey(key); desk == "" {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -1191,6 +1205,10 @@ func (rt *router) launcher(w http.ResponseWriter, r *request) {
 	if query.Get("sandbox") == "off" {
 		rt.deck.noteNoSandbox(tab)
 	}
+	// Its relay's own key, for its sandboxed agent's events (hookrelay.go): kept before the launcher hears it was.
+	if key := r.Header.Get(launcherRelayKeyHeader); key != "" {
+		rt.deck.keepLauncherHookKey(tab, key)
+	}
 	defer rt.deck.launcherGone(id, tab)
 	keepOpen(w)
 	// Its connection's ends, by which its own process is found for its desk's preview (launcherTab.process).
@@ -1814,7 +1832,10 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		// so the page alone moves it, never the GM, itself a desk (RT126SWEEP3 P4 B1). And the GM turns hiring off,
 		// never on again once the owner turned it off (F2), as for the webhook.
 		if r.caller != callerPage && query.Has("folder") {
-			writeStatus(w)(http.StatusForbidden, hireFolderPageOnly)
+			d.mu.Lock()
+			sandboxed := deskSandboxed && !config.SandboxOff
+			d.mu.Unlock()
+			writeStatus(w)(http.StatusForbidden, gmHireFolderWords(sandboxed))
 			return
 		}
 		if r.caller != callerPage && query.Get("enabled") == "1" {

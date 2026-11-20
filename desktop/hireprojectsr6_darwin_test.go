@@ -24,7 +24,7 @@ import (
 // r6Desk is a desk with no worktree at folder, made as its start makes it: its profile's path.
 func r6Desk(t *testing.T, l gmRootLayout, id, folder string) string {
 	t.Helper()
-	h := Hire{ID: id, Name: "Janitor", Role: "janitor", Folder: folder, State: "working"}
+	h := Hire{ID: id, Name: "Janitor", Role: "janitor", Folder: keptPath(folder), State: "working"}
 	writeRegistryHires(t, l.hire, h)
 	if err := os.MkdirAll(hireFolder(supportDir, id), 0o700); err != nil {
 		t.Fatal(err)
@@ -182,7 +182,7 @@ func TestABareRepoBelowAPlaceInARepoRefusesItsHireAndStart(t *testing.T) {
 	if got, want := hirePlaceWords(clients, runGit), "On this Mac, each hire works in one project of its own, and "+at+". Hire it into a folder that holds none."; got != want {
 		t.Errorf("its hire: %q, want %q", got, want)
 	}
-	h := Hire{ID: "r6r", Name: "Janitor", Role: "janitor", Folder: clients, State: "working"}
+	h := Hire{ID: "r6r", Name: "Janitor", Role: "janitor", Folder: keptPath(clients), State: "working"}
 	writeRegistryHires(t, l.hire, h)
 	if err := os.MkdirAll(hireFolder(supportDir, h.ID), 0o700); err != nil {
 		t.Fatal(err)

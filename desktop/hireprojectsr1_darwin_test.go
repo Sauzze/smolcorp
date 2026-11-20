@@ -56,7 +56,7 @@ func TestAHireIsKeptOutOfTheGMsOwnFolderWhole(t *testing.T) {
 	l := newGMRootLayout(t)
 	gmHome := filepath.Join(homeDir, "gm-home")
 	ownerMade(t, gmHome, "PLAYBOOK.md", "brief-h1.md", "CLAUDE.md", ".claude/agents/a.md", ".claude/commands/")
-	l.gm.Folder = gmHome
+	l.gm.Folder = keptPath(gmHome)
 	writeRegistryHires(t, l.gm, l.hire)
 	setHireFolder(t, l.projects)
 	if err := makeDeskPlans(gmHome, "gm1"); err != nil {

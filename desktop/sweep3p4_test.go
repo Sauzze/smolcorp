@@ -19,7 +19,18 @@ const (
 	sweepFolderPageOnly = "Only the owner chooses the folder for hires, in Setup: every hire's sandbox holds it."
 	sweepHiringOffOnly  = "The GM can only turn hiring off. Turning it back on is the owner's, in Setup."
 	sweepOfficeWindow   = "Do this in Smolcorp's own office window on your Mac, not in a browser."
+	// sweepFolderOwnersOnly is hireFolderOwnersOnly: the GM's words where hires have no sandbox (RT126SWEEP4-P4 F1).
+	sweepFolderOwnersOnly = "Only the owner chooses the folder for hires, in Setup."
 )
+
+// sweepFolderRefused is what the GM is told on this system with the sandbox on, as a test deck has it: the sandbox
+// named only on a Mac, where hires start in one.
+func sweepFolderRefused() string {
+	if deskSandboxed {
+		return sweepFolderPageOnly
+	}
+	return sweepFolderOwnersOnly
+}
 
 // Row A (B1): the folder for hires is the projects folder every hire's sandbox holds (sweepStartHolds), so the
 // owner's page alone moves it. The GM's token, a tool's key and a phone's key are refused on both routes that save it
@@ -77,7 +88,7 @@ func TestOnlyTheOwnersPageMovesTheFolderForHires(t *testing.T) {
 				t.Errorf("%s, POST %s: %d %q, want %d", name, move, got.Code, got.Body, want)
 			}
 			if name == "the GM's token" && strings.HasPrefix(move, "/setup/hiring") &&
-				strings.TrimSpace(got.Body.String()) != sweepFolderPageOnly {
+				strings.TrimSpace(got.Body.String()) != sweepFolderRefused() {
 				t.Errorf("the GM's token, POST %s: told %q", move, got.Body)
 			}
 			unchanged(name + ", POST " + move)
@@ -131,7 +142,7 @@ func TestTheGMTurnsHiringOffButNeverBackOn(t *testing.T) {
 		code, text := asGM(query)
 		want := sweepHiringOffOnly
 		if strings.Contains(query, "folder=") {
-			want = sweepFolderPageOnly
+			want = sweepFolderRefused()
 		}
 		if code != http.StatusForbidden || text != want {
 			t.Errorf("the GM's %s: %d %q, want 403 %q", query, code, text, want)

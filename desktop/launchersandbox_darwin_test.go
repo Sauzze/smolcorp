@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -61,6 +62,8 @@ type appStandIn struct {
 	events    []http.Header
 	bodies    []string
 	launchers []url.Values
+	// relayKeys is the hook key of its own each connection gave (launcherRelayKeyHeader), "" for none.
+	relayKeys []string
 }
 
 func (a *appStandIn) serve(t *testing.T) int {
@@ -69,7 +72,13 @@ func (a *appStandIn) serve(t *testing.T) int {
 		if r.URL.Path == "/launcher" {
 			a.mu.Lock()
 			a.launchers = append(a.launchers, r.URL.Query())
+			a.relayKeys = append(a.relayKeys, r.Header.Get(launcherRelayKeyHeader))
 			a.mu.Unlock()
+			// Taken, as the app takes it (its first line, the screen's secret), then ended, as a core that restarts
+			// ends it: the launcher connects again.
+			w.Header().Set("Content-Type", "application/x-ndjson")
+			_, _ = io.WriteString(w, `{"secret":"fake-screen-secret"}`+"\n")
+			return
 		}
 		if r.URL.Path != "/hook" {
 			http.NotFound(w, r)
@@ -154,17 +163,21 @@ func TestOnAMacAPlainHiresAgentRunsInItsSandboxAndReportsThroughItsLauncher(t *t
 			}
 		})
 	}
-	// Each event reached the app as its launcher's own: the launcher's key, its own agent, its own tab (none for
-	// Codex, as its hook says), whatever the hook would have named.
+	// Each event reached the app as its launcher's own: the launcher's own key, the one its connection gave the app,
+	// never the owner's (FXSWEEP3P3 F-3), its own agent, its own tab (none for Codex, as its hook says), whatever the
+	// hook would have named.
 	app.mu.Lock()
 	defer app.mu.Unlock()
 	if len(app.events) != 1 {
 		t.Fatalf("the app had %d events, want 1: %q", len(app.events), app.bodies)
 	}
+	if len(app.relayKeys) == 0 || app.relayKeys[0] == "" || app.relayKeys[0] == "fake-hook-key-1" || slices.ContainsFunc(app.relayKeys, func(k string) bool { return k != app.relayKeys[0] }) {
+		t.Fatalf("the launcher's connections gave the keys %q", app.relayKeys)
+	}
 	for i, agent := range []string{"claude"} {
 		h := app.events[i]
 		tab := h.Get("X-AgentDeck-Tab")
-		if h.Get(hookKeyHeader) != "fake-hook-key-1" || h.Get("X-AgentDeck-Agent") != agent || !strings.Contains(app.bodies[i], `"session_id":"s1"`) ||
+		if h.Get(hookKeyHeader) != app.relayKeys[0] || h.Get("X-AgentDeck-Agent") != agent || !strings.Contains(app.bodies[i], `"session_id":"s1"`) ||
 			agent == "gemini" && !strings.HasPrefix(tab, "launcher:") || agent == "codex" && tab != "" {
 			t.Errorf("%s's event: %v %q", agent, h, app.bodies[i])
 		}

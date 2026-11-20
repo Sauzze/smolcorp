@@ -198,8 +198,13 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 	}
 	// 1. The worktree and branch, named as every hire's. T3 Code's agent works on T3's own Claude account, so
 	//    no account of Smolcorp's is trusted or checked for it.
-	place, err := prepareHire(hireRequest{HireID: h.HireID, Name: h.Name, Folder: h.Folder, Worktree: true},
-		hirePlaceOptions{Worktrees: h.Worktrees, Taken: h.Taken, Git: git, PortFree: ways.PortFree})
+	place, err := prepareHire(hireRequest{HireID: h.HireID, Name: h.Name, Folder: h.Folder, Worktree: true, KeepCarried: true},
+		hirePlaceOptions{Worktrees: h.Worktrees, Taken: h.Taken, Git: git, PortFree: ways.PortFree, Hold: true})
+	defer releaseHirePorts(place.Ports) // its row holds them by then, or it was refused
+	// What the core carried for its worktree stays on record until this hire ends (FXGMHIRENOGIT126R5, R14): its undos
+	// go through the carry's roots, and each step below that acts on the tree's path first checks the path is still
+	// the very folder carried (turned), never trusting prepareHire's check across T3 Code's calls.
+	defer forgetCarried(place.Branch)
 	if err != nil {
 		var refused *hireRefusal
 		if errors.As(err, &refused) {
@@ -218,6 +223,16 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 	title := h.Called + " · " + place.Branch
 	// Only a fence Smolcorp wrote is ever taken away: never a file the repo had.
 	wroteFence := false
+	// turned is whether the worktree's path no longer leads to the very folder the core carried (a Mac's, while its
+	// record is kept): whoever can write the folder for hires could have put a link there since prepareHire's check,
+	// and the fence, git's exclude and T3 Code would act where it leads (FXGMHIRENOGIT126R5).
+	turned := func() bool {
+		_, carried, same := carriedTreeAt(place.Branch, worktree)
+		return carried && !same
+	}
+	treeTurned := "Smolcorp didn't hire: the hire's worktree, " + shownPath(worktree) + ", was moved or replaced while it was being made, so what was made there is taken away again. Hire again."
+	// threadAsked is set once T3 Code is asked to start the thread: from then on its agent may have worked in the tree.
+	threadAsked := false
 
 	// takeBack takes back what was made, says why in the registry, and refuses. A project T3 Code may still
 	// have keeps its fence and worktree.
@@ -237,7 +252,9 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 				return t3Started{}, t3Refused(status, message)
 			}
 		}
-		if wroteFence {
+		// A turned tree's fence is never removed by its path, which leads elsewhere: it goes with the tree's own
+		// folder, taken back through the carry's roots.
+		if wroteFence && !turned() {
 			folder := ""
 			if madeClaudeFolder {
 				folder = claudeFolder
@@ -247,7 +264,10 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 		if brief {
 			ways.DiscardBrief()
 		}
-		if !removeWorkspace(place.Repo, worktree, place.Branch, git) {
+		switch {
+		case !threadAsked:
+			takeBackTree(place.Repo, worktree, place.Branch, git)
+		case !takeBackWorkedTree(place.Repo, worktree, place.Branch, git):
 			message += " Its worktree " + worktree + " was kept: git wouldn't remove it."
 		}
 		fail()
@@ -256,10 +276,13 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 
 	// 2. The registry entry, with engine t3.
 	if err := ways.Register(place); err != nil {
-		removeWorkspace(place.Repo, worktree, place.Branch, git)
+		takeBackTree(place.Repo, worktree, place.Branch, git)
 		return t3Started{}, t3Refused(http.StatusInternalServerError, "Couldn't save the hire in the registry.")
 	}
 	// 3. The fence, before T3 Code hears of the folder: never in a file the repo already has (it would be committed).
+	if turned() {
+		return takeBack(http.StatusConflict, treeTurned, false, false)
+	}
 	if _, err := os.Lstat(fence); err == nil {
 		return takeBack(http.StatusConflict, "This repository keeps its own "+t3FenceName+", so Smolcorp can't put the hire's fence there.", false, false)
 	}
@@ -276,6 +299,9 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 		return takeBack(http.StatusInternalServerError, "The hire's fence couldn't be written in its worktree, so it wasn't started.", false, false)
 	}
 	// 4. Never committed: the repo's info/exclude, which every worktree of it shares.
+	if turned() {
+		return takeBack(http.StatusConflict, treeTurned, false, false)
+	}
 	if !t3Exclude(worktree, git) {
 		return takeBack(http.StatusInternalServerError, "Smolcorp couldn't keep the hire's fence out of git, so it wasn't started.", false, false)
 	}
@@ -288,7 +314,11 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 	// its sandbox holds. T3 Code's runs in T3 Code, outside Smolcorp's sandbox (t3deskdeck.go), so nothing is said
 	// here, which is true: no row holds its git.
 	brief.Message += deskStartWords(deskBranchWords(runtime.GOOS, false, false, place.Branch))
-	// The fence is checked again right before T3 Code hears of the folder, and right before the thread starts.
+	// The fence is checked again right before T3 Code hears of the folder, and right before the thread starts; so is
+	// the tree.
+	if turned() {
+		return takeBack(http.StatusConflict, treeTurned, false, true)
+	}
 	if !t3FenceHolds(fence, settings) {
 		return takeBack(http.StatusConflict, t3FenceLost, false, true)
 	}
@@ -302,6 +332,9 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 	if project == "" {
 		return takeBack(http.StatusBadGateway, "T3 Code didn't say it added the hire's worktree as its own project, so the thread wasn't started.", true, true)
 	}
+	if turned() {
+		return takeBack(http.StatusConflict, treeTurned, true, true)
+	}
 	if !t3FenceHolds(fence, settings) {
 		return takeBack(http.StatusConflict, t3FenceLost, true, true)
 	}
@@ -311,6 +344,7 @@ func t3HireInto(h t3Hiring, ways t3Ways) (t3Started, error) {
 		return takeBack(http.StatusConflict, h.Called+" was marked gone while it was starting, so its thread wasn't started.", true, true)
 	}
 	// 7. The thread, in that folder, told to read its brief.
+	threadAsked = true
 	start := machine.Run(program, []string{"thread", "start", worktree, brief.Message, "--provider", t3Provider, "--model", h.Model, "--json"}, t3Within)
 	thread := ""
 	if start.Ended && start.Code == 0 {
@@ -374,8 +408,15 @@ func t3RemoveFence(fence, folder string) bool {
 
 // t3HooksSwitchedOff is whether the main checkout of folder's repo has its own .claude/settings.local.json
 // with disableAllHooks true. Claude Code merges that file with a worktree's own at the same level (T797a,
-// run 4), so it would compete with the fence's false. Only that one key is read.
+// run 4), so it would compete with the fence's false. Only that one key is read. In a General Manager's own folder
+// (hiregmfolder.go) nothing is run or read: the rule judges folder with its links resolved once, and git is asked on
+// that very spelling, or not at all when they couldn't be resolved (FXGMHIRENOGIT126R3, N2). The hire is refused
+// there anyway, as T3 needs a worktree of its own.
 func t3HooksSwitchedOff(folder string, git gitRunner) bool {
+	folder, resolved := resolvedFolder(folder)
+	if !resolved || gmOwnsFolder(folder) {
+		return false
+	}
 	status, common, ok := git(folder, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if !ok || status != 0 {
 		return false
@@ -397,6 +438,10 @@ func t3HooksSwitchedOff(folder string, git gitRunner) bool {
 
 // t3Exclude puts .claude/settings.local.json in the repo's info/exclude (once), then asks git that it's
 // ignored and not listed.
+//
+// The file is read and written through the repo's shared .git, opened with no link on its way, and only as a small
+// plain file of it, opened without waiting (RT126SWEEP4 part 3's F3): a FIFO there is refused at once, never waited on,
+// and a link there leads nowhere out of that .git, so nothing the core writes lands outside it.
 func t3Exclude(worktree string, git gitRunner) bool {
 	status, named, ok := git(worktree, "rev-parse", "--git-common-dir")
 	named = strings.TrimSpace(named)
@@ -407,8 +452,13 @@ func t3Exclude(worktree string, git gitRunner) bool {
 	if !filepath.IsAbs(base) {
 		base = filepath.Join(worktree, base)
 	}
-	file := filepath.Join(base, "info", "exclude")
-	data, err := os.ReadFile(file)
+	common, err := openResolvedRoot(physical(base))
+	if err != nil {
+		return false
+	}
+	defer common.Close()
+	file := filepath.Join("info", "exclude")
+	data, err := cpRootData(common, file, t3ExcludeMost)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false
 	}
@@ -420,11 +470,11 @@ func t3Exclude(worktree string, git gitRunner) bool {
 		}
 	}
 	if !listed {
+		line := t3FenceName + "\n"
 		if text != "" && !strings.HasSuffix(text, "\n") {
-			text += "\n"
+			line = "\n" + line
 		}
-		text += t3FenceName + "\n"
-		if os.MkdirAll(filepath.Dir(file), 0o755) != nil || os.WriteFile(file, []byte(text), 0o644) != nil {
+		if common.MkdirAll("info", 0o755) != nil || !t3AppendPlain(common, file, line) {
 			return false
 		}
 	}
@@ -433,6 +483,24 @@ func t3Exclude(worktree string, git gitRunner) bool {
 	}
 	status, shown, ok := git(worktree, "status", "--porcelain", "--untracked-files=all", "--", ".claude")
 	return ok && status == 0 && strings.TrimSpace(shown) == ""
+}
+
+// t3ExcludeMost is the most of a repo's info/exclude t3Exclude reads: an ignore list, never this big.
+const t3ExcludeMost = 1 << 20
+
+// t3AppendPlain adds text at the end of the file name in root (made when it isn't there), opened without waiting, and
+// only if what was opened is a regular file: a FIFO, or anything but a plain file, is never written.
+func t3AppendPlain(root *os.Root, name, text string) bool {
+	file, err := root.OpenFile(name, cpDataFlags|os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	if err != nil {
+		return false
+	}
+	if info, err := file.Stat(); err != nil || !info.Mode().IsRegular() {
+		file.Close()
+		return false
+	}
+	_, err = file.WriteString(text)
+	return errors.Join(err, file.Close()) == nil
 }
 
 // t3AddedProject is the project's id when `t3 project add` says it added folder itself: "Added project <id>
@@ -777,7 +845,7 @@ func defaultT3Leaving() t3Leaving {
 type t3Gone struct{ Recap, Note string }
 
 func t3FenceKept(h Hire) string {
-	return calledHire(h) + "'s fence couldn't be taken out of its worktree, so that folder is still fenced: " + filepath.Join(h.Worktree, filepath.FromSlash(t3FenceName)) + "."
+	return calledHire(h) + "'s fence couldn't be taken out of its worktree, so that folder is still fenced: " + filepath.Join(h.Worktree.storedOnly(), filepath.FromSlash(t3FenceName)) + "."
 }
 
 // t3LetGo lets a hire in T3 Code go: T3 has no stop, so its project is removed with --force (which ends T3's
@@ -802,38 +870,42 @@ func t3LetGo(h Hire, leaving t3Leaving, letGone func(t3Gone)) (t3Gone, error) {
 
 // t3Leave is Let go's steps up to the fence: its project removed, nothing left working in its worktree, the
 // fence taken away. Says whether the fence is gone.
+//
+// T3 Code's project is named by the tree as T3 Code recorded it, and the processes working there looked for by it
+// (storedOnly): neither runs or writes anything at the path. The fence, the one act there, goes through the accessor.
 func t3Leave(h Hire, leaving t3Leaving) (bool, error) {
 	name := calledHire(h)
+	recorded := h.Worktree.storedOnly()
 	switch {
 	case h.Engine != t3Engine:
 		return false, t3Refused(http.StatusConflict, name+" doesn't run in T3 Code.")
 	case t3IsHiring(h.ID):
 		return false, t3Refused(http.StatusConflict, t3StillHiring(name))
-	case !isOpen(h) && h.Worktree == "":
+	case !isOpen(h) && recorded == "":
 		return false, t3Refused(http.StatusConflict, alreadyGone(h))
 	case !isOpen(h):
 		// Let go again only while something still works in its worktree (gonedesk.go).
-		if still, looked := leaving.Working(h.Worktree); !looked {
+		if still, looked := leaving.Working(recorded); !looked {
 			return false, t3Refused(http.StatusConflict, "Smolcorp can't see which processes work in "+name+"'s worktree on this "+t3Here()+", so nothing was changed.")
 		} else if len(still) == 0 {
 			return false, t3Refused(http.StatusConflict, alreadyGone(h))
 		}
-	case h.Worktree == "":
+	case recorded == "":
 		return false, t3Refused(http.StatusConflict, name+" has no worktree on record, so nothing was changed.")
 	}
 	program := t3Program(leaving.Machine)
 	if program == "" {
 		return false, t3Refused(http.StatusConflict, "T3 Code's t3 command isn't there, so nothing was changed: "+name+" may still be running in T3 Code.")
 	}
-	removed := leaving.Machine.Run(program, []string{"project", "remove", h.Worktree, "--force"}, t3Within)
+	removed := leaving.Machine.Run(program, []string{"project", "remove", recorded, "--force"}, t3Within)
 	if !(removed.Ended && removed.Code == 0) && !t3NoProject(removed) {
 		return false, t3Refused(http.StatusBadGateway, "T3 Code didn't remove "+name+"'s project ("+t3Said(removed)+"), so nothing else was changed: it may still be running there.")
 	}
 	end := leaving.Now().Add(t3LeaveWithin)
-	still, looked := leaving.Working(h.Worktree)
+	still, looked := leaving.Working(recorded)
 	for looked && len(still) > 0 && leaving.Now().Before(end) {
 		leaving.Pause(500 * time.Millisecond)
-		still, looked = leaving.Working(h.Worktree)
+		still, looked = leaving.Working(recorded)
 	}
 	if !looked {
 		return false, t3Refused(http.StatusConflict, "T3 Code removed the project, but Smolcorp can't see which processes work in "+name+"'s worktree on this "+t3Here()+", so its fence was kept and it isn't let go yet.")
@@ -850,7 +922,14 @@ func t3Leave(h Hire, leaving t3Leaving) (bool, error) {
 		}
 		return false, t3Refused(http.StatusConflict, "T3 Code removed the project, but a process still works in "+name+"'s worktree ("+strings.Join(named, "; ")+"), so its fence was kept and it isn't let go yet: if that's yours, leave that folder and let go again.")
 	}
-	fence := filepath.Join(h.Worktree, filepath.FromSlash(t3FenceName))
+	// Its worktree as a start checks it, before the fence is taken off by its path: one moved or replaced since its
+	// hire keeps whatever is there, its fence said kept (FXGMHIRENOGIT126R7). Let go goes on all the same: T3 Code's
+	// project is gone, so nothing of T3 Code's works there any more.
+	tree, err := h.checkedTree()
+	if hireTreeTurned(h) || err != nil {
+		return false, nil
+	}
+	fence := filepath.Join(tree, filepath.FromSlash(t3FenceName))
 	return t3RemoveFence(fence, filepath.Dir(fence)), nil
 }
 

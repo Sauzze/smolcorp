@@ -40,8 +40,8 @@ func projectsWholeAtHire(where string) string {
 func TestADeskAtTheProjectsFolderOrHomeDoesntStartInItsSandbox(t *testing.T) {
 	l := newHireProjectsLayout(t)
 	at := map[string]Hire{
-		"the projects folder": {ID: "r4p", Name: "Janitor", Role: "janitor", Folder: l.projects, State: "working"},
-		"the home folder":     {ID: "r4h", Name: "Janitor", Role: "janitor", Folder: homeDir, State: "working"},
+		"the projects folder": {ID: "r4p", Name: "Janitor", Role: "janitor", Folder: keptPath(l.projects), State: "working"},
+		"the home folder":     {ID: "r4h", Name: "Janitor", Role: "janitor", Folder: keptPath(homeDir), State: "working"},
 	}
 	want := map[string]string{
 		"the projects folder": projectsWholeAtStart("your whole projects folder, " + l.projects),
@@ -107,14 +107,14 @@ func TestAHireAskedForInTheProjectsFolderIsRefusedAtItsHire(t *testing.T) {
 		t.Errorf("the GM in the projects folder: %v", err)
 	}
 	hire, err := runManagedHire(r.request("janitor"), r.o)
-	if err != nil || hire.Worktree == "" || r.desks[1].places.Root != physical(hire.Worktree) {
+	if err != nil || hire.Worktree.none() || r.desks[1].places.Root != physical(hire.Worktree.storedOnly()) {
 		t.Errorf("a hire in the project: %v, %+v", err, hire)
 	}
 	// The sandbox off: as before.
 	r.o.SandboxOff = true
 	request := r.request("janitor")
 	request.Folder = projects
-	if off, err := runManagedHire(request, r.o); err != nil || off.Folder != projects || off.Worktree != "" {
+	if off, err := runManagedHire(request, r.o); err != nil || off.Folder.storedOnly() != projects || !off.Worktree.none() {
 		t.Errorf("the sandbox off: %v, %+v", err, off)
 	}
 }
@@ -156,19 +156,19 @@ func TestTheOfficesHireAsksWhichProjectFirstThenTakesItsWorktree(t *testing.T) {
 		t.Errorf("a project that isn't there: %d %s", status, said)
 	}
 	hp := pickedHire(t, d, "lib")
-	if len(r.desks) != 1 || r.desks[0].places.Root != hp.Worktree || r.desks[0].places.Checkout != l.lib {
+	if len(r.desks) != 1 || r.desks[0].places.Root != hp.Worktree.storedOnly() || r.desks[0].places.Checkout != l.lib {
 		t.Errorf("its place: %+v", r.desks[0].places)
 	}
 	// The sandbox off: no question, the folder for hires as before.
 	d.mu.Lock()
 	d.config.SandboxOff = true
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	d.mu.Unlock()
 	if status, said := d.Perform("hire", "", url.Values{"role": {"janitor"}}); status != http.StatusNoContent {
 		t.Fatalf("the sandbox off: %d %s", status, said)
 	}
 	d.watching.Wait()
-	if got := registered(t); got[len(got)-1].Folder != l.projects || got[len(got)-1].Worktree != "" {
+	if got := registered(t); got[len(got)-1].Folder.storedOnly() != l.projects || !(got[len(got)-1].Worktree).none() {
 		t.Errorf("the sandbox off: %+v", got[len(got)-1])
 	}
 }
@@ -178,7 +178,7 @@ func TestTheOfficesHireAsksWhichProjectFirstThenTakesItsWorktree(t *testing.T) {
 func pickedHire(t *testing.T, d *Deck, project string) Hire {
 	t.Helper()
 	d.mu.Lock()
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	d.mu.Unlock()
 	before := len(registered(t))
 	if status, said := d.Perform("hire", "", url.Values{"role": {"janitor"}, "project": {project}}); status != http.StatusNoContent {
@@ -191,7 +191,7 @@ func pickedHire(t *testing.T, d *Deck, project string) Hire {
 	}
 	h := got[len(got)-1]
 	repo := filepath.Join(homeDir, "Projects", project)
-	if h.Folder != repo || h.Repo != repo || filepath.Dir(h.Worktree) != hiresFolder(repo, "") {
+	if h.Folder.storedOnly() != repo || h.Repo != repo || filepath.Dir(h.Worktree.storedOnly()) != hiresFolder(repo, "") {
 		t.Fatalf("the hire into %s: folder %q, repo %q, worktree %q", project, h.Folder, h.Repo, h.Worktree)
 	}
 	return h
@@ -280,7 +280,7 @@ func TestNoDeskTakesTheWaysADeskAtTheProjectsFolderHad(t *testing.T) {
 			}
 			out := filepath.Join(l.base, "out")
 			ownerMade(t, out, "x")
-			got := sandboxedSh(t, profile, h.Worktree, residualTries, l.projects, out, l.planted, own, other)
+			got := sandboxedSh(t, profile, h.Worktree.storedOnly(), residualTries, l.projects, out, l.planted, own, other)
 			if want := strings.TrimSpace(strings.Repeat("refused ", 14)); strings.Join(got, " ") != want {
 				t.Errorf("%s's tries: %q, want each refused", h.ID, got)
 			}
@@ -312,7 +312,7 @@ func TestNoDeskTakesTheProjectsFoldersOwnRepo(t *testing.T) {
 	standInOwnersGit(t, l.projects, "init", "-q", "-b", "main")
 	for _, h := range []Hire{l.hire, pickedHire(t, d, "lib")} {
 		profile, _ := l.profile(t, h)
-		got := sandboxedSh(t, profile, h.Worktree, `t() { if "$@" 2>/dev/null; then echo ok; else echo refused; fi; }
+		got := sandboxedSh(t, profile, h.Worktree.storedOnly(), `t() { if "$@" 2>/dev/null; then echo ok; else echo refused; fi; }
 t mv "$1/lib" "$2/lib"
 t mv "$1/app" "$2/app"
 t sh -c 'echo x > "$0/.git/hooks/post-checkout"' "$1"
@@ -331,7 +331,7 @@ func TestTheOfficesPickedHireCommitsFetchesAndRebasesInItsWorktree(t *testing.T)
 	standInOwnersGit(t, l.lib, "add", "CHANGES")
 	standInOwnersGit(t, l.lib, "commit", "-q", "-m", "owner's")
 	h := pickedHire(t, d, "lib")
-	standInOwnersGit(t, h.Worktree, "reset", "-q", "--hard", "HEAD~1")
+	standInOwnersGit(t, h.Worktree.storedOnly(), "reset", "-q", "--hard", "HEAD~1")
 	profile, _ := l.profile(t, h)
 	script := `set -e
 git=/usr/bin/git
@@ -342,7 +342,7 @@ $git $c commit -q -m own
 $git $c fetch -q "$1" main
 $git $c rebase -q main
 $git log --format=%s -3`
-	got := sandboxedSh(t, profile, h.Worktree, script, l.app)
+	got := sandboxedSh(t, profile, h.Worktree.storedOnly(), script, l.app)
 	if len(got) < 2 || got[0] != "own" || got[1] != "owner's" {
 		t.Errorf("the picked hire's branch after its rebase: %q", got)
 	}

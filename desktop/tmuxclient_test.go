@@ -241,7 +241,7 @@ var tmuxExecSites = map[string]string{
 	"agentcheck_darwin.go codesign exec.CommandContext(codesignProgram)":   "codesign (/usr/bin), reading or checking a program's signature",
 	"claudeversion.go installedClaudeVersion exec.CommandContext(program)": "the claude a desk would start, checked first, for its --version",
 	"deck.go runSummaryAgent runSummaryCLI(program)":                       "a summary provider's command line (claude, codex, gemini…), found and checked as the summaries find it",
-	"desksandbox.go deskPlaces gitConfigFiles(git)":                        "git, asked where its config files are (gitConfigFiles)",
+	"desksandbox.go deskPlacesOf gitConfigFiles(git)":                      "git, asked where its config files are (gitConfigFiles)",
 	"desksandbox.go gitConfigFiles exec.CommandContext(git)":               "git, for its config files' list",
 	"desksignin.go deskSignInWith quickRun(command[0])":                    "claude, asked whether a desk's Claude folder (or one made like it) is signed in (SA-X9)",
 	"deskstart.go RunDeskStart syscall.Exec(launch.Program)":               "a desk's helper becoming its agent in place, inside the desk's tmux (an exec, no new process)",

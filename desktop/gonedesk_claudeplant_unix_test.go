@@ -58,15 +58,15 @@ func TestCLAUDEPLANT1sGateHoldsWithoutGMEDIT1sRefusal(t *testing.T) {
 		t.Error("its session runs, and the gate's look doesn't see it")
 	}
 	keepEveryClaudePlant()
-	claudeTree(t, h.place(), ".claude/hooks/x.sh")
-	if why := claudeGate(h.place(), officeHires()); !strings.Contains(why, filepath.Join(h.place(), ".claude")) {
+	claudeTree(t, h.storedPlace(), ".claude/hooks/x.sh")
+	if why := claudeGate(h.storedPlace(), officeHires()); !strings.Contains(why, filepath.Join(h.storedPlace(), ".claude")) {
 		t.Errorf("planted after the edit, the gate let it through: %q", why)
 	}
 	// Option 2 alone: put on record (option 1 away), its session up still counts as open.
 	keepEveryClaudePlant()
 	markClaudeListed(h.ID)
-	claudeTree(t, h.place(), "a/.claude/settings.json")
-	if why := claudeGate(h.place(), officeHires()); !strings.Contains(why, filepath.Join("a", ".claude")) {
+	claudeTree(t, h.storedPlace(), "a/.claude/settings.json")
+	if why := claudeGate(h.storedPlace(), officeHires()); !strings.Contains(why, filepath.Join("a", ".claude")) {
 		t.Errorf("on record, its session up: the gate let it through: %q", why)
 	}
 	// Option 1 alone: off the record, its session not seen (option 2 away), it's still listed.
@@ -75,8 +75,8 @@ func TestCLAUDEPLANT1sGateHoldsWithoutGMEDIT1sRefusal(t *testing.T) {
 	delete(claudeHeld.ended, h.ID)
 	claudeHeld.Unlock()
 	claudeSessionUp = func(Hire) bool { return false }
-	claudeTree(t, h.place(), "b/.mcp.json")
-	if why := claudeGate(h.place(), officeHires()); !strings.Contains(why, filepath.Join(h.place(), "b", ".mcp.json")) {
+	claudeTree(t, h.storedPlace(), "b/.mcp.json")
+	if why := claudeGate(h.storedPlace(), officeHires()); !strings.Contains(why, filepath.Join(h.storedPlace(), "b", ".mcp.json")) {
 		t.Errorf("off the record, its session not seen: the gate let it through: %q", why)
 	}
 }
@@ -106,8 +106,8 @@ func TestGMEDIT1sRefusalHoldsWithoutCLAUDEPLANT1sGuards(t *testing.T) {
 		}
 		keepEveryClaudePlant()
 		h := registered(t)[0]
-		claudeTree(t, h.place(), ".claude/hooks/x.sh")
-		if why := claudeGate(h.place(), officeHires()); why != "" {
+		claudeTree(t, h.storedPlace(), ".claude/hooks/x.sh")
+		if why := claudeGate(h.storedPlace(), officeHires()); why != "" {
 			t.Errorf("the guards weren't away: %q", why)
 		}
 	})
@@ -124,8 +124,8 @@ func TestGMEDIT1sRefusalHoldsWithoutCLAUDEPLANT1sGuards(t *testing.T) {
 				t.Fatalf("a refused edit changed something: %+v", h)
 			}
 			keepEveryClaudePlant()
-			claudeTree(t, h.place(), ".claude/hooks/x.sh")
-			if why := claudeGate(h.place(), officeHires()); !strings.Contains(why, filepath.Join(h.place(), ".claude")) {
+			claudeTree(t, h.storedPlace(), ".claude/hooks/x.sh")
+			if why := claudeGate(h.storedPlace(), officeHires()); !strings.Contains(why, filepath.Join(h.storedPlace(), ".claude")) {
 				t.Errorf("its row open, the gate let its plant through: %q", why)
 			}
 		})

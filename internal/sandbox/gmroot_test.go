@@ -15,6 +15,8 @@ const (
 	projects    = home + "/Projects"
 	gmWorkspace = realSupport + "/hires/gm1/work"
 	gmPlans     = projects + "/.smolcorp/plans/gm1"
+	// gmHires is the configured folder for hires' worktrees, held from the GM (FXGMHIRENOGIT126R1).
+	gmHires = home + "/Worktrees"
 )
 
 // projectsGMPlaces is the GM hired into the projects folder, as desktop's deskPlaces gives it.
@@ -23,6 +25,8 @@ func projectsGMPlaces() Places {
 	pl.Subject, pl.OwnID, pl.OwnSockets, pl.Root = GM, "gm1", sockets+"/gm1", gmWorkspace
 	pl.Checkout, pl.GitDir, pl.OwnWorktree, pl.OtherWorktrees, pl.DefaultBranch, pl.HiresFolder, pl.GMFolder = "", "", "", nil, "", "", ""
 	pl.GMProjects, pl.GMPlans = projects, gmPlans
+	pl.GMHires = []string{gmHires}
+	pl.Worktrees = []string{coreWorktrees} // the core's own folder for hires' worktrees (FXCOREWORKTREES126)
 	return pl
 }
 
@@ -31,6 +35,7 @@ func projectsGMPlaces() Places {
 func projectsHirePlaces() Places {
 	pl := hirePlaces(realSupport)
 	pl.GMFolder, pl.GMStart, pl.GMStartPlans = gmWorkspace, projects, gmPlans
+	pl.Worktrees = []string{coreWorktrees} // the core's own folder for hires' worktrees (FXCOREWORKTREES126)
 	return pl
 }
 
@@ -59,6 +64,9 @@ func TestTheGMInTheProjectsFolderReadsThemAndWritesOnlyItsWorkspaceAndPlans(t *t
 		{gmPlans + "/../h1/x.md", Write, Deny, rowGMProjects},
 		// Reads stay as the profile has them.
 		{repo + "/main.go", Read, Allow, ""}, {gitDir + "/config", Read, Allow, ""}, {hires + "/h1/main.go", Read, Allow, ""},
+		// Its hires' worktrees in the configured folder: read, never written (FXGMHIRENOGIT126R1).
+		{gmHires + "/app/h1/main.go", Write, Deny, rowOtherDesks}, {gmHires + "/app/new", Write, Deny, rowOtherDesks},
+		{gmHires + "/app/h1/main.go", Read, Allow, ""},
 		// Its workspace is its own; the folder itself stays in place.
 		{gmWorkspace + "/notes.md", Write, Allow, ""}, {gmWorkspace + "/notes.md", Read, Allow, ""},
 		{gmWorkspace + "/team/h1.md", Write, Allow, ""}, {gmWorkspace, Move, Deny, ""}, {gmWorkspace, Write, Deny, ""},
@@ -219,6 +227,43 @@ func TestAGMsStartFolderIsOnlyAnotherDesksToBeKeptFrom(t *testing.T) {
 	} {
 		if _, err := New(c.pl()); !errors.Is(err, c.want) {
 			t.Errorf("%s: %v, want %v", c.name, err, c.want)
+		}
+	}
+}
+
+// FXGMHIRENOGIT126R1, ruling (2): a GM's hires' folders are read only to it, as other desks' places are, but for its
+// own worktree there (a GM in a repo); given to another desk, or holding what the GM's work needs or a support folder,
+// they are refused.
+func TestAGMsHiresFoldersAreReadOnlyToIt(t *testing.T) {
+	gm := setups()[1].pl
+	gm.GMHires = []string{hires}
+	p := mustNew(t, gm)
+	for _, c := range []struct {
+		at   string
+		op   Op
+		want Verdict
+	}{
+		{gmDir + "/main.go", Write, Allow}, {hires + "/h1/main.go", Write, Deny}, {hires + "/h1/main.go", Read, Allow},
+		{hires + "/new", Write, Deny},
+	} {
+		if got, by := p.Decide(c.at, c.op); got != c.want {
+			t.Errorf("%v %s: %v by %q, want %v", c.op, c.at, got, by.Row, c.want)
+		}
+	}
+	for _, c := range []struct {
+		name string
+		pl   func() Places
+	}{
+		{"given to a hire", func() Places { pl := hirePlaces(realSupport); pl.GMHires = []string{gmHires}; return pl }},
+		{"the home folder", func() Places { pl := projectsGMPlaces(); pl.GMHires = []string{home}; return pl }},
+		{"holding its projects", func() Places { pl := projectsGMPlaces(); pl.GMHires = []string{projects}; return pl }},
+		{"holding its plans", func() Places { pl := projectsGMPlaces(); pl.GMHires = []string{projects + "/.smolcorp"}; return pl }},
+		{"in the support folder", func() Places { pl := projectsGMPlaces(); pl.GMHires = []string{realSupport + "/w"}; return pl }},
+		{"holding the support folder", func() Places { pl := projectsGMPlaces(); pl.GMHires = []string{home + "/Library"}; return pl }},
+		{"not whole", func() Places { pl := projectsGMPlaces(); pl.GMHires = []string{"w"}; return pl }},
+	} {
+		if _, err := New(c.pl()); !errors.Is(err, ErrGMHires) {
+			t.Errorf("%s: %v, want ErrGMHires", c.name, err)
 		}
 	}
 }

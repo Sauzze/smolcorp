@@ -159,25 +159,21 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 	if t3 {
 		// T3 Code works on its own account: what was named is kept for its own refusal, as setup's hire does.
 		d.gmHireIntoT3(w, setupHire{Role: role, Folder: folder, Floor: int(floor), Answers: []string{}, Worktree: true, T3: true,
-			Account: named, Task: briefTask(task), Model: model, Nickname: nickname, byGM: true})
+			Account: named, Task: briefTask(task), Model: model, Nickname: nickname, byGM: true, gmToken: r.caller == callerGM})
 		return
 	}
 	seat := -1
-	d.mu.Lock()
-	d.lastPlace = hiredPlace{}
-	d.mu.Unlock()
+	// Where it works, as this hire alone set it (hireSpec.placed): an owner's hire made meanwhile doesn't change it.
+	var place hiredPlace
 	// The account goes to hireWith, which asks which with more than one saved (as the Mac's route), and finds
 	// its folder; a GM held to one project has its own filled in (gmScopeRefusal).
 	if status, text := d.hireWith(hireSpec{roleID: role, floor: int(floor), fromSetup: true, folder: folder, fenced: true, seat: &seat,
-		account: named, task: briefTask(task), model: model, nickname: nickname, held: r.heldTo}); status != http.StatusNoContent {
+		account: named, task: briefTask(task), model: model, nickname: nickname, held: r.heldTo, placed: &place}); status != http.StatusNoContent {
 		reply(status, text)
 		return
 	}
 	// Where it works is said, so nobody assumes it is the folder asked for: with a worktree of its own, that is
-	// the worktree (<folder>-hires/<name>, on its branch), not the folder given.
-	d.mu.Lock()
-	place := d.lastPlace
-	d.mu.Unlock()
+	// the worktree (on a Mac in ~/.smolcorp/worktrees, on its branch), not the folder given.
 	answer := map[string]any{"ok": true, "desk": seat, "session": nil}
 	if floor > 0 { // upstairs the answer is the floor, as the Mac's
 		answer = map[string]any{"ok": true, "desk": nil, "floor": int(floor), "session": nil}
@@ -187,6 +183,10 @@ func (d *Deck) gmHire(w http.ResponseWriter, r *request) {
 		if place.Branch != "" {
 			answer["branch"] = place.Branch
 		}
+	}
+	// Placed in a General Manager's own folder: no git ran there, and none will (hiregmfolder.go).
+	if place.Note != "" {
+		answer["note"] = place.Note
 	}
 	writeJSON(w, http.StatusOK, answer)
 }

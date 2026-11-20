@@ -390,7 +390,7 @@ func TestAFireWhoseDeskCantBeShownEmptyRefusesAndChecksMergesAndRemovesNothing(t
 	if !errors.As(err, &refused) || refused.Status != http.StatusConflict || refused.Message != want {
 		t.Fatalf("%v, want %q", err, want)
 	}
-	if _, err := os.Stat(hire.Worktree); err != nil || !strings.Contains(branches(t, r.repo), hire.Branch) {
+	if _, err := os.Stat(hire.Worktree.storedOnly()); err != nil || !strings.Contains(branches(t, r.repo), hire.Branch) {
 		t.Errorf("the worktree (%v) or the branch (%q) went", err, branches(t, r.repo))
 	}
 	if row := registered(t)[0]; row.State == "fired" {

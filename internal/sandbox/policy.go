@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -274,6 +275,19 @@ type Places struct {
 	// its workspace, Workspace(Support, OwnID). GMPlans is its own plans folder in GMProjects, the one place there it
 	// writes: Claude Code takes a plans folder only inside the folder it starts in. "" for any other desk.
 	GMProjects, GMPlans string
+	// GMHires are, for a GM, the folders its hires' worktrees go in that its other rows leave open to it
+	// (FXGMHIRENOGIT126R1): the folder for hires beside a projects folder that is in a repo (<top>-hires, the demo's and
+	// a held GM's layout) and the configured folder for hires' worktrees. It reads and reviews its hires' work there
+	// and writes none of it, as rowOtherDesks keeps that folder from other desks; its own worktree there, a GM's in a
+	// repo, stays its own place. "" for none, and for any other desk.
+	GMHires []string
+	// Worktrees are the folders the core makes hires' worktrees in that it keeps for itself (FXCOREWORKTREES126): on a
+	// Mac, its own ~/.smolcorp/worktrees, and the configured folder for worktrees when it's honoured. Every desk writes
+	// there only its own place (its worktree): no other desk's tree, and no folder there, is its to make, move, swap
+	// or remove. A GM writes none of it, reads all of it, and has no place of its own there (ErrWorktrees). The folders
+	// above each, up to the home folder, can't be moved, removed or made by any desk either, so none is put elsewhere
+	// and another made in its place.
+	Worktrees []string
 	// GMStart and GMStartPlans are, for every other desk, where an open GM with a workspace starts (its GMProjects)
 	// and its plans folder there (its GMPlans): Claude Code loads the agent files at the top of the one and the GM's
 	// plan mode reads the other, so no other desk writes them (FXGMROOTR1 N2). "" for the GM itself and for a desk
@@ -434,6 +448,14 @@ var (
 	// ErrGMProjects is a GM's projects folder given without its workspace as its Root, to another desk, or with a
 	// plans folder that isn't inside it (FXGMROOT).
 	ErrGMProjects = errors.New("sandbox: a GM's projects folder comes only with its workspace, and its plans folder inside it")
+	// ErrGMHires is a GM's hires' folders given to another desk, or one that holds the home folder, the GM's projects
+	// or its plans, or is in a support folder or holds one (FXGMHIRENOGIT126R1): its row would hold what the GM's work
+	// needs, or the support folder's own rows.
+	ErrGMHires = errors.New("sandbox: a GM's hires' folders come only to a GM, and never hold the home folder, its projects or a support folder, nor sit in one")
+	// ErrWorktrees is a folder for hires' worktrees (Places.Worktrees) that isn't whole, holds the home folder, the
+	// projects folder or a support folder, or is in a support folder; or a GM with a place of its own in one
+	// (FXCOREWORKTREES126): the GM's row would deny it its own place, or an exception would open the folder to it.
+	ErrWorktrees = errors.New("sandbox: a folder for hires' worktrees holds the home folder, the projects folder or a support folder, sits in a support folder, or holds a GM's own place")
 	// ErrGMStart is a GM's start folder given to the GM itself, or with a plans folder that isn't inside it
 	// (FXGMROOTR1).
 	ErrGMStart = errors.New("sandbox: a GM's start folder is another desk's to be kept from, with the GM's plans folder inside it")
@@ -517,9 +539,12 @@ func InToolsGits(goos, root, folder string) bool {
 const (
 	rowSSH        = "ssh keys while Remote Login answers"
 	rowOtherDesks = "other desks' places"
-	rowCheckout   = "the owner's checkout"
-	rowSockets    = "the socket folder"
-	rowTmuxFolder = "tmux's own folder"
+	// rowWorktreesAbove is the folders above a folder the core makes hires' worktrees in (FXCOREWORKTREES126), which no
+	// desk moves, removes or makes.
+	rowWorktreesAbove = "other desks' places: the folders above the folder for hires' worktrees"
+	rowCheckout       = "the owner's checkout"
+	rowSockets        = "the socket folder"
+	rowTmuxFolder     = "tmux's own folder"
 	// rowOwnSockets is the desk's own socket folder: its own socket must be in it (sbpl.go's serviceRules).
 	rowOwnSockets = "its own socket folder"
 	rowSupport    = "the support folder, whole"
@@ -809,6 +834,9 @@ func New(pl Places) (*Policy, error) {
 	if hires := key(p.goos, pl.HiresFolder); hires != "" && under(hires, root) {
 		return nil, ErrRootHasDesks
 	}
+	if slices.ContainsFunc(pl.Worktrees, func(folder string) bool { return under(key(p.goos, folder), root) }) {
+		return nil, ErrRootHasDesks
+	}
 	if checkout := key(p.goos, pl.Checkout); checkout != "" && checkout != root && under(checkout, root) {
 		return nil, ErrRootHasDesks
 	}
@@ -849,6 +877,28 @@ func build(pl Places) (*Policy, error) {
 		start, plans := key(goos, pl.GMStart), key(goos, pl.GMStartPlans)
 		if pl.Subject == GM || start == "" || pl.GMStartPlans != "" && (plans == "" || plans == start || !under(plans, start)) {
 			return nil, ErrGMStart
+		}
+	}
+	for _, hires := range pl.GMHires {
+		hk := key(goos, hires)
+		if pl.Subject != GM || hk == "" || under(key(goos, pl.Home), hk) ||
+			pl.GMProjects != "" && under(key(goos, pl.GMProjects), hk) || pl.GMPlans != "" && under(key(goos, pl.GMPlans), hk) ||
+			slices.ContainsFunc(supports, func(s string) bool { return under(hk, key(goos, s)) || under(key(goos, s), hk) }) {
+			return nil, ErrGMHires
+		}
+	}
+	for _, folder := range pl.Worktrees {
+		wk := key(goos, folder)
+		if wk == "" || under(key(goos, pl.Home), wk) || pl.Projects != "" && under(key(goos, pl.Projects), wk) ||
+			slices.ContainsFunc(supports, func(s string) bool { return under(wk, key(goos, s)) || under(key(goos, s), wk) }) {
+			return nil, ErrWorktrees
+		}
+		// A GM's own places are never in it: its row there is final for the GM, so its place would be denied it, and an
+		// exception that opened it would open every hire's tree to the GM.
+		if pl.Subject == GM && slices.ContainsFunc([]string{pl.Root, pl.Checkout, pl.GMProjects, pl.GMPlans}, func(place string) bool {
+			return place != "" && under(key(goos, place), wk)
+		}) {
+			return nil, ErrWorktrees
 		}
 	}
 	// The projects folder (FXHIREPROJECTS): never in a support folder, never the home folder or a folder above it, and
@@ -1036,11 +1086,16 @@ func build(pl Places) (*Policy, error) {
 	// so they are held themselves too, the desk's place there included. Below its own place, a .git is the desk's own
 	// work. A folder whose .git holds a place of the desk's (its shared .git: an owner's repo above its place) keeps
 	// that .git's own rows, as ~'s does. A place outside ~ is held up to the top. On a Mac, as ~'s.
+	// The core's folders for hires' worktrees and a GM's hires' folders are such places too (RT126SWEEP4-P1 F1): the
+	// owner goes there to look at a hire's work, and git in ~/.smolcorp/worktrees, or in a repo's folder there, walks up
+	// to ~/.smolcorp/.git, which a GM's own place, never below it, held from no GM. They hold no repo of their own
+	// either, so they are held themselves, as the folder for hires is.
 	if goos == "darwin" {
 		homeKey := key(goos, home)
 		own := []string{pl.Root, pl.Checkout, pl.HiresFolder, pl.GitDir, pl.Support, pl.OwnSockets, pl.DeskStart, pl.TmuxFolder, pl.GMPlans}
 		seen := map[string]bool{homeKey: true} // ~ is rowHomeGit's
-		for i, place := range []string{pl.Root, pl.Checkout, pl.Projects, pl.GMStart, pl.GMProjects} {
+		places := append([]string{pl.Root, pl.Checkout, pl.Projects, pl.GMStart, pl.GMProjects}, pl.Worktrees...)
+		for i, place := range append(places, pl.GMHires...) {
 			if place == "" {
 				continue
 			}
@@ -1218,6 +1273,33 @@ func build(pl Places) (*Policy, error) {
 	}
 	if pl.GMFolder != "" && pl.Subject != GM {
 		b.add(Rule{Row: "other desks' places: the GM's folder", Path: pl.GMFolder, Below: true, Write: Deny})
+	}
+	// A GM's hires' folders (FXGMHIRENOGIT126R1, ruling (2)): read, never written, so the trees the core makes there are
+	// never the GM's to swap or plant in while the core's git works on them.
+	for _, hires := range pl.GMHires {
+		b.add(Rule{Row: rowOtherDesks, Path: hires, Below: true, Write: Deny, Wide: true})
+	}
+	// The core's folders for hires' worktrees (FXCOREWORKTREES126): every desk's own tree is its place there, which opens
+	// this row for it alone; a GM has none there (ErrWorktrees), so for a GM the whole folder is read only. And the
+	// folders above each, up to the home folder: no desk moves, removes or makes one, so none is put aside and another
+	// made in its name for the core's next tree.
+	for _, folder := range pl.Worktrees {
+		if pl.Subject == GM {
+			b.add(Rule{Row: rowOtherDesks, Path: folder, Below: true, Write: Deny}) // final for a GM: nothing opens it
+		} else {
+			b.add(Rule{Row: rowOtherDesks, Path: folder, Below: true, Write: Deny, Wide: true})
+		}
+		home := key(goos, pl.Home)
+		for above := parent(spell(goos, folder)); ; above = parent(above) {
+			k := key(goos, above)
+			if k == "" || k == home || under(home, k) {
+				break
+			}
+			b.add(Rule{Row: rowWorktreesAbove, Path: above, Write: Deny})
+			if parent(above) == above {
+				break
+			}
+		}
 	}
 	// A GM with a workspace (FXGMROOTR1 N2): what it reads from the folder it starts in, which its workspace doesn't
 	// hold. Its plans, the one place it writes there, which its plan mode shows the owner and then follows; and the
@@ -1998,9 +2080,15 @@ var (
 )
 
 // DefaultBranch is the repo's default branch, as its origin/HEAD names it in gitDir (the common .git), or "".
-// Read as a file: no git runs.
+// Read as a file: no git runs. Only a small plain file is read, opened without waiting (openPlain): a FIFO whoever can
+// write the .git puts there is refused at once, never waited on (RT126SWEEP4 part 3's B1).
 func DefaultBranch(gitDir string) string {
-	data, err := os.ReadFile(filepath.Join(gitDir, "refs", "remotes", "origin", "HEAD"))
+	f, err := openPlain(filepath.Join(gitDir, "refs", "remotes", "origin", "HEAD"))
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, 4096))
 	if err != nil {
 		return ""
 	}
@@ -2041,6 +2129,12 @@ var supportFiles = func() map[string]string {
 func SupportRow(name string) (string, bool) {
 	if strings.HasPrefix(name, "sandbox-canary-") {
 		return "denied, with no exception: the sandbox's canary (§A5.2)", true
+	}
+	if strings.HasPrefix(name, "signin-") {
+		return "denied, with no exception: a Claude folder Setup asks hires' sign-in in, taken away after", true
+	}
+	if strings.HasPrefix(name, "summary-") {
+		return "denied, with no exception: the folder a summary's agent runs in, taken away after (RT126SWEEP4 part 3's F1)", true
 	}
 	why, ok := supportFiles[name]
 	return why, ok

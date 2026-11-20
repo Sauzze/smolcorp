@@ -36,15 +36,17 @@ var frontDeskMu sync.Mutex
 // Hire is what the app knows of one hire. Only nickname, state and notes are
 // ever edited from outside.
 type Hire struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Nickname   string `json:"nickname"`
-	Role       string `json:"role"`
-	Folder     string `json:"folder"`
-	Branch     string `json:"branch"`
-	Worktree   string `json:"worktree"`
-	Repo       string `json:"repo"`
-	TmuxSocket string `json:"tmuxSocket"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Nickname string `json:"nickname"`
+	Role     string `json:"role"`
+	// Folder is the folder it was hired into, Worktree its own worktree, "" for none: read only through Hire's checked
+	// accessors to act there, and through storedOnly to compare (hirepath.go, FXCOREWORKTREES126).
+	Folder     hirePath `json:"folder"`
+	Branch     string   `json:"branch"`
+	Worktree   hirePath `json:"worktree"`
+	Repo       string   `json:"repo"`
+	TmuxSocket string   `json:"tmuxSocket"`
 	// TmuxProgram is the tmux that started that server (1.26): it keeps driving it while the file is there.
 	// Written only when known, so a 1.25 row is as it was, and read as "today's order" (findTmux).
 	TmuxProgram string `json:"tmuxProgram,omitempty"`
@@ -95,6 +97,10 @@ type Hire struct {
 	// ScopeRoles: for a GM held to a demo's project, the roles the demo offers, the only ones it may hire
 	// (gmscope.go), by id with a comma between; written only then. Text, so a row stays comparable.
 	ScopeRoles string `json:"scopeRoles,omitempty"`
+	// FolderResolved is, for a hire with no worktree of its own, the folder it was hired into as the rule judged it at
+	// its hire, its links resolved (on a Mac): every start checks the folder still resolves there (deskPlacedWords).
+	// Written only then; a row from before 1.26.0 has none, and its first start keeps one (FXGMHIRENOGIT126R4, R10).
+	FolderResolved string `json:"folderResolved,omitempty"`
 }
 
 // liveSession is a session as the deck follows it, with where it sits.
@@ -189,10 +195,10 @@ func parseRegistry(data []byte) (registryFile, bool) {
 		return registryFile{}, false
 	}
 	for i, h := range hires {
-		if h.ID == "" || h.Name == "" || h.Folder == "" {
+		if h.ID == "" || h.Name == "" || h.Folder.none() {
 			return registryFile{}, false
 		}
-		hires[i].Folder = projectFolder(h)
+		hires[i].Folder = keptPath(projectFolder(h))
 	}
 	delete(raw, "version")
 	delete(raw, "hires")
@@ -205,19 +211,19 @@ func parseRegistry(data []byte) (registryFile, bool) {
 
 // projectFolder is a hire's folder as the contract's registry.json has it: the project it was hired into.
 // A row the Go core wrote before 1.25 has the worktree there (or a folder in it): it is read as the same
-// place in the repo, and written so at the registry's next save.
+// place in the repo, and written so at the registry's next save. Only the row's spellings are compared (storedOnly).
 func projectFolder(h Hire) string {
-	if h.Worktree == "" || h.Repo == "" {
-		return h.Folder
+	if h.Worktree.none() || h.Repo == "" {
+		return h.Folder.storedOnly()
 	}
-	worktree, folder := filepath.Clean(h.Worktree), filepath.Clean(h.Folder)
+	worktree, folder := filepath.Clean(h.Worktree.storedOnly()), filepath.Clean(h.Folder.storedOnly())
 	if folder == worktree {
 		return h.Repo
 	}
 	if rest, inside := strings.CutPrefix(folder, worktree+string(filepath.Separator)); inside {
 		return filepath.Join(h.Repo, rest)
 	}
-	return h.Folder
+	return h.Folder.storedOnly()
 }
 
 func unreadable(path string, aside bool) registryFile {
@@ -452,9 +458,10 @@ func physical(path string) string {
 
 // works says whether a live session works where hire does: in its worktree if
 // it has one, else in its folder, or the project it was started in.
+// The row's paths are compared as stored (storedOnly), and as they resolve: nothing is done there.
 func works(s liveSession, h Hire) bool {
 	places := map[string]bool{}
-	for _, p := range []string{h.Worktree, h.Folder} {
+	for _, p := range []string{h.Worktree.storedOnly(), h.Folder.storedOnly()} {
 		if p != "" {
 			places[p], places[physical(p)] = true, true
 		}
@@ -515,12 +522,18 @@ func teamRows(hires []Hire, keyed map[string]string, live []liveSession, now flo
 }
 
 func teamRow(h *Hire, s *liveSession, now float64, status func(string) string) map[string]any {
-	var folder, place string
+	var folder, place, movedNote string
 	row := map[string]any{"registered": h != nil, "live": s != nil}
 	if h != nil {
-		folder, place = h.Folder, cmpOr(h.Worktree, h.Folder)
+		// Its folder and worktree as its row keeps them, for the GM's and Setup's words (storedOnly); its status is read
+		// only where it works while that still resolves to itself (checkedPlace), else the row says it isn't read.
+		folder = h.Folder.storedOnly()
+		var moved error
+		if place, moved = h.checkedPlace(); moved != nil {
+			place, movedNote = "", placeMovedNote
+		}
 		row["id"], row["name"], row["nickname"], row["role"] = h.ID, h.Name, h.Nickname, h.Role
-		row["branch"], row["worktree"], row["tmuxSocket"], row["account"] = h.Branch, h.Worktree, h.TmuxSocket, h.Account
+		row["branch"], row["worktree"], row["tmuxSocket"], row["account"] = h.Branch, h.Worktree.storedOnly(), h.TmuxSocket, h.Account
 		row["started"], row["state"], row["notes"] = h.Started, h.State, h.Notes
 		row["model"] = h.Model
 		// A hire in T3 Code says so, with its thread; nobody else's row changes.
@@ -542,7 +555,18 @@ func teamRow(h *Hire, s *liveSession, now float64, status func(string) string) m
 		row["model"] = s.Model
 	}
 	row["folder"] = folder
-	row["status"] = status(place)
+	// A hire's own folder in the support folder first, where an engine or launcher hire's brief has it write its
+	// status, then its place, as the recap reads them (writeRecap, FXSWEEP3P3R1 B2).
+	row["status"] = ""
+	if h != nil && plainHireID(h.ID) && supportDir != "" {
+		row["status"] = status(hireFolder(supportDir, h.ID))
+	}
+	if row["status"] == "" && place != "" {
+		row["status"] = status(place)
+	}
+	if row["status"] == "" && movedNote != "" {
+		row["status"] = movedNote
+	}
 	row["sessionId"], row["agent"], row["liveState"] = "", "", "gone"
 	row["floor"], row["desk"], row["lastEventAt"], row["idleFor"] = nil, nil, nil, nil
 	if s != nil {
@@ -555,6 +579,10 @@ func teamRow(h *Hire, s *liveSession, now float64, status func(string) string) m
 	}
 	return row
 }
+
+// placeMovedNote is a team row's status for a hire whose worktree or folder was moved or replaced since its hire
+// (Hire.checkedPlace): its STATUS.md there isn't read, as nothing else of it is (FXCOREWORKTREES126).
+const placeMovedNote = "Its worktree or folder was moved or replaced since it was hired, so its status there isn't read."
 
 func cmpOr(a, b string) string {
 	if a != "" {

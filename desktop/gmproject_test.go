@@ -38,8 +38,8 @@ func projectDeck(t *testing.T) (d *Deck, projects, gm, hireKey string) {
 	if err := os.MkdirAll(filepath.Join(projects, "app"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeRegistryHires(t, Hire{ID: "gm1", Name: "General Manager", Role: gmRole, Folder: projects, State: "working", Started: 1},
-		Hire{ID: "h1", Name: "Janitor", Role: "janitor", Folder: filepath.Join(projects, "app"), State: "working", Started: 2})
+	writeRegistryHires(t, Hire{ID: "gm1", Name: "General Manager", Role: gmRole, Folder: keptPath(projects), State: "working", Started: 1},
+		Hire{ID: "h1", Name: "Janitor", Role: "janitor", Folder: keptPath(filepath.Join(projects, "app")), State: "working", Started: 2})
 	key, err := newSendKey(registryPath(), "h1")
 	if err != nil || key == "" {
 		t.Fatalf("newSendKey: %q, %v", key, err)
@@ -417,7 +417,7 @@ func TestOnlyTheGMAndThePageStartAProject(t *testing.T) {
 	}
 	managerOn(d)
 	// A GM held to one project starts none.
-	writeRegistryHires(t, Hire{ID: "gm1", Name: "General Manager", Role: gmRole, Folder: projects, State: "working", Started: 1,
+	writeRegistryHires(t, Hire{ID: "gm1", Name: "General Manager", Role: gmRole, Folder: keptPath(projects), State: "working", Started: 1,
 		Scope: filepath.Join(projects, "app")})
 	v := d.decide(actorGM, action{route: &routeAsk{method: "POST", path: gmProjectPath, body: strings.NewReader(`{"name":"held"}`)}})
 	if want := "This General Manager works only in " + filepath.Join(projects, "app") + ": it doesn't start new project folders."; v.allowed() || v.status != http.StatusForbidden || v.why != want {
@@ -430,12 +430,12 @@ func TestOnlyTheGMAndThePageStartAProject(t *testing.T) {
 func TestANewProjectNeedsAGMOverAProjectsFolder(t *testing.T) {
 	d, projects, gm, _ := projectDeck(t)
 	app := filepath.Join(projects, "app")
-	writeRegistryHires(t, Hire{ID: "gm1", Name: "General Manager", Role: gmRole, Folder: app, Repo: app, State: "working", Started: 1})
+	writeRegistryHires(t, Hire{ID: "gm1", Name: "General Manager", Role: gmRole, Folder: keptPath(app), Repo: app, State: "working", Started: 1})
 	want := "The General Manager works in a repository, not over a projects folder, so it can't start a project here."
 	if code, text := askProject(t, d, callerGM, gm, "", map[string]any{"name": "x"}); code != http.StatusConflict || text != want {
 		t.Errorf("a GM in a repo: %d %q", code, text)
 	}
-	writeRegistryHires(t, Hire{ID: "gm1", Name: "General Manager", Role: gmRole, Folder: projects, State: "fired", Started: 1})
+	writeRegistryHires(t, Hire{ID: "gm1", Name: "General Manager", Role: gmRole, Folder: keptPath(projects), State: "fired", Started: 1})
 	want = "There's no General Manager now, so there's no projects folder to start a project in."
 	if code, text := askProject(t, d, callerPage, gm, "", map[string]any{"name": "x"}); code != http.StatusConflict || text != want {
 		t.Errorf("no GM: %d %q", code, text)

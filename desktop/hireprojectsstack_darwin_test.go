@@ -75,7 +75,17 @@ func TestAHiresSubmoduleIsNeverMadeThroughALinkOnItsWay(t *testing.T) {
 		} else if err := os.MkdirAll(filepath.Join(tree, "libs", "sub"), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		err := initHireSubmodule(context.Background(), l.app, tree, registration, common, "libs/sub", commit)
+		registry, err := os.OpenRoot(registration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		treeRoot, err := os.OpenRoot(tree) // the worktree's folder, as the carry keeps it
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = initHireSubmodule(context.Background(), l.app, treeRoot, registry, common, "libs/sub", commit)
+		registry.Close()
+		treeRoot.Close()
 		left, _ := os.ReadDir(filepath.Join(outside, "sub"))
 		switch {
 		case linked && (err == nil || len(left) != 0):

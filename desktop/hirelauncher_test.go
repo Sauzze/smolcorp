@@ -354,7 +354,7 @@ func TestTheSwitchOnMakesTheHireWithTheEngineAndNoSecretIsInTheOpenersArgumentsO
 	if files, _ := filepath.Glob(filepath.Join(hireFolder(supportDir, hires[0].ID), "*.sh")); len(files) != 0 {
 		t.Errorf("a start script was written: %v", files)
 	}
-	if h.dirs[0] != hires[0].Worktree {
+	if h.dirs[0] != hires[0].Worktree.storedOnly() {
 		t.Errorf("the window opened in %q, not the worktree %q", h.dirs[0], hires[0].Worktree)
 	}
 }
@@ -616,8 +616,8 @@ func TestMailFindsAnEngineHiresLauncherByIdIncludingTwoHiresInOneFolder(t *testi
 			t.Fatal("not connected")
 		}
 	}
-	a := Hire{ID: "aaaaaaaaaaaa", Name: "A", Role: "janitor", Folder: same, Worktree: "/work/api-hires/a", ViaLauncher: true, State: "working"}
-	b := Hire{ID: "bbbbbbbbbbbb", Name: "B", Role: "janitor", Folder: same, Worktree: "/work/api-hires/b", ViaLauncher: true, State: "working"}
+	a := Hire{ID: "aaaaaaaaaaaa", Name: "A", Role: "janitor", Folder: keptPath(same), Worktree: keptPath("/work/api-hires/a"), ViaLauncher: true, State: "working"}
+	b := Hire{ID: "bbbbbbbbbbbb", Name: "B", Role: "janitor", Folder: keptPath(same), Worktree: keptPath("/work/api-hires/b"), ViaLauncher: true, State: "working"}
 	writeRegistry(t, a, b)
 	connect("LA", "janitor", a.ID)
 	connect("LB", "janitor", b.ID)
@@ -628,14 +628,14 @@ func TestMailFindsAnEngineHiresLauncherByIdIncludingTwoHiresInOneFolder(t *testi
 		t.Errorf("B: %q %v", id, ok)
 	}
 	// An engine hire without its launcher has none: the folder is not a way in, nor the owner's plain office window.
-	c := Hire{ID: "cccccccccccc", Name: "C", Role: "janitor", Folder: same, ViaLauncher: true, State: "working"}
+	c := Hire{ID: "cccccccccccc", Name: "C", Role: "janitor", Folder: keptPath(same), ViaLauncher: true, State: "working"}
 	connect("LP", "", "")
 	writeRegistry(t, c)
 	if id, ok := d.hireLauncherID(c); ok {
 		t.Errorf("C was matched by folder: %q", id)
 	}
 	// A hire of the old way still is, by folder, and never to an id-carrying launcher.
-	old := Hire{ID: "dddddddddddd", Name: "D", Role: "reviewer", Folder: same, State: "working"}
+	old := Hire{ID: "dddddddddddd", Name: "D", Role: "reviewer", Folder: keptPath(same), State: "working"}
 	writeRegistry(t, old)
 	if id, ok := d.hireLauncherID(old); !ok || id != "LP" {
 		t.Errorf("the old way: %q %v", id, ok)
@@ -807,7 +807,7 @@ func (r *lrig) unchanged(h Hire, w *winLauncher) {
 	if id, _ := r.d.launcherOf(h.ID); id == "" {
 		r.t.Error("the launcher is gone")
 	}
-	if _, err := os.Stat(h.Worktree); err != nil {
+	if _, err := os.Stat(h.Worktree.storedOnly()); err != nil {
 		r.t.Errorf("worktree: %v", err)
 	}
 	if recaps, _ := os.ReadDir(filepath.Join(supportDir, "recaps")); len(recaps) != 0 {
@@ -843,7 +843,7 @@ func TestAFireRefusesInTheEngineTmuxWordsAndChangesNothing(t *testing.T) {
 				w.screen.mu.Unlock()
 			}
 			if c.dirty {
-				os.WriteFile(filepath.Join(h.Worktree, "new.txt"), []byte("x"), 0o644)
+				os.WriteFile(filepath.Join(h.Worktree.storedOnly(), "new.txt"), []byte("x"), 0o644)
 			}
 			r.fireRefused(h, c.force, c.want)
 			r.unchanged(h, w)
@@ -898,7 +898,7 @@ func TestForceSkipsOnlyADraftBusyOrUncommittedFilesAndNothingIsEverTyped(t *test
 		r := newLRig(t)
 		r.shows = shows
 		h, w := r.hire("janitor")
-		os.WriteFile(filepath.Join(h.Worktree, "new.txt"), []byte("x"), 0o644)
+		os.WriteFile(filepath.Join(h.Worktree.storedOnly(), "new.txt"), []byte("x"), 0o644)
 		if kept, err := r.d.fireLauncherHire(h, r.o, true); err != nil || kept == "" {
 			t.Fatalf("%s: forced fire: kept %q err %v", shows, kept, err)
 		}
@@ -1010,11 +1010,11 @@ func TestTheWorktreeGuardOfALauncherHireNeedsItsLauncherGoneAndEveryOtherCheck(t
 		t.Fatal("removed a worktree on another branch")
 	}
 	mainRepo := h
-	mainRepo.Worktree = r.repo
+	mainRepo.Worktree = keptPath(r.repo)
 	if removeLauncherHireWorktree(r.o.Git, r.o.Worktrees, goneYes)(mainRepo) {
 		t.Fatal("removed the main repo")
 	}
-	if _, err := os.Stat(h.Worktree); err != nil {
+	if _, err := os.Stat(h.Worktree.storedOnly()); err != nil {
 		t.Fatal(err)
 	}
 	if !removeLauncherHireWorktree(r.o.Git, r.o.Worktrees, goneYes)(h) {
@@ -1080,7 +1080,7 @@ func TestTheLauncherTakesOnlyTheArgumentsOfAnEngineHire(t *testing.T) {
 func (r *lrig) reconnect(h Hire, w *winLauncher, token string) *winLauncher {
 	r.t.Helper()
 	r.d.launcherGone(w.id, w.tab)
-	return r.connect("L-again-"+h.ID, hireDir(h), "janitor", token, "", w.env)
+	return r.connect("L-again-"+h.ID, h.storedPlace(), "janitor", token, "", w.env)
 }
 
 func TestALauncherThatConnectedAgainIsNeverFiredByAPlainStopAndStillCountsAsTheGM(t *testing.T) {
@@ -1145,7 +1145,7 @@ func TestACleanUpAfterADropNeverTakesTheWorktreeOfAHireThatIsStillRunning(t *tes
 				token, w = flagAfter(r.opened[0], "--hire"), r.window[h.ID]
 				r.d.launcherGone(w.id, w.tab) // the stream drops
 			case 12:
-				again = r.connect("L-again", h.Worktree, "janitor", token, "", w.env)
+				again = r.connect("L-again", h.Worktree.storedOnly(), "janitor", token, "", w.env)
 			}
 			return calls > 30
 		}
@@ -1155,7 +1155,7 @@ func TestACleanUpAfterADropNeverTakesTheWorktreeOfAHireThatIsStillRunning(t *tes
 		if h.State != "working" {
 			t.Errorf("hire: %+v", h)
 		}
-		if _, err := os.Stat(h.Worktree); err != nil || again == nil {
+		if _, err := os.Stat(h.Worktree.storedOnly()); err != nil || again == nil {
 			t.Errorf("worktree: %v, reconnected %v", err, again != nil)
 		}
 	})
@@ -1194,8 +1194,8 @@ func TestACleanUpAfterADropNeverTakesTheWorktreeOfAHireThatIsStillRunning(t *tes
 			r.manage(c.role)
 			r.d.watching.Wait()
 			h := registered(t)[0]
-			if h.Worktree != "" {
-				if _, err := os.Stat(h.Worktree); err != nil {
+			if !h.Worktree.none() {
+				if _, err := os.Stat(h.Worktree.storedOnly()); err != nil {
 					t.Errorf("a running hire's worktree was taken: %v", err)
 				}
 			}
@@ -1249,7 +1249,7 @@ func TestAHireWithNoWorktreeKeepsItsProtectionAfterItsLauncherConnectsAgain(t *t
 	r.repo = physical(t.TempDir())
 	r.d.launcherEngine = r.o
 	h, w := r.hire("janitor")
-	if h.Worktree != "" {
+	if !h.Worktree.none() {
 		t.Fatalf("a hire in a plain folder got a worktree: %+v", h)
 	}
 	setHire(h.ID, "working", "")
@@ -1285,7 +1285,8 @@ func TestALauncherHireIsHandedTheMessageToReadItsBrief(t *testing.T) {
 	}
 	env, status := r.d.takeStartEnv(token, hireID)
 	if status != http.StatusOK || env.Message != "Read `"+tildePath(brief)+"` and follow it: it's your brief, as my Janitor. As it says, your "+
-		"first reply must only ask me its questions, all together; wait for my answers before you read code or run commands." {
+		"first reply must only ask me its questions, all together; wait for my answers before you read code or run commands."+
+		deskStartWords(hireWorkWords(hire.Worktree.storedOnly(), hire.Branch)) { // where its work is (FXCOREWORKTREES126, item 8)
 		t.Errorf("handed %d %q", status, env.Message)
 	}
 	// The message isn't on the window's command line.

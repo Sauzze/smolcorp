@@ -170,7 +170,7 @@ func sessionIn(d *Deck, id, cwd string) {
 func TestSetupRefusesAGMWhoseSessionIsGoneWhileASessionWorksInItsWorktree(t *testing.T) {
 	d, r, gm := gmDeck(t)
 	tree, other := t.TempDir(), t.TempDir()
-	if err := updateRegistry(func(f *registryFile) { f.hires[0].State, f.hires[0].Worktree = "working", tree }); err != nil {
+	if err := updateRegistry(func(f *registryFile) { f.hires[0].State, f.hires[0].Worktree = "working", keptPath(tree) }); err != nil {
 		t.Fatal(err)
 	}
 	r.tmux.up = false
@@ -200,7 +200,7 @@ func TestASessionInASubfolderOrASiblingOfAGMsFolderDoesntBlock(t *testing.T) {
 		}
 	}
 	if err := updateRegistry(func(f *registryFile) {
-		f.hires[0].State, f.hires[0].Folder, f.hires[0].Worktree = "working", folder, ""
+		f.hires[0].State, f.hires[0].Folder, f.hires[0].Worktree = "working", keptPath(folder), keptPath("")
 	}); err != nil {
 		t.Fatal(err)
 	}

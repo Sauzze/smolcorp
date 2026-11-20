@@ -91,7 +91,7 @@ func plainDeskOf(folder string) string {
 	}
 	where := physical(folder)
 	for _, h := range plainHireRecords() {
-		if h.Worktree != "" && within(physical(h.Worktree), where) {
+		if !h.Worktree.none() && within(physical(h.Worktree.storedOnly()), where) { // compared only
 			return h.ID
 		}
 	}
@@ -101,7 +101,7 @@ func plainDeskOf(folder string) string {
 // plainDeskHeld is whether a connected launcher is plain hire h's window: the one its token made, or one in its
 // worktree. With the lock held.
 func (d *Deck) plainDeskHeld(h Hire) bool {
-	tree := physical(h.Worktree)
+	tree := physical(h.Worktree.storedOnly()) // compared only
 	for _, tab := range d.launchers {
 		if tab.plainDesk == h.ID || tab.folder != "" && within(tree, physical(tab.folder)) {
 			return true
@@ -161,12 +161,13 @@ func (d *Deck) endPlainHire(h Hire) {
 	d.mu.Lock()
 	worktrees := d.worktreesFolder("")
 	d.mu.Unlock()
-	removed := h.Worktree != "" && removeOwnWorktree(runGit, worktrees, h)
-	recap := writeRecap(h, "", removed, time.Now())
+	hasTree := !h.Worktree.none()
+	removed := hasTree && removeOwnWorktree(runGit, worktrees, h)
+	recap := writeRecapMoved(h, "", removed, hasTree && !removed && hireTreeMoved(h), time.Now())
 	if err := os.Remove(filepath.Join(plainHiresFolder(), h.ID+".json")); err != nil {
 		log.Printf("hire: plain hire %s's record: %v", h.ID, err)
 	}
-	if !removed && h.Worktree != "" {
-		log.Printf("hire: plain hire %s ended; its work is on %s, in %s (recap %s)", h.ID, h.Branch, h.Worktree, recap)
+	if !removed && hasTree {
+		log.Printf("hire: plain hire %s ended; its work is on %s, in %s (recap %s)", h.ID, h.Branch, h.Worktree.storedOnly(), recap)
 	}
 }

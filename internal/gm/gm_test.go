@@ -521,16 +521,18 @@ func TestHireLeavesOutWhatIsNotGiven(t *testing.T) {
 	}
 }
 
-// --t3 hires into T3 Code (T797b): the request says engine "t3", and the app's answer (or refusal) comes back as for any hire.
-func TestHireIntoT3CodeSaysSo(t *testing.T) {
-	var got []byte
+// An old script's --t3 (T797b) gets the app's own plain refusal, here, with no request: only the owner hires into T3
+// Code, from Setup (FXSWEEP3P3R1 N1). No request ever says engine "t3".
+func TestHireIntoT3CodeIsRefusedWithoutARequest(t *testing.T) {
 	app := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
-		got, _ = io.ReadAll(r.Body)
 		w.Write([]byte(`{"ok":true,"desk":null}`))
 	})
-	code, out, _ := runGM(app.env(t, withToken()), "hire", "--role", "reviewer", "--t3", "--json")
-	if code != 0 || !strings.Contains(out, `"ok": true`) || string(got) != `{"engine":"t3","role":"reviewer"}` {
-		t.Errorf("exit %d out %q body %s", code, out, got)
+	code, out, errOut := runGM(app.env(t, withToken()), "hire", "--role", "reviewer", "--t3", "--json")
+	if code != exitApp || out != "" || errOut != "smolcorp gm: "+T3HireRefusal+"\n" || len(app.reqs) != 0 {
+		t.Errorf("exit %d out %q stderr %q, %d requests", code, out, errOut, len(app.reqs))
+	}
+	if _, has := (HireOptions{Role: "reviewer", Floor: -1}).body()["engine"]; has {
+		t.Error("a hire's request names an engine")
 	}
 }
 
@@ -1064,13 +1066,15 @@ func TestSessionHeaderIsSentOnlyWhenWellFormed(t *testing.T) {
 	}
 }
 
-// --t3's help doesn't say "Mac only": hiring into T3 Code works wherever T3 Code and its t3 command are (MTMUX).
-func TestHelpDoesNotSayT3IsMacOnly(t *testing.T) {
+// The GM's help doesn't offer --t3: the app refuses the GM's every hire into T3 Code, so the GM isn't told to try it
+// (FXSWEEP3P3R1 N1, as the cold review RT126SWEEP3FIXP3 recommended). It pinned "--t3 hires" before (MTMUX); nor does it
+// say "Mac only" of T3 Code anywhere.
+func TestHelpDoesNotOfferT3(t *testing.T) {
 	var out bytes.Buffer
 	if code := Run([]string{"help"}, &out, io.Discard); code != 0 {
 		t.Fatalf("help exits %d", code)
 	}
-	if strings.Contains(out.String(), "Mac only") || !strings.Contains(out.String(), "--t3 hires") {
+	if strings.Contains(out.String(), "Mac only") || strings.Contains(out.String(), "--t3") || strings.Contains(out.String(), "T3 Code") {
 		t.Errorf("help says: %s", out.String())
 	}
 }

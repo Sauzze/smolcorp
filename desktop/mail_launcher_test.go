@@ -115,7 +115,7 @@ func takesTheDraft(t *testing.T) func(*fakeLauncher, string) {
 }
 
 func launcherHire() Hire {
-	return Hire{ID: "abcdef123456", Name: "Rev", Role: "reviewer", Folder: "/work/api", State: "working"}
+	return Hire{ID: "abcdef123456", Name: "Rev", Role: "reviewer", Folder: keptPath("/work/api"), State: "working"}
 }
 
 func noPause(time.Duration) {}
@@ -489,7 +489,7 @@ func TestAWindowAnotherHireMayOwnIsNotTyped(t *testing.T) {
 		t.Errorf("with the other hire fired: %q %v", id, ok)
 	}
 	// A hire with a worktree isn't matched by the folder it was hired from.
-	a.Worktree = "/work/api-hires/abcdef123456"
+	a.Worktree = keptPath("/work/api-hires/abcdef123456")
 	if _, ok := d.hireLauncherID(a); ok {
 		t.Error("a hire with a worktree was matched by its folder")
 	}

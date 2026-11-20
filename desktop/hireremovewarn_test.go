@@ -183,7 +183,7 @@ func TestAWarningBesideABranchsNameOrTheIndexsRecordsKeepsNothing(t *testing.T) 
 		}
 		gitStandInBeside(t, gitWarnsBesideANameOrRecords)
 		logged := logOf(t)
-		h := Hire{ID: "0123456789ab", Repo: place.Repo, Worktree: place.Worktree, Branch: place.Branch}
+		h := Hire{ID: "0123456789ab", Repo: place.Repo, Worktree: keptPath(place.Worktree), Branch: place.Branch}
 		if !removeOwnWorktree(nil, o.Worktrees, h) {
 			t.Errorf("the hire's clean worktree was kept; the log:\n%s", logged)
 		}

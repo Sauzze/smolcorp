@@ -22,8 +22,8 @@ import (
 // A GM held to one project sets the preview of its own hires there alone, named as hires.
 func TestAScopedGMSetsOnlyItsOwnHiresPreview(t *testing.T) {
 	d, _, _, token, project := scopedGM(t)
-	hires := append(registered(t), Hire{ID: "in1", Name: "Inside", Role: "builder", Folder: project, State: "working"},
-		Hire{ID: "out1", Name: "Outside", Role: "builder", Folder: "/elsewhere", State: "working"})
+	hires := append(registered(t), Hire{ID: "in1", Name: "Inside", Role: "builder", Folder: keptPath(project), State: "working"},
+		Hire{ID: "out1", Name: "Outside", Role: "builder", Folder: keptPath("/elsewhere"), State: "working"})
 	writeRegistry(t, hires...)
 	for body, refused := range map[string]bool{
 		`{"url":"http://localhost:3000","hire":"out1"}`:   true,

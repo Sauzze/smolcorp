@@ -225,3 +225,18 @@ func TestStartHereSaysWhatAnotherProgramCanStillDo(t *testing.T) {
 		t.Error("the limits line stands in the way of being ready")
 	}
 }
+
+// At a hire's worktree or folder that was moved or replaced since its hire (by a General Manager or anyone), Smolcorp
+// runs no git and opens no window or T3 Code, and the plant listing holds the whole place for you rather than list
+// what's there through it, and Remove never acts through it (claudePlaceLook, removeHeldClaudePlant; RT126SWEEP4 part
+// 3's B2: FXCOREWORKTREES126's listing decision reversed for a moved place): the release notes and the team's guide
+// say both, and no longer that what the hire left there is listed.
+func TestTheDocsSayAMovedPlaceIsHeldWhole(t *testing.T) {
+	for _, doc := range [][]string{{"RELEASE-NOTES.md"}, {"docs", "team.md"}} {
+		text := repoText(t, doc...)
+		mustSay(t, doc[len(doc)-1], text,
+			"Wherever a hire's worktree or folder no longer leads where it did at its hire, Smolcorp doesn't run git there, or open a window or T3 Code there",
+			"Nothing there is listed through it or removed: Smolcorp holds the whole place for you instead, and your own Claude Code doesn't start in or around it until you've checked it yourself.")
+		mustNotSay(t, doc[len(doc)-1], text, "or read its files", "no reading there", "It still lists what the hire left there")
+	}
+}

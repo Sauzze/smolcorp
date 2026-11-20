@@ -535,9 +535,21 @@ func TestEverySupportFileHasARowAndOnlyTheListedOnesOpen(t *testing.T) {
 			t.Errorf("%s: read, write, connect %v, want %v", name, got, want)
 		}
 	}
-	for _, name := range []string{"sandbox-canary-1", "serve.sock", "gm-memory", "hires", "nightshift.json", "nightshift.json.bad"} {
+	for _, name := range []string{"sandbox-canary-1", "serve.sock", "gm-memory", "hires", "nightshift.json", "nightshift.json.bad", "signin-1a2b3c", "summary-1a2b3c"} {
 		if why, ok := SupportRow(name); !ok || why == "" {
 			t.Errorf("%s has no row", name)
+		}
+	}
+	// Setup's question about hires' sign-in is asked in a Claude folder of its own there (FXSWEEP3P3 F-4), and a summary
+	// is run in a folder of its own there (RT126SWEEP4 part 3's F1): no desk reads, writes or connects to anything in
+	// either.
+	for _, at := range []string{realSupport + "/signin-1a2b3c", realSupport + "/signin-1a2b3c/settings.json",
+		realSupport + "/summary-1a2b3c", realSupport + "/summary-1a2b3c/.opencode/plugins/x.js"} {
+		read, _ := p.Decide(at, Read)
+		write, _ := p.Decide(at, Write)
+		connect, _ := p.Decide(at, Connect)
+		if got := [3]Verdict{read, write, connect}; got != [3]Verdict{Deny, Deny, Deny} {
+			t.Errorf("%s: read, write, connect %v", at, got)
 		}
 	}
 	if _, ok := SupportRow("a-file-added-later"); ok {

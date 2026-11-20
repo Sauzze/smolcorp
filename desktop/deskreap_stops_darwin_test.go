@@ -410,7 +410,7 @@ func TestTheWatchThatGivesUpEndsEveryProgramItsDeskStarted(t *testing.T) {
 	if row := registered(t)[0]; row.State != "failed" {
 		t.Errorf("row %+v, want failed", row)
 	}
-	if _, err := os.Stat(hire.Worktree); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(hire.Worktree.storedOnly()); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("its worktree wasn't taken away: %v", err)
 	}
 }

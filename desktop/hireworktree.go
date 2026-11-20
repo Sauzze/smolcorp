@@ -3,6 +3,7 @@ package desktop
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -40,23 +41,33 @@ func hiresOwnWorktree(git gitRunner, worktrees string, h Hire) (repo, tree strin
 	}
 	// Absolute and already clean: real records hold resolved paths, and a spelling
 	// like <link>/. or <folder>/.. would hide a link from the check below.
-	for _, p := range []string{h.Repo, h.Worktree} {
+	for _, p := range []string{h.Repo, h.Worktree.storedOnly()} {
 		if !filepath.IsAbs(p) || p != filepath.Clean(p) {
 			return "", "", false
 		}
 	}
-	repo, tree = physical(h.Repo), physical(h.Worktree)
+	// On a Mac, the tree must still be where its hire stored it (resolved then): one that now resolves elsewhere (its
+	// folder for hires turned into a link, or moved) gets no git and isn't removed. Its hire ends, its tree is kept,
+	// and the recap says why (FXGMHIRENOGIT126R6). The accessor checks it (FXCOREWORKTREES126).
+	checked, err := h.checkedTree()
+	if err != nil || checked == "" {
+		return "", "", false
+	}
+	repo, tree = physical(h.Repo), physical(checked)
 	if within(repo, tree) || within(tree, repo) {
 		return "", "", false
 	}
 	// The record's own last path part must not be a link: look at it before it is
 	// resolved (tree is resolved, so a link can't show there).
-	last := filepath.Join(physical(filepath.Dir(h.Worktree)), filepath.Base(h.Worktree))
+	last := filepath.Join(physical(filepath.Dir(checked)), filepath.Base(checked))
 	if info, err := os.Lstat(last); err != nil || info.Mode()&os.ModeSymlink != 0 {
 		return "", "", false
 	}
 	// The branch prepareHire made for it (hireBranch), or the one a hire made before branches had a folder of their own.
-	if base := filepath.Base(tree); filepath.Dir(tree) != physical(hiresFolder(repo, worktrees)) || h.Branch != hireBranch(h.ID, base) && h.Branch != "hire/"+base {
+	// Right in a folder hires' worktrees are made in: the core's own, the configured one, or beside the repo for a hire
+	// made before (treeFolders, FXCOREWORKTREES126).
+	inHires := treeRightIn(tree, repo, worktrees)
+	if base := filepath.Base(tree); !inHires || h.Branch != hireBranch(h.ID, base) && h.Branch != "hire/"+base {
 		return "", "", false
 	}
 	// What the worktree really has checked out must be the hire's branch (not
@@ -65,4 +76,13 @@ func hiresOwnWorktree(git gitRunner, worktrees string, h Hire) (repo, tree strin
 		return "", "", false
 	}
 	return repo, tree, true
+}
+
+// hireTreeMoved is whether, on a Mac, h's worktree no longer resolves to the path stored at its hire, which was resolved
+// then: whoever can write the folder for hires could have turned it into a link to a folder of theirs, and git there
+// would run where it leads. A tree that is gone resolves to itself, and isn't moved. Off a Mac it is never moved
+// (FXGMHIRENOGIT126R6).
+func hireTreeMoved(h Hire) bool {
+	_, err := h.checkedTree()
+	return runtime.GOOS == "darwin" && err != nil
 }

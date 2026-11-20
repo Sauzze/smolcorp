@@ -134,6 +134,49 @@ func (o engineOptions) withDefaults() engineOptions {
 	return o
 }
 
+// hirePlaceCheck is the engine's check of a hire's place (hireRequest.Check), for desk id in role, started in its
+// sandbox when sandboxed: hirePlaceWordsAs on its worktree, or else on the folder as prepareHire's rule judged it
+// (judged), never the folder asked for, whose links would be resolved again for git, after the rule's look
+// (FXGMHIRENOGIT126R3, B1).
+func hirePlaceCheck(sandboxed bool, id, role string, o engineOptions) func(hirePlace, string) error {
+	return func(p hirePlace, judged string) error {
+		if !sandboxed {
+			return nil
+		}
+		at := deskAtOf(Hire{ID: id, Role: role, Folder: keptPath(judged), Worktree: keptPath(p.Worktree), Repo: p.Repo}, "", nil, o)
+		if at.Projects != "" { // a GM's workspace is its place
+			return nil
+		}
+		if words := hirePlaceWordsAs(at.Root, o.Git, placedInGMFolder(p.Note)); words != "" {
+			return &hireRefusal{Status: http.StatusConflict, Message: words}
+		}
+		return nil
+	}
+}
+
+// hirePlansRoot opens the folder a hire made at place starts in, for its plans (makeDeskPlansIn), on the place its hire
+// checked, never by the folder's path again (FXGMHIRENOGIT126R5): in its worktree, through the root the carry kept
+// (carriedTreeRoot), else the worktree as made, opened with no link on its way (openResolvedRoot); in a folder with no
+// worktree, the folder as the rule judged it (place.Resolved), opened so. A GM with a workspace starts in the folder it
+// reads, by its path, as at every start of it (R15: it only reads there, and its plans folder there is its own); so
+// does a folder whose links couldn't be resolved, and any folder off a Mac, where no desk starts in a sandbox yet.
+func hirePlansRoot(place hirePlace, gmWorkspace bool) (*os.Root, error) {
+	switch {
+	case place.Worktree != "":
+		sub, err := filepath.Rel(place.Worktree, place.Folder)
+		if err != nil || !filepath.IsLocal(sub) && sub != "." {
+			return nil, errDeskClaude
+		}
+		if root, found, err := carriedTreeRoot(place.Branch, sub); found {
+			return root, err
+		}
+		return openResolvedRoot(place.Folder)
+	case place.Resolved != "" && !gmWorkspace:
+		return openResolvedRoot(place.Resolved)
+	}
+	return os.OpenRoot(place.Folder)
+}
+
 // runManagedHire makes a managed Claude hire and starts it, or refuses with
 // nothing left behind. The hire is in the registry as "starting".
 func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
@@ -167,28 +210,33 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	// (FXHIREPROJECTSR4), nor in a folder in no repo that holds one (FXHIREPROJECTSR5): refused once its place is
 	// known, before anything is trusted or written there, by whatever route it came (Setup's folder, a recent one, the
 	// GM's); the office's own hire picks a project first (hireWith).
-	check := func(p hirePlace) error {
-		if !tmux.sandboxed {
-			return nil
-		}
-		at := deskAtOf(Hire{ID: id, Role: r.Role.ID, Folder: r.Folder, Worktree: p.Worktree, Repo: p.Repo}, "", nil, o)
-		if at.Projects != "" { // a GM's workspace is its place
-			return nil
-		}
-		if words := hirePlaceWords(at.Root, o.Git); words != "" {
-			return &hireRefusal{Status: http.StatusConflict, Message: words}
-		}
-		return nil
-	}
+	// Its place's check and making have one deadline (hirePlaceDeadline): no git of them starts past it, so nothing
+	// there holds the hire, and the deck's hires with it, unbounded (RT126SWEEP4 part 3's B1). Its undos aren't held to
+	// it: they take back what was made.
+	placed := o
+	placed.Git = gitUntil(o.Git, time.Now().Add(hirePlaceDeadline))
+	check := hirePlaceCheck(tmux.sandboxed, id, r.Role.ID, placed)
 	place, err := prepareHire(hireRequest{HireID: id, Name: name, Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir, Held: r.Held,
-		APIKey: r.APIKey, Worktree: !r.NoWorktree, Check: check},
-		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: o.Git, PortFree: o.PortFree, Key: key})
+		APIKey: r.APIKey, Worktree: !r.NoWorktree, Check: check, KeepCarried: true, GM: r.Role.ID == gmRole},
+		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: placed.Git, PortFree: o.PortFree, Key: key, Hold: true})
+	defer releaseHirePorts(place.Ports) // its row holds them by then, or it was refused
 	if err != nil {
 		return Hire{}, err
 	}
+	// What the core carried for its worktree stays on record until this hire ends (FXGMHIRENOGIT126R5, R14): every
+	// undo below takes the tree back through the carry's roots (takeBackTree), never by its path, which whoever can
+	// write the folder for hires could have turned into a link since prepareHire checked it; git's status, then its
+	// removal, would run where that link leads. Once its agent may have worked there (its start), a tree holding
+	// changes is kept, as before, and one turned since gets no git (takeBackWorkedTree).
+	defer forgetCarried(place.Branch)
+	agentMayHaveRun := false
 	undo := func() {
 		if place.Worktree != "" {
-			removeWorkspace(place.Repo, place.Worktree, place.Branch, o.Git)
+			if agentMayHaveRun {
+				takeBackWorkedTree(place.Repo, place.Worktree, place.Branch, o.Git)
+			} else {
+				takeBackTree(place.Repo, place.Worktree, place.Branch, o.Git)
+			}
 		}
 		_ = os.RemoveAll(hireFolder(supportDir, id))
 	}
@@ -232,9 +280,12 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	// The socket is the one its tmux server will have; the one tmux reports is
 	// kept below. Any refusal from here on takes the row and its key away again.
 	// Its folder is the project it was hired into, its worktree where it works (the contract's registry.json).
-	hire := Hire{ID: id, Name: r.Role.Name, Nickname: r.Nickname, Account: r.AccountName, Role: r.Role.ID, Folder: r.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
+	hire := Hire{ID: id, Name: r.Role.Name, Nickname: r.Nickname, Account: r.AccountName, Role: r.Role.ID, Folder: keptPath(r.Folder), Branch: place.Branch, Worktree: keptPath(place.Worktree), Repo: place.Repo,
 		TmuxSocket: tmux.socket, TmuxProgram: tmux.program, Model: r.Role.Model, Ports: place.Ports, Brief: brief, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note,
 		Scope: r.Scope, ScopeRoles: r.ScopeRoles}
+	if place.Worktree == "" {
+		hire.FolderResolved = place.Resolved // checked at its every start (deskPlacedWords)
+	}
 	// Its start is under way from its row until its server is up and its row read again: the edit never marks it
 	// gone meanwhile (gonedesk.go).
 	defer deskStarting(id)()
@@ -322,11 +373,9 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		return fail(http.StatusInternalServerError, "Couldn't make the hire's own folder.")
 	}
 	if claude {
-		// Its folder trusted as prepareHire trusted it in the account's file: the worktree, links resolved.
-		desk := deskClaude{Account: r.ConfigDir, Trusted: physical(place.Folder), MCP: r.MCPServers}
-		if place.Worktree != "" {
-			desk.Trusted = physical(place.Worktree)
-		}
+		// Its folder trusted as prepareHire trusted it in the account's file: the worktree, links resolved, in the very
+		// spelling checked at its hire (trustedSpelling), never its links resolved again (FXGMHIRENOGIT126R5).
+		desk := deskClaude{Account: r.ConfigDir, Trusted: trustedSpelling(place), MCP: r.MCPServers}
 		if r.APIKey {
 			desk.KeyTail = keyApproval(key())
 		}
@@ -340,14 +389,21 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		if why := deskSignInRefusal(start.DeskClaude, r.ConfigDir, r.APIKey); why != "" {
 			return fail(http.StatusConflict, why)
 		}
-		// Its plans, in its place (deskPlansDirectory): the fence denies its tools its Claude folder.
-		if makeDeskPlans(place.Folder, id) != nil {
+		// Its plans, in its place (deskPlansDirectory): the fence denies its tools its Claude folder. Made through a
+		// root on the place checked at its hire (hirePlansRoot), never by the folder's path again, which a link put on
+		// its way since would lead elsewhere (FXGMHIRENOGIT126R5); undone through the same root.
+		plans, err := hirePlansRoot(place, workspace != "")
+		if err != nil {
+			return fail(http.StatusInternalServerError, "Smolcorp couldn't make the hire's plans folder.")
+		}
+		defer plans.Close()
+		if makeDeskPlansIn(plans, id) != nil {
 			return fail(http.StatusInternalServerError, "Smolcorp couldn't make the hire's plans folder.")
 		}
 		if place.Worktree == "" { // in a folder others share: a start refused from here takes its plans folder too
 			undoMade := undo
 			undo = func() {
-				_ = removeDeskPlans(place.Folder, id)
+				_ = removeDeskPlansIn(plans, id)
 				undoMade()
 			}
 		}
@@ -367,15 +423,22 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		}
 	}
 	desk := deskAt{ID: id, GM: r.Role.ID == gmRole, Root: place.Folder, Socket: tmux.socket, Accounts: r.Profiles, Brief: brief, Git: o.Git,
-		DatabaseOptIn: o.DatabaseOptIn}
+		DatabaseOptIn: o.DatabaseOptIn, InGMFolder: placedInGMFolder(place.Note), Worktrees: o.Worktrees}
 	if place.Worktree != "" {
 		desk.Root, desk.Checkout = place.Worktree, place.Repo
+		// Its tree checked as at every start after, from its row (deskAtOf): still the very folder made at its hire, so
+		// a swap since prepareHire's check is refused here, at its first start (FXGMHIRENOGIT126R5, R13).
+		desk.Tree, desk.TreeRepo = place.Worktree, place.Repo
 	}
 	if place.Repo != "" {
 		desk.Hires = hiresFolder(place.Repo, o.Worktrees)
 	}
 	if workspace != "" {
 		desk.Root, desk.Projects = workspace, place.Folder // made with its sandbox (makeGMWorkspace)
+	}
+	if place.Worktree == "" && workspace == "" {
+		// Its folder checked as at every start after, from its row (deskAtOf): still the one the rule judged.
+		desk.CheckPlaced, desk.Placed = true, hire.FolderResolved
 	}
 	if err := o.sandboxDesk(tmux, desk); err != nil {
 		return fail(http.StatusConflict, err.Error())
@@ -390,6 +453,7 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		deskStarts.forget(id)
 		undoIssued()
 	}
+	agentMayHaveRun = true // its pane is asked for now: from here its agent may have worked in its tree
 	_, socket, started, err := tmux.start(place.Folder, command)
 	if err != nil {
 		return fail(tmuxStartRefusal(err))
@@ -487,8 +551,8 @@ func watchManagedHire(hire Hire, testPort int, o engineOptions) {
 	}
 	// Its own Claude folder goes, as at a fire (SA-X8), and its plans from a folder others share.
 	_ = removeDeskClaude(supportDir, hire.ID)
-	if hire.Worktree == "" {
-		_ = removeDeskPlans(startedIn(hire), hire.ID)
+	if hire.Worktree.none() {
+		removeHirePlans(hire)
 	}
 	if hire.Role == gmRole {
 		removeGMWorkspace(hire.ID) // a GM's workspace too (FXGMROOT)
@@ -511,7 +575,10 @@ func (d *Deck) managedHire(roleID, folder string, terminal hireOpener, hasTermin
 
 // managedHireWith is managedHire with the project the office picked for it in the folder for hires, by its name there
 // (folder is then that project; "" for none picked), and what setup's own hire says besides, or nil.
-func (d *Deck) managedHireWith(roleID, folder, picked string, terminal hireOpener, hasTerminal bool, held, floor int, extra *setupHire) (status int, message string, handled bool) {
+//
+// gitBy, when given and not zero, is the deadline of a hire the General Manager asked for (gmHireDeadline): no git of
+// the hire starts after it (gitUntil).
+func (d *Deck) managedHireWith(roleID, folder, picked string, terminal hireOpener, hasTerminal bool, held, floor int, extra *setupHire, gitBy ...time.Time) (status int, message string, handled bool) {
 	i := slices.IndexFunc(d.config.Roles, func(r Role) bool { return r.ID == roleID })
 	if i < 0 {
 		return 0, "", false
@@ -521,6 +588,9 @@ func (d *Deck) managedHireWith(roleID, folder, picked string, terminal hireOpene
 	options.SandboxOff = d.config.SandboxOff // the owner's switch, as held now (AQ1)
 	options.DatabaseOptIn = d.config.LocalDatabaseAsksPassword
 	options.Worktrees = d.worktreesFolder(options.Worktrees)
+	if len(gitBy) > 0 && !gitBy[0].IsZero() {
+		options.Git = gitUntil(options.Git, gitBy[0])
+	}
 	if options.HeardFrom == nil {
 		options.HeardFrom = d.hireHeardFrom
 	}

@@ -627,6 +627,14 @@ func stampOf(gitDir string) gitStamp {
 // readGitState reads dir's state with read, within one timeout. gitDir is the repo's own git folder ("" when
 // dir is in no repo), for the cache to watch.
 func readGitState(dir string, read gitReader, now time.Time) (state GitState, gitDir string) {
+	return readGitStateIn(dir, "", read, now)
+}
+
+// readGitStateIn is readGitState for a desk whose place is place ("" for none): a repo whose top git gives outside the
+// place, a bare repo or a git folder there whose core.worktree names a folder of its choosing, is read no further than
+// git's rev-parse, which reads config and runs nothing (FXSWEEP3P3 F-7). Its answer names that top, which deskGit
+// refuses.
+func readGitStateIn(dir, place string, read gitReader, now time.Time) (state GitState, gitDir string) {
 	state = GitState{Files: []GitFile{}, At: now.UnixMilli()}
 	ctx, cancel := context.WithTimeout(context.Background(), gitStateTimeout)
 	defer cancel()
@@ -669,6 +677,11 @@ func readGitState(dir string, read gitReader, now time.Time) (state GitState, gi
 		return state, ""
 	}
 	state.Repo, state.Top, gitDir = true, filepath.FromSlash(lines[0]), filepath.FromSlash(lines[1])
+	if place != "" && !within(place, physical(state.Top)) {
+		state.Skipped = true
+		state.Note = deskOutsideNote
+		return state, ""
+	}
 	// Before 2.31 git can't be given a key in its environment, where an "=" in a filter's name can't split it, and
 	// before 2.32 the owner's own config can't be left out: so nothing more is read.
 	if !gitVersionAtLeast(here.version, 2, 32) {
@@ -851,11 +864,19 @@ func (g *gitStates) fresh(e gitEntry, event float64) bool {
 }
 
 // get is folder's state: kept while fresh, read again otherwise, one read at a time per folder (others wait for it).
-func (g *gitStates) get(folder string, event float64) GitState {
+func (g *gitStates) get(folder string, event float64) GitState { return g.getIn(folder, "", event) }
+
+// getIn is get for a desk whose place is place, "" for none (readGitStateIn), kept apart from the reads of the same
+// folder with no place.
+func (g *gitStates) getIn(folder, place string, event float64) GitState {
 	if folder == "" {
 		return GitState{Files: []GitFile{}, At: g.now().UnixMilli()}
 	}
-	key := physical(folder)
+	dir := physical(folder)
+	key := dir
+	if place != "" {
+		key += "\x00" + place
+	}
 	for {
 		g.mu.Lock()
 		e := g.byDir[key]
@@ -897,7 +918,7 @@ func (g *gitStates) get(folder string, event float64) GitState {
 				g.mu.Unlock()
 				close(done)
 			}()
-			state, gitDir = readGitState(key, g.read, g.now())
+			state, gitDir = readGitStateIn(dir, place, g.read, g.now())
 			stamp = stampOf(gitDir)
 			g.mu.Lock()
 			e.state, e.has, e.at, e.event, e.gitDir, e.stamp, e.running = state, true, g.now(), event, gitDir, stamp, nil
@@ -948,30 +969,46 @@ func (d *Deck) deskGit(id string) (int, any) {
 	if desk == "" {
 		return http.StatusOK, withPR(gits.get(folder, event))
 	}
-	outside := GitState{Files: []GitFile{}, Skipped: true, At: time.Now().UnixMilli(),
-		Note: "This desk names a folder outside its own worktree, so its git state isn't read."}
-	place, real, ok := deskReadsIn(desk, folder)
-	if !ok {
+	outside := GitState{Files: []GitFile{}, Skipped: true, At: time.Now().UnixMilli(), Note: deskOutsideNote}
+	place, real, note := deskReadsIn(desk, folder)
+	if note != "" {
+		outside.Note = note
 		return http.StatusOK, outside
 	}
-	state := gits.get(real, event)
+	state := gits.getIn(real, place, event)
 	if state.Top != "" && !within(place, physical(state.Top)) {
 		return http.StatusOK, outside
 	}
 	return http.StatusOK, withPR(state)
 }
 
+// deskOutsideNote is a desk's git state, not read: the folder it names, or the repo git found there, is outside its place.
+const deskOutsideNote = "This desk names a folder outside its own worktree, so its git state isn't read."
+
+// deskMovedNote is a hire's git state, not read: on a Mac, its worktree no longer resolves to the path stored at its
+// hire (hireTreeMoved). Whoever can write the folder for hires (a GM, for the owner's repos) could have swapped it for
+// a link to a folder of its own, and git would read there (FXGMHIRENOGIT126R8).
+const deskMovedNote = "This hire's worktree was moved or replaced since it was hired, so its git state isn't read. Fire it, then hire it again."
+
 // deskReadsIn is desk's own place, by the registry (its worktree, or the folder it works in when it has none), and
-// folder resolved, when that is the place or a folder below it, links resolved. A desk the registry doesn't hold has
-// none.
-func deskReadsIn(desk, folder string) (place, real string, ok bool) {
+// folder resolved, when that is the place or a folder below it, links resolved; else why its git state isn't read
+// (note): a desk the registry doesn't hold has no place, and a worktree moved or replaced since its hire is read
+// nowhere, before anything is resolved through it.
+func deskReadsIn(desk, folder string) (place, real, note string) {
 	h, found := registryHire(desk)
-	place = cmpOr(h.Worktree, h.Folder)
-	if !found || !filepath.IsAbs(place) || !filepath.IsAbs(folder) {
-		return "", "", false
+	if stored := h.storedPlace(); !found || !filepath.IsAbs(stored) || !filepath.IsAbs(folder) {
+		return "", "", deskOutsideNote
 	}
-	place, real = physical(place), physical(folder)
-	return place, real, within(place, real)
+	// Where it works, only while that still resolves to itself (checkedPlace, FXCOREWORKTREES126).
+	checked, err := h.checkedPlace()
+	if err != nil {
+		return "", "", deskMovedNote
+	}
+	place, real = physical(checked), physical(folder)
+	if !within(place, real) {
+		return "", "", deskOutsideNote
+	}
+	return place, real, ""
 }
 
 // gmGit answers GET /setup/gm/git for the GM (and the page and tools): ?hire= is a hire's registry id, read where it
@@ -985,7 +1022,27 @@ func (rt *router) gmGit(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusNotFound, "There is no hire with that id.")
 			return
 		}
-		writeJSON(w, http.StatusOK, withPR(gits.get(startedIn(h), 0)))
+		// Held to the hire's place as a desk's own read is (deskGit): a top outside it isn't read (FXSWEEP3P3 F-7), and
+		// a worktree moved or replaced since its hire isn't read at all (FXGMHIRENOGIT126R8).
+		// Where it works and starts, only while they still resolve to themselves (the accessors, FXCOREWORKTREES126).
+		place, moved := h.checkedPlace()
+		start, movedStart := h.checkedStart()
+		note := ""
+		if !filepath.IsAbs(h.storedPlace()) {
+			note = deskOutsideNote
+		} else if moved != nil || movedStart != nil {
+			note = deskMovedNote
+		}
+		if note != "" {
+			writeJSON(w, http.StatusOK, GitState{Files: []GitFile{}, Skipped: true, At: time.Now().UnixMilli(), Note: note})
+			return
+		}
+		place = physical(place)
+		state := gits.getIn(start, place, 0)
+		if state.Top != "" && !within(place, physical(state.Top)) {
+			state = GitState{Files: []GitFile{}, Skipped: true, At: time.Now().UnixMilli(), Note: deskOutsideNote}
+		}
+		writeJSON(w, http.StatusOK, withPR(state))
 	case query.Get("session") != "":
 		writeAnswer(w)(rt.deck.deskGit(query.Get("session")))
 	default:

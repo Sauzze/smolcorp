@@ -48,6 +48,9 @@ type deskAt struct {
 	// Projects is, for a GM hired into a folder that isn't a repo checkout or worktree, that folder: where it starts
 	// and what it reads, never writes. Root is then its workspace (gmWorkspace). "" for any other desk.
 	Projects string
+	// Worktrees is the configured folder for hires' worktrees (Config.HireWorktrees), "" for none: a GM's Places hold it
+	// from the GM (GMHires).
+	Worktrees string
 	// Socket is its own tmux socket (deskSocketPath).
 	Socket string
 	// Accounts are the Claude account folders its fence denies besides ~/.claude.
@@ -60,6 +63,17 @@ type deskAt struct {
 	Programs []sandbox.Program
 	// DatabaseOptIn is AQ21's opt-in as the owner set it (sandboxchecks.go): its start checks the databases only then.
 	DatabaseOptIn bool
+	// InGMFolder is a hire placed in a General Manager's own folder (hiregmfolder.go): its start runs no git there, so
+	// its Places have no repo, and its Policy holds the .git at its place as any git folder not its own.
+	InGMFolder bool
+	// Tree is the worktree the desk was hired with, as its record keeps it (resolved at its hire), and TreeRepo the
+	// repo it is a worktree of: "" for a desk with none. Its start checks the tree is still that folder (deskTreeWords).
+	Tree, TreeRepo string
+	// CheckPlaced is set for a desk working in the folder it was hired into (Root: no worktree, no GM workspace): its
+	// start checks Root still resolves to Placed, that folder as resolved at its hire (Hire.FolderResolved), or, for a
+	// row from before that was kept (PlacedBefore), as deskPlacedWords rules (FXGMHIRENOGIT126R4, R10).
+	CheckPlaced, PlacedBefore bool
+	Placed                    string
 }
 
 // startedInSandbox is whether tmux's start was a desk's in its sandbox, with the server the core checked at it
@@ -106,6 +120,11 @@ func makeDeskSandbox(d deskAt) (*deskSandbox, error) {
 	pl, err := deskPlaces(d)
 	if err != nil {
 		log.Printf("sandbox: desk %s's places: %v", d.ID, err)
+		// Its worktree moved or replaced (deskTreeWords), in its own words.
+		var words *errSandboxNotMade
+		if errors.As(err, &words) {
+			return nil, words
+		}
 		// An ignore file spelled from another account's home or git's own folder, in words that name the setting
 		// (FXAGENTHOMEMACR2, RT126AGENTHOMEMACR1 O1).
 		var excludes *sandbox.ExcludesFileError
@@ -590,6 +609,9 @@ func rowDeskSandbox(id string, o engineOptions) *deskSandbox {
 		o.Git = runGit
 	}
 	d := deskAtOf(h, deskSocketPath(id, testCopyPort()), claudeDenyProfiles(savedConfig().ClaudeProfiles), o)
+	// Its tree's check is a start's (deskTreeWords): a stop lists what the desk could write, whether its tree is still
+	// there (a fire may have taken it away already) or not.
+	d.Tree, d.CheckPlaced = "", false
 	pl, err := deskPlaces(d)
 	if err != nil {
 		log.Printf("sandbox: desk %s's places at its stop: %v", id, err)
@@ -608,17 +630,30 @@ func rowDeskSandbox(id string, o engineOptions) *deskSandbox {
 
 // deskAtOf is what desk h's start knows of it, from its row, as the engine's start had it: its worktree (else its
 // folder), the checkout that is a worktree of, the hires' folder, its socket, the Claude accounts its fence denies.
+//
+// The row's paths are taken as it stores them (storedOnly): they are the start check's input, never acted at before it.
+// Every start makes its Places through deskPlaces, which checks the tree (deskTreeWords) and the folder
+// (deskPlacedNow) first, as the accessors do (hirepath.go); a start's first look asks deskStartPlaceWords or
+// deskStartFolder before anything runs at its folder.
 func deskAtOf(h Hire, socket string, accounts []claudeProfile, o engineOptions) deskAt {
-	d := deskAt{ID: h.ID, GM: h.Role == gmRole, Root: h.Folder, Socket: socket, Accounts: accounts, Brief: h.Brief, Git: o.Git,
-		DatabaseOptIn: o.DatabaseOptIn}
-	if h.Worktree != "" && h.Repo != "" {
-		d.Root, d.Checkout = h.Worktree, h.Repo
+	folder, tree := h.Folder.storedOnly(), h.Worktree.storedOnly()
+	d := deskAt{ID: h.ID, GM: h.Role == gmRole, Root: folder, Socket: socket, Accounts: accounts, Brief: h.Brief, Git: o.Git,
+		DatabaseOptIn: o.DatabaseOptIn, InGMFolder: placedInGMFolder(h.Notes), Worktrees: o.Worktrees}
+	if tree != "" && h.Repo != "" {
+		d.Root, d.Checkout = tree, h.Repo
+		d.Tree, d.TreeRepo = tree, h.Repo
 	}
 	if h.Repo != "" {
-		d.Hires = hiresFolder(h.Repo, o.Worktrees)
+		d.Hires = legacyHiresFolder(h.Repo)
 	}
-	if workspace := gmWorkspace(d.GM, h.ID, h.Repo, h.Worktree); workspace != "" {
-		d.Root, d.Projects = workspace, h.Folder
+	if workspace := gmWorkspace(d.GM, h.ID, h.Repo, tree); workspace != "" {
+		d.Root, d.Projects = workspace, folder
+	}
+	// A GM with a workspace (d.Projects) isn't checked so: its Root is its workspace, in the support folder, and the
+	// folder it was hired into it starts in and reads by its path at each start, never writing there but its own plans
+	// (FXGMHIRENOGIT126R4's R15, left as ruled in R5: a GM's workspace start reads only).
+	if d.Tree == "" && d.Projects == "" && folder != "" {
+		d.CheckPlaced, d.Placed, d.PlacedBefore = true, h.FolderResolved, h.FolderResolved == ""
 	}
 	return d
 }
@@ -689,8 +724,33 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 	if err != nil {
 		return sandbox.Places{}, err
 	}
+	if words := deskTreeWords(d); words != "" {
+		return sandbox.Places{}, &errSandboxNotMade{words}
+	}
+	words, keep := deskPlacedNow(d)
+	if words != "" {
+		return sandbox.Places{}, &errSandboxNotMade{words}
+	}
+	pl, err := deskPlacesOf(d, own)
+	if err != nil || keep == "" {
+		return pl, err
+	}
+	// A row from before, at its first start since (D21): its folder as resolved now is kept for every start after, but
+	// not, when it resolves to another spelling than its own (what a link can turn), where its own Policy holds or
+	// denies it, or where it holds what the Policy holds (placedHeld): the owner's ~/.ssh, an agent's sign-in, a held
+	// place, the support folder (FXGMHIRENOGIT126R5, D21's limit). Nothing is kept then.
+	if keep != filepath.Clean(d.Root) && placedHeld(d.Root, keep, pl) {
+		return sandbox.Places{}, &errSandboxNotMade{deskPlacedRefusal(d)}
+	}
+	keepPlaced(d.ID, d.Root, keep)
+	return pl, nil
+}
+
+// deskPlacesOf is deskPlaces once desk d's place passed its checks: own is its own id as its Places name it.
+func deskPlacesOf(d deskAt, own string) (sandbox.Places, error) {
+	root, rootResolved := resolvedFolder(d.Root)
 	pl := sandbox.Places{Subject: sandbox.Hire, Home: physical(homeDir), Support: physical(supportDir), OwnID: own,
-		Root: physical(d.Root), SocketParent: physical(deskSocketParent()), OwnSockets: physical(filepath.Dir(d.Socket))}
+		Root: root, SocketParent: physical(deskSocketParent()), OwnSockets: physical(filepath.Dir(d.Socket))}
 	if d.GM {
 		pl.Subject = sandbox.GM
 	}
@@ -713,15 +773,16 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 	}
 	// The GM's place, for every other desk: its workspace when it has one (FXGMROOT), never the projects folder it
 	// reads, which holds every hire's worktree. A workspace is spelled from the support folder resolved, whether it is
-	// there yet or not (a GM that started outside its sandbox has none).
+	// there yet or not (a GM that started outside its sandbox has none). Places this desk is denied, as the GM's row
+	// stores them (storedOnly): nothing is done there.
 	for _, h := range readRegistry(registryPath(), false).hires {
 		if h.Role == gmRole && h.ID != d.ID && isOpen(h) {
-			pl.GMFolder, pl.GMStart, pl.GMStartPlans = physical(startedIn(h)), "", ""
-			if gmWorkspace(true, h.ID, h.Repo, h.Worktree) != "" {
+			pl.GMFolder, pl.GMStart, pl.GMStartPlans = physical(h.storedStart()), "", ""
+			if gmWorkspace(true, h.ID, h.Repo, h.Worktree.storedOnly()) != "" {
 				// …and where it starts, which its workspace doesn't hold: its plans and the agent files Claude Code loads
 				// there, spelled as its own Places spell them (FXGMROOTR1 N2).
 				pl.GMFolder = sandbox.Workspace(pl.Support, h.ID)
-				pl.GMStart = physical(h.Folder)
+				pl.GMStart = physical(h.Folder.storedOnly())
 				pl.GMStartPlans = filepath.Join(pl.GMStart, filepath.FromSlash(deskPlansFor(h.ID)))
 			}
 		}
@@ -740,12 +801,33 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 		// Every other desk writes only its own place in the folder for hires (FXHIREPROJECTS): on a Mac the Policy
 		// refuses a desk whose place is that folder, or holds it (FXHIREPROJECTSR4); elsewhere it gives such a desk no row.
 		pl.Projects = hireProjectsFolder()
-		if err := deskGitPlaces(d, &pl); err != nil { // a GM's workspace is in no repo: no git places
-			return pl, err
+		// A GM's workspace is in no repo: no git places; nor has a hire placed in a GM's own folder, where no git runs
+		// (hiregmfolder.go), whether its row says so or, its line lost, the rule says so again at this start. A desk in a
+		// worktree of a checkout was given the full flow, and keeps its git places wherever that worktree is. The rule
+		// judges the very spelling git is asked in (pl.Root, resolved once above), never d.Root's links resolved again,
+		// and a root whose links couldn't be resolved gets no git places (FXGMHIRENOGIT126R2, B2).
+		if d.GM || d.Checkout != "" || !d.InGMFolder && rootResolved && !gmOwnsFolder(pl.Root) {
+			if err := deskGitPlaces(d, &pl); err != nil {
+				return pl, err
+			}
 		}
 		if pl.Projects != "" && runtime.GOOS == "darwin" {
 			// …and is held at the links on the way to it (FXHIREPROJECTSR3). A Mac's rows.
 			pl.ProjectsLinks = hireProjectsLinks()
+		}
+	}
+	if d.GM {
+		pl.GMHires = gmHiresFolders(d)
+	}
+	// The core's folders for hires' worktrees (FXCOREWORKTREES126): every desk writes only its own tree there, a GM none.
+	// Made first, so no desk ever makes it.
+	if coreWorktreesOn() {
+		if err := makeCoreWorktrees(); err != nil {
+			return pl, &errSandboxNotMade{err.Error()}
+		}
+		pl.Worktrees = deskWorktrees(d.Worktrees)
+		if words := gmWorktreesWords(d, pl); words != "" {
+			return pl, &errSandboxNotMade{words}
 		}
 	}
 	finding := deskFinding()
@@ -778,6 +860,307 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 	slices.Sort(pl.GitNamed)
 	pl.GitNamed = slices.Compact(pl.GitNamed)
 	return pl, nil
+}
+
+// deskTreeWords say why desk d, hired with a worktree of its own (d.Tree), doesn't start: on a Mac, the worktree as
+// its record keeps it must still be that very spelling with its links resolved (no link at the tree or on its way),
+// a folder right in the folder for hires of its repo (beside the repo, or in the configured folder for worktrees),
+// and hold the folder the desk starts at, d.Root, spelled so too. Whoever can write the folder for hires (a GM, for
+// the owner's repos) could otherwise swap the tree for a link, and the desk's sandbox, whose place is its Root as
+// resolved at its start, would let it write where the link leads: the GM's read-only projects, another desk's place
+// (FXGMHIRENOGIT126R3, B2). "" when it starts, and for a desk with no worktree, or off a Mac, where no desk starts in
+// a sandbox yet.
+func deskTreeWords(d deskAt) string {
+	if runtime.GOOS != "darwin" || d.Tree == "" {
+		return ""
+	}
+	tree, treeResolved := resolvedFolder(d.Tree)
+	root, rootResolved := resolvedFolder(d.Root)
+	// Right in a folder for hires' worktrees of its repo: the core's own (FXCOREWORKTREES126), the configured one, or the
+	// one beside the repo, for a hire made before and a GM's own (treeFolders).
+	inHires := treeRightIn(tree, d.TreeRepo, d.Worktrees)
+	if treeResolved && rootResolved && tree == d.Tree && root == d.Root && within(tree, root) && inHires {
+		return ""
+	}
+	return "This hire's worktree, " + shownPath(d.Tree) + ", was moved or replaced since it was hired, so it didn't start. Fire it, then hire it again."
+}
+
+// hireTreeTurned is whether, on a Mac, hire h's worktree, as its row keeps it, fails the check a desk's start makes
+// (deskTreeWords): moved or replaced since its hire, a link at the tree or on its way, or no longer right in the
+// folder for hires of its repo. For an entry that acts at the tree by its path without a start (Take over, Hand back,
+// Take over's undo, a T3 desk's let go), asked before anything runs or is written there: a GM that can write the
+// folder for hires could otherwise have swapped the tree for a link to a folder of its own (FXGMHIRENOGIT126R7).
+// Never off a Mac, nor for a hire with no worktree of its own.
+func hireTreeTurned(h Hire) bool {
+	if runtime.GOOS != "darwin" || h.Worktree.none() || h.Repo == "" {
+		return false
+	}
+	return deskTreeWords(deskAtOf(h, "", nil, engineOptions{Worktrees: savedConfig().HireWorktrees})) != ""
+}
+
+// deskPlacedWords say why desk d, working in the folder it was hired into (d.CheckPlaced: no worktree of its own),
+// doesn't start: on a Mac, that folder (d.Root, as its row keeps it) no longer resolves, or not to d.Placed, the
+// folder as the rule judged it at its hire. Whoever can write a folder on its way (a GM, for the owner's folders and
+// its own plans) could otherwise put a link there, and the desk's sandbox, whose place is its Root as resolved at its
+// start, would let it write where the link leads: the GM's read-only projects, another desk's place
+// (FXGMHIRENOGIT126R4, R10, the class of B2). A row from before (d.PlacedBefore) has no resolved folder: its folder is
+// resolved at this start, and refused where placedElsewhere says; deskPlaces then rules it against its own Policy, and
+// keeps it on its row for every start after. "" when it starts, and off a Mac, where no desk starts in a sandbox yet.
+// Nothing is kept or written here: a start's first look (the launcher's, a restart's) asks it before anything else.
+func deskPlacedWords(d deskAt) string {
+	words, _ := deskPlacedNow(d)
+	return words
+}
+
+// deskPlacedNow is deskPlacedWords, with, for a row from before whose folder resolves where it may be kept, that
+// resolution (keep): deskPlaces keeps it once the desk's own Policy allows it (placedHeld). keep is "" for any other.
+func deskPlacedNow(d deskAt) (words, keep string) {
+	if runtime.GOOS != "darwin" || !d.CheckPlaced {
+		return "", ""
+	}
+	real, resolved := resolvedFolder(d.Root)
+	switch {
+	case !d.PlacedBefore:
+		if resolved && real == d.Placed {
+			return "", ""
+		}
+	case resolved && (real == filepath.Clean(d.Root) || !placedElsewhere(d.ID, d.Root, real)):
+		return "", real
+	}
+	return deskPlacedRefusal(d), ""
+}
+
+// deskPlacedRefusal is deskPlacedWords' words.
+func deskPlacedRefusal(d deskAt) string {
+	return "This hire's folder, " + shownPath(d.Root) + ", was moved or replaced since it was hired, so it didn't start. Fire it, then hire it again."
+}
+
+// deskStartPlaceWords are the words that refuse desk d's start for its place alone (deskTreeWords, deskPlacedWords),
+// "" when it may start: for a start's first look, before anything runs at its folder (the launcher's git, a restart's
+// plans and trust), as deskPlaces asks them again. Nothing is kept.
+func deskStartPlaceWords(d deskAt) string {
+	if words := deskTreeWords(d); words != "" {
+		return words
+	}
+	return deskPlacedWords(d)
+}
+
+// deskStartFolder checks desk h's place (at, its deskAt) as its start checks it, before anything of a restart or a
+// resume is made at the folder it starts in (its plans, its trust), and gives that folder as checked, resolved: what
+// is made there then goes through a root opened with no link on its way (openResolvedRoot), never by the folder's path
+// again (FXGMHIRENOGIT126R5). A row from before is ruled whole here (deskPlaces, its own Policy too), and its resolution
+// kept. words refuse the start. A desk not checked so (a GM with its workspace, R15; any desk off a Mac), and one
+// whose place couldn't be told for another reason (its sandbox's making says why), gets the folder it starts in as
+// before, checked false.
+func deskStartFolder(h Hire, at deskAt) (folder string, checked bool, words string) {
+	start := func(checked bool) (string, bool, string) {
+		folder, err := h.checkedStart()
+		if err != nil {
+			return "", false, err.Error()
+		}
+		return folder, checked, ""
+	}
+	if runtime.GOOS != "darwin" {
+		return start(false)
+	}
+	if at.Tree == "" && !at.CheckPlaced {
+		// A GM with its workspace starts in the folder it reads, by its path, as R15 ruled (FXGMHIRENOGIT126R4): it only
+		// reads there, and its plans folder there is its own. Its row's folder as stored, unchecked.
+		return h.storedStart(), false, ""
+	}
+	if words := deskStartPlaceWords(at); words != "" {
+		return "", false, words
+	}
+	switch {
+	case at.Tree != "":
+		return start(true) // its worktree as its row keeps it, resolved, and checked just now
+	case !at.PlacedBefore:
+		return at.Placed, true, ""
+	}
+	if _, err := deskPlaces(at); err != nil {
+		var refused *errSandboxNotMade
+		if errors.As(err, &refused) {
+			return "", false, refused.words
+		}
+		return start(false)
+	}
+	real, _ := resolvedFolder(at.Root)
+	return real, true, ""
+}
+
+// makeStartPlans makes desk id's plans folder at folder, through a root opened with no link on its way when folder
+// was checked (deskStartFolder), else by its path as before (makeDeskPlans).
+func makeStartPlans(folder string, checked bool, id string) error {
+	if !checked {
+		return makeDeskPlans(folder, id)
+	}
+	root, err := openResolvedRoot(folder)
+	if err != nil {
+		return errDeskClaude
+	}
+	defer root.Close()
+	return makeDeskPlansIn(root, id)
+}
+
+// noPlace is a desk's place for placedHeld's look at what its Policy holds without its own place's rows: a folder no
+// desk works in, in no repo.
+const noPlace = "/private/var/empty"
+
+// placedHeld is whether real, where folder (a row from before's, as asked) resolves now, is a place its desk's own
+// Policy, made from pl (its Places, Root real), holds or denies, or one that holds what it denies (FXGMHIRENOGIT126R5,
+// D21's limit), beyond placedElsewhere's three: the owner's ~/.ssh and the plants there, an agent's sign-ins and
+// folder, the support folder, a GM's hires' folders, a Claude account. Asked of real, to read, and of its plans' folder
+// in it (.smolcorp), to read and to write, as Decide rules it with the desk's own place's rows (which open only its projects
+// folder, checkout and the folder for hires, inside them); and of every row that denies reading or writing below real,
+// in the Policy made with no place of the desk's own (noPlace), so the rows of its own repo's git don't count. A Policy
+// that can't be made refuses. A deny met through the place's own name (placedThrough) is where the row was hired.
+func placedHeld(folder, real string, pl sandbox.Places) bool {
+	own, err := sandbox.New(pl)
+	if err != nil {
+		return true
+	}
+	// The place itself is read; a name in it (its plans' folder) is read and written. Writing at the place's own name
+	// is removing or renaming it, which every desk's Policy denies for its own place.
+	top, _, _ := strings.Cut(deskPlansDirectory, "/")
+	for _, ask := range []struct {
+		at string
+		op sandbox.Op
+	}{{real, sandbox.Read}, {filepath.Join(real, top), sandbox.Read}, {filepath.Join(real, top), sandbox.Write}} {
+		if v, r := own.Decide(ask.at, ask.op); v == sandbox.Deny && !placedThrough(folder, real, r.Path) {
+			return true
+		}
+	}
+	none := pl
+	none.Root, none.Checkout, none.GitDir, none.OwnWorktree = noPlace, "", "", ""
+	none.OtherWorktrees, none.OwnBranches, none.GitBelow, none.ToolsGitBelow = nil, nil, nil, nil
+	none.DefaultBranch, none.DefaultBranchNow, none.CheckoutBranch = "", "", ""
+	others, err := sandbox.New(none)
+	if err != nil {
+		return true
+	}
+	for _, r := range others.Rules() {
+		if r.Path == "" || r.Read != sandbox.Deny && r.Write != sandbox.Deny || !sandbox.Inside(runtime.GOOS, r.Path, real) {
+			continue
+		}
+		if r.Tail != "" || !sandbox.Inside(runtime.GOOS, real, r.Path) {
+			return true
+		}
+	}
+	return false
+}
+
+// placedThrough is whether folder (a row's, as asked) reaches real, at or inside place (a deny's, resolved), through
+// place's own name: real's names below place are folder's own last names, and the folder they are below has place's
+// name and resolves to place. A link above place moves both alike (/var for /private/var, an owner's ~/Projects behind
+// a link); a link at place's name, below it, or on the way to a folder asked for elsewhere is what a GM can put there.
+func placedThrough(folder, real, place string) bool {
+	if place == "" {
+		return false
+	}
+	rest, err := filepath.Rel(place, real)
+	if err != nil || rest != "." && !filepath.IsLocal(rest) {
+		return false
+	}
+	above := filepath.Clean(folder)
+	if rest != "." {
+		var found bool
+		if above, found = strings.CutSuffix(above, string(filepath.Separator)+rest); !found {
+			return false
+		}
+	}
+	resolved, ok := resolvedFolder(above)
+	return ok && strings.EqualFold(filepath.Base(above), filepath.Base(place)) &&
+		sandbox.Inside(runtime.GOOS, resolved, place) && sandbox.Inside(runtime.GOOS, place, resolved)
+}
+
+// placedElsewhere is, for desk id's row from before its folder was kept resolved (Hire.FolderResolved), asked into
+// folder and resolving to real now, whether real is where no hire into folder would be put: in a General Manager's
+// own place (its workspace, its checkout, its worktree), in another desk's worktree, or in a project a GM reads only
+// (the folder of projects it was hired into, its plans there among them, or a held GM's project). A folder asked for
+// in such a place, spelled through it (folder in it as the GM's or the desk's row spells it, or as that resolves), and
+// resolving there through that spelling alone, is where it was hired: a link above that place moves both alike. A
+// link below it, or on the way to a folder asked for elsewhere, is what a GM can put there (FXGMHIRENOGIT126R4, R10).
+// Another desk's folder with no worktree isn't one: hires may share a folder that isn't a repo.
+//
+// Other rows' paths are compared here as they store them (storedOnly): nothing is done at them.
+func placedElsewhere(id, folder, real string) bool {
+	var places []string
+	for _, h := range readRegistry(registryPath(), false).hires {
+		if h.ID == id || !isOpen(h) {
+			continue
+		}
+		if !h.Worktree.none() {
+			places = append(places, h.Worktree.storedOnly())
+		}
+		if h.Role == gmRole {
+			if gmWorkspace(true, h.ID, h.Repo, h.Worktree.storedOnly()) != "" {
+				places = append(places, sandbox.Workspace(supportDir, h.ID))
+			}
+			if h.Worktree.none() {
+				places = append(places, h.Folder.storedOnly()) // its checkout, or the folder of projects it reads (its plans there)
+			}
+			if h.Scope != "" {
+				places = append(places, h.Scope)
+			}
+		}
+	}
+	for _, h := range plainHireRecords() {
+		if h.ID != id && !h.Worktree.none() {
+			places = append(places, h.Worktree.storedOnly())
+		}
+	}
+	asked := filepath.Clean(folder)
+	for _, place := range places {
+		if place == "" || !sandbox.Inside(runtime.GOOS, real, physicalBelow(place)) {
+			continue
+		}
+		through := false
+		for _, spelled := range []string{filepath.Clean(place), physicalBelow(place)} {
+			if rest, err := filepath.Rel(spelled, asked); err == nil && inside(spelled, asked) && real == filepath.Join(physicalBelow(place), rest) {
+				through = true
+			}
+		}
+		if !through {
+			return true
+		}
+	}
+	return false
+}
+
+// keepPlaced keeps real, desk id's folder resolved at its first start since its row was written without one, on that
+// row (Hire.FolderResolved), while the row still names folder and has none: every start after checks the folder
+// still resolves there. A row that can't be written now is ruled the same way again at its next start.
+func keepPlaced(id, folder, real string) {
+	err := updateRegistry(func(f *registryFile) {
+		for i := range f.hires {
+			if h := &f.hires[i]; h.ID == id && h.Folder.storedOnly() == folder && h.FolderResolved == "" {
+				h.FolderResolved = real
+			}
+		}
+	})
+	if err != nil {
+		log.Printf("sandbox: desk %s's folder resolved at its start wasn't kept: %v", id, err)
+	}
+}
+
+// gmHiresFolders are GM d's hires' folders, for its Places' GMHires (FXGMHIRENOGIT126R1, ruling (2)), each resolved: the
+// folder for hires beside the top git would find from its projects folder (a GM held to one project, the demo's
+// layout), found with Lstat alone, and the configured folder for hires' worktrees. A GM in a repo has its repo's
+// folder for hires held already (Hires).
+func gmHiresFolders(d deskAt) []string {
+	var folders []string
+	if d.Projects != "" {
+		for dir := physicalBelow(d.Projects); filepath.Dir(dir) != dir; dir = filepath.Dir(dir) {
+			if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+				folders = append(folders, physicalBelow(hiresFolder(dir, "")))
+				break
+			}
+		}
+	}
+	if filepath.IsAbs(d.Worktrees) {
+		folders = append(folders, physicalBelow(d.Worktrees))
+	}
+	return folders
 }
 
 // deskAgentHomes are the hired agents' places and sign-ins the core's own environment, getenv, moves out of their
@@ -952,17 +1335,33 @@ func wholeProjectsWords(root string, started bool) string {
 // or can't be looked all through (gitPlaceWords). Whether root is in a repo is asked as its start asks it
 // (deskGitPlaces), with git; when git can't say, the start refuses anyway, so nothing is said here.
 func hirePlaceWords(root string, git gitRunner) string {
+	return hirePlaceWordsAs(root, git, false)
+}
+
+// hirePlaceWordsAs is hirePlaceWords for root, the folder a hire was asked for or its worktree, with inGMFolder said:
+// a hire placed in a General Manager's own folder runs no git there (hiregmfolder.go), so root is looked at as in no
+// repo, as its start does. Not said (false), the rule is asked here. root's links are resolved once, and the rule
+// and git both see that one spelling, never root's links resolved again at git's start, which a link turned after
+// the rule's look would lead into a GM's own folder (FXGMHIRENOGIT126R3, B1); a root whose links couldn't be
+// resolved gets no git, as at its start (deskPlaces).
+func hirePlaceWordsAs(root string, git gitRunner, inGMFolder bool) string {
 	if runtime.GOOS != "darwin" {
 		return ""
 	}
-	if words := wholeProjectsWords(root, false); words != "" {
+	real, resolved := resolvedFolder(root)
+	if words := wholeProjectsWords(real, false); words != "" {
 		return words
 	}
-	pl := sandbox.Places{Root: physical(root)}
-	if err := deskGitPlaces(deskAt{Root: root, Git: git}, &pl); err != nil {
-		return ""
+	if !inGMFolder && resolved {
+		inGMFolder = gmOwnsFolder(real)
 	}
-	words, _ := gitPlaceWords(root, pl.GitDir != "", false, false)
+	pl := sandbox.Places{Root: real}
+	if !inGMFolder && resolved {
+		if err := deskGitPlaces(deskAt{Root: real, Git: git}, &pl); err != nil {
+			return ""
+		}
+	}
+	words, _ := gitPlaceWords(real, pl.GitDir != "", false, false)
 	return words
 }
 

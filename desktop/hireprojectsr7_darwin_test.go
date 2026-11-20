@@ -64,7 +64,7 @@ func TestARepoMovedIntoAPlaceStopsItsNextStart(t *testing.T) {
 			}
 			stage := filepath.Join(homeDir, "stage")
 			ownerMade(t, homeDir, "stage/")
-			h := Hire{ID: "r7a", Name: "Janitor", Role: "janitor", Folder: place, State: "working"}
+			h := Hire{ID: "r7a", Name: "Janitor", Role: "janitor", Folder: keptPath(place), State: "working"}
 			profile := r6Desk(t, l, h.ID, place)
 			if words := r7Start(t, h); words != "" {
 				t.Fatalf("its start again, nothing changed: %s", words)
@@ -97,7 +97,7 @@ t mv "$2/y" "$1/y"`, place, stage, l.planted)
 // it out, changed it and moved it back, so the next start is refused the same way.
 func TestARepoAddedDuringASessionStopsTheNextStartToo(t *testing.T) {
 	l := newHireProjectsLayout(t)
-	h := Hire{ID: "r7b", Name: "Janitor", Role: "janitor", Folder: l.lib, State: "working"}
+	h := Hire{ID: "r7b", Name: "Janitor", Role: "janitor", Folder: keptPath(l.lib), State: "working"}
 	r6Desk(t, l, h.ID, l.lib)
 	late := filepath.Join(l.lib, "vendor", "y")
 	r7Repo(t, late)
@@ -115,7 +115,7 @@ func TestALinkToARepoADeskCanChangeStopsItsStart(t *testing.T) {
 	r7Repo(t, filepath.Join(stage, "z"))
 	ownerMade(t, stage, "z/src/main.go", "plain/notes.md")
 	ownerMade(t, l.lib, "docs/a.md")
-	h := Hire{ID: "r7l", Name: "Janitor", Role: "janitor", Folder: l.lib, State: "working"}
+	h := Hire{ID: "r7l", Name: "Janitor", Role: "janitor", Folder: keptPath(l.lib), State: "working"}
 	writeRegistryHires(t, l.hire, h) // the worktree hire h1 is another desk
 	if err := os.MkdirAll(hireFolder(supportDir, h.ID), 0o700); err != nil {
 		t.Fatal(err)
@@ -175,7 +175,7 @@ func TestAPackageManagersOwnClonesDontStopItsDesk(t *testing.T) {
 	if words := hirePlaceWords(l.lib, runGit); words != "" {
 		t.Errorf("its hire at the built package: %s", words)
 	}
-	h := Hire{ID: "r7s", Name: "Janitor", Role: "janitor", Folder: l.lib, State: "working"}
+	h := Hire{ID: "r7s", Name: "Janitor", Role: "janitor", Folder: keptPath(l.lib), State: "working"}
 	r6Desk(t, l, h.ID, l.lib)
 	if words := r7Start(t, h); words != "" {
 		t.Errorf("its start again: %s", words)
@@ -228,7 +228,7 @@ func TestAFolderTheWalkCantReadInARepoSaysHowToFixIt(t *testing.T) {
 	if got, want := hirePlaceWords(l.lib, runGit), "On this Mac, each hire works in one project of its own, and Smolcorp couldn't make sure "+lib+" holds no bare git repository: it can't read "+unread+". Make "+unread+" readable, or move it out of "+lib+", then hire it again."; got != want {
 		t.Errorf("its hire:\n got %q\nwant %q", got, want)
 	}
-	h := Hire{ID: "r7u", Name: "Janitor", Role: "janitor", Folder: l.lib, State: "working"}
+	h := Hire{ID: "r7u", Name: "Janitor", Role: "janitor", Folder: keptPath(l.lib), State: "working"}
 	writeRegistryHires(t, l.hire, h)
 	if err := os.MkdirAll(hireFolder(supportDir, h.ID), 0o700); err != nil { // its own folder, where its start keeps its mark (FXFIREREAP)
 		t.Fatal(err)
@@ -242,7 +242,7 @@ func TestAFolderTheWalkCantReadInARepoSaysHowToFixIt(t *testing.T) {
 // keeps R6's words (TestABareRepoBelowAPlaceInARepoRefusesItsHireAndStart).
 func TestABareRepoMadeSinceTheLastStartIsToBeRemoved(t *testing.T) {
 	l := newHireProjectsLayout(t)
-	h := Hire{ID: "r7o", Name: "Janitor", Role: "janitor", Folder: l.lib, State: "working"}
+	h := Hire{ID: "r7o", Name: "Janitor", Role: "janitor", Folder: keptPath(l.lib), State: "working"}
 	profile := r6Desk(t, l, h.ID, l.lib)
 	if got := sandboxedSh(t, profile, l.lib, r6Tries+`t /usr/bin/git init -q --bare "$1/m"`, l.lib); strings.Join(got, " ") != "ok" {
 		t.Fatalf("the desk's git init --bare: %q", got)

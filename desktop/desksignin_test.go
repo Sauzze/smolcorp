@@ -124,9 +124,10 @@ func TestHiresSignInIsAskedInAFolderOfTheirKindAndLeavesNothing(t *testing.T) {
 	if len(lines) != 4 || lines[2] != "secure: "+work || !strings.Contains(lines[3], "acct-x8") || strings.Contains(lines[3], "sk-fake-x8-primary") {
 		t.Fatalf("asked with %q", lines)
 	}
+	// In the support folder, which every desk's sandbox denies, never the user's temp folder (FXSWEEP3P3 F-4).
 	folder := strings.TrimPrefix(lines[1], "config: ")
-	if folder == work || !strings.Contains(filepath.Base(folder), "smolcorp-signin-") {
-		t.Errorf("asked in %s", folder)
+	if folder == work || filepath.Dir(folder) != supportDir || !strings.HasPrefix(filepath.Base(folder), "signin-") {
+		t.Errorf("asked in %s, not in the support folder %s", folder, supportDir)
 	}
 	if _, err := os.Lstat(folder); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the folder it was asked in is still there: %v", err)
@@ -142,7 +143,7 @@ func TestHiresSignInIsAskedInAFolderOfTheirKindAndLeavesNothing(t *testing.T) {
 	// The GM's preflight asks the same way, with the program it found: in a folder of a desk's kind, never the account's.
 	state := claudeSignIn(deskSignInFind(), work)
 	if lines := askedLines(t, got); state != signedIn || len(lines) != 4 || lines[2] != "secure: "+work ||
-		!strings.Contains(filepath.Base(strings.TrimPrefix(lines[1], "config: ")), "smolcorp-signin-") {
+		filepath.Dir(strings.TrimPrefix(lines[1], "config: ")) != supportDir {
 		t.Errorf("the preflight's: %v, asked with %q", state, lines)
 	}
 }
@@ -496,8 +497,8 @@ func TestT3HandBackWhoseLastSaveFailedTakesTheCopyAwayWhenCleared(t *testing.T) 
 	}
 	transcript = filepath.Join(deskClaudeFolder(supportDir, k.hire.ID), "projects", "-repo-hires-ada-abcdef", t3TakeOverSession+".jsonl")
 	t3Registered(t, k.saved)
-	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree,
-		"transcript_path": transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree, nowMillis())
+	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree.storedOnly(),
+		"transcript_path": transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree.storedOnly(), nowMillis())
 	k.log = nil
 	got := serve(t, d, t3PageCall("POST", "/setup/t3code/handback", `{"id":"`+k.hire.ID+`"}`))
 	if got.Code != http.StatusOK || k.saved.T3Session != "" || k.saved.T3Copied || slices.Contains(k.log, "resume "+t3TakeOverSession) {
@@ -716,7 +717,7 @@ func TestT3TheResumeOfADeskGoesOnInItsOwnFolder(t *testing.T) {
 	if err != nil || !strings.Contains(string(settings), `"plansDirectory"`) {
 		t.Errorf("its settings name no plans folder (%v)", err)
 	}
-	if info, err := os.Lstat(filepath.Join(startedIn(hire), filepath.FromSlash(deskPlansFor(hire.ID)))); err != nil || !info.IsDir() {
+	if info, err := os.Lstat(filepath.Join(hire.storedStart(), filepath.FromSlash(deskPlansFor(hire.ID)))); err != nil || !info.IsDir() {
 		t.Errorf("no plans folder: %v", err)
 	}
 

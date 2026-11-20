@@ -68,7 +68,7 @@ func hireTheDemosGM(t *testing.T, d *Deck, f demoFolder) string {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	return d.gmToken
 }
 
@@ -257,7 +257,7 @@ func TestTheDemosPageHireKeepsTheScope(t *testing.T) {
 		t.Fatalf("the page's hire: %d %s", code, body)
 	}
 	hires := registered(t)
-	if len(hires) != 1 || hires[0].Role != gmRole || hires[0].Folder != f.repo || hires[0].Scope != f.repo || gmScopeNow() != f.repo {
+	if len(hires) != 1 || hires[0].Role != gmRole || hires[0].Folder.storedOnly() != f.repo || hires[0].Scope != f.repo || gmScopeNow() != f.repo {
 		t.Fatalf("registry: %+v", hires)
 	}
 	// The command sees its GM; the page can't be opened for a demo whose GM is hired.
@@ -364,7 +364,7 @@ func TestTheDemosGMHireLineGoesThroughTheFenceAndTheRoute(t *testing.T) {
 	d.watching.Wait()
 	hires := registered(t)
 	i := slices.IndexFunc(hires, func(h Hire) bool { return h.Role == "tester" })
-	if i < 0 || hires[i].Worktree == "" || !(gmScope{root: f.repo, git: runGit}).holds(hires[i].Worktree) {
+	if i < 0 || hires[i].Worktree.none() || !(gmScope{root: f.repo, git: runGit}).holds(hires[i].Worktree.storedOnly()) {
 		t.Fatalf("the tester's hire: %+v", hires)
 	}
 	brief, err := os.ReadFile(hires[i].Brief)

@@ -39,7 +39,7 @@ func TestADeskWhoseRepoSharesObjectFilesWithAnotherIsntStarted(t *testing.T) {
 			t.Fatalf("the local clone's %s isn't lib's own file: no hard links here", object)
 		}
 	}
-	h := Hire{ID: "h7", Name: "Janitor", Role: "janitor", Folder: clone, Repo: clone, Worktree: tree, Branch: "hire/h7", State: "working"}
+	h := Hire{ID: "h7", Name: "Janitor", Role: "janitor", Folder: keptPath(clone), Repo: clone, Worktree: keptPath(tree), Branch: "hire/h7", State: "working"}
 	writeRegistryHires(t, h)
 	if err := os.MkdirAll(hireFolder(supportDir, h.ID), 0o700); err != nil {
 		t.Fatal(err)
@@ -104,12 +104,16 @@ func TestNoDeskPointsTheProjectsFoldersLinkElsewhere(t *testing.T) {
 	}
 	h8tree := filepath.Join(hiresFolder(l.app, ""), "h8")
 	standInOwnersGit(t, l.app, "worktree", "add", "-q", "-b", "hire/h8", h8tree)
-	h8 := Hire{ID: "h8", Name: "Tester", Role: "janitor", Folder: l.app, Repo: l.app, Worktree: h8tree, Branch: "hire/h8", State: "working"}
-	writeRegistryHires(t, l.hire, h8)
+	h8 := Hire{ID: "h8", Name: "Tester", Role: "janitor", Folder: keptPath(l.app), Repo: physical(l.app), Worktree: keptPath(physical(h8tree)), Branch: "hire/h8", State: "working"}
+	// Each row keeps its tree as its hire resolved it (prepareHire): h1's, hired before ~/Projects was a link, as it
+	// would be hired now, as a desk whose tree's spelling changed since its hire doesn't start (FXGMHIRENOGIT126R3, B2).
+	h1 := l.hire
+	h1.Repo, h1.Worktree = physical(h1.Repo), keptPath(physical(h1.Worktree.storedOnly()))
+	writeRegistryHires(t, h1, h8)
 	if err := os.MkdirAll(hireFolder(supportDir, h8.ID), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	profile, s := l.profile(t, l.hire)
+	profile, s := l.profile(t, h1)
 	if s.places.Projects != real || !slices.Equal(s.places.ProjectsLinks, []string{l.projects}) {
 		t.Fatalf("h1's Places: Projects %q, links %q", s.places.Projects, s.places.ProjectsLinks)
 	}

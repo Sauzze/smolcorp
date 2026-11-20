@@ -81,10 +81,10 @@ func TestRestartInTheSandboxStartsAnOldDeskAgainInItsPlace(t *testing.T) {
 		row.TmuxSocket != deskSocketPath(old.ID, 0) || row.Worktree != old.Worktree || row.Branch != old.Branch {
 		t.Fatalf("the row after: %+v", rows)
 	}
-	if len(*made) != 1 || (*made)[0].places.Root != physical(old.Worktree) || (*made)[0].places.OwnID != old.ID {
+	if len(*made) != 1 || (*made)[0].places.Root != physical(old.Worktree.storedOnly()) || (*made)[0].places.OwnID != old.ID {
 		t.Fatalf("its sandbox: %d made", len(*made))
 	}
-	if _, err := os.Stat(old.Worktree); err != nil {
+	if _, err := os.Stat(old.Worktree.storedOnly()); err != nil {
 		t.Errorf("its worktree: %v", err)
 	}
 	if info, err := os.Stat(deskClaudeFolder(supportDir, old.ID)); err != nil || !info.IsDir() {

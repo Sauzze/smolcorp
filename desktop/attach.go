@@ -155,7 +155,7 @@ func attachedDesk(asked string) (Hire, error) {
 		for j, h := range hires {
 			named := strings.EqualFold(h.Name, asked) || strings.EqualFold(h.Nickname, asked)
 			if byOffice {
-				office := officeName(team, startedIn(h))
+				office := officeName(team, h.storedStart()) // its desk's name, by its folder's name: compared only
 				named = h.Nickname == "" && office != "" && strings.EqualFold(office, asked)
 			}
 			if h.State != "fired" && h.State != "failed" && named {

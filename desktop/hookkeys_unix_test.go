@@ -35,10 +35,10 @@ func TestAManagedDeskReportsWithTheHookKeyItsTicketHolds(t *testing.T) {
 		}
 	}
 	tab := tmuxTabOn(hire.TmuxSocket)
-	if got := hookAs(t, d, d.access.HookKey, tab, "SessionStart", "s-desk", hire.Worktree); got != http.StatusForbidden {
+	if got := hookAs(t, d, d.access.HookKey, tab, "SessionStart", "s-desk", hire.Worktree.storedOnly()); got != http.StatusForbidden {
 		t.Errorf("the owner's key on the desk: %d", got)
 	}
-	if got := hookAs(t, d, key, tab, "SessionStart", "s-desk", hire.Worktree); got != http.StatusNoContent {
+	if got := hookAs(t, d, key, tab, "SessionStart", "s-desk", hire.Worktree.storedOnly()); got != http.StatusNoContent {
 		t.Errorf("its own key: %d", got)
 	}
 	if got := teamSession(d, hire.ID); got != "s-desk" {

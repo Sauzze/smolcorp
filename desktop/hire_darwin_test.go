@@ -215,7 +215,7 @@ func TestUnderTheMacAppARolesClaudeHireIsAlwaysFenced(t *testing.T) {
 	page := func(body string) {
 		t.Helper()
 		d.mu.Lock()
-		d.lastHire = time.Time{}
+		d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 		d.mu.Unlock()
 		w := serve(t, d, call{method: "POST", target: "/setup/hire", host: "localhost:7710", from: thisComputer, body: body,
 			headers: map[string]string{setupHeader: "1"}})
@@ -227,7 +227,7 @@ func TestUnderTheMacAppARolesClaudeHireIsAlwaysFenced(t *testing.T) {
 	page(`{"role":"janitor","folder":"` + repo + `","answers":[],"worktree":true,"task":"Sweep."}`)
 	page(`{"role":"gm","folder":"` + repo + `","answers":[]}`)
 	d.mu.Lock()
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	d.mu.Unlock()
 	if status, message := d.Perform("hire", "", map[string][]string{"role": {"janitor"}}); status != http.StatusNoContent {
 		t.Fatalf("the office's hire: %d %s", status, message)
@@ -268,7 +268,7 @@ func TestUnderTheMacAppAManagedHireThatCantBeFencedIsRefused(t *testing.T) {
 	repo := homeRepo(t)
 	hire := func(desk, role string, extra *setupHire) (int, string) {
 		d.mu.Lock()
-		d.lastHire = time.Time{}
+		d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 		d.mu.Unlock()
 		return d.hireAsWith(desk, role, 0, extra != nil, extra)
 	}
@@ -348,7 +348,7 @@ func TestUnderTheMacAppAManagedHireThatCantBeFencedIsRefused(t *testing.T) {
 		{"a free desk", func() (int, string) { return hire("", "", nil) }},
 		{"upstairs", func() (int, string) {
 			d.mu.Lock()
-			d.lastHire = time.Time{}
+			d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 			d.mu.Unlock()
 			return d.Perform("hire", "", url.Values{"floor": {"1"}, "desk": {"0"}})
 		}},
@@ -424,7 +424,7 @@ func TestUnderTheMacAppTheGMRoutesHireIsRefusedInTheEnginesWords(t *testing.T) {
 			saved := tmuxPath
 			d.config.ManagerEnabled, d.config.FloorRules = manager, nil
 			c.setup()
-			d.lastHire = time.Time{}
+			d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 			seat := -1
 			status, message := d.hireWith(hireSpec{floor: c.floor, roleID: "janitor", fromSetup: true, fenced: true, seat: &seat})
 			tmuxPath = saved
@@ -490,7 +490,7 @@ func TestAPlainHireStartsOnItsNamedAccountAndNeverInATestCopy(t *testing.T) {
 			d.config.HireInTmux, d.config.Pins[1] = true, nil
 			h.windows, h.tmux = nil, nil
 			c.setup()
-			d.lastHire = time.Time{}
+			d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 			status, message := d.hireAsWith(c.desk, "janitor", 0, true,
 				&setupHire{Role: "janitor", Folder: repo, Account: "test", configDir: account})
 			tmuxPath = saved
@@ -526,7 +526,7 @@ func TestAPlainHireStartsOnItsNamedAccountAndNeverInATestCopy(t *testing.T) {
 	}
 	// A test copy's Claude hire through the office (no account named) is refused before, by T721's own words.
 	Port, d.config.HireInTmux = 7799, false
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	if status, message := d.hireAsWith("", "janitor", 0, false, nil); status != http.StatusConflict || message == plainHireInTestCopy {
 		t.Errorf("a test copy's office hire: %d %s", status, message)
 	}

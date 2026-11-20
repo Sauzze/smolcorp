@@ -109,7 +109,7 @@ func rowProject(row map[string]any, hires []Hire, live []liveSession) string {
 	} else if row["registered"] == true {
 		for _, h := range hires {
 			if h.ID == row["id"] {
-				project = startedIn(h)
+				project = h.storedStart() // its folder's name, for the GM's words
 			}
 		}
 	}

@@ -37,7 +37,7 @@ func TestOnWindowsAHiresCleanWorktreeIsRemovedWithItsBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := Hire{ID: "0123456789ab", Repo: place.Repo, Worktree: place.Worktree, Branch: place.Branch}
+	h := Hire{ID: "0123456789ab", Repo: place.Repo, Worktree: keptPath(place.Worktree), Branch: place.Branch}
 	removedStepByStep(t, repo, place.Worktree, place.Branch, func() bool { return removeOwnWorktree(nil, o.Worktrees, h) })
 }
 
@@ -56,8 +56,9 @@ func removedStepByStep(t *testing.T, repo, path, branch string, remove func() bo
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
-	tree, err := deskTreeOf(ctx, Hire{Name: "the row's worktree", Repo: physical(repo), Worktree: path}, true)
+	tree, err := deskTreeOf(ctx, Hire{Name: "the row's worktree", Repo: physical(repo), Worktree: keptPath(path)}, true)
 	t.Logf("deskTreeOf: %+v (%v); physical(path) %q", tree, err, physical(path))
+	tree.close() // the worktrees folder it holds, let go before the removal below
 	if err != nil {
 		t.Errorf("the worktree's registration wasn't found: %v", err)
 	}

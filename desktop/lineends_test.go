@@ -301,7 +301,7 @@ func TestTheCoresStatusAgreesWithTheOwnersGitOnLineEnds(t *testing.T) {
 	}
 	// So does the fire's look at the hire's own tree (deskGit, no sandbox).
 	keepRegistry(t)
-	h := Hire{ID: fmt.Sprintf("%06dabcdef", n), Name: "ends", Role: "builder", Folder: repo, Repo: repo, Worktree: tree,
+	h := Hire{ID: fmt.Sprintf("%06dabcdef", n), Name: "ends", Role: "builder", Folder: keptPath(repo), Repo: repo, Worktree: keptPath(tree),
 		Branch: "hire/ends-" + fmt.Sprintf("%06d", n), State: "working"}
 	writeRegistry(t, h)
 	if message := uncommittedRefusal(h, runGit); message != "" {

@@ -71,7 +71,7 @@ func TestAProjectNamedWithALineBreakIsNeitherListedNorHired(t *testing.T) {
 			}
 			before := len(registered(t))
 			d.mu.Lock()
-			d.lastHire = time.Time{}
+			d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 			d.mu.Unlock()
 			if status, said := d.Perform("hire", "", url.Values{"role": {"janitor"}, "project": {lineBreakName}}); status != http.StatusConflict ||
 				said != lineBreakRefusal {
@@ -117,7 +117,7 @@ func TestAFolderHiredIntoByAnotherRouteIsShownOnOneLine(t *testing.T) {
 	i := slices.IndexFunc(d.config.Roles, func(r Role) bool { return r.ID == "janitor" })
 	d.config.Roles[i].Instructions = "Tidy what you're asked to."
 	d.config.Roles[i].Brief = &RoleBrief{Kind: "text", Text: "Tidy what you're asked to."}
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	d.mu.Unlock()
 	if status, _, why := d.hireFromSetupSheet(setupHire{Role: "janitor", Folder: folder, Answers: []string{"the docs"}}); status != http.StatusOK {
 		t.Fatalf("Setup's hire on its own instructions: %d %s", status, why)
@@ -167,7 +167,7 @@ func TestAPlainHireOfALongRoleIDTakesItsOwnBranch(t *testing.T) {
 		t.Fatalf("%q isn't a role's id of 32 characters", long.ID)
 	}
 	d.config.Roles = append(d.config.Roles, long)
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	d.mu.Unlock()
 	if status, said := d.Perform("hire", "", url.Values{"role": {long.ID}, "project": {"lib"}}); status != http.StatusNoContent {
 		t.Fatalf("the plain hire into lib: %d %s", status, said)

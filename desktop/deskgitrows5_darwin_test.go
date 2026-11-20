@@ -19,7 +19,7 @@ func TestOnAMacAHireInItsOwnWorktreeIsToldWhichBranchesAreItsOwn(t *testing.T) {
 		t.Fatal(err)
 	}
 	folder, _, ok := strings.Cut(strings.TrimPrefix(hire.Branch, "hire/"), "/")
-	if !ok || hire.Worktree == "" {
+	if !ok || hire.Worktree.none() {
 		t.Fatalf("the hire's branch %q, worktree %q", hire.Branch, hire.Worktree)
 	}
 	want := "You can commit only to your own branches, " + hire.Branch + " and any new one under hire/" + folder +

@@ -41,8 +41,8 @@ func rtInOther(t *testing.T, other string) string {
 	trees := gitOut(t, other, "worktree", "list", "--porcelain")
 	var rows []string
 	for _, h := range registered(t) {
-		if h.Role != gmRole && (strings.HasPrefix(h.Repo, other) || strings.HasPrefix(h.Folder, other)) {
-			rows = append(rows, h.Repo+" "+h.Worktree)
+		if h.Role != gmRole && (strings.HasPrefix(h.Repo, other) || strings.HasPrefix(h.Folder.storedOnly(), other)) {
+			rows = append(rows, h.Repo+" "+h.Worktree.storedOnly())
 		}
 	}
 	if branches == "" && strings.Count(trees, "worktree ") == 1 && len(rows) == 0 {

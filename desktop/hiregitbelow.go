@@ -356,8 +356,8 @@ func gitLinkWords(pol *sandbox.Policy, pl sandbox.Places, found gitFound, id str
 	}
 	var places []string
 	for _, h := range readRegistry(registryPath(), false).hires {
-		dir := hireDir(h)
-		if h.Role == gmRole && h.Repo == "" && h.Worktree == "" && oneName(h.ID) {
+		dir := h.storedPlace() // a place this desk is denied: compared only
+		if h.Role == gmRole && h.Repo == "" && h.Worktree.none() && oneName(h.ID) {
 			dir = sandbox.Workspace(supportDir, h.ID) // a GM in a folder of projects works in its workspace (gmWorkspace)
 		}
 		if h.ID != id && isOpen(h) && dir != "" {
@@ -666,7 +666,9 @@ func bareRepo(folder string) bool {
 
 // gitFoldersOf is git, a .git or a git folder, resolved, with what it names: for a .git file, the folder its
 // `gitdir:` line names; for a git folder with a commondir, the folder that names. Each is followed as far as it is
-// there; what can't be followed is left out (git can't read it either).
+// there; what can't be followed is left out (git can't read it either). The .git file and the commondir are read
+// only as regular files, opened without waiting (cpReadData), so a fifo put there can't hold the core (FXSWEEP3P3R4
+// B5): one that isn't is left out.
 func gitFoldersOf(git string) []string {
 	real, err := filepath.EvalSymlinks(git)
 	if err != nil {
@@ -674,7 +676,7 @@ func gitFoldersOf(git string) []string {
 	}
 	out := []string{real}
 	named := func(file, prefix string) string {
-		data, err := os.ReadFile(file)
+		data, err := cpReadData(file, gitNamesMost)
 		if err != nil {
 			return ""
 		}
@@ -702,6 +704,9 @@ func gitFoldersOf(git string) []string {
 	}
 	return out
 }
+
+// gitNamesMost is the most of a .git file or a commondir gitFoldersOf reads: a path, and room to spare.
+const gitNamesMost = 64 << 10
 
 // shownPath is path as the owner's words name it: ~/… inside the home folder, however that is spelled (the walk's
 // paths are resolved: /private/var/… for /var/…), else whole.

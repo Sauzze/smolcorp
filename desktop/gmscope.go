@@ -330,7 +330,7 @@ func (s gmScope) covers(path string) bool {
 
 // hasHire is whether h is one of the GM's own: a hire, not the GM, working in the project or a worktree of it.
 func (s gmScope) hasHire(h Hire) bool {
-	return h.Role != gmRole && s.holds(h.Folder) && (h.Worktree == "" || s.holds(h.Worktree))
+	return h.Role != gmRole && s.holds(h.Folder.storedOnly()) && (h.Worktree.none() || s.holds(h.Worktree.storedOnly())) // compared only
 }
 
 // named is the hire a name stands for, as the routes find it (by id, nickname or name, or the name `gm team` shows:
@@ -537,7 +537,7 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 			if !filepath.IsAbs(file) && line("hire") != "" {
 				var h Hire
 				h, ok = ours("hire")
-				file = filepath.Join(cmpOr(h.Worktree, h.Folder), file)
+				file = filepath.Join(h.storedPlace(), file) // checked by the scope below and by the watch's own route
 			}
 			// The route resolves the path again, and checks what it found against the scope too (watchers.add): a
 			// link on the way can be swapped in between (RT126POLISHBR2 N1).

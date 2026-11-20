@@ -79,7 +79,7 @@ func TestThePickerListsTheReposInAPlainFolderNotTheFolder(t *testing.T) {
 	}
 	for _, name := range []string{"clients", "deep", "mirror", "outside", "shortcut", "clients/acme-hires", "clients/../lib"} {
 		d.mu.Lock()
-		d.lastHire = time.Time{}
+		d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 		d.mu.Unlock()
 		want := "There's no project called " + name + " in your projects folder, ~/Projects, now. Hire again to pick another."
 		if status, said := d.Perform("hire", "", url.Values{"role": {"janitor"}, "project": {name}}); status != http.StatusConflict || said != want {
@@ -120,7 +120,7 @@ func TestAHireAtAFolderOfReposIsRefusedAtItsHire(t *testing.T) {
 	// The sandbox off: as before.
 	r.o.SandboxOff = true
 	request.Folder = clients
-	if off, err := runManagedHire(request, r.o); err != nil || off.Folder != clients {
+	if off, err := runManagedHire(request, r.o); err != nil || off.Folder.storedOnly() != clients {
 		t.Errorf("the sandbox off: %v, %+v", err, off)
 	}
 }
@@ -132,7 +132,7 @@ func TestADeskAtAFolderOfReposDoesntStart(t *testing.T) {
 	clients, acme, _, _ := clientsLayout(t, l)
 	deep := filepath.Join(l.projects, "deep")
 	for i, c := range []struct{ root, found string }{{clients, acme}, {deep, filepath.Join(deep, "2024", "site")}} {
-		h := Hire{ID: "r5c" + string(rune('0'+i)), Name: "Janitor", Role: "janitor", Folder: c.root, State: "working"}
+		h := Hire{ID: "r5c" + string(rune('0'+i)), Name: "Janitor", Role: "janitor", Folder: keptPath(c.root), State: "working"}
 		writeRegistryHires(t, l.hire, h)
 		if err := os.MkdirAll(hireFolder(supportDir, h.ID), 0o700); err != nil {
 			t.Fatal(err)
@@ -164,16 +164,16 @@ func TestAPickedRepoInAPlainFolderGetsItsWorktreeAndCantWriteItsNeighbours(t *te
 	clients, acme, beta, _ := clientsLayout(t, l)
 	standInOwnersGit(t, beta, "branch", "develop")
 	h := pickedHire(t, d, "clients/acme")
-	if h.Folder != acme || h.Repo != acme {
+	if h.Folder.storedOnly() != acme || h.Repo != acme {
 		t.Fatalf("the hire into clients/acme: %+v", h)
 	}
 	profile, s := l.profile(t, h)
-	if s.places.Root != h.Worktree || s.places.Checkout != acme {
+	if s.places.Root != h.Worktree.storedOnly() || s.places.Checkout != acme {
 		t.Errorf("its places: Root %q, Checkout %q", s.places.Root, s.places.Checkout)
 	}
 	out := filepath.Join(l.base, "out")
 	ownerMade(t, out, "x")
-	got := sandboxedSh(t, profile, h.Worktree, `t() { if "$@" 2>/dev/null; then echo ok; else echo refused; fi; }
+	got := sandboxedSh(t, profile, h.Worktree.storedOnly(), `t() { if "$@" 2>/dev/null; then echo ok; else echo refused; fi; }
 hook() { printf '#!/bin/sh\necho planted > "%s"\n' "$3" > "$1" && chmod 755 "$1"; }
 t hook "$1/beta/.git/hooks/post-checkout" x "$4"
 t sh -c 'printf "[core]\n\tfsmonitor = /nowhere\n" >> "$0/beta/.git/config"' "$1"
@@ -207,7 +207,7 @@ func TestAPlainFolderWithNoRepoIsStillHireable(t *testing.T) {
 	d.watching.Wait()
 	got := registered(t)
 	h := got[len(got)-1]
-	if h.Folder != notes || h.Repo != "" || h.Worktree != "" || len(r.desks) != 1 || r.desks[0].places.Root != notes {
+	if h.Folder.storedOnly() != notes || h.Repo != "" || !h.Worktree.none() || len(r.desks) != 1 || r.desks[0].places.Root != notes {
 		t.Fatalf("the hire into notes: %+v", h)
 	}
 	profile, _ := l.profile(t, h)
@@ -265,7 +265,7 @@ func TestAFolderTheWalkCantLookAllThroughIsRefusedWithWords(t *testing.T) {
 		if want := words(false, c.why); !errors.As(err, &refused) || refused.Message != want {
 			t.Errorf("%s: its hire: %v, want %q", c.name, err, want)
 		}
-		h := Hire{ID: "r5b", Name: "Janitor", Role: "janitor", Folder: big, State: "working"}
+		h := Hire{ID: "r5b", Name: "Janitor", Role: "janitor", Folder: keptPath(big), State: "working"}
 		writeRegistryHires(t, h)
 		if err := os.MkdirAll(hireFolder(supportDir, h.ID), 0o700); err != nil {
 			t.Fatal(err)
@@ -281,7 +281,7 @@ func TestAFolderTheWalkCantLookAllThroughIsRefusedWithWords(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.mu.Lock()
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	d.mu.Unlock()
 	if status, said := d.Perform("hire", "", url.Values{"role": {"janitor"}, "project": {"big"}}); status != http.StatusNoContent {
 		t.Errorf("big, under the bound: %d %s", status, said)
@@ -304,7 +304,7 @@ func TestTheOfficesPlainHireAsksWhichProjectLandsInItAndStarts(t *testing.T) {
 	plainHiresSandboxed = true
 	again := func() {
 		d.mu.Lock()
-		d.lastHire = time.Time{}
+		d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 		d.mu.Unlock()
 	}
 	status, said := d.Perform("hire", "", url.Values{})
@@ -325,7 +325,7 @@ func TestTheOfficesPlainHireAsksWhichProjectLandsInItAndStarts(t *testing.T) {
 	// Its launcher's sandbox, made where its window opened, as `smolcorp run --hire … --desk …` makes it there.
 	program := filepath.Join(l.base, "claude")
 	writeFile(t, program, "#!/bin/sh\n")
-	s, err := newLauncherSandboxAt(desk, worktree, false, "L1", Claude, program)
+	s, err := newLauncherSandboxAt(desk, "", worktree, false, "L1", Claude, program)
 	if err != nil {
 		t.Fatalf("its sandbox in its worktree of clients/acme: %v", err)
 	}

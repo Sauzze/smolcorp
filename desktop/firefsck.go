@@ -48,7 +48,7 @@ type storeLook func(ctx context.Context, repo string, tips []string) (objects in
 // says. Else it is the owner's words: the worktree and the branch were kept, why, and how to look. look nil is the
 // real one. The words never say to run git gc or repack: those are what would serve a changed copy (B1).
 func fireStoreKept(h Hire, look storeLook) string {
-	if h.Worktree == "" {
+	if h.Worktree.none() {
 		return "" // no worktree: nothing of the desk's is taken for merged
 	}
 	if look == nil {
@@ -63,7 +63,7 @@ func fireStoreKept(h Hire, look storeLook) string {
 		_, cause, err = look(ctx, h.Repo, []string{"HEAD", "refs/heads/" + h.Branch})
 		cancel()
 	}
-	kept := "Smolcorp kept " + calledHire(h) + "'s worktree " + h.Worktree + " and its branch " + h.Branch
+	kept := "Smolcorp kept " + calledHire(h) + "'s worktree " + h.Worktree.storedOnly() + " and its branch " + h.Branch
 	to := ". To look, run git fsck --full in " + h.Repo + "."
 	switch {
 	case err != nil:

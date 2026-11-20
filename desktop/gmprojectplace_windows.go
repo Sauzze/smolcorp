@@ -55,3 +55,7 @@ func (p *projectsPlace) onDiskOf(string) (bool, error) { return true, nil }
 
 // movedAcrossDisks is whether moveIn failed because the staging folder and the projects folder are on two disks.
 func movedAcrossDisks(err error) bool { return errors.Is(err, windows.ERROR_NOT_SAME_DEVICE) }
+
+// openResolvedRoot opens folder as a root (see the Mac's): no desk starts in a sandbox here yet, so its path is
+// followed as before.
+func openResolvedRoot(folder string) (*os.Root, error) { return os.OpenRoot(folder) }

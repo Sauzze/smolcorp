@@ -36,13 +36,14 @@ func deskBranches(d deskAt, gitDir string) (checkout string, own []string) {
 }
 
 // headRef is the ref the HEAD of the shared .git gitDir names: "ref: <it>" in a file, or a link's text; "" when HEAD
-// is detached or can't be read.
+// is detached or can't be read. A file is read only as a small plain one, opened without waiting (cpReadData): a FIFO
+// whoever can write the .git puts there is refused at once, never waited on (RT126SWEEP4 part 3's B1).
 func headRef(gitDir string) string {
 	head := filepath.Join(gitDir, "HEAD")
 	if to, err := os.Readlink(head); err == nil {
 		return to
 	}
-	data, err := os.ReadFile(head)
+	data, err := cpReadData(head, 4096)
 	if err != nil {
 		return ""
 	}

@@ -341,8 +341,19 @@ func webhookSecretFor(who caller, secret string) string {
 const webhookOffOnly = "The GM can only turn the webhook off. Where it sends is the owner's to set, in Setup."
 
 // What the GM is told by POST /setup/hiring (RT126SWEEP3 P4 B1, F2): the folder for hires is the owner's alone, as
-// POST /setup/hire-folder is the page's alone in the table, and the GM turns hiring off, never on.
+// POST /setup/hire-folder is the page's alone in the table, and the GM turns hiring off, never on. Why, only where
+// hires have a sandbox that holds it (RT126SWEEP4-P4 F1): a Mac with the sandbox on; elsewhere the plain words.
 const (
-	hireFolderPageOnly = "Only the owner chooses the folder for hires, in Setup: every hire's sandbox holds it."
-	hiringOffOnly      = "The GM can only turn hiring off. Turning it back on is the owner's, in Setup."
+	hireFolderPageOnly   = "Only the owner chooses the folder for hires, in Setup: every hire's sandbox holds it."
+	hireFolderOwnersOnly = "Only the owner chooses the folder for hires, in Setup."
+	hiringOffOnly        = "The GM can only turn hiring off. Turning it back on is the owner's, in Setup."
 )
+
+// gmHireFolderWords is what the GM is told when it asks to move the folder for hires: the sandbox named only when
+// hires start in one.
+func gmHireFolderWords(sandboxed bool) string {
+	if sandboxed {
+		return hireFolderPageOnly
+	}
+	return hireFolderOwnersOnly
+}

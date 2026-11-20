@@ -150,7 +150,9 @@ func pathExtension(name string) string {
 }
 
 // briefBranch is the branch checked out where folder is, or "" outside git or
-// with none checked out. Read from git's own files, without running git.
+// with none checked out. Read from git's own files, without running git, and
+// without waiting (plainFileData, FXGMHIRENOGIT126): a .git or HEAD that is a FIFO
+// or a device is no branch, never opened, so nothing holds the hire's brief on it.
 func briefBranch(folder string) string {
 	dir := filepath.Clean(folder)
 	for {
@@ -159,7 +161,7 @@ func briefBranch(folder string) string {
 			gitDir := dotGit
 			// A worktree's .git is a file naming its folder.
 			if !info.IsDir() {
-				data, err := os.ReadFile(dotGit)
+				data, err := plainFileData(dotGit, gitNamesMost)
 				line := string(data)
 				if err != nil || !strings.HasPrefix(line, "gitdir:") {
 					return ""
@@ -171,7 +173,7 @@ func briefBranch(folder string) string {
 					gitDir = filepath.Join(dir, path)
 				}
 			}
-			head, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+			head, err := plainFileData(filepath.Join(gitDir, "HEAD"), gitNamesMost)
 			if err != nil {
 				return ""
 			}

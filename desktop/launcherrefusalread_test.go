@@ -83,7 +83,7 @@ func TestTheLaunchersRefusalTakesAHiresOwnWorktreeForARepoWithoutRunningGit(t *t
 	if err := os.Remove(said); err != nil {
 		t.Fatal(err)
 	}
-	hire := Hire{ID: "plain-0123456789ab", Name: "Ada", Folder: worktree, Worktree: worktree, Repo: repo, Branch: "hire/plain-0123456789ab/ada-012345",
+	hire := Hire{ID: "plain-0123456789ab", Name: "Ada", Folder: keptPath(worktree), Worktree: keptPath(worktree), Repo: repo, Branch: "hire/plain-0123456789ab/ada-012345",
 		State: "working", Started: 1761000000000}
 	data, _ := json.Marshal(map[string]any{"version": 1, "hires": []Hire{hire}})
 	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {

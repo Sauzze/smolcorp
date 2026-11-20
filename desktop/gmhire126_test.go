@@ -233,7 +233,7 @@ func TestAGMInAFolderThatIsNoRepoKeepsItsBriefAndBoardInItsOwnFolder(t *testing.
 	}
 	gm := w.hire("gm")
 	own := hireFolder(supportDir, gm.ID)
-	if gm.Worktree != "" || gm.Brief != filepath.Join(own, "BRIEF.md") {
+	if !gm.Worktree.none() || gm.Brief != filepath.Join(own, "BRIEF.md") {
 		t.Fatalf("the GM's brief is %q (worktree %q), want %q", gm.Brief, gm.Worktree, filepath.Join(own, "BRIEF.md"))
 	}
 	brief, err := os.ReadFile(gm.Brief)
@@ -291,14 +291,14 @@ func TestALauncherHiresFolderIsTrustedUnderTheSpellingItStartsIn(t *testing.T) {
 		return open(command, folder)
 	}
 	w.d.mu.Lock()
-	w.d.config.HireFolder, w.d.lastHire = saved, time.Time{}
+	w.d.config.HireFolder, w.d.lastHire, w.d.gmLastHire = saved, time.Time{}, time.Time{}
 	w.d.mu.Unlock()
 	if status, text := w.d.Perform("hire", "", map[string][]string{"role": {"janitor"}}); status != http.StatusNoContent {
 		t.Fatalf("the office's hire: %d %q", status, text)
 	}
 	w.d.watching.Wait()
 	rows := winRegistry(t)
-	if len(rows) != 1 || !rows[0].ViaLauncher || rows[0].Worktree != "" || len(openedIn) != 1 {
+	if len(rows) != 1 || !rows[0].ViaLauncher || !rows[0].Worktree.none() || len(openedIn) != 1 {
 		t.Fatalf("not one launcher hire with no worktree: opened in %q, registry %+v", openedIn, rows)
 	}
 	data, err := os.ReadFile(claudeJSON(""))

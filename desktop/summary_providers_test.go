@@ -191,8 +191,13 @@ echo '{"type":"result","is_error":false,"result":"Asked: dark mode."}'`)
 		t.Fatalf("report: %s", report)
 	}
 	folder := strings.TrimPrefix(lines[1], "DIR: ")
-	if !strings.Contains(folder, "smolcorp-summary-") || lines[2] != "KEY: none" {
+	if !strings.HasPrefix(filepath.Base(folder), "summary-") || lines[2] != "KEY: none" {
 		t.Errorf("not an empty folder of its own: %q", lines[1:3])
+	}
+	// In the support folder, which every desk's sandbox denies (SupportRow), never the user's temp folder, where a desk
+	// could put a plugin or a config for the agent run there outside any sandbox (RT126SWEEP4 part 3's F1, as F-4).
+	if physical(filepath.Dir(folder)) != physical(supportDir) {
+		t.Errorf("run in %s, not in the support folder %s", folder, supportDir)
 	}
 	if _, err := os.Stat(folder); !os.IsNotExist(err) {
 		t.Error("its folder is left behind")

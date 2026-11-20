@@ -28,6 +28,7 @@ import (
 //   - its .git file names its registration in your repo, the one the repo's own records have for that folder
 //     (deskTreeOf, deskDotGitNamesIt);
 //   - that registration's commondir leads to your repo's shared git folder;
+//   - no rebase, merge, cherry-pick or revert is under way in that registration (t3NothingUnderway);
 //   - its config.worktree, if there is one, holds data only (gitHandOverConfig): nothing is blanked, as your git
 //     blanks nothing;
 //   - the hooks folder your config names (core.hooksPath), when it is in the worktree, is the base branch's, file for
@@ -65,6 +66,7 @@ func t3TreeCheck(h Hire) string {
 	if err != nil {
 		return err.Error()
 	}
+	defer t.close()
 	parent, err := os.OpenRoot(filepath.Dir(t.top))
 	if err != nil {
 		return "its worktree's folder couldn't be opened"
@@ -83,6 +85,9 @@ func t3TreeCheck(h Hire) string {
 	}
 	if physical(common) != physical(t.common) {
 		return "its registration's commondir names another git folder than your repo's"
+	}
+	if why := t3NothingUnderway(t.gitDir); why != "" {
+		return why
 	}
 	if why := t3WorktreeConfigIsData(ctx, h, t); why != "" {
 		return why
@@ -139,6 +144,23 @@ func t3NoRepoBelow(ctx context.Context, top string) string {
 		return "a repo of its own is in its worktree (" + firstRunes(filepath.ToSlash(found), 200) + "), and your git there would use its config and hooks"
 	case walked != nil:
 		return "its worktree couldn't be looked through for a repo of its own"
+	}
+	return ""
+}
+
+// t3Underway are the files and folders in a worktree's registration that hold a rebase, merge, cherry-pick or revert
+// under way (the sequencer's included): what git carries on with at its --continue. The hire writes its registration
+// (its rebase's and merge's state stay its own), and a rebase's to-do list can hold an exec line, which your git, or
+// T3 Code's agent, would run as you there (FXSWEEP3P3 F-6).
+var t3Underway = []string{"rebase-merge", "rebase-apply", "sequencer", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"}
+
+// t3NothingUnderway is why the registration gitDir holds a rebase, merge, cherry-pick or revert under way, "" when it
+// holds none. Anything of those names counts, whatever it is: one that can't be looked at counts too.
+func t3NothingUnderway(gitDir string) string {
+	for _, name := range t3Underway {
+		if _, err := os.Lstat(filepath.Join(gitDir, name)); !errors.Is(err, fs.ErrNotExist) {
+			return "its git folder has " + name + ", a rebase, merge or cherry-pick under way that your git would carry on"
+		}
 	}
 	return ""
 }

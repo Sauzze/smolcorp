@@ -397,7 +397,7 @@ func TestAFireHoldsWhatTheHireLeftInItsPlace(t *testing.T) {
 	newTestDeck(t)
 	freshClaudeHeld(t)
 	place := claudeTree(t, filepath.Join(claudeTempDir(t), "place"), "a/.claude/settings.json")
-	data, _ := json.Marshal(map[string]any{"version": 1, "hires": []Hire{{ID: "abcdef123456", Name: "Ada", Folder: place, State: "working"}}})
+	data, _ := json.Marshal(map[string]any{"version": 1, "hires": []Hire{{ID: "abcdef123456", Name: "Ada", Folder: keptPath(place), State: "working"}}})
 	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -415,10 +415,10 @@ func TestTakeOverIsHandedBackWhileItsWorktreeHasOneHeld(t *testing.T) {
 	freshClaudeHeld(t)
 	k := newT3TakeOverRig(t)
 	claudeTree(t, k.hire.Repo, "pkg/.claude/settings.json")
-	claudeTree(t, k.hire.Worktree, "pkg/.claude/settings.json", "web/.claude/hooks/pre.sh")
+	claudeTree(t, k.hire.Worktree.storedOnly(), "pkg/.claude/settings.json", "web/.claude/hooks/pre.sh")
 	_, err := t3TakeOver(k.hire, k.session, k.ways())
 	refused := refusalOf(t, err)
-	if refused.Status != http.StatusConflict || !strings.Contains(refused.Message, "Smolcorp won't start your Claude Code in "+k.hire.Worktree) ||
+	if refused.Status != http.StatusConflict || !strings.Contains(refused.Message, "Smolcorp won't start your Claude Code in "+k.hire.Worktree.storedOnly()) ||
 		!strings.Contains(refused.Message, filepath.Join("web", ".claude")) || !strings.Contains(refused.Message, "Ada was resumed") {
 		t.Errorf("%+v", refused)
 	}
@@ -429,7 +429,7 @@ func TestTakeOverIsHandedBackWhileItsWorktreeHasOneHeld(t *testing.T) {
 		t.Errorf("T3 Code was told: %q", k.runs())
 	}
 	// Removed, Take over goes ahead: the project's own .claude isn't held.
-	if err := os.RemoveAll(filepath.Join(k.hire.Worktree, "web")); err != nil {
+	if err := os.RemoveAll(filepath.Join(k.hire.Worktree.storedOnly(), "web")); err != nil {
 		t.Fatal(err)
 	}
 	if thread, err := t3TakeOver(k.hire, k.session, k.ways()); err != nil || thread == "" {
@@ -443,7 +443,7 @@ func TestAPlainHireOfClaudeCodeIsntStartedWhereOneIsHeld(t *testing.T) {
 	d, h, folder := hiringDeck(t, "")
 	freshClaudeHeld(t)
 	// Nothing listed it yet: a desk working in that folder, not fired yet (B4a). The gate lists it.
-	claudeRegistry(t, Hire{ID: "abcdef999999", Name: "Ada", Folder: folder, State: "working"})
+	claudeRegistry(t, Hire{ID: "abcdef999999", Name: "Ada", Folder: keptPath(folder), State: "working"})
 	claudeTree(t, folder, "sub/.claude/settings.json")
 	d.config.HireAgent = "claude"
 	if status, message := d.Perform("hire", "", url.Values{}); status != http.StatusConflict || !strings.Contains(message, "won't start your Claude Code") {
@@ -581,15 +581,15 @@ func TestWhatsHeldOutlivesARestart(t *testing.T) {
 		records.key, records.state, records.owed, records.writers = key, state, owed, writers
 		records.mu.Unlock()
 	})
-	gone := Hire{ID: "abcdef777777", Name: "Ada", Folder: filepath.Join(place, "c"), State: "fired"}
-	claudeTree(t, gone.Folder, ".claude/hooks/pre.sh")
+	gone := Hire{ID: "abcdef777777", Name: "Ada", Folder: keptPath(filepath.Join(place, "c")), State: "fired"}
+	claudeTree(t, gone.Folder.storedOnly(), ".claude/hooks/pre.sh")
 	listClaudePlantsOf(gone)
 	data, err := os.ReadFile(filepath.Join(supportDir, claudeHeldName))
 	if seal, sealed := sealOfFile(claudeHeldName, data); err != nil || !sealed || !seal.fits(recordKey()) {
 		t.Fatalf("not sealed: %v %v", err, sealed)
 	}
 	claudeRestart()
-	if why := claudeHeldRefusal(gone.Folder); why == "" {
+	if why := claudeHeldRefusal(gone.Folder.storedOnly()); why == "" {
 		t.Fatal("sealed, after a restart, it isn't held")
 	}
 	// Another program writes the record: nothing held, and the gone hire on record as listed. It doesn't count.
@@ -601,7 +601,7 @@ func TestWhatsHeldOutlivesARestart(t *testing.T) {
 	if claudeListed(gone.ID) {
 		t.Error("a record another program wrote counted")
 	}
-	if why := claudeGate(gone.Folder, []Hire{gone}); why == "" {
+	if why := claudeGate(gone.Folder.storedOnly(), []Hire{gone}); why == "" {
 		t.Error("the record didn't count, and the gate didn't list again")
 	}
 }
@@ -612,12 +612,12 @@ func TestTheGateListsWhatAHireMadeSinceItsLastListing(t *testing.T) {
 	newTestDeck(t)
 	freshClaudeHeld(t)
 	base := claudeTempDir(t)
-	desk := Hire{ID: "abcdef111111", Name: "Ada", Folder: claudeTree(t, filepath.Join(base, "project"), "sub/.claude/settings.json"), State: "working"}
-	gm := Hire{ID: "abcdef222222", Name: "Gem", Role: gmRole, Folder: claudeTree(t, filepath.Join(base, "gm"), ".mcp.json"), State: "idle"}
-	old := Hire{ID: "abcdef333333", Name: "Old", Folder: claudeTree(t, filepath.Join(base, "old"), "x/.claude/hooks/pre.sh"), State: "fired"}
+	desk := Hire{ID: "abcdef111111", Name: "Ada", Folder: keptPath(claudeTree(t, filepath.Join(base, "project"), "sub/.claude/settings.json")), State: "working"}
+	gm := Hire{ID: "abcdef222222", Name: "Gem", Role: gmRole, Folder: keptPath(claudeTree(t, filepath.Join(base, "gm"), ".mcp.json")), State: "idle"}
+	old := Hire{ID: "abcdef333333", Name: "Old", Folder: keptPath(claudeTree(t, filepath.Join(base, "old"), "x/.claude/hooks/pre.sh")), State: "fired"}
 	claudeRegistry(t, desk, gm, old)
 	for _, h := range []Hire{desk, gm, old} {
-		if why := claudeGate(h.Folder, officeHires()); why == "" {
+		if why := claudeGate(h.Folder.storedOnly(), officeHires()); why == "" {
 			t.Errorf("%s's folder: not refused", h.Name)
 		}
 	}
@@ -631,31 +631,31 @@ func TestTheGateListsWhatAHireMadeSinceItsLastListing(t *testing.T) {
 	for _, id := range ids {
 		_ = removeClaudePlant(id, true)
 	}
-	if why := claudeGate(desk.Folder, officeHires()); why != "" {
+	if why := claudeGate(desk.Folder.storedOnly(), officeHires()); why != "" {
 		t.Fatalf("kept: %q", why)
 	}
-	claudeTree(t, desk.Folder, "later/.claude/settings.json")
-	if why := claudeGate(desk.Folder, officeHires()); !strings.Contains(why, filepath.Join("later", ".claude")) {
+	claudeTree(t, desk.Folder.storedOnly(), "later/.claude/settings.json")
+	if why := claudeGate(desk.Folder.storedOnly(), officeHires()); !strings.Contains(why, filepath.Join("later", ".claude")) {
 		t.Errorf("made after the listing: %q", why)
 	}
 	// A gone hire whose session isn't known to have ended (from before this record) is listed again at each gate.
 	if claudeListed(old.ID) {
 		t.Error("a gone hire the gate listed is on record")
 	}
-	claudeTree(t, old.Folder, "y/.claude/settings.json")
-	if why := claudeGate(old.Folder, officeHires()); !strings.Contains(why, filepath.Join("y", ".claude")) {
+	claudeTree(t, old.Folder.storedOnly(), "y/.claude/settings.json")
+	if why := claudeGate(old.Folder.storedOnly(), officeHires()); !strings.Contains(why, filepath.Join("y", ".claude")) {
 		t.Errorf("a gone hire not known to have ended, not listed again: %q", why)
 	}
 	// One whose session is known to have ended is on record, even one that left nothing, and isn't listed again: what
 	// you change there later is yours.
-	quiet := Hire{ID: "abcdef444444", Name: "Quiet", Folder: claudeTree(t, filepath.Join(base, "quiet"), "src/"), State: "working"}
+	quiet := Hire{ID: "abcdef444444", Name: "Quiet", Folder: keptPath(claudeTree(t, filepath.Join(base, "quiet"), "src/")), State: "working"}
 	claudeRegistry(t, quiet)
 	if err := markFired(quiet.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	claudeHireEnded(quiet.ID)
-	claudeTree(t, quiet.Folder, "src/.claude/settings.json")
-	if why := claudeGate(quiet.Folder, officeHires()); why != "" {
+	claudeTree(t, quiet.Folder.storedOnly(), "src/.claude/settings.json")
+	if why := claudeGate(quiet.Folder.storedOnly(), officeHires()); why != "" {
 		t.Errorf("a gone hire that left nothing, listed again: %q", why)
 	}
 }
@@ -669,7 +669,7 @@ func TestEveryWayAHireIsGoneListsItsPlace(t *testing.T) {
 	var hires []Hire
 	for i, name := range []string{"edited-fired", "edited-failed", "failed", "fired", "renamed"} {
 		hires = append(hires, Hire{ID: fmt.Sprintf("abcdef00000%d", i), Name: name, State: "working",
-			Folder: claudeTree(t, filepath.Join(base, name), "a/.claude/settings.json")})
+			Folder: keptPath(claudeTree(t, filepath.Join(base, name), "a/.claude/settings.json"))})
 	}
 	claudeRegistry(t, hires...)
 	for i, state := range []string{"fired", "failed"} {
@@ -685,7 +685,7 @@ func TestEveryWayAHireIsGoneListsItsPlace(t *testing.T) {
 		t.Fatal(refused.message)
 	}
 	for i, h := range hires {
-		why := claudeHeldRefusal(filepath.Join(h.Folder, "a"))
+		why := claudeHeldRefusal(filepath.Join(h.Folder.storedOnly(), "a"))
 		if gone := i < 4; gone != (why != "") {
 			t.Errorf("%s: %q", h.Name, why)
 		}
@@ -707,8 +707,8 @@ func TestWhatADeskPlantsAfterTheGMsEditMadeItGoneIsListedAtTheGate(t *testing.T)
 	t.Cleanup(func() { claudeSessionUp = upWas })
 	base := claudeTempDir(t)
 	repo := claudeTree(t, filepath.Join(base, "repo"), "src/")
-	folder := Hire{ID: "abcdef510000", Name: "Ada", Folder: claudeTree(t, filepath.Join(base, "project"), "src/", "a/.claude/settings.json"), State: "working"}
-	tree := Hire{ID: "abcdef520000", Name: "Bea", Folder: repo, Repo: repo, Worktree: claudeTree(t, filepath.Join(base, "wt"), "src/"), State: "working"}
+	folder := Hire{ID: "abcdef510000", Name: "Ada", Folder: keptPath(claudeTree(t, filepath.Join(base, "project"), "src/", "a/.claude/settings.json")), State: "working"}
+	tree := Hire{ID: "abcdef520000", Name: "Bea", Folder: keptPath(repo), Repo: repo, Worktree: keptPath(claudeTree(t, filepath.Join(base, "wt"), "src/")), State: "working"}
 	claudeRegistry(t, folder, tree)
 	for _, c := range []struct {
 		h     Hire
@@ -730,22 +730,22 @@ func TestWhatADeskPlantsAfterTheGMsEditMadeItGoneIsListedAtTheGate(t *testing.T)
 		for _, id := range ids {
 			_ = removeClaudePlant(id, true)
 		}
-		if why := claudeGate(c.h.place(), officeHires()); why != "" {
+		if why := claudeGate(c.h.storedPlace(), officeHires()); why != "" {
 			t.Errorf("%s: nothing planted yet, refused: %q", c.h.Name, why)
 		}
-		claudeTree(t, c.h.place(), ".claude/hooks/x.sh", "src/.mcp.json")
-		if why := claudeGate(c.h.place(), officeHires()); !strings.Contains(why, filepath.Join(c.h.place(), ".claude")) {
+		claudeTree(t, c.h.storedPlace(), ".claude/hooks/x.sh", "src/.mcp.json")
+		if why := claudeGate(c.h.storedPlace(), officeHires()); !strings.Contains(why, filepath.Join(c.h.storedPlace(), ".claude")) {
 			t.Errorf("%s: planted after the edit, the gate let it through: %q", c.h.Name, why)
 		}
 		claudeHeld.Lock()
 		for _, rel := range []string{".claude/hooks/x.sh", "src/.mcp.json"} {
-			at := filepath.Join(c.h.place(), filepath.FromSlash(rel))
+			at := filepath.Join(c.h.storedPlace(), filepath.FromSlash(rel))
 			if !slices.ContainsFunc(slices.Collect(maps.Values(claudeHeld.plants)), func(p claudePlant) bool { return p.File == at && p.Desk == c.h.ID }) {
 				t.Errorf("%s: %s isn't held against it", c.h.Name, rel)
 			}
 		}
 		claudeHeld.Unlock()
-		if why := claudeGate(filepath.Join(c.h.place(), "src"), officeHires()); !strings.Contains(why, "won't start") {
+		if why := claudeGate(filepath.Join(c.h.storedPlace(), "src"), officeHires()); !strings.Contains(why, "won't start") {
 			t.Errorf("%s: below its place: %q", c.h.Name, why)
 		}
 	}
@@ -761,7 +761,7 @@ func TestAGoneHireWhoseSessionIsStillUpCountsAsOpenAtTheGate(t *testing.T) {
 	upWas := claudeSessionUp
 	claudeSessionUp = func(h Hire) bool { return up[h.ID] }
 	t.Cleanup(func() { claudeSessionUp = upWas })
-	h := Hire{ID: "abcdef530000", Name: "Cy", Folder: claudeTree(t, filepath.Join(claudeTempDir(t), "project"), "src/"), State: "working"}
+	h := Hire{ID: "abcdef530000", Name: "Cy", Folder: keptPath(claudeTree(t, filepath.Join(claudeTempDir(t), "project"), "src/")), State: "working"}
 	claudeRegistry(t, h)
 	if err := markFired(h.ID, ""); err != nil {
 		t.Fatal(err)
@@ -771,8 +771,8 @@ func TestAGoneHireWhoseSessionIsStillUpCountsAsOpenAtTheGate(t *testing.T) {
 		t.Fatal("not on record after its session ended")
 	}
 	up[h.ID] = true
-	claudeTree(t, h.Folder, "src/.claude/settings.json")
-	if why := claudeGate(h.Folder, officeHires()); !strings.Contains(why, filepath.Join("src", ".claude")) {
+	claudeTree(t, h.Folder.storedOnly(), "src/.claude/settings.json")
+	if why := claudeGate(h.Folder.storedOnly(), officeHires()); !strings.Contains(why, filepath.Join("src", ".claude")) {
 		t.Errorf("its session up, the gate let its plant through: %q", why)
 	}
 	claudeHeld.Lock()
@@ -782,8 +782,8 @@ func TestAGoneHireWhoseSessionIsStillUpCountsAsOpenAtTheGate(t *testing.T) {
 		_ = removeClaudePlant(id, true)
 	}
 	up[h.ID] = false
-	claudeTree(t, h.Folder, "mine/.claude/settings.json")
-	if why := claudeGate(h.Folder, officeHires()); why != "" {
+	claudeTree(t, h.Folder.storedOnly(), "mine/.claude/settings.json")
+	if why := claudeGate(h.Folder.storedOnly(), officeHires()); why != "" {
 		t.Errorf("its session down and on record, yours held: %q", why)
 	}
 }
@@ -842,14 +842,14 @@ func TestACaseOrARenameDoesntHideAClaudePlant(t *testing.T) {
 	freshClaudeHeld(t)
 	base := claudeTempDir(t)
 	repo := claudeTree(t, filepath.Join(base, "repo"), ".claude/settings.json")
-	h := Hire{ID: "abcdef710000", Name: "Ada", Folder: repo, Repo: repo, Worktree: claudeTree(t, filepath.Join(base, "wt"), "notes/draft.txt", "x/cfg/hooks/pre.sh"),
+	h := Hire{ID: "abcdef710000", Name: "Ada", Folder: keptPath(repo), Repo: repo, Worktree: keptPath(claudeTree(t, filepath.Join(base, "wt"), "notes/draft.txt", "x/cfg/hooks/pre.sh")),
 		State: "working"}
 	claudeRegistry(t, h)
-	if why := claudeGate(h.Worktree, officeHires()); why != "" {
+	if why := claudeGate(h.Worktree.storedOnly(), officeHires()); why != "" {
 		t.Fatalf("clean: %q", why)
 	}
-	claudeTree(t, h.Worktree, ".Claude/Hooks/x.sh")
-	listed := listedAs(t, h.Worktree, listClaudePlantsOf(h))
+	claudeTree(t, h.Worktree.storedOnly(), ".Claude/Hooks/x.sh")
+	listed := listedAs(t, h.Worktree.storedOnly(), listClaudePlantsOf(h))
 	if listed[".Claude/Hooks/x.sh"] != whyClaudeHooks {
 		t.Errorf("another case: %v", listed)
 	}
@@ -860,13 +860,13 @@ func TestACaseOrARenameDoesntHideAClaudePlant(t *testing.T) {
 		_ = removeClaudePlant(id, true)
 	}
 	for _, c := range []struct{ from, to string }{{"notes/draft.txt", "notes/.MCP.JSON"}, {"x/cfg", "x/.claude"}} {
-		if why := claudeGate(h.Worktree, officeHires()); why != "" {
+		if why := claudeGate(h.Worktree.storedOnly(), officeHires()); why != "" {
 			t.Fatalf("before %s: %q", c.to, why)
 		}
-		if err := os.Rename(filepath.Join(h.Worktree, filepath.FromSlash(c.from)), filepath.Join(h.Worktree, filepath.FromSlash(c.to))); err != nil {
+		if err := os.Rename(filepath.Join(h.Worktree.storedOnly(), filepath.FromSlash(c.from)), filepath.Join(h.Worktree.storedOnly(), filepath.FromSlash(c.to))); err != nil {
 			t.Fatal(err)
 		}
-		if why := claudeGate(h.Worktree, officeHires()); !strings.Contains(why, filepath.Join(h.Worktree, filepath.FromSlash(c.to))) {
+		if why := claudeGate(h.Worktree.storedOnly(), officeHires()); !strings.Contains(why, filepath.Join(h.Worktree.storedOnly(), filepath.FromSlash(c.to))) {
 			t.Errorf("renamed to %s: %q", c.to, why)
 		}
 		claudeHeld.Lock()
@@ -884,14 +884,14 @@ func TestACaseOrARenameDoesntHideAClaudePlant(t *testing.T) {
 func TestTheRecordErasedFailsClosedAndADeskCantReachIt(t *testing.T) {
 	newTestDeck(t)
 	freshClaudeHeld(t)
-	h := Hire{ID: "abcdef720000", Name: "Ada", Folder: claudeTree(t, filepath.Join(claudeTempDir(t), "project"), "src/"), State: "working"}
+	h := Hire{ID: "abcdef720000", Name: "Ada", Folder: keptPath(claudeTree(t, filepath.Join(claudeTempDir(t), "project"), "src/")), State: "working"}
 	claudeRegistry(t, h)
-	claudeTree(t, h.Folder, "src/.claude/hooks/x.sh")
+	claudeTree(t, h.Folder.storedOnly(), "src/.claude/hooks/x.sh")
 	if err := markFired(h.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	claudeHireEnded(h.ID)
-	if !claudeListed(h.ID) || claudeHeldRefusal(h.Folder) == "" {
+	if !claudeListed(h.ID) || claudeHeldRefusal(h.Folder.storedOnly()) == "" {
 		t.Fatal("fired: not on record, or nothing held")
 	}
 	claudeRestart()
@@ -905,7 +905,7 @@ func TestTheRecordErasedFailsClosedAndADeskCantReachIt(t *testing.T) {
 	if claudeListed(h.ID) {
 		t.Error("erased, still on record")
 	}
-	if why := claudeGate(h.Folder, officeHires()); !strings.Contains(why, filepath.Join("src", ".claude")) {
+	if why := claudeGate(h.Folder.storedOnly(), officeHires()); !strings.Contains(why, filepath.Join("src", ".claude")) {
 		t.Errorf("erased, the gate let it through: %q", why)
 	}
 

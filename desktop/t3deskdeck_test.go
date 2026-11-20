@@ -72,7 +72,7 @@ func TestT3AHireThroughTheDeckIsOnTheTeamAndLetGoByItsRoute(t *testing.T) {
 	}
 	h := hires[0]
 	if h.Engine != t3Engine || h.T3Thread != "mcp:abc-1" || h.T3Link != "https://app.t3.codes/threads/env-1/mcp%3Aabc-1" || h.State != "starting" ||
-		h.Nickname != "Ada" || h.Role != "reviewer" || h.Model != t3DefaultModel || h.Branch == "" || h.Worktree == "" || h.Folder != repo {
+		h.Nickname != "Ada" || h.Role != "reviewer" || h.Model != t3DefaultModel || h.Branch == "" || h.Worktree.none() || h.Folder.storedOnly() != repo {
 		t.Errorf("%+v", h)
 	}
 	// The gate asked t3 its version, fresh, before anything was made.
@@ -82,7 +82,7 @@ func TestT3AHireThroughTheDeckIsOnTheTeamAndLetGoByItsRoute(t *testing.T) {
 		t.Errorf("%q", runs)
 	}
 	// The fence is the hire's settings on the default account, written as the Mac writes it.
-	fence, _ := os.ReadFile(filepath.Join(h.Worktree, ".claude", "settings.local.json"))
+	fence, _ := os.ReadFile(filepath.Join(h.Worktree.storedOnly(), ".claude", "settings.local.json"))
 	var object map[string]any
 	if err := json.Unmarshal(fence, &object); err != nil || string(fence) != string(swiftJSON(object)) || object["disableAllHooks"] != false ||
 		!strings.Contains(string(fence), `"Bash(git push:*)"`) || !strings.Contains(string(fence), `"command" : "/opt/smolcorp/bin/smolcorp"`) || !strings.Contains(string(fence), `"--rules",`) {
@@ -109,14 +109,14 @@ func TestT3AHireThroughTheDeckIsOnTheTeamAndLetGoByItsRoute(t *testing.T) {
 	_ = os.Remove(r.calls)
 	got = serve(t, d, t3PageCall("POST", "/setup/t3code/letgo", `{"id":"`+h.ID+`","worktree":"/etc"}`))
 	var answer map[string]any
-	if got.Code != http.StatusOK || json.Unmarshal(got.Body.Bytes(), &answer) != nil || answer["ok"] != true || answer["worktree"] != h.Worktree ||
+	if got.Code != http.StatusOK || json.Unmarshal(got.Body.Bytes(), &answer) != nil || answer["ok"] != true || answer["worktree"] != h.Worktree.storedOnly() ||
 		answer["branch"] != h.Branch || answer["note"] != "" || answer["recap"] == "" {
 		t.Fatalf("%d %s", got.Code, got.Body)
 	}
-	if runs := r.runs(); !reflect.DeepEqual(runs, [][]string{{"project", "remove", h.Worktree, "--force"}}) {
+	if runs := r.runs(); !reflect.DeepEqual(runs, [][]string{{"project", "remove", h.Worktree.storedOnly(), "--force"}}) {
 		t.Errorf("the worktree comes from the registry: %q", runs)
 	}
-	if exists(filepath.Join(h.Worktree, ".claude", "settings.local.json")) || !exists(h.Worktree) {
+	if exists(filepath.Join(h.Worktree.storedOnly(), ".claude", "settings.local.json")) || !exists(h.Worktree.storedOnly()) {
 		t.Error("the fence stays, or the worktree went")
 	}
 	after, _ := registryHire(h.ID)
@@ -181,10 +181,11 @@ func t3GMCall(d *Deck, target, body string) call {
 		withoutSetupKey: true, headers: map[string]string{setupHeader: "1", gmTokenHeader: d.newGMToken()}}
 }
 
-// B1 (RPGS): the GM's hire with `engine: "t3"` (gm hire --t3) goes into T3 Code by Setup's own lane, as the Mac's
-// /setup/gm/hire does: into the folder for new hires, with the answer of any setup hire. The GM-token rule comes
-// first, and hiring off and the hooks are refused in the lane's own words, before anything is made.
-func TestT3TheGMsHireWithEngineT3HiresIntoT3Code(t *testing.T) {
+// B1 (RPGS), with FXSWEEP3P3 F-1: the route's hire with `engine: "t3"` goes into T3 Code by Setup's own lane, as the
+// Mac's /setup/gm/hire does, into the folder for new hires, with the answer of any setup hire; hiring off and the hooks
+// are refused in the lane's own words, before anything is made. That is the page's alone: a hire in T3 Code works
+// outside the sandbox, so the GM's token (gm hire --t3) is refused there, and on /setup/hire, with nothing made.
+func TestT3TheGMsHireWithEngineT3HiresIntoT3CodeForThePageAlone(t *testing.T) {
 	r, d := t3DeckRigHome(t, true)
 	repo := r.repo()
 	d.mu.Lock()
@@ -193,7 +194,11 @@ func TestT3TheGMsHireWithEngineT3HiresIntoT3Code(t *testing.T) {
 	d.mu.Unlock()
 	hire := func(body string) *httptest.ResponseRecorder {
 		t.Helper()
-		return serve(t, d, t3GMCall(d, "/setup/gm/hire", body))
+		return serve(t, d, t3PageCall("POST", "/setup/gm/hire", body))
+	}
+	asGM := func(target, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		return serve(t, d, t3GMCall(d, target, body))
 	}
 	madeNothing := func(when string) {
 		t.Helper()
@@ -201,13 +206,19 @@ func TestT3TheGMsHireWithEngineT3HiresIntoT3Code(t *testing.T) {
 			t.Fatalf("%s: something was made: %q", when, r.runs())
 		}
 	}
-	if got := hire(`{"role":"gm","engine":"t3"}`); got.Code != http.StatusConflict || got.Body.String() != onlyOwnerHiresGMRefusal {
+	if got := asGM("/setup/gm/hire", `{"role":"gm","engine":"t3"}`); got.Code != http.StatusConflict || got.Body.String() != onlyOwnerHiresGMRefusal {
 		t.Errorf("the gm role: %d %q", got.Code, got.Body)
 	}
-	if got := hire(`{"role":"reviewer","engine":"vim"}`); got.Code != http.StatusBadRequest || got.Body.String() != hireEngineRefusal {
+	if got := asGM("/setup/gm/hire", `{"role":"reviewer","engine":"vim"}`); got.Code != http.StatusBadRequest || got.Body.String() != hireEngineRefusal {
 		t.Errorf("another engine: %d %q", got.Code, got.Body)
 	}
-	madeNothing("the gm role, another engine")
+	// F-1: the GM's token, on either route, with T3 Code set up and the role there to hire.
+	for _, target := range []string{"/setup/gm/hire", "/setup/hire"} {
+		if got := asGM(target, `{"role":"reviewer","engine":"t3","folder":`+jsonText(repo)+`}`); got.Code != http.StatusForbidden || got.Body.String() != gmT3HireRefusal {
+			t.Errorf("the GM into T3 Code by %s: %d %q", target, got.Code, got.Body)
+		}
+	}
+	madeNothing("the gm role, another engine, the GM into T3 Code")
 	d.mu.Lock()
 	d.config.HiringEnabled = false
 	d.mu.Unlock()
@@ -237,7 +248,7 @@ func TestT3TheGMsHireWithEngineT3HiresIntoT3Code(t *testing.T) {
 		t.Errorf("no desk in %v", answer)
 	}
 	hires := readRegistry(registryPath(), false).hires
-	if len(hires) != 1 || hires[0].Engine != t3Engine || hires[0].Role != "reviewer" || hires[0].T3Thread != "mcp:abc-1" || hires[0].Folder != repo {
+	if len(hires) != 1 || hires[0].Engine != t3Engine || hires[0].Role != "reviewer" || hires[0].T3Thread != "mcp:abc-1" || hires[0].Folder.storedOnly() != repo {
 		t.Fatalf("%+v", hires)
 	}
 	if firsts := r.firsts(); !reflect.DeepEqual(firsts[1:], [][]string{{"project", "add"}, {"thread", "start"}, {"thread", "show"}}) {
@@ -424,7 +435,7 @@ func TestT3SetupsHireSheetHiresIntoT3Code(t *testing.T) {
 		t.Errorf("no desk in %v", answer)
 	}
 	hires := readRegistry(registryPath(), false).hires
-	if len(hires) != 1 || hires[0].Engine != t3Engine || hires[0].Nickname != "Ada" || hires[0].Model != "claude-opus-5-5" || hires[0].T3Thread != "mcp:abc-1" || hires[0].Folder != repo {
+	if len(hires) != 1 || hires[0].Engine != t3Engine || hires[0].Nickname != "Ada" || hires[0].Model != "claude-opus-5-5" || hires[0].T3Thread != "mcp:abc-1" || hires[0].Folder.storedOnly() != repo {
 		t.Fatalf("%+v", hires)
 	}
 	if firsts := r.firsts(); !reflect.DeepEqual(firsts[1:], [][]string{{"project", "add"}, {"thread", "start"}, {"thread", "show"}}) {
@@ -461,10 +472,10 @@ func TestT3TheFenceDeniesEverySavedAccount(t *testing.T) {
 		t.Fatalf("%d %s", got.Code, got.Body)
 	}
 	hires := readRegistry(registryPath(), false).hires
-	if len(hires) != 1 || hires[0].Engine != t3Engine || hires[0].Worktree == "" {
+	if len(hires) != 1 || hires[0].Engine != t3Engine || hires[0].Worktree.none() {
 		t.Fatalf("%+v", hires)
 	}
-	fence, err := os.ReadFile(filepath.Join(hires[0].Worktree, ".claude", "settings.local.json"))
+	fence, err := os.ReadFile(filepath.Join(hires[0].Worktree.storedOnly(), ".claude", "settings.local.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

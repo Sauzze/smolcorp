@@ -119,7 +119,7 @@ func TestOnAMacACopyFromBeforeEachTighteningDoesntFit(t *testing.T) {
 			d, _, _, _ := macDeck(t)
 			old := withAHire(t)
 			editRegistry(func(f *registryFile) {
-				f.hires = append(f.hires, Hire{ID: "gm0001", Name: "GM", Role: gmRole, Folder: homeDir, State: "working"})
+				f.hires = append(f.hires, Hire{ID: "gm0001", Name: "GM", Role: gmRole, Folder: keptPath(homeDir), State: "working"})
 			})
 			d.mu.Lock()
 			d.config.KeystrokesAllowed, d.config.Listen = true, "all"
@@ -227,8 +227,8 @@ func TestOnAMacAResetAfterAFailedCheckKeepsTheTeam(t *testing.T) {
 	withAHire(t)
 	frontDeskMu.Lock()
 	file := readRegistry(registryPath(), true)
-	file.hires = append(file.hires, Hire{ID: "gm0001", Name: "GM", Role: gmRole, Folder: homeDir, State: "working", Scope: homeDir},
-		Hire{ID: "hire03", Name: "Cy", Folder: homeDir, Worktree: filepath.Join(homeDir, "wt-cy"), Branch: "cy", State: "idle"})
+	file.hires = append(file.hires, Hire{ID: "gm0001", Name: "GM", Role: gmRole, Folder: keptPath(homeDir), State: "working", Scope: homeDir},
+		Hire{ID: "hire03", Name: "Cy", Folder: keptPath(homeDir), Worktree: keptPath(filepath.Join(homeDir, "wt-cy")), Branch: "cy", State: "idle"})
 	_ = file.save(registryPath())
 	frontDeskMu.Unlock()
 	mac.recordItems = append(mac.recordItems, newRecordItem("key-planted"))
@@ -246,7 +246,7 @@ func TestOnAMacAResetAfterAFailedCheckKeepsTheTeam(t *testing.T) {
 				t.Errorf("%s: %s is open %v", when, h.Name, open)
 			}
 		}
-		if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == "hire03" }); i < 0 || f.hires[i].Worktree == "" {
+		if i := slices.IndexFunc(f.hires, func(h Hire) bool { return h.ID == "hire03" }); i < 0 || f.hires[i].Worktree.none() {
 			t.Errorf("%s: a hire's worktree is gone", when)
 		}
 	}
@@ -387,7 +387,7 @@ func TestOnAMacACopyFromBeforeADroppedRecordDoesntFit(t *testing.T) {
 				frontDeskMu.Lock()
 				defer frontDeskMu.Unlock()
 				file := readRegistry(registryPath(), true)
-				file.hires = append(file.hires, Hire{ID: "hire09", Name: "Di", Folder: homeDir, State: "working"})
+				file.hires = append(file.hires, Hire{ID: "hire09", Name: "Di", Folder: keptPath(homeDir), State: "working"})
 				if err := file.save(registryPath()); err != nil {
 					t.Fatal(err)
 				}
@@ -634,7 +634,7 @@ func TestOnAMacWhileTheKeyIsUnreadableARestartLosesNothing(t *testing.T) {
 			withAHire(t)
 			frontDeskMu.Lock()
 			file := readRegistry(registryPath(), true)
-			file.hires = append(file.hires, Hire{ID: "gm0001", Name: "GM", Role: gmRole, Folder: homeDir, State: "working"})
+			file.hires = append(file.hires, Hire{ID: "gm0001", Name: "GM", Role: gmRole, Folder: keptPath(homeDir), State: "working"})
 			err := file.save(registryPath())
 			frontDeskMu.Unlock()
 			if err != nil {
@@ -709,7 +709,7 @@ func TestOnAMacARegistryThatCantBeReadIsKeptForMending(t *testing.T) {
 		}
 		frontDeskMu.Lock()
 		f := readRegistry(registryPath(), true)
-		f.hires = append(f.hires, Hire{ID: "hire09", Name: "Di", Folder: homeDir, State: "working"})
+		f.hires = append(f.hires, Hire{ID: "hire09", Name: "Di", Folder: keptPath(homeDir), State: "working"})
 		err := f.save(registryPath())
 		frontDeskMu.Unlock()
 		if err != nil {

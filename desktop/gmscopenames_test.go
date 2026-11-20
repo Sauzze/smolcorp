@@ -29,11 +29,11 @@ func heldNames(t *testing.T) (d *Deck, gm Hire, token, proj, elsewhere string) {
 		}
 	}
 	proj, elsewhere = physical(proj), physical(elsewhere)
-	gm = Hire{ID: "g00001", Name: "General Manager", Nickname: "Boss", Role: gmRole, Folder: proj, Scope: proj, State: "working", Started: 1761000000000}
+	gm = Hire{ID: "g00001", Name: "General Manager", Nickname: "Boss", Role: gmRole, Folder: keptPath(proj), Scope: proj, State: "working", Started: 1761000000000}
 	hires := []Hire{gm,
-		{ID: "ad0001", Name: "Adapter", Role: "janitor", Folder: proj, State: "idle", Started: 1761000100000},
-		{ID: "cy0001", Name: "Cyclist", Nickname: "Cy", Role: "tester", Folder: proj, State: "idle", Started: 1761000200000},
-		{ID: "be0001", Name: "Beacon", Role: "janitor", Folder: elsewhere, State: "idle", Started: 1761000300000},
+		{ID: "ad0001", Name: "Adapter", Role: "janitor", Folder: keptPath(proj), State: "idle", Started: 1761000100000},
+		{ID: "cy0001", Name: "Cyclist", Nickname: "Cy", Role: "tester", Folder: keptPath(proj), State: "idle", Started: 1761000200000},
+		{ID: "be0001", Name: "Beacon", Role: "janitor", Folder: keptPath(elsewhere), State: "idle", Started: 1761000300000},
 	}
 	data, _ := json.Marshal(map[string]any{"version": 1, "hires": hires})
 	if err := writeRegistryFile(registryPath(), data, 0o600); err != nil {

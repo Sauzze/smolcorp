@@ -187,7 +187,7 @@ func TestTheDemosPageHiresWhereItOpens(t *testing.T) {
 			// BROWSERSTRICT's rule stays where there's a window: a browser's Setup beside it still hires nobody.
 			if c.system != "Linux" {
 				d.mu.Lock()
-				d.lastHire = time.Time{}
+				d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 				d.mu.Unlock()
 				demo := readDemoPage(t, d, true, f.root).Demo
 				got := withSession(t, d, browserSession(d), "POST", "/setup/hire", demoHireBody(t, demo.Hire))

@@ -116,14 +116,19 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	id := strings.ToLower(newID())[:12]
 	// Its nickname names its worktree and branch, as the tmux engine's (runEngineHire).
 	place, err := prepareHire(hireRequest{HireID: id, Name: cmpOr(r.Nickname, r.Role.Name), Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir, Held: r.Held,
-		APIKey: r.APIKey, Worktree: true},
-		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: o.Git, PortFree: o.PortFree, Key: o.Key})
+		APIKey: r.APIKey, Worktree: true, KeepCarried: true, GM: r.Role.ID == gmRole},
+		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: gitUntil(o.Git, time.Now().Add(hirePlaceDeadline)),
+			PortFree: o.PortFree, Key: o.Key, Hold: true}) // one deadline for its place (hirePlaceDeadline, RT126SWEEP4 part 3's B1)
+	defer releaseHirePorts(place.Ports) // its row holds them by then, or it was refused
 	if err != nil {
 		return Hire{}, "", err
 	}
+	// Its undos take the tree back through the roots the carry kept, on record until this hire ends, never by its path
+	// (FXGMHIRENOGIT126R5, R14, as the tmux engine's): nothing of its agent runs before its window opens.
+	defer forgetCarried(place.Branch)
 	undo := func() {
 		if place.Worktree != "" {
-			removeWorkspace(place.Repo, place.Worktree, place.Branch, o.Git)
+			takeBackTree(place.Repo, place.Worktree, place.Branch, o.Git)
 		}
 		_ = os.RemoveAll(hireFolder(supportDir, id))
 	}
@@ -161,7 +166,7 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	}
 	// The hire is written down before its key is made (a key's hash is kept against
 	// its row). It has no tmux socket: its launcher is known by its id.
-	hire = Hire{ID: id, Name: r.Role.Name, Nickname: r.Nickname, Account: r.AccountName, Role: r.Role.ID, Folder: r.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
+	hire = Hire{ID: id, Name: r.Role.Name, Nickname: r.Nickname, Account: r.AccountName, Role: r.Role.ID, Folder: keptPath(r.Folder), Branch: place.Branch, Worktree: keptPath(place.Worktree), Repo: place.Repo,
 		ViaLauncher: true, Model: r.Role.Model, Ports: place.Ports, Brief: brief, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note}
 	// Its start is under way from its row until its token waits for its window (launcherWaitsFor): the edit never
 	// marks it gone meanwhile (gonedesk.go).
@@ -341,19 +346,10 @@ func (d *Deck) cleanUpLauncherHire(hire Hire, token, reason string, o launcherEn
 		return
 	}
 	left := ""
-	if hire.Worktree != "" && !removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(hire) {
-		left = " Its worktree " + hire.Worktree + " was kept: it has changes, or git wouldn't remove it."
+	if !hire.Worktree.none() && !removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(hire) {
+		left = " Its worktree " + hire.Worktree.storedOnly() + " was kept: " + treeKeptWhy(hire, "it has changes, or git wouldn't remove it.")
 	}
 	setHire(hire.ID, "failed", firstRunes("Didn't start: "+reason+"."+left, longestNotes))
-}
-
-// hireDir is where hire h runs: its worktree, or its folder when it has none
-// (a folder that isn't a git repo).
-func hireDir(h Hire) string {
-	if h.Worktree != "" {
-		return h.Worktree
-	}
-	return h.Folder
 }
 
 // launcherHolds is whether a connected launcher is hire h's window: the one its
@@ -363,7 +359,7 @@ func (d *Deck) launcherHolds(h Hire) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	tree := ""
-	if dir := hireDir(h); dir != "" {
+	if dir := h.storedPlace(); dir != "" { // compared only
 		tree = physical(dir)
 	}
 	for _, tab := range d.launchers {
@@ -389,7 +385,7 @@ func hiresWorkingIn(hires []Hire, folder string) []Hire {
 	}
 	where := physical(folder)
 	for _, h := range hires {
-		if dir := hireDir(h); h.ViaLauncher && dir != "" && (h.State == "starting" || h.State == "working") && within(physical(dir), where) {
+		if dir := h.storedPlace(); h.ViaLauncher && dir != "" && (h.State == "starting" || h.State == "working") && within(physical(dir), where) {
 			rows = append(rows, h)
 		}
 	}
@@ -464,13 +460,19 @@ func (d *Deck) forgetLauncher(token string) {
 // opens as it did. The lock is let go while the engine works.
 // account, when not nil, says the Claude account it works on (its name and folder): the launcher starts it there.
 // extra, when not nil, is what the GM route asks besides (its task, its account), applied whole.
-func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int, account, extra *setupHire) (status int, message string, handled bool) {
+//
+// gitBy, when given and not zero, is the deadline of a hire the General Manager asked for (gmHireDeadline): no git of
+// the hire starts after it (gitUntil).
+func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int, account, extra *setupHire, gitBy ...time.Time) (status int, message string, handled bool) {
 	i := slices.IndexFunc(d.config.Roles, func(r Role) bool { return r.ID == roleID })
 	if i < 0 || !d.config.HireManagedWindows || !hasTerminal {
 		return 0, "", false
 	}
 	role := d.config.Roles[i]
 	options, testPort := d.launcherEngine, testCopyPort()
+	if len(gitBy) > 0 && !gitBy[0].IsZero() {
+		options.Git = gitUntil(options.Git, gitBy[0])
+	}
 	if options.HeardFrom == nil {
 		options.HeardFrom = d.hireHeardFrom
 	}
@@ -568,7 +570,7 @@ func (d *Deck) fireLauncherHire(h Hire, o launcherEngineOptions, force bool) (ke
 	if tab == nil || !h.ViaLauncher {
 		return refuse("Couldn't reach " + calledHire(h) + "'s window, so nothing was changed.")
 	}
-	if h.Worktree != "" && !force && !gone {
+	if !h.Worktree.none() && !force && !gone {
 		if message := uncommittedRefusal(h, o.Git); message != "" {
 			return refuse(message)
 		}
@@ -600,22 +602,23 @@ func (d *Deck) fireLauncherHire(h Hire, o launcherEngineOptions, force bool) (ke
 	}
 	// The repo's stored objects are hashed again before the merged look (firefsck.go).
 	storeKept := ""
-	if h.Worktree != "" && !o.KeepWorktree {
+	hasTree := !h.Worktree.none()
+	if hasTree && !o.KeepWorktree {
 		if _, _, own := hiresOwnWorktree(o.Git, o.Worktrees, h); own {
 			storeKept = fireStoreKept(h, o.StoreLook)
 		}
 	}
-	removed := storeKept == "" && h.Worktree != "" && !o.KeepWorktree && removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(h)
-	writeRecap(h, "", removed, o.Now())
+	removed := storeKept == "" && hasTree && !o.KeepWorktree && removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(h)
+	writeRecapMoved(h, "", removed, hasTree && !removed && hireTreeMoved(h), o.Now())
 	// Its launcher is seen gone: what's in its place is listed once more, and it's on record (CLAUDEPLANT1).
 	if storeKept != "" {
 		markFired(h.ID, storeKept)
 		claudeHireEnded(h.ID)
 		return storeKept, nil
 	}
-	if h.Worktree != "" && !removed && !o.KeepWorktree {
+	if hasTree && !removed && !o.KeepWorktree {
 		kept := firedKept(o.Git, h)
-		markFired(h.ID, firedKeptNote(h.Worktree, kept))
+		markFired(h.ID, firedKeptNote(h.Worktree.storedOnly(), kept))
 		claudeHireEnded(h.ID)
 		return kept, nil
 	}

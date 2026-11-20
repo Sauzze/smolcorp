@@ -97,7 +97,7 @@ func TestTheFiresLookFindsASoundStoreSound(t *testing.T) {
 	if err != nil || cause != "" || objects != len(strings.Split(listed, "\n")) {
 		t.Fatalf("objects %d (want %d), cause %q, err %v", objects, len(strings.Split(listed, "\n")), cause, err)
 	}
-	if said := fireStoreKept(Hire{Name: "Rex", Repo: r.dir, Worktree: filepath.Join(r.dir, "elsewhere"), Branch: "hire/x"}, nil); said != "" {
+	if said := fireStoreKept(Hire{Name: "Rex", Repo: r.dir, Worktree: keptPath(filepath.Join(r.dir, "elsewhere")), Branch: "hire/x"}, nil); said != "" {
 		t.Errorf("a sound store kept the worktree: %q", said)
 	}
 	if said := fireStoreKept(Hire{Name: "Rex", Repo: r.dir, Branch: "hire/x"}, nil); said != "" {
@@ -164,9 +164,9 @@ func TestTheFiresLookCatchesAnObjectRewrittenInPlace(t *testing.T) {
 			if !slices.Contains(c.named(r, base, desk), cause) {
 				t.Fatalf("cause %q, want one of %q", cause, c.named(r, base, desk))
 			}
-			h := Hire{Name: "Janitor", Nickname: "Rex", Repo: r.dir, Worktree: filepath.Join(r.dir, "w"), Branch: "hire/x"}
+			h := Hire{Name: "Janitor", Nickname: "Rex", Repo: r.dir, Worktree: keptPath(filepath.Join(r.dir, "w")), Branch: "hire/x"}
 			said := fireStoreKept(h, nil)
-			for _, want := range []string{"Smolcorp kept Rex's worktree " + h.Worktree + " and its branch hire/x",
+			for _, want := range []string{"Smolcorp kept Rex's worktree " + h.Worktree.storedOnly() + " and its branch hire/x",
 				"the repo's stored objects were changed under it (" + cause + ")", "didn't look at whether the branch is merged",
 				"run git fsck --full in " + r.dir} {
 				if !strings.Contains(said, want) {
@@ -204,13 +204,13 @@ func TestTheFiresLookThatCantBeMadeKeepsThemAndSaysSo(t *testing.T) {
 		err.Error() != "git couldn't find refs/heads/hire/gone in it" {
 		t.Fatalf("err %v", err)
 	}
-	said := fireStoreKept(Hire{Name: "Rex", Repo: r.dir, Worktree: filepath.Join(r.dir, "w"), Branch: "hire/gone"}, nil)
+	said := fireStoreKept(Hire{Name: "Rex", Repo: r.dir, Worktree: keptPath(filepath.Join(r.dir, "w")), Branch: "hire/gone"}, nil)
 	if !strings.HasPrefix(said, "Smolcorp kept Rex's worktree ") ||
 		!strings.Contains(said, ": it couldn't check the repo's stored objects (git couldn't find refs/heads/hire/gone in it)") {
 		t.Errorf("the owner is told %q", said)
 	}
 	// A row with a worktree but no repo or branch is never taken as sound.
-	if said := fireStoreKept(Hire{Name: "Rex", Worktree: filepath.Join(r.dir, "w")}, nil); !strings.Contains(said,
+	if said := fireStoreKept(Hire{Name: "Rex", Worktree: keptPath(filepath.Join(r.dir, "w"))}, nil); !strings.Contains(said,
 		": it couldn't check the repo's stored objects (its row names no repo or no branch)") {
 		t.Errorf("no repo: the owner is told %q", said)
 	}

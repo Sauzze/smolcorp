@@ -169,8 +169,8 @@ func TestAHireIsReadInItsWorktreeNotTheRepo(t *testing.T) {
 	gitRepoCmd(t, repo, "worktree", "add", "-q", "-b", "hire/ana", worktree)
 	writeRepoFile(t, worktree, "src/c.txt", "c\n")
 	writeRepoFile(t, repo, "only-in-repo.txt", "r\n")
-	h := Hire{Folder: filepath.Join(repo, "src"), Repo: repo, Worktree: worktree}
-	place := startedIn(h)
+	h := Hire{Folder: keptPath(filepath.Join(repo, "src")), Repo: repo, Worktree: keptPath(worktree)}
+	place := h.storedStart()
 	if place != filepath.Join(worktree, "src") {
 		t.Fatalf("startedIn: %s", place)
 	}

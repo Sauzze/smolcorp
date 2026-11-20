@@ -47,6 +47,35 @@ with the sandbox on, that goes for every hire, a plain one too (no role, or a
 Claude Code role with the manager off), and each works in one project: when
 you hire from the office, it first asks you which one in your projects folder.
 The General Manager is the exception: it gets a workspace of its own.
+A General Manager can change files across your home folder outside a few
+protected places, so a folder it prepared on purpose could affect a hire there.
+Look over a hire's changes before you merge them. Inside a General Manager's
+own folders, Smolcorp doesn't run git, and a hire there can read the files but
+not change them. Hires' worktrees are in `~/.smolcorp/worktrees`, which no
+General Manager can change. (On a Mac; Smolcorp says so in Setup's answer, on
+the hire's card and, for a hire from Setup or from the General Manager, to the
+hire.) A General Manager hired into your projects folder keeps its plans in
+`.smolcorp/plans/<its id>` there. It can't make a git folder in it, but it can
+move in a folder that holds one, and Smolcorp doesn't check that at its next
+start: don't run git in its plans folder, read or copy the plans instead.
+
+**Where a hire's work is.** On a Mac, each new hire's worktree is in
+`~/.smolcorp/worktrees/<repository>-<short id>/<hire>`, a folder Smolcorp
+makes for itself, readable by you alone; on Windows and Linux, and for a hire
+made before 1.26.0, it's beside the repository, in `<repository>-hires`. So
+is the General Manager's own worktree, when you hire it into a repository. A
+hire from Setup or from the General Manager names the folder and its branch in
+its first message; a hire from the office may not. To look at its work, open
+that folder, or run `git diff main...<its branch>` in your own checkout (with
+your default branch's name in place of `main`, if it has another). A recap marks the worktree **(kept)** when Smolcorp left it, and
+says how to remove it yourself. Wherever a hire's worktree or folder no longer
+leads where it did at its hire, Smolcorp doesn't run git there, or open a
+window or T3 Code there, and the answer says it was moved or replaced. Nothing
+there is listed through it or removed: Smolcorp holds the whole place for you
+instead, and your own Claude Code doesn't start in or around it until you've
+checked it yourself.
+A folder you set with `hireWorktrees` in `config.json` is used only if no
+General Manager could change it; otherwise the hire is refused and says why.
 A hire's sandbox lets it commit only to its own branches: that one, and any new
 one it makes under its own `hire/<id>/`. Other branches, tags and
 `git stash` aren't open to it. For another branch or a tag it asks the GM
@@ -221,8 +250,8 @@ Two choices, asked once on Start here and kept in setup under Hires and roles
     the office on this computer (never on a phone), opens the hire's worktree
     in a new T3 Code thread, with T3 Code's own agent, separate from your hire.
   - **Hire into T3 Code** (experimental): setup's hire sheet offers **Where
-    its agent runs: In T3 Code**, and the General Manager can ask for the same
-    (`smolcorp gm hire … --t3`). The hire gets its own worktree and branch, its
+    its agent runs: In T3 Code**. Only you can: the General Manager's ask
+    (`smolcorp gm hire … --t3`) is refused. The hire gets its own worktree and branch, its
     brief as the first message of a T3 Code thread, and the same fence as any
     fenced hire, written into its worktree before T3 Code hears of it. On a
     Mac, it runs in T3 Code, outside Smolcorp's sandbox, and Setup lists it as

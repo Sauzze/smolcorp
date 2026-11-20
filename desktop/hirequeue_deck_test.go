@@ -21,7 +21,7 @@ func queueDeckOf(t *testing.T) (*Deck, *engineRig, *hiring, string) {
 	d, r, h, token := gmHireDeck(t)
 	d.hq.sleep = func(time.Duration, <-chan struct{}) bool {
 		d.mu.Lock()
-		d.lastHire = time.Time{}
+		d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 		d.mu.Unlock()
 		return true
 	}
@@ -129,7 +129,7 @@ func TestEachTemplatesPlanHasTheRolesOfAnswer13(t *testing.T) {
 		t.Errorf("brief lines %q / %q / %q", plan.Steps[1].Brief, plan.Steps[2].Brief, plan.Steps[3].Brief)
 	}
 	// With a GM up already, the plan is the roles alone.
-	writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: "/w", Role: "gm", State: "working"})
+	writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: keptPath("/w"), Role: "gm", State: "working"})
 	_, text = queueCall(t, d, asPageCaller, "", "POST", "/setup/hire/plan", `{"template":"solo-builder","planner":"own"}`)
 	if got := planRoles(planOf(t, text)); !slices.Equal(got, []string{"builder", "reviewer", "tester"}) {
 		t.Errorf("with a GM up: %q", got)
@@ -149,7 +149,7 @@ func TestNothingIsHiredUntilThePageApprovesAndNoOneElseCan(t *testing.T) {
 	settled(d)
 	nothingMade(t, r, h)
 	// A hire's key, the GM's token, a tool, a tool with the GM's token, and the page with the GM's token riding along.
-	writeRegistry(t, Hire{ID: "a1b2c3", Name: "Rev", Folder: "/w", Role: "reviewer", State: "working"})
+	writeRegistry(t, Hire{ID: "a1b2c3", Name: "Rev", Folder: keptPath("/w"), Role: "reviewer", State: "working"})
 	key, err := newSendKey(registryPath(), "a1b2c3")
 	if err != nil {
 		t.Fatal(err)
@@ -242,7 +242,7 @@ func TestEveryGateOfHireWithStillHoldsForAQueuedHire(t *testing.T) {
 			d, r, h, _ := queueDeckOf(t)
 			// With the GM up, the first step is a role's. The folder goes before the plan is made, as it would have
 			// before the owner picked the company (a plan names the folder it was made with).
-			writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: "/w", Role: "gm", State: "working"})
+			writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: keptPath("/w"), Role: "gm", State: "working"})
 			d.mu.Lock()
 			c.breakIt(d)
 			d.mu.Unlock()
@@ -270,7 +270,7 @@ func TestEveryGateOfHireWithStillHoldsForAQueuedHire(t *testing.T) {
 func TestAskedForAPlanTheGMProposesAndTheOwnerApproves(t *testing.T) {
 	turnOn(t, &templatesOn)
 	d, _, _, token := queueDeckOf(t)
-	writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: "/w", Role: "gm", State: "working"})
+	writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: keptPath("/w"), Role: "gm", State: "working"})
 	code, text := queueCall(t, d, asPageCaller, "", "POST", "/setup/hire/plan", `{"template":"small-agency"}`)
 	plan := planOf(t, text)
 	if code != http.StatusOK || plan.Status != hpAsked || plan.By != gmRole || len(plan.Steps) != 0 {

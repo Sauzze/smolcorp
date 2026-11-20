@@ -20,7 +20,9 @@ func TestADeskIsHeldToItsOwnWorktreeInTheProjectsFolderAndToldSo(t *testing.T) {
 		worktrees bool // Setup's folder for worktrees, outside the projects folder
 		want      string
 	}{
-		{"its worktree in the projects folder", false, "Your projects folder is %s. You can change files only in your own worktree here; other projects are read-only."},
+		// A new hire's worktree is in the core's own folder on a Mac (FXCOREWORKTREES126), outside the projects folder: it
+		// is told so as one elsewhere is. One in the projects folder (a hire made before) is the next row's words.
+		{"its worktree in the core's own folder", false, "Your projects folder, %s, is read-only to you, apart from your repository's git data."},
 		{"its worktree elsewhere", true, "Your projects folder, %s, is read-only to you, apart from your repository's git data."},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -37,7 +39,7 @@ func TestADeskIsHeldToItsOwnWorktreeInTheProjectsFolderAndToldSo(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := r.desks[0].places; got.Projects != physical(projects) || got.Root != physical(hire.Worktree) {
+			if got := r.desks[0].places; got.Projects != physical(projects) || got.Root != physical(hire.Worktree.storedOnly()) {
 				t.Errorf("its places: Projects %q, Root %q", got.Projects, got.Root)
 			}
 			if want := strings.Replace(c.want, "%s", physical(projects), 1); !strings.HasSuffix(started, "\n\n"+want) {

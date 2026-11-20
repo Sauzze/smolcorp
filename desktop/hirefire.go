@@ -61,12 +61,18 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 	// Read again once this fire holds the hire: a Take over that finished meanwhile left it in T3 Code, or
 	// waiting for Hand back, and it's handed back first (RM5c2 N1). A hire whose row already says gone is only
 	// stopped, if its session still runs (gonedesk.go): its worktree, recap and row are left as they are.
-	gone := false
+	// One taken over whose worktree turned since its hire (hireTreeTurned) can't be handed back (t3HandBack refuses
+	// it first), so its fire goes ahead: what's left of its tmux desk is ended, and its worktree kept with no git run
+	// and nothing done there, as for any fire of a moved tree; T3 Code's project is yours to remove (FXGMHIRENOGIT126R8).
+	gone, takenOver := false, false
 	for _, now := range readRegistry(registryPath(), false).hires {
 		if now.ID == h.ID && (now.State == "fired" || now.State == "failed") {
 			h.State, gone = now.State, true
 		} else if now.ID == h.ID && now.T3Session != "" {
-			return refuse(t3FireTakenOver(now))
+			if !hireTreeTurned(now) {
+				return refuse(t3FireTakenOver(now))
+			}
+			h, takenOver, o.KeepWorktree = now, true, true
 		}
 	}
 	unreached := "Couldn't reach " + calledHire(h) + "'s tmux session, so nothing was changed."
@@ -88,10 +94,15 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 	if tmux == nil && gone {
 		return goneAlready()
 	}
-	if tmux == nil {
+	// Take over ended its tmux session (a sandboxed desk's socket folder with it): with no socket of its own left,
+	// nothing of it runs there to end.
+	if tmux == nil && !takenOver {
 		return refuse(unreached)
 	}
-	up, known := tmux.alive()
+	up, known := false, true
+	if tmux != nil {
+		up, known = tmux.alive()
+	}
 	if !known {
 		return refuse(unreached)
 	}
@@ -112,7 +123,8 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 		return refuse(refused)
 	}
 	wasPutBack = keptSaid(h, keptOnce(looked, nil))
-	if h.Worktree != "" && !force && !gone {
+	hasTree := !h.Worktree.none()
+	if hasTree && !force && !gone && !takenOver {
 		if message := uncommittedRefusal(h, o.Git); message != "" {
 			return refuse(message)
 		}
@@ -188,21 +200,26 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 	// no hook, fsmonitor, pager or helper), and its commands start nothing that outlives them; deskRun waits for it,
 	// and the last stop's reap below looks again (FXFIREREAPR4 O3).
 	storeKept := ""
-	if h.Worktree != "" && !o.KeepWorktree {
+	if hasTree && !o.KeepWorktree {
 		if _, _, own := hiresOwnWorktree(o.Git, o.Worktrees, h); own {
 			storeKept = fireStoreKept(h, o.StoreLook)
 		}
 	}
-	removed := storeKept == "" && h.Worktree != "" && !o.KeepWorktree && removeHireWorktree(o.Git, testPort, o.Worktrees)(h)
-	writeRecap(h, paneText(capture), removed, o.Now())
+	removed := storeKept == "" && hasTree && !o.KeepWorktree && removeHireWorktree(o.Git, testPort, o.Worktrees)(h)
+	// A moved tree's line, whether its removal was asked or not: the usual advice would run git where a link leads
+	// (FXGMHIRENOGIT126R8's found 8).
+	writeRecapMoved(h, paneText(capture), removed, hasTree && !removed && (takenOver || hireTreeMoved(h)), o.Now())
 	// Its session is known to have ended: what's in its place is listed once more, and it's on record (CLAUDEPLANT1).
 	// That listing comes first, while its place is as the desk left it: the folders below go only after it.
-	worktreeKept := h.Worktree != "" && !removed && !o.KeepWorktree
+	worktreeKept := hasTree && !removed && !o.KeepWorktree
+	if takenOver {
+		said = joinNote(t3FireTurnedWords(h), said)
+	}
 	if worktreeKept && storeKept != "" {
 		markFired(h.ID, joinNote(storeKept, said))
 	} else if worktreeKept {
 		kept = firedKept(o.Git, h)
-		markFired(h.ID, joinNote(firedKeptNote(h.Worktree, kept), said))
+		markFired(h.ID, joinNote(firedKeptNote(h.Worktree.storedOnly(), kept), said))
 	} else {
 		markFired(h.ID, said)
 	}
@@ -217,8 +234,8 @@ func fireEngineHireSaid(h Hire, testPort int, o engineOptions, force bool) (kept
 	_ = removeDeskClaude(supportDir, h.ID)
 	// A hire without a worktree, and the GM, keep their plans in a folder others share: its own go now (MSYSAX8).
 	// Smolcorp's own folder, never a plant: it goes after the listing, so a .claude a desk made in it is held first.
-	if h.Worktree == "" {
-		_ = removeDeskPlans(startedIn(h), h.ID)
+	if !hasTree {
+		removeHirePlans(h)
 	}
 	// A GM's workspace goes with its other files (FXGMROOT): its notes, which only it wrote.
 	if h.Role == gmRole {

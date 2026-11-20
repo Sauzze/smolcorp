@@ -69,6 +69,18 @@ type deskTree struct {
 	repo   string // the owner's checkout it is a worktree of, links resolved
 	common string // the repo's common git folder
 	gitDir string // the worktree's registration in it
+	// The repo's worktrees folder as the registration was found in it, held open from that look (opened with no link on
+	// its way), and the registration's name there: the fire removes it through this, never by its path again
+	// (RT126SWEEP4 part 3's F2). nil when the registration wasn't asked for. close lets it go.
+	worktrees *os.Root
+	reg       string
+}
+
+// close lets go of the worktrees folder t holds, if any.
+func (t deskTree) close() {
+	if t.worktrees != nil {
+		t.worktrees.Close()
+	}
 }
 
 // deskGitFor is the run of git with args in dir when dir is a hire's own tree (or the fire's removal of one in its
@@ -115,11 +127,14 @@ func deskGitForAs(dir string, args []string) (run func(split bool) (status int, 
 // ownWorktree is whether h was hired with a worktree of its own: anywhere but the owner's checkout itself or a folder
 // that holds it, inside the checkout included (a configured hires folder there, RT126SAX6 B3). A call in the
 // checkout is never taken for one on the hire's tree: a folder the tree doesn't hold isn't in it.
+//
+// The row's tree is compared as stored (storedOnly): what then runs at it goes through deskTreeOf, which checks it.
 func ownWorktree(h Hire) bool {
-	if !filepath.IsAbs(h.Worktree) || !filepath.IsAbs(h.Repo) {
+	tree := h.Worktree.storedOnly()
+	if !filepath.IsAbs(tree) || !filepath.IsAbs(h.Repo) {
 		return false
 	}
-	return !within(physical(h.Worktree), physical(h.Repo))
+	return !within(physical(tree), physical(h.Repo))
 }
 
 // hireTreeHolding is the hire whose own worktree holds folder (resolved), an open one first. A registry row whose
@@ -129,7 +144,8 @@ func hireTreeHolding(hires []Hire, folder string) (Hire, bool) {
 	var found Hire
 	ok := false
 	for _, h := range hires {
-		held := filepath.IsAbs(h.Worktree) && within(physical(h.Worktree), folder)
+		tree := h.Worktree.storedOnly() // compared only
+		held := filepath.IsAbs(tree) && within(physical(tree), folder)
 		if held && !ownWorktree(h) && filepath.IsAbs(h.Repo) && within(physical(h.Repo), folder) {
 			held = false // the owner's checkout, inside it: not the hire's tree
 		}
@@ -150,7 +166,7 @@ const (
 // (removeWorkspace).
 func removalOf(h Hire, args []string) int {
 	switch {
-	case len(args) == 4 && args[0] == "worktree" && args[1] == "remove" && args[2] == "--force" && physical(args[3]) == physical(h.Worktree):
+	case len(args) == 4 && args[0] == "worktree" && args[1] == "remove" && args[2] == "--force" && physical(args[3]) == physical(h.Worktree.storedOnly()):
 		return removeTree
 	case len(args) == 3 && args[0] == "branch" && args[1] == "-d" && args[2] == h.Branch:
 		return removeBranch
@@ -192,6 +208,7 @@ func gitOnDeskTree(h Hire, dir string, inCheckout, split bool, args []string) (i
 	if err != nil {
 		return refused(err.Error())
 	}
+	defer t.close()
 	if inCheckout {
 		// In the checkout, outside any sandbox, as every git the core runs there: the branch is deleted in a git
 		// folder of the core's own and carried into the repo (ownergit.go), so no hook a config names fires.
@@ -341,12 +358,13 @@ func deskGitTo(ctx context.Context, h Hire, desk, gitDir, top, dir string, args 
 func removeDeskTree(h Hire) (int, string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
-	args := []string{"worktree", "remove", h.Worktree}
+	args := []string{"worktree", "remove", h.Worktree.storedOnly()} // for the log's words
 	refuse := func(why string) (int, string, bool) { return deskRefused(h, args, why) }
 	t, err := deskTreeOf(ctx, h, true)
 	if err != nil {
 		return refuse(err.Error())
 	}
+	defer t.close()
 	// keep is the answer for a tree kept, with why, and its line in the log (FXWINWORKTREER1): a kept tree is never
 	// a quiet answer.
 	keep := func(why, seen string) (int, string, bool) {
@@ -354,7 +372,7 @@ func removeDeskTree(h Hire) (int, string, bool) {
 		return 1, why, true
 	}
 	for _, kept := range []string{"modules", "locked"} {
-		if _, err := os.Lstat(filepath.Join(t.gitDir, kept)); !errors.Is(err, fs.ErrNotExist) {
+		if _, err := t.worktrees.Lstat(filepath.Join(t.reg, kept)); !errors.Is(err, fs.ErrNotExist) {
 			return keep("the worktree has submodules, or is locked, so it is kept", "its registration has "+kept+", so it is kept as git keeps it")
 		}
 	}
@@ -385,16 +403,18 @@ func removeDeskTree(h Hire) (int, string, bool) {
 	if err := parent.RemoveAll(aside); err != nil {
 		return refuse("it couldn't be removed whole, and what is left is at " + moved + ": " + err.Error())
 	}
-	worktrees, err := os.OpenRoot(filepath.Dir(t.gitDir))
-	if err == nil {
-		err = worktrees.RemoveAll(filepath.Base(t.gitDir))
-		worktrees.Close()
-	}
-	if err != nil {
+	deskTreeGone()
+	// Through the worktrees folder as the registration was found in it, held open since (RT126SWEEP4 part 3's F2): a
+	// link put at that folder's path meanwhile is never followed.
+	if err := t.worktrees.RemoveAll(t.reg); err != nil {
 		return refuse("its registration couldn't be removed: " + err.Error())
 	}
 	return 0, "", true
 }
+
+// deskTreeGone is told once the fire's removal has taken a tree away, just before its registration goes. Tests set it,
+// to change what's there in between, as whoever can write the repo's .git could.
+var deskTreeGone = func() {}
 
 // treeOf is how the log names h's worktree: "<hire>'s worktree", or "the worktree" for a tree with no hire's row
 // (ownergit.go's stand-in, which has no ID), FXWINWORKTREER2's O2.
@@ -509,9 +529,19 @@ func errorWords(err error) string {
 
 // deskTreeOf names h's worktree as the owner's repo records it: the common git folder from the checkout (its .git
 // folder, or git's answer there when the checkout is itself a linked worktree), then the registration whose gitdir
-// file names the worktree's .git (when registration is asked).
+// file names the worktree's .git (when registration is asked): looked for through the repo's worktrees folder, opened
+// with no link on its way and held open in the answer (deskTree.worktrees), for the caller to act through and close.
+//
+// The tree is the accessor's (checkedTree, FXCOREWORKTREES126): one moved or replaced since its hire gets no git.
 func deskTreeOf(ctx context.Context, h Hire, registration bool) (deskTree, error) {
-	t := deskTree{top: physical(h.Worktree), repo: physical(h.Repo)}
+	tree, err := h.checkedTree()
+	if err != nil {
+		return deskTree{}, err
+	}
+	if tree == "" {
+		return deskTree{}, errors.New("this hire has no worktree of its own")
+	}
+	t := deskTree{top: physical(tree), repo: physical(h.Repo)}
 	if info, err := os.Lstat(filepath.Join(t.repo, ".git")); err == nil && info.IsDir() {
 		t.common = filepath.Join(t.repo, ".git")
 	} else {
@@ -526,16 +556,21 @@ func deskTreeOf(ctx context.Context, h Hire, registration bool) (deskTree, error
 		return t, nil
 	}
 	worktrees := filepath.Join(t.common, "worktrees")
-	entries, err := os.ReadDir(worktrees)
+	held, err := openResolvedRoot(worktrees)
 	if err != nil {
+		return t, errNoRegistration
+	}
+	entries, err := rootEntries(held)
+	if err != nil {
+		held.Close()
 		return t, errNoRegistration
 	}
 	for _, e := range entries {
 		reg := filepath.Join(worktrees, e.Name())
-		if info, err := os.Lstat(reg); err != nil || !info.IsDir() {
+		if info, err := held.Lstat(e.Name()); err != nil || !info.IsDir() {
 			continue
 		}
-		data, err := cpReadData(filepath.Join(reg, "gitdir"), 4096)
+		data, err := cpRootData(held, filepath.Join(e.Name(), "gitdir"), 4096)
 		named := strings.TrimSpace(string(data))
 		if err != nil || named == "" {
 			continue
@@ -544,11 +579,24 @@ func deskTreeOf(ctx context.Context, h Hire, registration bool) (deskTree, error
 			named = filepath.Join(reg, named) // worktree.useRelativePaths
 		}
 		if filepath.Base(named) == ".git" && physical(filepath.Dir(named)) == t.top {
-			t.gitDir = reg
+			t.gitDir, t.worktrees, t.reg = reg, held, e.Name()
 			return t, nil
 		}
 	}
+	held.Close()
 	return t, errNoRegistration
+}
+
+// rootEntries is what's in the folder root holds, by name, as os.ReadDir gives it.
+func rootEntries(root *os.Root) ([]fs.DirEntry, error) {
+	dir, err := root.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+	entries, err := dir.ReadDir(-1)
+	slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+	return entries, err
 }
 
 // deskRun runs program with args and the whole environment env in dir, its output to stdout and stderr, for desk id

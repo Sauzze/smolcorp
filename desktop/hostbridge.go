@@ -150,9 +150,11 @@ func deskOfPane(socket string) *bridgeDesk {
 		if !isOpen(h) || h.TmuxSocket == "" || !sameSocket(h.TmuxSocket, socket) {
 			continue
 		}
-		folder := h.Worktree
-		if folder == "" {
-			folder = h.Folder
+		// The Mac opens a window again there: only while it still resolves to itself (checkedPlace, FXCOREWORKTREES126),
+		// else at your home folder, as for a desk with no folder.
+		folder, err := h.checkedPlace()
+		if err != nil {
+			folder = ""
 		}
 		return &bridgeDesk{ID: h.ID, Server: guard, Pane: h.TmuxPane, PaneStarted: h.TmuxPaneStarted, Folder: folder}
 	}

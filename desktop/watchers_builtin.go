@@ -155,14 +155,18 @@ func (w *watchers) wantedBuiltins(hires []Hire) []watch {
 		if h.Role == gmRole {
 			continue
 		}
-		place := h.Worktree
-		if place == "" {
-			place = h.Folder
-		}
+		// Its events are told by its place as its row keeps it (compared only); its files are read only where it works
+		// while that still resolves to itself (checkedPlace, FXCOREWORKTREES126): none where a link put there leads.
+		place := h.storedPlace()
 		if place == "" {
 			continue
 		}
-		for _, name := range []string{"STATUS.md", filepath.Join(".team", "STATUS.md")} {
+		var files []string
+		if checked, err := h.checkedPlace(); err == nil && checked != "" {
+			files = []string{"STATUS.md", filepath.Join(".team", "STATUS.md")}
+			place = checked
+		}
+		for _, name := range files {
 			path, _, ok := watchInsideRoot(filepath.Join(place, name), roots, home)
 			if !ok {
 				continue
@@ -180,6 +184,25 @@ func (w *watchers) wantedBuiltins(hires []Hire) []watch {
 			status := built("file", "status", h, path)
 			status.Pattern = builtinStatusPattern
 			wanted = append(wanted, review, status)
+		}
+		// And the STATUS.md in the hire's own folder in the support folder, where an engine or launcher hire's brief
+		// tells it to write (hireBrief), as the recap reads it (writeRecap): the app's alone, read only from that folder
+		// (checkWatches). A GM's own watch never reads there (FXSWEEP3P3 F-2); it hears of this one's lines in its inbox
+		// (FXSWEEP3P3R1 B2).
+		if own := hireFolder(w.support, h.ID); w.support != "" && plainHireID(h.ID) {
+			name := filepath.Join(own, "STATUS.md")
+			path, _, ok := watchInsideRoot(name, roots, home)
+			switch {
+			case !ok || slices.ContainsFunc(wanted, func(x watch) bool { return x.Hire == h.ID && x.Target == path }):
+			case path == filepath.Join(plainPath(own), "STATUS.md"):
+				review := built("file", "needs-review", h, path)
+				review.Pattern = builtinReviewPattern
+				status := built("file", "status", h, path)
+				status.Pattern = builtinStatusPattern
+				wanted = append(wanted, review, status)
+			default:
+				unplain = append(unplain, name)
+			}
 		}
 		denied := built("event", "denied", h, "permissionDenied")
 		limit := built("event", "limit", h, "notification")
@@ -281,10 +304,7 @@ func digestText(hires []Hire, latest map[string]eventEntry, waiting map[string]f
 		if h.Role == gmRole || !isOpen(h) {
 			continue
 		}
-		place := h.Worktree
-		if place == "" {
-			place = h.Folder
-		}
+		place := h.storedPlace() // compared only
 		who := h.Nickname
 		if who == "" {
 			who = h.Name

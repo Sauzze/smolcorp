@@ -146,7 +146,7 @@ func TestEachLayoutOfTheProjectsFolderKeepsADeskToItsOwnPlaceUnderTheProfile(t *
 			worktrees := filepath.Join(filepath.Dir(l.projects), "Worktrees")
 			tree := filepath.Join(hiresFolder(l.app, worktrees), "h3")
 			standInOwnersGit(t, l.app, "worktree", "add", "-q", "-b", "hire/h3", tree)
-			h := Hire{ID: "h3", Name: "Janitor", Role: "janitor", Folder: l.app, Repo: l.app, Worktree: tree, Branch: "hire/h3", State: "working"}
+			h := Hire{ID: "h3", Name: "Janitor", Role: "janitor", Folder: keptPath(l.app), Repo: l.app, Worktree: keptPath(tree), Branch: "hire/h3", State: "working"}
 			return h, engineOptions{Git: runGit, Worktrees: worktrees}, tree
 		}, func(l gmRootLayout, own string) []probeStep {
 			return []probeStep{{"write", l.app + "/README", "PermissionError"}, {"write", l.hireTree + "/README", "PermissionError"},
@@ -163,7 +163,7 @@ func TestEachLayoutOfTheProjectsFolderKeepsADeskToItsOwnPlaceUnderTheProfile(t *
 			standInOwnersGit(t, l.projects, "commit", "-q", "-m", "first")
 			tree := filepath.Join(hiresFolder(l.projects, ""), "h4")
 			standInOwnersGit(t, l.projects, "worktree", "add", "-q", "-b", "hire/h4", tree)
-			h := Hire{ID: "h4", Name: "Janitor", Role: "janitor", Folder: l.projects, Repo: l.projects, Worktree: tree, Branch: "hire/h4", State: "working"}
+			h := Hire{ID: "h4", Name: "Janitor", Role: "janitor", Folder: keptPath(l.projects), Repo: l.projects, Worktree: keptPath(tree), Branch: "hire/h4", State: "working"}
 			return h, engineOptions{Git: runGit}, tree
 		}, func(l gmRootLayout, own string) []probeStep {
 			return []probeStep{{"write", l.projects + "/README", "PermissionError"}, {"hook", l.projects + "/.git/hooks/post-checkout", "PermissionError"},
@@ -172,9 +172,9 @@ func TestEachLayoutOfTheProjectsFolderKeepsADeskToItsOwnPlaceUnderTheProfile(t *
 				{"write", l.projects + "/.git/refs/heads/hire/h4-more", "PermissionError"}}
 		}},
 		{"the GM hired into a repo worktree", func(t *testing.T, l gmRootLayout) (Hire, engineOptions, string) {
-			tree := filepath.Join(hiresFolder(l.app, ""), "gm")
+			tree := filepath.Join(gmTreeFolder(l.app), "gm") // a GM's own worktree is beside the repo (FXCOREWORKTREES126)
 			standInOwnersGit(t, l.app, "worktree", "add", "-q", "-b", "hire/gm1", tree)
-			h := Hire{ID: "gm1", Name: "General Manager", Role: gmRole, Folder: l.app, Repo: l.app, Worktree: tree, Branch: "hire/gm1", State: "working"}
+			h := Hire{ID: "gm1", Name: "General Manager", Role: gmRole, Folder: keptPath(l.app), Repo: l.app, Worktree: keptPath(tree), Branch: "hire/gm1", State: "working"}
 			return h, engineOptions{Git: runGit}, tree
 		}, func(l gmRootLayout, own string) []probeStep {
 			return []probeStep{{"write", l.hireTree + "/README", "PermissionError"}, {"write", l.app + "/README", "PermissionError"}}

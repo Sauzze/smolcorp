@@ -101,6 +101,9 @@ type launcherRun struct {
 	// For an office's plain hire on a Mac (hire.go, ruling (W)): the desk the office made its worktree for, whose
 	// sandbox the launcher makes (newLauncherSandboxAt). "" for a new one.
 	desk string
+	// For such a desk the office made no worktree for: the folder it was hired into as the rule judged it, its links
+	// resolved, where its folder must still lead (newLauncherSandboxAt). "" for one with a worktree.
+	place string
 	// For such a hire of a role, the project the office picked for it, by its name in the folder for hires, and its
 	// own worktree's branch ("" for a project that isn't a repo): it is told that project rather than asked which
 	// (FXPICKEDPROJECT). "" for none picked.
@@ -119,7 +122,7 @@ type launcherRun struct {
 }
 
 // parseRun reads `smolcorp run`'s arguments: [--hire <token> [--hire-id <id> |
-// [--desk <desk> [--project <name> [--branch <branch>]]] [--claude-config <folder>]] [--pinned] [--sandbox-off]
+// [--desk <desk> [--project <name> [--branch <branch>]] [--place <folder>]] [--claude-config <folder>]] [--pinned] [--sandbox-off]
 // [--agent <agent>]] then <agent> [arguments], or --role <id>.
 func parseRun(args []string) (*launcherRun, error) {
 	run := &launcherRun{}
@@ -148,6 +151,12 @@ func parseRun(args []string) (*launcherRun, error) {
 					// Checked against its role's once that's read, below.
 					run.branch, args = args[1], args[2:]
 				}
+			}
+			if len(args) >= 2 && args[0] == "--place" {
+				if !filepath.IsAbs(args[1]) || filepath.Clean(args[1]) != args[1] {
+					return nil, errors.New("not a hire's folder")
+				}
+				run.place, args = args[1], args[2:]
 			}
 		}
 		if len(args) >= 2 && args[0] == "--claude-config" {
@@ -407,7 +416,7 @@ func launch(run *launcherRun) int {
 			return 126
 		}
 		programArgs, ownOff = append(words, programArgs...), set
-		if walled, err = newLauncherSandboxAt(run.desk, folder, run.role == gmRole, id, agentNamed(args[0]), program); err != nil {
+		if walled, err = newLauncherSandboxAt(run.desk, run.place, folder, run.role == gmRole, id, agentNamed(args[0]), program); err != nil {
 			fmt.Fprintln(os.Stderr, "smolcorp: "+err.Error())
 			return 1
 		}
@@ -467,7 +476,7 @@ func launch(run *launcherRun) int {
 	// A Mac's plain hire started outside its sandbox (the owner's switch off) says so each time it connects, so its desk
 	// keeps its No sandbox tag after the core restarts, its token spent (FXSWITCHPLAIN).
 	unsandboxed := launcherSandboxes && run.hire != "" && run.hireID == "" && walled == nil
-	go serveDeck(id, agentNamed(args[0]), folder, run.role, run.hire, unsandboxed, input, cursor, screen, func() { stopProcess(agent.process()) })
+	go serveDeck(id, agentNamed(args[0]), folder, run.role, run.hire, unsandboxed, walled.ownHookKey(), walled.noteConnected, input, cursor, screen, func() { stopProcess(agent.process()) })
 
 	if err := agent.Wait(); err != nil {
 		var exit *exec.ExitError
@@ -838,8 +847,10 @@ func (c *cursorMode) pasteBytes(text string) (string, bool) {
 }
 
 // serveDeck connects to the app and carries out its commands until the
-// agent exits, reconnecting whenever the connection drops.
-func serveDeck(id string, agent Agent, folder, role, hire string, unsandboxed bool, input io.Writer, cursor *cursorMode, screen *launcherScreen, stop func()) {
+// agent exits, reconnecting whenever the connection drops. relayKey is the
+// launcher's own hook key, its sandboxed agent's relay's ("" for none), given
+// to the app at each connection; connected is told once the app took it.
+func serveDeck(id string, agent Agent, folder, role, hire string, unsandboxed bool, relayKey string, connected func(), input io.Writer, cursor *cursorMode, screen *launcherScreen, stop func()) {
 	query := url.Values{"id": {id}, "agent": {string(agent)}, "folder": {folder}, "role": {role}, "hire": {hire}}
 	if unsandboxed {
 		query.Set("sandbox", "off")
@@ -851,7 +862,13 @@ func serveDeck(id string, agent Agent, folder, role, hire string, unsandboxed bo
 			request, _ := http.NewRequest(http.MethodGet, address, nil)
 			secret := strings.TrimSpace(string(key))
 			request.Header.Set(hookKeyHeader, secret)
+			if relayKey != "" {
+				request.Header.Set(launcherRelayKeyHeader, relayKey)
+			}
 			if response, err := http.DefaultClient.Do(request); err == nil {
+				if response.StatusCode == http.StatusOK && relayKey != "" {
+					connected()
+				}
 				look := func(proof, number string) {
 					postScreenAnswer(http.DefaultClient, base, secret, proof, id, number, screen)
 				}
@@ -956,7 +973,10 @@ type launcherTab struct {
 	// The plain hire with a worktree of its own this launcher is the window of (plainhireend.go): from its token, or
 	// from its folder once it connects again without it; "" for any other.
 	plainDesk string
-	commands  chan launcherCommand
+	// hookHash is the hash of the launcher's own hook key, which its sandboxed agent's relay sends with (hookrelay.go),
+	// as its connection gave it; "" for none. Under the deck's lock.
+	hookHash string
+	commands chan launcherCommand
 	// The secret the launcher proves its screen answers with, sent down its own
 	// stream only; and a channel closed when the launcher is gone.
 	screenSecret string

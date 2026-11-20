@@ -74,7 +74,7 @@ func TestARestartOfADeskThatIsntSignedInIsRefusedAndLeavesNothing(t *testing.T) 
 	if err := os.WriteFile(claudeJSON(deskClaudeFolder(supportDir, old.ID)), []byte(`{"old-desk-marker":1}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	seed, err := deskClaude{Trusted: physical(old.Worktree)}.seed()
+	seed, err := deskClaude{Trusted: physical(old.Worktree.storedOnly())}.seed()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,8 +146,8 @@ func TestTakeOverAfterARestartFindsOnlyTheNewSessionAndRefusesBeforeTouchingAnyt
 			t.Fatal(err)
 		}
 		// As its hooks send it, with its own hook key.
-		d.ingestAs(currentHookDesks(), old.ID, map[string]any{"hook_event_name": "SessionStart", "session_id": id, "cwd": old.Worktree,
-			"transcript_path": transcript}, "claude", "tmux:%1@"+socket, old.Worktree, 0, "", nowMillis())
+		d.ingestAs(currentHookDesks(), old.ID, map[string]any{"hook_event_name": "SessionStart", "session_id": id, "cwd": old.Worktree.storedOnly(),
+			"transcript_path": transcript}, "claude", "tmux:%1@"+socket, old.Worktree.storedOnly(), 0, "", nowMillis())
 	}
 	const before, after = "11111111-2222-4333-8444-555555555555", "66666666-7777-4888-9999-aaaaaaaaaaaa"
 	oldTranscript := filepath.Join(own, "projects", "-old-place", before+".jsonl")
@@ -173,8 +173,8 @@ func TestTakeOverAfterARestartFindsOnlyTheNewSessionAndRefusesBeforeTouchingAnyt
 		t.Logf("before the new session: %s", why)
 	}
 	// A late event of the old session doesn't bring it back to the desk.
-	d.ingestAs(currentHookDesks(), old.ID, map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": before, "cwd": old.Worktree,
-		"transcript_path": oldTranscript}, "claude", "tmux:%1@"+row.TmuxSocket, old.Worktree, 0, "", 0)
+	d.ingestAs(currentHookDesks(), old.ID, map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": before, "cwd": old.Worktree.storedOnly(),
+		"transcript_path": oldTranscript}, "claude", "tmux:%1@"+row.TmuxSocket, old.Worktree.storedOnly(), 0, "", 0)
 	if got := d.t3SessionOf(row); got.ID == before {
 		t.Errorf("the old session came back: %+v", got)
 	}
@@ -213,8 +213,8 @@ func TestTakeOverAfterARestartRefusedForItsSignInIsRefusedBeforeTouchingAnything
 	if err := os.WriteFile(oldTranscript, []byte(`{"`+before+`":1}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	d.ingestAs(currentHookDesks(), old.ID, map[string]any{"hook_event_name": "SessionStart", "session_id": before, "cwd": old.Worktree,
-		"transcript_path": oldTranscript}, "claude", "tmux:%1@"+old.TmuxSocket, old.Worktree, 0, "", nowMillis())
+	d.ingestAs(currentHookDesks(), old.ID, map[string]any{"hook_event_name": "SessionStart", "session_id": before, "cwd": old.Worktree.storedOnly(),
+		"transcript_path": oldTranscript}, "claude", "tmux:%1@"+old.TmuxSocket, old.Worktree.storedOnly(), 0, "", nowMillis())
 	if got := d.t3SessionOf(old); got.ID != before {
 		t.Fatalf("before the restart, Take over finds %+v", got)
 	}
@@ -223,8 +223,8 @@ func TestTakeOverAfterARestartRefusedForItsSignInIsRefusedBeforeTouchingAnything
 		t.Fatalf("the restart: %d %v", status, why)
 	}
 	row := registered(t)[0]
-	d.ingestAs(currentHookDesks(), old.ID, map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": before, "cwd": old.Worktree,
-		"transcript_path": oldTranscript}, "claude", "tmux:%1@"+row.TmuxSocket, old.Worktree, 0, "", 0)
+	d.ingestAs(currentHookDesks(), old.ID, map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": before, "cwd": old.Worktree.storedOnly(),
+		"transcript_path": oldTranscript}, "claude", "tmux:%1@"+row.TmuxSocket, old.Worktree.storedOnly(), 0, "", 0)
 	called := takeOverNoting(t, d)
 	status, answer := d.takeOverIntoT3(old.ID)
 	if words, _ := answer.(string); status != http.StatusConflict || len(*called) != 0 ||

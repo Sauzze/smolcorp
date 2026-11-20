@@ -27,7 +27,7 @@ func TestARestartedDesksBriefInAFolderNamedWithALineBreakIsShownOnOneLine(t *tes
 	if !strings.HasPrefix(made.names.brief, folder+string(filepath.Separator)) {
 		t.Fatalf("the brief isn't in the project: %q", made.names.brief)
 	}
-	words := restartedMessage(Hire{ID: "abc", Brief: made.names.brief, Folder: folder})
+	words := restartedMessage(Hire{ID: "abc", Brief: made.names.brief, Folder: keptPath(folder)})
 	noInjectedLine(t, "the restarted desk's words", words)
 	if want := " Your brief is " + shownInWords(made.names.brief) + "."; !strings.HasSuffix(words, want) || !strings.Contains(want, lineBreakShown) {
 		t.Errorf("the restarted desk's words don't end %q:\n%s", want, words)

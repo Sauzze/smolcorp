@@ -59,7 +59,7 @@ func TestTheOfficesPlainHireWorksInAWorktreeOfItsOwn(t *testing.T) {
 		t.Fatalf("the plain hire's picker: %d %s", status, said)
 	}
 	d.mu.Lock()
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	d.mu.Unlock()
 	if status, said := d.Perform("hire", "", url.Values{"project": {"lib"}}); status != http.StatusNoContent {
 		t.Fatalf("the plain hire into lib: %d %s", status, said)
@@ -74,7 +74,7 @@ func TestTheOfficesPlainHireWorksInAWorktreeOfItsOwn(t *testing.T) {
 	}
 	program := filepath.Join(l.base, "claude")
 	writeFile(t, program, "#!/bin/sh\n")
-	s, err := newLauncherSandboxAt(desk, folder, false, "L1", Claude, program)
+	s, err := newLauncherSandboxAt(desk, "", folder, false, "L1", Claude, program)
 	if err != nil {
 		t.Fatalf("its sandbox in its worktree: %v", err)
 	}

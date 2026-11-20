@@ -137,7 +137,7 @@ func (f *t3Fake) folder(t *testing.T, name string) string {
 func t3List(folder string) []string { return []string{"thread", "list", "--project", folder, "--json"} }
 
 func t3Hire(folder, worktree string) Hire {
-	return Hire{ID: "h1", Name: "Ada", Folder: folder, Worktree: worktree, Branch: "hire/ada-1a2b3c", State: "working"}
+	return Hire{ID: "h1", Name: "Ada", Folder: keptPath(folder), Worktree: keptPath(worktree), Branch: "hire/ada-1a2b3c", State: "working"}
 }
 
 func TestT3EachStateIsFoundAndTheVersionIsAsked(t *testing.T) {

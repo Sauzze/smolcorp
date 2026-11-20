@@ -602,15 +602,22 @@ func cleanSummary(text string) string {
 
 // MARK: Running it
 
+// summaryFolderPrefix begins the name of the folder a summary runs in, in the support folder.
+const summaryFolderPrefix = "summary-"
+
 // runSummaryCLI runs p for a summary, in a folder made for it and deleted
 // after. Its login and its summary agent are checked again just before:
 // either may have changed since setup looked. expected is how setup showed a
 // Claude Code login paying.
+//
+// The folder is made in Smolcorp's support folder, which every desk's sandbox denies, as the sign-in folder is
+// (hiresSignInWith): never in the user's temp folder, where a desk could put a plugin or a config of its own for the
+// agent run there, outside any sandbox, to load (RT126SWEEP4 part 3's F1, FXSWEEP3P3 F-4's sibling).
 func runSummaryCLI(p summaryProvider, program, system, prompt string, base []string, expected providerKind) (string, cliFailure) {
 	if !p.supported() {
 		return "", cliUnsupported
 	}
-	folder, err := os.MkdirTemp("", "smolcorp-summary-")
+	folder, err := os.MkdirTemp(supportDir, summaryFolderPrefix)
 	if err != nil {
 		return "", cliFailed
 	}

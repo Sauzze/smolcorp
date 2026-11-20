@@ -53,7 +53,7 @@ func TestAHeldGMsFileIsOpenedThroughItsProjectNotAFolderInsideIt(t *testing.T) {
 	}
 	appendLine(t, filepath.Join(elsewhere, "sub", "later.txt"), "bea's existing line")
 	editRegistry(t, func(hires []Hire) []Hire {
-		return slices.Insert(hires, 0, Hire{ID: "su0001", Name: "Subway", Role: "janitor", Folder: sub, State: "idle", Started: 1761000050000})
+		return slices.Insert(hires, 0, Hire{ID: "su0001", Name: "Subway", Role: "janitor", Folder: keptPath(sub), State: "idle", Started: 1761000050000})
 	})
 	held := gmScopeOf(gm)
 	id := heldWatch(t, d, gm, filepath.Join(sub, "later.txt"), callerGM, &held)
@@ -192,7 +192,10 @@ func TestNoBuiltinWatchesAStatusFileBehindALinkInAHiresPlace(t *testing.T) {
 			}
 		}
 	}
-	want := []string{"needs-review " + filepath.Join(proj, "STATUS.md"), "status " + filepath.Join(proj, "STATUS.md")}
+	// And the STATUS.md in Ada's own folder in the support folder (FXSWEEP3P3R1 B2).
+	own := plainPath(filepath.Join(hireFolder(supportDir, "ad0001"), "STATUS.md"))
+	want := []string{"needs-review " + filepath.Join(proj, "STATUS.md"), "status " + filepath.Join(proj, "STATUS.md"), "needs-review " + own, "status " + own}
+	slices.Sort(want)
 	if got := builtinTargets(d, "ad0001"); !slices.Equal(got, want) {
 		t.Errorf("Ada's built-ins: %q, want only %q", got, want)
 	}
@@ -213,7 +216,7 @@ func TestABuiltinStillWatchesAPlainTeamFolderAndAPlaceThroughTheOwnersLink(t *te
 		t.Fatal(err)
 	}
 	editRegistry(t, func(hires []Hire) []Hire {
-		return append(hires, Hire{ID: "de0001", Name: "Delta", Role: "tester", Folder: owners, State: "idle", Started: 1761000400000})
+		return append(hires, Hire{ID: "de0001", Name: "Delta", Role: "tester", Folder: keptPath(owners), State: "idle", Started: 1761000400000})
 	})
 	logged := builtinsOnFor(t, d)
 	d.watchers.syncBuiltins()
@@ -223,8 +226,11 @@ func TestABuiltinStillWatchesAPlainTeamFolderAndAPlaceThroughTheOwnersLink(t *te
 			want = append(want, kind+" "+file)
 		}
 	}
-	slices.Sort(want)
 	for _, hire := range []string{"ad0001", "de0001"} {
+		// And the STATUS.md in its own folder in the support folder (FXSWEEP3P3R1 B2).
+		own := plainPath(filepath.Join(hireFolder(supportDir, hire), "STATUS.md"))
+		want := append(slices.Clone(want), "needs-review "+own, "status "+own)
+		slices.Sort(want)
 		if got := builtinTargets(d, hire); !slices.Equal(got, want) {
 			t.Errorf("%s's built-ins: %q, want %q", hire, got, want)
 		}

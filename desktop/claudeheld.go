@@ -70,14 +70,37 @@ type claudeHeldRecord struct {
 // listClaudePlantsOf lists), and whether its session is known to have ended (claudeHireEnded: once it's done, the
 // desk is on record as listed). Only one a save asked for is on record (onRecord). ask is which asking it is: a
 // listing that started before it was asked for again doesn't take it off.
+//
+// Tree and Resolved are what checks the place when it's listed (claudePlaceLook): whether it is the desk's worktree,
+// else the folder its row keeps resolved at the hire. A mark from before they were kept is checked by the desk's row.
 type claudePending struct {
 	Desk      string `json:"desk"`
 	Place     string `json:"place"`
 	Reference string `json:"reference,omitempty"`
 	Ended     bool   `json:"ended,omitempty"`
+	Tree      bool   `json:"tree,omitempty"`
+	Resolved  string `json:"resolved,omitempty"`
 
 	onRecord bool
 	ask      uint64
+}
+
+// hire is the desk p lists, as far as its place's check goes (claudePlaceLook): its worktree, else its folder with the
+// spelling its row kept resolved at the hire. A mark from before those were kept goes by the desk's row, while it
+// keeps the same place; else by the place alone, as a row from before 1.26.0 is (checkedFolder).
+func (p claudePending) hire() Hire {
+	if !p.Tree && p.Resolved == "" {
+		if h, ok := registryHire(p.Desk); ok && h.storedPlace() == p.Place {
+			return h
+		}
+	}
+	h := Hire{ID: p.Desk, Repo: p.Reference}
+	if p.Tree {
+		h.Worktree = keptPath(p.Place)
+	} else {
+		h.Folder, h.FolderResolved = keptPath(p.Place), p.Resolved
+	}
+	return h
 }
 
 // claudeCheckWait is how long a gate, or a look at what's held, waits for a listing still asked for in or around its
@@ -244,15 +267,21 @@ func claudePendingLocked() map[string]claudePending {
 // askClaudeListingLocked asks for a listing of h's place against its checkout (ended: its session is known to have
 // ended), on record when onRecord. One asked for again while it's being listed is listed again after. It says
 // whether it asked: a hire with no place has nothing to list. The caller holds claudeHeld, and writes the record.
+//
+// The place is checked when it's listed, as the hire's accessor checks it (claudePlaceLook): one moved or replaced
+// since its hire is held whole, for you to check, rather than left unlisted where your Claude Code could start, and
+// nothing is listed through the link put there (RT126SWEEP4 part 3's B2, FXCOREWORKTREES126's decision reversed for
+// a moved place). Place is where it is as its row keeps it, for the gates' comparisons and words.
 func askClaudeListingLocked(h Hire, ended, onRecord bool) bool {
-	if h.place() == "" {
+	place := h.storedPlace()
+	if place == "" {
 		return false
 	}
 	pending := claudePendingLocked()
 	was := pending[h.ID]
 	claudeHeld.asked++
-	pending[h.ID] = claudePending{Desk: h.ID, Place: h.place(), Reference: h.Repo, Ended: was.Ended || ended,
-		onRecord: was.onRecord || onRecord, ask: claudeHeld.asked}
+	pending[h.ID] = claudePending{Desk: h.ID, Place: place, Reference: h.Repo, Ended: was.Ended || ended,
+		Tree: !h.Worktree.none(), Resolved: h.FolderResolved, onRecord: was.onRecord || onRecord, ask: claudeHeld.asked}
 	kickClaudeListingsLocked()
 	return true
 }
@@ -329,7 +358,7 @@ func listClaudePending(n uint64) {
 		}
 		claudeHeld.Unlock()
 		claudeListingStarts(next.Desk)
-		found := walkClaudePlants([]claudeLook{{path: next.Place, depth: -1}}, next.Reference)
+		found := walkClaudePlants([]claudeLook{claudePlaceLook(next.hire())}, next.Reference)
 		claudeHeld.Lock()
 		if claudeHeld.worker != n || claudeHeld.pendingOf != claudeHeld.file {
 			claudeHeld.Unlock()

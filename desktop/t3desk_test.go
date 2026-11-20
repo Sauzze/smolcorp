@@ -221,7 +221,8 @@ func (r *t3Rig) ways() t3Ways {
 }
 
 func (r *t3Rig) worktree() string {
-	return filepath.Join(r.home, "repo-hires", "ada-abcdef")
+	// Where a hire's tree is made: on a Mac in the core's own folder (FXCOREWORKTREES126), else beside the repo.
+	return filepath.Join(hiresFolder(filepath.Join(r.home, "repo"), ""), "ada-abcdef")
 }
 
 func (r *t3Rig) branchExists(repo string) bool {
@@ -538,9 +539,9 @@ func TestT3EachThreadStatusIsADeskStatus(t *testing.T) {
 func TestT3FollowingLooksAtEachOpenT3HireOnceAndKeepsItsLink(t *testing.T) {
 	r := newT3Rig(t)
 	r.fake()
-	inT3 := Hire{ID: "h1", Name: "Ada", Folder: "/x", State: "working", Engine: t3Engine, T3Thread: "mcp:abc-1"}
-	gone := Hire{ID: "h2", Name: "Bo", Folder: "/x", State: "fired", Engine: t3Engine, T3Thread: "mcp:old"}
-	plain := Hire{ID: "h3", Name: "Cy", Folder: "/x", State: "working"}
+	inT3 := Hire{ID: "h1", Name: "Ada", Folder: keptPath("/x"), State: "working", Engine: t3Engine, T3Thread: "mcp:abc-1"}
+	gone := Hire{ID: "h2", Name: "Bo", Folder: keptPath("/x"), State: "fired", Engine: t3Engine, T3Thread: "mcp:old"}
+	plain := Hire{ID: "h3", Name: "Cy", Folder: keptPath("/x"), State: "working"}
 	f := newT3Follower()
 	seen := f.round([]Hire{inT3, gone, plain}, r.machine(), time.Now)
 	if got := r.runs(); !reflect.DeepEqual(got, [][]string{{"thread", "show", "mcp:abc-1", "--json"}}) {
@@ -564,7 +565,7 @@ func TestT3FollowingLooksAtEachOpenT3HireOnceAndKeepsItsLink(t *testing.T) {
 func TestT3FollowIsBoundedOneRoundAtATimeAndEachHireEveryTenSeconds(t *testing.T) {
 	r := newT3Rig(t)
 	r.fake("slow")
-	hire := Hire{ID: "follow-1", Name: "Ada", Folder: "/x", State: "working", Engine: t3Engine, T3Thread: "mcp:abc-1"}
+	hire := Hire{ID: "follow-1", Name: "Ada", Folder: keptPath("/x"), State: "working", Engine: t3Engine, T3Thread: "mcp:abc-1"}
 	f := newT3Follower()
 	back := make(chan []t3Seen, 4)
 	apply := func(seen []t3Seen, _ bool) { back <- seen }
@@ -623,7 +624,7 @@ func TestT3TheDeepLinkIsBuiltFromARealLink(t *testing.T) {
 func TestT3OpenInT3CodeOpensAT3HiresOwnThreadByItsLinkAndRunsNothing(t *testing.T) {
 	r := newT3Rig(t)
 	r.fake()
-	hire := Hire{ID: "h9", Name: "Ada", Folder: "/nowhere", Worktree: "/nowhere/wt", State: "working", Engine: t3Engine,
+	hire := Hire{ID: "h9", Name: "Ada", Folder: keptPath("/nowhere"), Worktree: keptPath("/nowhere/wt"), State: "working", Engine: t3Engine,
 		T3Thread: "mcp:32872c1f-1f9c-4bbd-a31c-0a28a6248867", T3Link: t3RealLink}
 	status, _ := t3Open(hire, t3Status{State: t3Found, Version: "v0.1.8"}, r.machine())
 	if status != http.StatusOK || !reflect.DeepEqual(r.opened, []string{"t3code://threads/4e467189-667c-4dec-b427-6a0819b039cb/mcp%3A32872c1f-1f9c-4bbd-a31c-0a28a6248867"}) {
@@ -651,7 +652,7 @@ func TestT3OpenInT3CodeOpensAT3HiresOwnThreadByItsLinkAndRunsNothing(t *testing.
 // feeds, indentation, a tab, accents and emoji kept, never typed anywhere, so no line break can press Return.
 func TestT3MailOfSeveralLinesArrivesByteForByte(t *testing.T) {
 	r := newT3Rig(t)
-	hire := Hire{ID: "h1", Name: "Ada", Folder: "/x", State: "working", Engine: t3Engine, T3Thread: "mcp:abc-1"}
+	hire := Hire{ID: "h1", Name: "Ada", Folder: keptPath("/x"), State: "working", Engine: t3Engine, T3Thread: "mcp:abc-1"}
 	text := "Deux lignes :\n    « ça marche » 👩‍💻 $(touch nope) `y` fin;\n\tet un tab\r\nfin"
 	r.fake()
 	if got := t3Mail(hire, text, func() bool { return true }, r.machine()); got != (mailResult{Outcome: mailSent}) {
@@ -667,7 +668,7 @@ func TestT3MailOfSeveralLinesArrivesByteForByte(t *testing.T) {
 
 func TestT3MailGoesOnStandardInputAndABusyThreadQueuesIt(t *testing.T) {
 	r := newT3Rig(t)
-	hire := Hire{ID: "h1", Name: "Ada", Folder: "/x", State: "working", Engine: t3Engine, T3Thread: "mcp:abc-1"}
+	hire := Hire{ID: "h1", Name: "Ada", Folder: keptPath("/x"), State: "working", Engine: t3Engine, T3Thread: "mcp:abc-1"}
 	text := "— from the GM (Smolcorp), message m1\n\nPlease review; don't `rm -rf` anything. $(touch nope)"
 	yes := func() bool { return true }
 	r.fake()
@@ -742,7 +743,7 @@ func (r *t3Rig) leaving(working ...[]int) (t3Leaving, func() int) {
 }
 
 func (r *t3Rig) t3Hire(worktree string) Hire {
-	return Hire{ID: "abcdef12", Name: "Ada", Role: "reviewer", Folder: r.home, Branch: "hire/ada-abcdef", Worktree: worktree,
+	return Hire{ID: "abcdef12", Name: "Ada", Role: "reviewer", Folder: keptPath(r.home), Branch: "hire/ada-abcdef", Worktree: keptPath(worktree),
 		State: "working", Engine: t3Engine, T3Thread: "mcp:abc-1"}
 }
 
@@ -893,7 +894,7 @@ func TestT3AHireLeftPartWayAtLaunchIsLetGoAndMarkedFailedHonestly(t *testing.T) 
 // The registry
 
 func TestT3ARecordSaysT3OnlyWhenItIs(t *testing.T) {
-	plain := Hire{ID: "h1", Name: "Ada", Folder: "/x"}
+	plain := Hire{ID: "h1", Name: "Ada", Folder: keptPath("/x")}
 	data, _ := json.Marshal(plain)
 	var keys map[string]any
 	_ = json.Unmarshal(data, &keys)
@@ -902,7 +903,7 @@ func TestT3ARecordSaysT3OnlyWhenItIs(t *testing.T) {
 			t.Errorf("%s written for a plain hire", key)
 		}
 	}
-	inT3 := Hire{ID: "h2", Name: "Bo", Folder: "/x", Engine: t3Engine, T3Thread: "mcp:abc-1", T3Link: t3RealLink}
+	inT3 := Hire{ID: "h2", Name: "Bo", Folder: keptPath("/x"), Engine: t3Engine, T3Thread: "mcp:abc-1", T3Link: t3RealLink}
 	data, _ = json.Marshal(inT3)
 	var back Hire
 	if json.Unmarshal(data, &back) != nil || back != inT3 {
@@ -967,7 +968,7 @@ func TestT3LetGoDuringAHireIsRefused(t *testing.T) {
 	repo := r.repo()
 	var during error
 	r.atBrief = func(place hirePlace) {
-		hire := Hire{ID: t3TestHireID, Name: "Ada", Role: "reviewer", Folder: repo, Branch: place.Branch, Worktree: place.Worktree, State: "starting", Engine: t3Engine}
+		hire := Hire{ID: t3TestHireID, Name: "Ada", Role: "reviewer", Folder: keptPath(repo), Branch: place.Branch, Worktree: keptPath(place.Worktree), State: "starting", Engine: t3Engine}
 		if !t3IsHiring(t3TestHireID) {
 			t.Error("not in flight")
 		}
@@ -1168,7 +1169,7 @@ func TestT3RunsWithItsPinnedArgumentListsOnly(t *testing.T) {
 		`[]string{"project", "add", worktree, "--title", title}`,
 		`[]string{"thread", "start", worktree, brief.Message, "--provider", t3Provider, "--model", h.Model, "--json"}`,
 		`[]string{"thread", "show", thread, "--json"}`,
-		`[]string{"project", "remove", h.Worktree, "--force"}`,
+		`[]string{"project", "remove", recorded, "--force"}`,
 	}
 	if !reflect.DeepEqual(runs, want) {
 		t.Errorf("runs:\n%q", runs)

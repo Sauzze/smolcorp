@@ -154,8 +154,10 @@ deploys, publishing and the rest): see
   its own worktree of the repository you pick and commits there, on a branch
   of its own: a Claude Code hire by role, and a plain hire too (one with no
   role, or a Claude Code role with the manager off). A plain hire's worktree
-  is, by default, in the `<repository>-hires` folder beside your checkout, on
-  a branch named `hire/plain-…`. When it ends (you fire it, close its window, or its
+  is, by default, in `~/.smolcorp/worktrees/<repository>-<short id>`, a folder
+  of Smolcorp's own that no General Manager can change (beside your checkout,
+  in `<repository>-hires`, for a hire made before 1.26.0), on a branch named
+  `hire/plain-…`. When it ends (you fire it, close its window, or its
   agent quits), Smolcorp writes its recap. It removes the worktree once
   nothing in it is left uncommitted, and the branch once your checkout holds
   it; what's left stays. A worktree with a submodule checked out always

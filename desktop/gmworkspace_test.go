@@ -51,7 +51,7 @@ func TestTheGMInTheProjectsFolderWorksInAWorkspaceOfItsOwn(t *testing.T) {
 		t.Fatalf("its workspace: %v %v", info, err)
 	}
 	// It still starts in the folder it was hired into.
-	if row := registered(t)[0]; row.Folder != request.Folder || startedIn(row) != request.Folder {
+	if row := registered(t)[0]; row.Folder.storedOnly() != request.Folder || row.storedStart() != request.Folder {
 		t.Errorf("its row: %+v", row)
 	}
 	// Its start words say where it writes, its workspace and its plans folder, with the real paths, and what to tell
@@ -74,7 +74,7 @@ func TestTheGMInTheProjectsFolderWorksInAWorkspaceOfItsOwn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := r.desks[1].places; got.GMFolder != physical(workspace) || got.Root != physical(hire.Worktree) {
+	if got := r.desks[1].places; got.GMFolder != physical(workspace) || got.Root != physical(hire.Worktree.storedOnly()) {
 		t.Errorf("the hire's places: %+v", got)
 	}
 	if dirs := settingsDirectories(t, hire.ID); dirs != nil {
@@ -117,7 +117,7 @@ func TestTheGMInARepoIsAsBefore(t *testing.T) {
 		t.Fatal(err)
 	}
 	pl := r.desks[0].places
-	if pl.Subject != sandbox.GM || pl.Root != physical(gm.Worktree) || pl.Checkout != physical(r.repo) || pl.GitDir == "" ||
+	if pl.Subject != sandbox.GM || pl.Root != physical(gm.Worktree.storedOnly()) || pl.Checkout != physical(r.repo) || pl.GitDir == "" ||
 		pl.GMProjects != "" || pl.GMPlans != "" {
 		t.Errorf("its places: %+v", pl)
 	}
@@ -127,7 +127,7 @@ func TestTheGMInARepoIsAsBefore(t *testing.T) {
 	if strings.Contains(started, "my own notes go in") || settingsDirectories(t, gm.ID) != nil {
 		t.Errorf("a GM in a repo is told of a workspace:\n%s", started)
 	}
-	if d := deskAtOf(registryRow(t, gm.ID), "", nil, r.o); d.Root != gm.Worktree || d.Projects != "" {
+	if d := deskAtOf(registryRow(t, gm.ID), "", nil, r.o); d.Root != gm.Worktree.storedOnly() || d.Projects != "" {
 		t.Errorf("made again from its row: %+v", d)
 	}
 }
@@ -155,7 +155,7 @@ func TestTheGMOutsideItsSandboxIsToldOfNoWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pl := r.desks[0].places; pl.GMFolder != sandbox.Workspace(physical(supportDir), gm.ID) || pl.Root != physical(hire.Worktree) {
+	if pl := r.desks[0].places; pl.GMFolder != sandbox.Workspace(physical(supportDir), gm.ID) || pl.Root != physical(hire.Worktree.storedOnly()) {
 		t.Errorf("the hire's places: %+v", pl)
 	}
 }

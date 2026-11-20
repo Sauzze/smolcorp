@@ -176,6 +176,24 @@ func storeSecondCopies(ctx context.Context, folders []string, hs int) (map[strin
 	return sameNames(lists, hs), nil
 }
 
+// storeIndexMost is the most a pack's .idx is read to: some 4 GB, an index of over 100 million objects.
+const storeIndexMost = 4 << 30
+
+// storeOpen opens a stored copy (a loose object or a pack) only as a regular file: opened in a way that never waits
+// (cpOpenData), then asked what it is, so a named pipe a desk put in the object folder can't hold up the fire
+// (FXSWEEP3P3 F-5). The open file is what is read.
+func storeOpen(path string) (*os.File, error) {
+	f, err := cpOpenData(path)
+	if err != nil {
+		return nil, err
+	}
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		f.Close()
+		return nil, errors.New(path + " isn't a plain file, which git never makes")
+	}
+	return f, nil
+}
+
 // aLink is a link, or on Windows a junction (Go's "irregular" file).
 func aLink(mode fs.FileMode) bool { return mode&(fs.ModeSymlink|fs.ModeIrregular) != 0 }
 
@@ -279,9 +297,17 @@ func looseNames(folder string, hs int) (storeList, error) {
 // readStoreIndex reads a pack's .idx (version 1 or 2), as git checks it before use: its size, its fan-out and its
 // names in order.
 func readStoreIndex(file string, hs int) (storeIndex, error) {
-	data, err := os.ReadFile(file)
+	f, err := storeOpen(file)
 	if err != nil {
 		return storeIndex{}, err
+	}
+	data, err := io.ReadAll(io.LimitReader(f, storeIndexMost+1))
+	f.Close()
+	if err != nil {
+		return storeIndex{}, err
+	}
+	if int64(len(data)) > storeIndexMost {
+		return storeIndex{}, errors.New("it is bigger than git makes one")
 	}
 	bad := func(why string) (storeIndex, error) { return storeIndex{}, errors.New(why) }
 	be32 := func(at int) uint32 { return binary.BigEndian.Uint32(data[at:]) }
@@ -414,7 +440,7 @@ func (c storeCopy) holds(ctx context.Context, name []byte) (bool, error) {
 		return false, errors.New("a name of an unknown size")
 	}
 	if c.pack == nil {
-		f, err := os.Open(c.file)
+		f, err := storeOpen(c.file)
 		if err != nil {
 			return false, err
 		}
@@ -437,7 +463,7 @@ func (c storeCopy) holds(ctx context.Context, name []byte) (bool, error) {
 		return bytes.Equal(sum.Sum(nil), name), nil
 	}
 	if c.pack.f == nil {
-		f, err := os.Open(c.pack.file)
+		f, err := storeOpen(c.pack.file)
 		if err != nil {
 			return false, err
 		}
