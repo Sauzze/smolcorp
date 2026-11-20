@@ -53,8 +53,8 @@ Look over a hire's changes before you merge them. Inside a General Manager's
 own folders, Smolcorp doesn't run git, and a hire there can read the files but
 not change them. Hires' worktrees are in `~/.smolcorp/worktrees`, which no
 General Manager can change. (On a Mac; Smolcorp says so in Setup's answer, on
-the hire's card and, for a hire from Setup or from the General Manager, to the
-hire.) A General Manager hired into your projects folder keeps its plans in
+the hire's card and, for a managed hire from Setup or from the General Manager,
+to the hire.) A General Manager hired into your projects folder keeps its plans in
 `.smolcorp/plans/<its id>` there. It can't make a git folder in it, but it can
 move in a folder that holds one, and Smolcorp doesn't check that at its next
 start: don't run git in its plans folder, read or copy the plans instead.
@@ -64,8 +64,8 @@ start: don't run git in its plans folder, read or copy the plans instead.
 makes for itself, readable by you alone; on Windows and Linux, and for a hire
 made before 1.26.0, it's beside the repository, in `<repository>-hires`. So
 is the General Manager's own worktree, when you hire it into a repository. A
-hire from Setup or from the General Manager names the folder and its branch in
-its first message; a hire from the office may not. To look at its work, open
+managed hire from Setup or from the General Manager names the folder and its
+branch in its first message; a hire from the office may not. To look at its work, open
 that folder, or run `git diff main...<its branch>` in your own checkout (with
 your default branch's name in place of `main`, if it has another). A recap marks the worktree **(kept)** when Smolcorp left it, and
 says how to remove it yourself. Wherever a hire's worktree or folder no longer

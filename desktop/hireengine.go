@@ -284,7 +284,7 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 		TmuxSocket: tmux.socket, TmuxProgram: tmux.program, Model: r.Role.Model, Ports: place.Ports, Brief: brief, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note,
 		Scope: r.Scope, ScopeRoles: r.ScopeRoles}
 	if place.Worktree == "" {
-		hire.FolderResolved = place.Resolved // checked at its every start (deskPlacedWords)
+		hire.FolderResolved, hire.FolderID = place.Resolved, place.ResolvedID // checked at its every start (deskPlacedWords)
 	}
 	// Its start is under way from its row until its server is up and its row read again: the edit never marks it
 	// gone meanwhile (gonedesk.go).
@@ -438,7 +438,7 @@ func runManagedHire(r engineRequest, o engineOptions) (Hire, error) {
 	}
 	if place.Worktree == "" && workspace == "" {
 		// Its folder checked as at every start after, from its row (deskAtOf): still the one the rule judged.
-		desk.CheckPlaced, desk.Placed = true, hire.FolderResolved
+		desk.CheckPlaced, desk.Placed, desk.PlacedID = true, hire.FolderResolved, hire.FolderID
 	}
 	if err := o.sandboxDesk(tmux, desk); err != nil {
 		return fail(http.StatusConflict, err.Error())

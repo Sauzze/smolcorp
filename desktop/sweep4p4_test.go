@@ -49,17 +49,18 @@ func TestTheGMIsToldOfAHiresSandboxOnlyWhereHiresHaveOne(t *testing.T) {
 }
 
 // FXRC2FIXB (RT126SWEEP4-P4 F2, F3, F4, F6): the release notes and the team's guide say the General Manager's own
-// worktree stays beside a repository it's hired into, that only a hire from Setup or from the GM tells you where its
-// work is, and that the GM's plans folder may hold a git folder it moved in; GO-PARITY says the GM's route refuses T3.
-// Compared with the lines joined, as the guide wraps them.
+// worktree stays beside a repository it's hired into, that only a managed hire from Setup or from the GM tells you
+// where its work is (FXRC3FIX, RT126RC3's F4: Setup's plain way, at a pinned desk, doesn't, though it's by role too:
+// FXRC3FIXR1, RT126RC3FIX's F-a), and that the GM's plans folder may hold a git folder it moved in; GO-PARITY says
+// the GM's route refuses T3. Compared with the lines joined, as the guide wraps them.
 func TestTheDocsSayTheGMsOwnWorktreeItsPlansAndWhichHireTellsYou(t *testing.T) {
 	for _, doc := range [][]string{{"RELEASE-NOTES.md"}, {"docs", "team.md"}} {
 		text := strings.Join(strings.Fields(repoText(t, doc...)), " ")
 		mustSay(t, doc[len(doc)-1], text,
 			"the General Manager's own", "when you hire it into a repository.",
-			"A hire from Setup or from",
+			"A managed hire from Setup or from",
 			"from the office may not",
-			"for a hire from Setup or from the General Manager, to the hire",
+			"for a managed hire from Setup or from the General Manager, to the hire",
 			"It can't make a git folder in it, but it can move in a folder that holds one, and Smolcorp doesn't check that at its next start: don't run git in its plans folder, read or copy the plans instead.")
 	}
 	parity := strings.Join(strings.Fields(repoText(t, "docs", "GO-PARITY.md")), " ")

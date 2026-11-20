@@ -207,16 +207,32 @@ func storeLink(what, path, named string) error {
 	return errors.New(said + ", which git never makes")
 }
 
+// alternatesMost is the most an info/alternates is read to: a line for each other store, far below it.
+const alternatesMost = 1 << 20
+
 // alternatesNoLinks fails when a store folder's info/alternates names one through a link. git count-objects names
 // each store by its real path, so its own words can't show one: the file is read here, as git reads it (a line
-// each, "#" for a comment, a path in quotes as C writes it, a relative one from folder).
+// each, "#" for a comment, a path in quotes as C writes it, a relative one from folder). It's opened as the stored
+// copies are (storeOpen), in a way that never waits and only as a regular file: a named pipe a GM put there, in a
+// repo of the owner's it can write, can't hold up the fire (FXRC3FIX, RT126RC3's F2).
 func alternatesNoLinks(folder string) error {
 	file := filepath.Join(folder, "info", "alternates")
-	data, err := os.ReadFile(file)
+	f, err := storeOpen(file)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	} else if err != nil {
+		var opening *fs.PathError
+		if errors.As(err, &opening) {
+			return fmt.Errorf("couldn't read %s: %v", file, err)
+		}
+		return err
+	}
+	data, err := io.ReadAll(io.LimitReader(f, alternatesMost+1))
+	f.Close()
+	if err != nil {
 		return fmt.Errorf("couldn't read %s: %v", file, err)
+	} else if len(data) > alternatesMost {
+		return errors.New(file + " is too long for git's list of other stores")
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		path := line

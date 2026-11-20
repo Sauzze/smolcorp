@@ -101,6 +101,10 @@ type Hire struct {
 	// its hire, its links resolved (on a Mac): every start checks the folder still resolves there (deskPlacedWords).
 	// Written only then; a row from before 1.26.0 has none, and its first start keeps one (FXGMHIRENOGIT126R4, R10).
 	FolderResolved string `json:"folderResolved,omitempty"`
+	// FolderID is that folder's identity at its hire, its device and inode (folderIdentity, on a Mac): every check of
+	// the folder compares it too, so a real folder renamed into its place since is told apart (FXRC3FIX, RT126RC3's
+	// F1). Written only then; a row kept without one gets it at its first start, as FolderResolved (D21).
+	FolderID string `json:"folderID,omitempty"`
 }
 
 // liveSession is a session as the deck follows it, with where it sits.

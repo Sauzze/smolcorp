@@ -80,7 +80,15 @@ func newLauncherSandbox(folder string, gm bool, launcher string, agent Agent, pr
 // (a folder in no repo, or a GM's own) works in folder itself, which must still resolve to place, the folder as the
 // rule judged it at its hire (`--place`): its one start is checked as an engine desk's every start is
 // (deskPlacedWords, FXGMHIRENOGIT126R4, R10).
-func newLauncherSandboxAt(desk, place, folder string, gm bool, launcher string, agent Agent, program string) (_ *launcherSandbox, err error) {
+func newLauncherSandboxAt(desk, place, folder string, gm bool, launcher string, agent Agent, program string) (*launcherSandbox, error) {
+	return newLauncherSandboxPlaced(desk, place, "", folder, gm, launcher, agent, program)
+}
+
+// newLauncherSandboxPlaced is newLauncherSandboxAt with place's identity at the hire, placeID (`--place-id`): the
+// start then also checks the folder at place is that one, as deskPlacedNow checks an engine desk's (FXRC3FIXR1,
+// RT126RC3FIX's F-c). A real folder renamed into the place since the hire resolves to the same path, and only its
+// identity tells it apart. "" checks the path alone.
+func newLauncherSandboxPlaced(desk, place, placeID, folder string, gm bool, launcher string, agent Agent, program string) (_ *launcherSandbox, err error) {
 	reapLaunchersGone()
 	id := plainHireIDFor()
 	if desk != "" {
@@ -124,7 +132,7 @@ func newLauncherSandboxAt(desk, place, folder string, gm bool, launcher string, 
 		if record, found := plainHireRecord(desk); found && !record.Worktree.none() && record.Repo != "" {
 			at.Tree, at.TreeRepo = record.Worktree.storedOnly(), record.Repo
 		} else {
-			at.CheckPlaced, at.Placed = true, place
+			at.CheckPlaced, at.Placed, at.PlacedID = true, place, placeID
 			repoAt = place
 		}
 		if words := deskStartPlaceWords(at); words != "" {

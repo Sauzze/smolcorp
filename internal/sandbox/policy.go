@@ -649,6 +649,61 @@ var terminalPlaces = []string{"Library/Preferences", "Library/Application Suppor
 var agentFolders = []string{".codex", ".gemini", ".cache/.gemini", ".config/opencode", ".local/share/opencode",
 	".cache/opencode", ".local/state/opencode", ".opencode", ".grok", ".agents"}
 
+// openCodeConfigNames are the names OpenCode (v2.0.32, packages/core/src/config/discovery.ts) looks for in the folder
+// it runs in and in each folder above it, up to /: its config files, which name plugins and MCP servers it runs, its
+// own folder, whose plugins it loads, and the skills folder. Its last candidate, `.claude`, is held anywhere already
+// (a .claude folder can't be made, moved or removed).
+var openCodeConfigNames = []string{".opencode", ".agents", "opencode.json", "opencode.jsonc"}
+
+// openCodeConfigFolders are the folders above each of supports, up to and with home, and on a Mac those above
+// Smolcorp's own support folder there (~/Library/Application Support, ~/Library): where a summary's OpenCode, run in
+// the support folder, finds a config. Each once, the deepest first. A support folder outside home adds none: the
+// folders above it aren't the owner's.
+func openCodeConfigFolders(goos, home string, supports []string) []string {
+	homeKey := key(goos, home)
+	if homeKey == "" {
+		return nil
+	}
+	var folders []string
+	seen := map[string]bool{}
+	add := func(folder string) {
+		if k := key(goos, folder); k != "" && under(k, homeKey) && !seen[k] {
+			seen[k] = true
+			folders = append(folders, spell(goos, folder))
+		}
+	}
+	for _, s := range supports {
+		k := key(goos, s)
+		if k == "" || k == homeKey || !under(k, homeKey) {
+			continue
+		}
+		for at := path.Dir(spell(goos, s)); ; at = path.Dir(at) {
+			add(at)
+			if key(goos, at) == homeKey || at == path.Dir(at) {
+				break
+			}
+		}
+	}
+	if goos == "darwin" {
+		for _, folder := range []string{"Library/Application Support", "Library", ""} {
+			add(path.Join(spell(goos, home), folder))
+		}
+	}
+	return folders
+}
+
+// openCodeProjectMarks are what OpenCode (v2.0.32, packages/core/src/project.ts) looks for in the folder it runs in
+// and in each folder above it, up to /, to find the project a location is in: a git folder or a Mercurial one, as a
+// folder or a file. HEAD is git's own mark of a bare repo: run in the folder that holds a .git, git takes a folder above
+// it for one when that .git isn't a repo.
+var openCodeProjectMarks = []string{".git", ".hg", "HEAD"}
+
+// ownPlaces are a desk's own places that a git folder above them holds, when one does: a git folder there keeps its own
+// rows, never a plant's (FXHIREPROJECTSR2).
+func ownPlaces(pl Places) []string {
+	return []string{pl.Root, pl.Checkout, pl.HiresFolder, pl.GitDir, pl.Support, pl.OwnSockets, pl.DeskStart, pl.TmuxFolder, pl.GMPlans}
+}
+
 // configPlants are the places in ~/.config the plants' row holds, as names below a config folder: held where the
 // owner's environment moves it too (Places.ConfigHomes).
 var configPlants = []string{"fish", "autostart", "systemd/user", "git", "tmux"}
@@ -1092,7 +1147,7 @@ func build(pl Places) (*Policy, error) {
 	// either, so they are held themselves, as the folder for hires is.
 	if goos == "darwin" {
 		homeKey := key(goos, home)
-		own := []string{pl.Root, pl.Checkout, pl.HiresFolder, pl.GitDir, pl.Support, pl.OwnSockets, pl.DeskStart, pl.TmuxFolder, pl.GMPlans}
+		own := ownPlaces(pl)
 		seen := map[string]bool{homeKey: true} // ~ is rowHomeGit's
 		places := append([]string{pl.Root, pl.Checkout, pl.Projects, pl.GMStart, pl.GMProjects}, pl.Worktrees...)
 		for i, place := range append(places, pl.GMHires...) {
@@ -1169,6 +1224,62 @@ func build(pl Places) (*Policy, error) {
 			// of the folder. It doesn't stop a folder holding a link from being renamed in (Seatbelt checks a rename
 			// only at its two ends): only a folder no desk writes under does.
 			b.add(Rule{Row: rowAgentLinks, Path: folder, Below: true, Link: Deny})
+		}
+		// OpenCode's own names in each folder above the support folder, up to the home folder (FXRC3FIX, RT126RC3's
+		// B1): a summary on OpenCode runs in a folder made in the support folder (desktop's runSummaryCLI), as the
+		// owner and outside any sandbox, and OpenCode loads what it finds there and in every folder above it
+		// (openCodeConfigNames). Held as ~/.opencode is: read, never written, made or renamed onto. A file's writers'
+		// names are only those that are its own (ownersNames after it, ownersAround around it), never a writer's random
+		// name in the folder (ownersInFolder): those folders hold ~ and may hold the projects folder, where such a name
+		// is any file's, a desk's own temporary files too (FXRC3FIXR1, the Studio's run of FXRC3FIX). A folder at or
+		// under a place the desk works in (its place, the owner's checkout, the hires' and GM's folders, the projects
+		// folder) gets no row here: what it holds is the desk's work, or held by that place's own rows.
+		above := slices.DeleteFunc(openCodeConfigFolders(goos, home, append([]string{pl.Support}, pl.OtherSupports...)), func(folder string) bool {
+			return slices.ContainsFunc([]string{pl.Root, pl.Checkout, pl.HiresFolder, pl.GMFolder, pl.GMProjects, pl.Projects}, func(w string) bool {
+				return key(goos, w) != "" && under(key(goos, folder), key(goos, w))
+			})
+		})
+		for _, folder := range above {
+			for _, name := range openCodeConfigNames {
+				at := join(folder, name)
+				if slices.ContainsFunc(folders, func(f string) bool { return key(goos, f) == key(goos, at) }) {
+					continue // ~/.opencode and ~/.agents: agentFolders, above
+				}
+				if strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".jsonc") {
+					r := Rule{Row: rowAgents, Path: at, Write: Deny}
+					b.beside(r, ownersNames...)
+					for _, a := range ownersAround {
+						b.around(r, a[0], a[1])
+					}
+					continue
+				}
+				b.add(Rule{Row: rowAgents, Path: at, Below: true, Write: Deny})
+				b.add(Rule{Row: rowAgentLinks, Path: at, Below: true, Link: Deny})
+			}
+		}
+		// …and its project lookup's marks there (FXRC3FIXR1, RT126RC3FIX's N1): from the same folder, OpenCode climbs
+		// to the first .git or .hg (packages/core/src/project.ts's resolve, fs.up with no stop) and runs git
+		// (rev-parse, remote get-url, rev-list) or hg (log) in the folder that holds it, as the owner and outside any
+		// sandbox, and git runs what that repo's own config names. Held as a git folder above the places is, made,
+		// renamed onto or linked as a folder or as a file, with HEAD beside it (a bare repo, which git takes the
+		// folder for); ~'s .git and HEAD are rowHomeGit's, and ~/.hg is held here. A .git that holds a place of the
+		// desk's own (the repo it works on, when a test copy's support folder is in that checkout) keeps that .git's
+		// own rows, as above. In the support folder itself, and in a summary's folder there, a desk writes nothing.
+		for _, folder := range above {
+			git := key(goos, join(folder, ".git"))
+			ownRepo := slices.ContainsFunc(ownPlaces(pl), func(p string) bool { return p != "" && under(key(goos, p), git) })
+			for _, name := range openCodeProjectMarks {
+				at := join(folder, name)
+				switch {
+				case key(goos, folder) == key(goos, home) && name != ".hg":
+					continue // rowHomeGit, above
+				case name != ".hg" && ownRepo:
+					continue // the desk's own repo
+				case slices.ContainsFunc(b.rules, func(r Rule) bool { return r.Row == rowAboveGit && key(goos, r.Path) == key(goos, at) }):
+					continue // a folder above the places: held already
+				}
+				b.add(Rule{Row: rowAboveGit, Path: at, Below: name != "HEAD", Write: Deny})
+			}
 		}
 		// The keychains' folder (RT126SWEEP2 P4's F1): a desk that replaced the login keychain file with one whose
 		// password it knows would read every item Smolcorp and the owner's apps add there next, offline. Its files are

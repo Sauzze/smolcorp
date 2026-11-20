@@ -80,6 +80,8 @@ type claudePending struct {
 	Ended     bool   `json:"ended,omitempty"`
 	Tree      bool   `json:"tree,omitempty"`
 	Resolved  string `json:"resolved,omitempty"`
+	// ResolvedID is the folder's identity its row kept (Hire.FolderID), checked with Resolved (FXRC3FIX).
+	ResolvedID string `json:"resolvedID,omitempty"`
 
 	onRecord bool
 	ask      uint64
@@ -98,7 +100,7 @@ func (p claudePending) hire() Hire {
 	if p.Tree {
 		h.Worktree = keptPath(p.Place)
 	} else {
-		h.Folder, h.FolderResolved = keptPath(p.Place), p.Resolved
+		h.Folder, h.FolderResolved, h.FolderID = keptPath(p.Place), p.Resolved, p.ResolvedID
 	}
 	return h
 }
@@ -281,7 +283,7 @@ func askClaudeListingLocked(h Hire, ended, onRecord bool) bool {
 	was := pending[h.ID]
 	claudeHeld.asked++
 	pending[h.ID] = claudePending{Desk: h.ID, Place: place, Reference: h.Repo, Ended: was.Ended || ended,
-		Tree: !h.Worktree.none(), Resolved: h.FolderResolved, onRecord: was.onRecord || onRecord, ask: claudeHeld.asked}
+		Tree: !h.Worktree.none(), Resolved: h.FolderResolved, ResolvedID: h.FolderID, onRecord: was.onRecord || onRecord, ask: claudeHeld.asked}
 	kickClaudeListingsLocked()
 	return true
 }

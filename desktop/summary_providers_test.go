@@ -521,6 +521,24 @@ touch `+ran)
 	}
 }
 
+// FXRC3FIX (RT126RC3's B1): OpenCode's run loads no project config, from its folder or any folder above it; its check
+// before, which asks OpenCode's background service, is started as before.
+func TestAnOpenCodeSummaryRunLoadsNoConfigFromItsFolderOrAbove(t *testing.T) {
+	dir := t.TempDir()
+	seen := filepath.Join(dir, "seen")
+	opencode := fakeCLI(t, dir, "opencode", `echo "$1 ${OPENCODE_DISABLE_PROJECT_CONFIG:-unset}" >> `+seen+`
+if [ "$1" = debug ]; then echo '[{"id":"summary","permissions":[{"action":"*","resource":"*","effect":"deny"}]}]'; exit; fi
+echo '{"type":"text","part":{"type":"text","text":"Asked: x."}}'`)
+	t.Setenv(openCodeNoProjectConfig, "")
+	if text, reason := runSummaryCLI(providerOpenCode, opencode, "S", "P", os.Environ(), providerReady); text != "Asked: x." || reason != cliOK {
+		t.Fatalf("got %q, %d", text, reason)
+	}
+	report, _ := os.ReadFile(seen)
+	if got := strings.Fields(string(report)); !slices.Equal(got, []string{"debug", "unset", "run", "1"}) {
+		t.Errorf("each call's variable: %q", got)
+	}
+}
+
 func TestEachRunChecksAgainHowClaudeCodesLoginPays(t *testing.T) {
 	dir := t.TempDir()
 	console := fakeCLI(t, dir, "claude", `if [ "$1" = auth ]; then echo '{"loggedIn":true,"authMethod":"console","subscriptionType":null}'; exit; fi
@@ -576,5 +594,43 @@ func TestTheKeyRowSaysToSetTheEnvironmentWhenThereIsNoSecretStore(t *testing.T) 
 	}
 	if reason := keyReasonWith(memoryStore(false)); reason != "add a key below" {
 		t.Errorf("with a store: %q", reason)
+	}
+}
+
+// FXRC3FIXR1 (RT126RC3FIX's O1, and N1's second fence): OpenCode's run says both names of its no-project-config
+// variable, so an owner's OPENCODE_CONFIG_PROJECT_DISABLE (read first, any value) can't turn the walk back on; and every
+// summary's run, on any agent, has git fetch no missing object by itself and ask for no password. The checks before the
+// run keep the owner's own values.
+func TestASummaryRunSaysBothOpenCodeNamesAndItsGitFetchesNothing(t *testing.T) {
+	dir := t.TempDir()
+	seen := filepath.Join(dir, "seen")
+	record := `echo "$1 ${OPENCODE_CONFIG_PROJECT_DISABLE:-unset} ${OPENCODE_DISABLE_PROJECT_CONFIG:-unset} ${GIT_NO_LAZY_FETCH:-unset} ${GIT_TERMINAL_PROMPT:-unset}" >> ` + seen + "\n"
+	opencode := fakeCLI(t, dir, "opencode", record+`if [ "$1" = debug ]; then echo '[{"id":"summary","permissions":[{"action":"*","resource":"*","effect":"deny"}]}]'; exit; fi
+echo '{"type":"text","part":{"type":"text","text":"Asked: x."}}'`)
+	t.Setenv(openCodeNoProjectConfigFirst, "0")
+	t.Setenv(openCodeNoProjectConfig, "")
+	t.Setenv("GIT_NO_LAZY_FETCH", "")
+	t.Setenv("GIT_TERMINAL_PROMPT", "1")
+	if text, reason := runSummaryCLI(providerOpenCode, opencode, "S", "P", os.Environ(), providerReady); text != "Asked: x." || reason != cliOK {
+		t.Fatalf("OpenCode: got %q, %d", text, reason)
+	}
+	report, _ := os.ReadFile(seen)
+	want := []string{"debug", "0", "unset", "unset", "1", "run", "1", "1", "1", "0"}
+	if got := strings.Fields(string(report)); !slices.Equal(got, want) {
+		t.Errorf("OpenCode's calls: %q, want %q", got, want)
+	}
+
+	if err := os.Remove(seen); err != nil {
+		t.Fatal(err)
+	}
+	claude := fakeCLI(t, dir, "claude", record+`if [ "$1" = auth ]; then echo '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}'; exit; fi
+echo '{"result":"Asked: x."}'`)
+	if text, reason := runSummaryCLI(providerClaude, claude, "S", "P", os.Environ(), providerReady); text != "Asked: x." || reason != cliOK {
+		t.Fatalf("Claude Code: got %q, %d", text, reason)
+	}
+	report, _ = os.ReadFile(seen)
+	lines := strings.Split(strings.TrimSpace(string(report)), "\n")
+	if len(lines) != 2 || lines[0] != "auth 0 unset unset 1" || !strings.HasSuffix(lines[1], " 0 unset 1 0") {
+		t.Errorf("Claude Code's calls: %q", lines)
 	}
 }

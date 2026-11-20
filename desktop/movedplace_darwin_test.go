@@ -16,7 +16,7 @@ import (
 // owner's with a .claude of its own.
 
 // movedPlaceWords is what the gate says of a moved place (claudeHeldRefusalWithin).
-const movedPlaceWords = " was moved or replaced, so Smolcorp can't tell what it left there; check it yourself"
+const movedPlaceWords = " was moved or replaced, so Smolcorp can't tell what it left there. Fire the hire, check that folder yourself, then move it elsewhere to clear the hold."
 
 // movedPlace makes the hire's folder and the owner's, and gives the hire.
 func movedPlace(t *testing.T, id string) (h Hire, place, owner, settings string) {
@@ -32,7 +32,9 @@ func movedPlace(t *testing.T, id string) (h Hire, place, owner, settings string)
 	}
 	settings = filepath.Join(owner, ".claude", "settings.json")
 	writeFile(t, settings, `{"standin":"the owner's own"}`)
-	return Hire{ID: id, Name: "Ada", Folder: keptPath(place), FolderResolved: place, State: "working"}, place, owner, settings
+	// Its row as the engine's hire keeps it: the folder resolved, and its identity (FXRC3FIX).
+	return Hire{ID: id, Name: "Ada", Folder: keptPath(place), FolderResolved: place, FolderID: folderIdentity(place), State: "working"},
+		place, owner, settings
 }
 
 // moveAside renames place aside and puts a link to to in its place, as a GM could.
@@ -114,5 +116,50 @@ func TestRemoveRefusesAPlantWhoseHiresPlaceIsMoved(t *testing.T) {
 	}
 	if data, err := os.ReadFile(settings); err != nil || string(data) != `{"standin":"the owner's own"}` {
 		t.Errorf("the owner's .claude after Remove: %q %v", data, err)
+	}
+}
+
+// FXRC3FIXR1 (RT126RC3FIX's F-b): what the gate's words say clears a hold does. The moved place, moved elsewhere by
+// the owner (here the GM's link at it, which is what's there), is held no more, in the owner's folder nor where it
+// was; and a plant the owner says is theirs, moved elsewhere, is held no more either. What was moved is as it was.
+func TestMovingAHeldPlaceOrPlantElsewhereClearsTheHold(t *testing.T) {
+	h, place, owner, settings := movedPlace(t, "abcdef012348")
+	moveAside(t, place, owner)
+	listClaudePlantsOf(h)
+	if why := claudeHeldRefusal(filepath.Join(owner, "sub")); !strings.Contains(why, movedPlaceWords) {
+		t.Fatalf("held: %q", why)
+	}
+	elsewhere := filepath.Join(filepath.Dir(owner), "checked")
+	if err := os.Rename(place, elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	for _, at := range []string{filepath.Join(owner, "sub"), filepath.Dir(place), elsewhere} {
+		if why := claudeHeldRefusal(at); why != "" {
+			t.Errorf("moved elsewhere, still held in %s: %q", at, why)
+		}
+	}
+	if data, err := os.ReadFile(settings); err != nil || string(data) != `{"standin":"the owner's own"}` {
+		t.Errorf("the owner's .claude: %q %v", data, err)
+	}
+
+	h, place, _, _ = movedPlace(t, "abcdef012349")
+	listClaudePlantsOf(h) // the baseline
+	plant := filepath.Join(place, "a", ".claude")
+	writeFile(t, filepath.Join(plant, "settings.json"), `{"the":"owner's"}`)
+	if listed := listClaudePlantsOf(h); len(listed) == 0 {
+		t.Fatal("the plant isn't listed")
+	}
+	if why := claudeHeldRefusal(place); !strings.Contains(why, "it's held for you until it's gone from there. If you didn't put it there, remove it; if it's yours, move it elsewhere. Then try again.") {
+		t.Fatalf("the plant's words: %q", why)
+	}
+	mine := filepath.Join(filepath.Dir(place), "mine")
+	if err := os.Rename(plant, mine); err != nil {
+		t.Fatal(err)
+	}
+	if why := claudeHeldRefusal(place); why != "" {
+		t.Errorf("the plant moved elsewhere, still held: %q", why)
+	}
+	if data, err := os.ReadFile(filepath.Join(mine, "settings.json")); err != nil || string(data) != `{"the":"owner's"}` {
+		t.Errorf("the owner's plant, moved: %q %v", data, err)
 	}
 }

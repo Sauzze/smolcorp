@@ -403,6 +403,73 @@
 (deny file-write* file-link (subpath "/Users/ada/.agents")) ; plants the owner's programs run later: a hired agent's own settings
 (deny file-link (subpath "/Users/ada/.agents")) ; no links in a hired agent's folder
 (deny file-write-create (require-all (subpath "/Users/ada/.agents") (vnode-type SYMLINK))) ; no links in a hired agent's folder
+(deny file-write* file-link (subpath "/Users/ada/Library/Application Support/.opencode")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-link (subpath "/Users/ada/Library/Application Support/.opencode")) ; no links in a hired agent's folder
+(deny file-write-create (require-all (subpath "/Users/ada/Library/Application Support/.opencode") (vnode-type SYMLINK))) ; no links in a hired agent's folder
+(deny file-write* file-link (subpath "/Users/ada/Library/Application Support/.agents")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-link (subpath "/Users/ada/Library/Application Support/.agents")) ; no links in a hired agent's folder
+(deny file-write-create (require-all (subpath "/Users/ada/Library/Application Support/.agents") (vnode-type SYMLINK))) ; no links in a hired agent's folder
+(deny file-write* file-link (literal "/Users/ada/Library/Application Support/opencode.json")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/Application Support/opencode.json.lock")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/Application Support/opencode.json.new")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/opencode\\.json\\.tmp[^/]*$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/opencode\\.json\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/Application Support/opencode.json___jb_tmp___")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/\\.![^/]*!opencode\\.json$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/\\.opencode\\.json\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/Application Support/opencode.jsonc")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/Application Support/opencode.jsonc.lock")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/Application Support/opencode.jsonc.new")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/opencode\\.jsonc\\.tmp[^/]*$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/opencode\\.jsonc\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/Application Support/opencode.jsonc___jb_tmp___")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/\\.![^/]*!opencode\\.jsonc$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/Application Support/\\.opencode\\.jsonc\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (subpath "/Users/ada/Library/.opencode")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-link (subpath "/Users/ada/Library/.opencode")) ; no links in a hired agent's folder
+(deny file-write-create (require-all (subpath "/Users/ada/Library/.opencode") (vnode-type SYMLINK))) ; no links in a hired agent's folder
+(deny file-write* file-link (subpath "/Users/ada/Library/.agents")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-link (subpath "/Users/ada/Library/.agents")) ; no links in a hired agent's folder
+(deny file-write-create (require-all (subpath "/Users/ada/Library/.agents") (vnode-type SYMLINK))) ; no links in a hired agent's folder
+(deny file-write* file-link (literal "/Users/ada/Library/opencode.json")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/opencode.json.lock")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/opencode.json.new")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/opencode\\.json\\.tmp[^/]*$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/opencode\\.json\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/opencode.json___jb_tmp___")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/\\.![^/]*!opencode\\.json$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/\\.opencode\\.json\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/opencode.jsonc")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/opencode.jsonc.lock")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/opencode.jsonc.new")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/opencode\\.jsonc\\.tmp[^/]*$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/opencode\\.jsonc\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/Library/opencode.jsonc___jb_tmp___")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/\\.![^/]*!opencode\\.jsonc$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/Library/\\.opencode\\.jsonc\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/opencode.json")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/opencode.json.lock")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/opencode.json.new")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/opencode\\.json\\.tmp[^/]*$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/opencode\\.json\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/opencode.json___jb_tmp___")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!opencode\\.json$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/\\.opencode\\.json\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/opencode.jsonc")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/opencode.jsonc.lock")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/opencode.jsonc.new")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/opencode\\.jsonc\\.tmp[^/]*$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/opencode\\.jsonc\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (literal "/Users/ada/opencode.jsonc___jb_tmp___")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!opencode\\.jsonc$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (regex "^/Users/ada/\\.opencode\\.jsonc\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: a hired agent's own settings
+(deny file-write* file-link (subpath "/Users/ada/Library/Application Support/.git")) ; plants the owner's programs run later: a git folder above the places
+(deny file-write* file-link (subpath "/Users/ada/Library/Application Support/.hg")) ; plants the owner's programs run later: a git folder above the places
+(deny file-write* file-link (literal "/Users/ada/Library/Application Support/HEAD")) ; plants the owner's programs run later: a git folder above the places
+(deny file-write* file-link (subpath "/Users/ada/Library/.git")) ; plants the owner's programs run later: a git folder above the places
+(deny file-write* file-link (subpath "/Users/ada/Library/.hg")) ; plants the owner's programs run later: a git folder above the places
+(deny file-write* file-link (literal "/Users/ada/Library/HEAD")) ; plants the owner's programs run later: a git folder above the places
+(deny file-write* file-link (subpath "/Users/ada/.hg")) ; plants the owner's programs run later: a git folder above the places
 (deny file-write* file-link (subpath "/Users/ada/Library/Keychains")) ; plants the owner's programs run later: the keychains
 (deny file-write* file-link (subpath "/Users/ada/.claude")) ; the account folders
 (deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.claude/ide")) ; the account folders' tokens and history
@@ -1075,6 +1142,76 @@
 (deny file-write-create (require-all (literal "/Users/ada/.grok") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.agents")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.agents") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/.opencode")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/.opencode") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/.agents")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/.agents") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/opencode.json")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/opencode.json") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/opencode.json.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/opencode.json.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/opencode.json.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/opencode.json.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/opencode.json___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/opencode.json___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/opencode.jsonc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/opencode.jsonc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/opencode.jsonc.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/opencode.jsonc.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/opencode.jsonc.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/opencode.jsonc.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/opencode.jsonc___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/opencode.jsonc___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/.opencode")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/.opencode") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/.agents")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/.agents") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/opencode.json")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/opencode.json") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/opencode.json.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/opencode.json.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/opencode.json.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/opencode.json.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/opencode.json___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/opencode.json___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/opencode.jsonc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/opencode.jsonc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/opencode.jsonc.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/opencode.jsonc.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/opencode.jsonc.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/opencode.jsonc.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/opencode.jsonc___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/opencode.jsonc___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/opencode.json")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/opencode.json") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/opencode.json.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/opencode.json.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/opencode.json.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/opencode.json.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/opencode.json___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/opencode.json___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/opencode.jsonc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/opencode.jsonc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/opencode.jsonc.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/opencode.jsonc.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/opencode.jsonc.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/opencode.jsonc.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/opencode.jsonc___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/opencode.jsonc___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/.git")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/.git") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/.hg")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/.hg") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/HEAD")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/HEAD") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/.git")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/.git") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/.hg")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/.hg") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/HEAD")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/HEAD") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.hg")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.hg") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Keychains")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/Library/Keychains") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.claude")) ; the folders above a denied place can't be moved or removed

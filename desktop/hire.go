@@ -75,6 +75,9 @@ type pendingHire struct {
 // hireToken is the only shape of token a launcher may hand back: newID's.
 var hireToken = regexp.MustCompile(`^[0-9A-F]{32}$`)
 
+// placeIdentity is the only shape of a folder's identity a launcher takes (`--place-id`): folderIdentity's.
+var placeIdentity = regexp.MustCompile(`^[0-9]{1,20}:[0-9]{1,20}$`)
+
 // hireOpener is a terminal a hire's window can open in.
 type hireOpener struct {
 	id, name string
@@ -985,9 +988,13 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 				}
 			}
 			// A folder it works in itself: its launcher's start checks it still leads where the rule judged it
-			// (FXGMHIRENOGIT126R4, R10). One whose links couldn't be resolved is said with none, and its start refused.
+			// (FXGMHIRENOGIT126R4, R10), and is still the folder that was there (FXRC3FIXR1, RT126RC3FIX's F-c), as an
+			// engine desk's start does. One whose links couldn't be resolved is said with none, and its start refused.
 			if place.Worktree == "" && place.Resolved != "" {
 				placedArgs = []string{"--place", place.Resolved}
+				if place.ResolvedID != "" {
+					placedArgs = append(placedArgs, "--place-id", place.ResolvedID)
+				}
 			}
 			// On record until its end, as the engine's row is, so its worktree and branch get the fire's clean-up and its
 			// recap once its launcher is gone (plainhireend.go). A folder in no repo has none: nothing to end.

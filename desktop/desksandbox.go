@@ -74,6 +74,9 @@ type deskAt struct {
 	// row from before that was kept (PlacedBefore), as deskPlacedWords rules (FXGMHIRENOGIT126R4, R10).
 	CheckPlaced, PlacedBefore bool
 	Placed                    string
+	// PlacedID is Placed's identity at the hire (Hire.FolderID): the start checks the folder is still that one, not
+	// another renamed into its place (FXRC3FIX). "" for a row kept without one, which its first start keeps.
+	PlacedID string
 }
 
 // startedInSandbox is whether tmux's start was a desk's in its sandbox, with the server the core checked at it
@@ -653,7 +656,7 @@ func deskAtOf(h Hire, socket string, accounts []claudeProfile, o engineOptions) 
 	// folder it was hired into it starts in and reads by its path at each start, never writing there but its own plans
 	// (FXGMHIRENOGIT126R4's R15, left as ruled in R5: a GM's workspace start reads only).
 	if d.Tree == "" && d.Projects == "" && folder != "" {
-		d.CheckPlaced, d.Placed, d.PlacedBefore = true, h.FolderResolved, h.FolderResolved == ""
+		d.CheckPlaced, d.Placed, d.PlacedBefore, d.PlacedID = true, h.FolderResolved, h.FolderResolved == "", h.FolderID
 	}
 	return d
 }
@@ -732,8 +735,16 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 		return sandbox.Places{}, &errSandboxNotMade{words}
 	}
 	pl, err := deskPlacesOf(d, own)
-	if err != nil || keep == "" {
+	if err != nil {
 		return pl, err
+	}
+	if keep == "" {
+		// A row kept resolved with no identity (FXRC3FIX): the folder's, now that it resolved where it was placed, is
+		// kept for every start after, as D21 keeps the resolution.
+		if d.CheckPlaced && !d.PlacedBefore && d.PlacedID == "" && runtime.GOOS == "darwin" && folderIdentity(d.Placed) != "" {
+			keepPlaced(d.ID, d.Root, d.Placed)
+		}
+		return pl, nil
 	}
 	// A row from before, at its first start since (D21): its folder as resolved now is kept for every start after, but
 	// not, when it resolves to another spelling than its own (what a link can turn), where its own Policy holds or
@@ -921,7 +932,7 @@ func deskPlacedNow(d deskAt) (words, keep string) {
 	real, resolved := resolvedFolder(d.Root)
 	switch {
 	case !d.PlacedBefore:
-		if resolved && real == d.Placed {
+		if resolved && real == d.Placed && (d.PlacedID == "" || folderIdentity(real) == d.PlacedID) {
 			return "", ""
 		}
 	case resolved && (real == filepath.Clean(d.Root) || !placedElsewhere(d.ID, d.Root, real)):
@@ -1129,12 +1140,22 @@ func placedElsewhere(id, folder, real string) bool {
 
 // keepPlaced keeps real, desk id's folder resolved at its first start since its row was written without one, on that
 // row (Hire.FolderResolved), while the row still names folder and has none: every start after checks the folder
-// still resolves there. A row that can't be written now is ruled the same way again at its next start.
+// still resolves there. Its identity is kept with it (Hire.FolderID), on a row resolving there with none yet, a row
+// from before FXRC3FIX too: every start after checks it's still that folder. A row that can't be written now is ruled
+// the same way again at its next start.
 func keepPlaced(id, folder, real string) {
+	identity := folderIdentity(real)
 	err := updateRegistry(func(f *registryFile) {
 		for i := range f.hires {
-			if h := &f.hires[i]; h.ID == id && h.Folder.storedOnly() == folder && h.FolderResolved == "" {
+			h := &f.hires[i]
+			if h.ID != id || h.Folder.storedOnly() != folder {
+				continue
+			}
+			if h.FolderResolved == "" {
 				h.FolderResolved = real
+			}
+			if h.FolderResolved == real && h.FolderID == "" {
+				h.FolderID = identity
 			}
 		}
 	})

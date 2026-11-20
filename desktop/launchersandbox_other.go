@@ -23,6 +23,10 @@ func newLauncherSandboxAt(string, string, string, bool, string, Agent, string) (
 	return nil, errors.New("no sandbox on this computer yet")
 }
 
+func newLauncherSandboxPlaced(string, string, string, string, bool, string, Agent, string) (*launcherSandbox, error) {
+	return nil, errors.New("no sandbox on this computer yet")
+}
+
 func (s *launcherSandbox) environment(env []string, _ map[string]string) []string { return env }
 
 func (s *launcherSandbox) command(*pty.Cmd, pty.Pty) (agentStart, error) {

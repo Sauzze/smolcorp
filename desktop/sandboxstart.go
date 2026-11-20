@@ -1802,11 +1802,14 @@ func claudeHeldRefusalWithin(folder string, wait time.Duration) (string, bool) {
 			return cmp.Or(cmp.Compare(moved(a), moved(b)), strings.Compare(a.File, b.File))
 		})
 		if held[0].Why == whyClaudeMoved {
+			// Setup has no Keep or Remove for a hire's Claude plants, and a moved place has no sum to keep (FXRC3FIX,
+			// RT126RC3's F3): what works is said, and what clears the hold (FXRC3FIXR1, RT126RC3FIX's F-b): an entry
+			// held is dropped once nothing is at its path, above, whoever's it is.
 			return "Smolcorp won't start your Claude Code in " + folder + ": the hire's folder " + held[0].File + " was moved or replaced, " +
-				"so Smolcorp can't tell what it left there; check it yourself, then keep it in Setup if it's yours, and try again.", false
+				"so Smolcorp can't tell what it left there. Fire the hire, check that folder yourself, then move it elsewhere to clear the hold.", false
 		}
 		return "Smolcorp won't start your Claude Code in " + folder + ": a hire left " + held[0].File + " (" + held[0].Why +
-			") and it's held for you. Remove it in Setup, or keep it if it's yours, then try again.", false
+			") and it's held for you until it's gone from there. If you didn't put it there, remove it; if it's yours, move it elsewhere. Then try again.", false
 	}
 	var checking []string
 	for _, p := range claudePendingLocked() {

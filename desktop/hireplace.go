@@ -207,6 +207,8 @@ type hirePlace struct {
 	// row of a hire with no worktree keeps, and every start checks (Hire.FolderResolved). "" when its links couldn't
 	// be resolved, and elsewhere.
 	Resolved string
+	// ResolvedID is Resolved's identity, taken with it (folderIdentity): what the row keeps beside it (Hire.FolderID).
+	ResolvedID string
 }
 
 const notARepo = "This folder isn't a git repository, so the hire works in the folder itself."
@@ -323,7 +325,7 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 	}
 	place := hirePlace{Folder: startFolder(r.Folder, given, runtime.GOOS), Ports: ports}
 	if resolved && runtime.GOOS == "darwin" {
-		place.Resolved = given
+		place.Resolved, place.ResolvedID = given, folderIdentity(given)
 	}
 	if repo != "" && r.Worktree {
 		name := hireWorktreeName(r.Name, r.HireID)

@@ -104,6 +104,10 @@ type launcherRun struct {
 	// For such a desk the office made no worktree for: the folder it was hired into as the rule judged it, its links
 	// resolved, where its folder must still lead (newLauncherSandboxAt). "" for one with a worktree.
 	place string
+	// placeID is that folder's identity at its hire (`--place-id`, folderIdentity's "<dev>:<ino>"): its start checks
+	// the folder at place is still that one, not a real folder renamed into it since (FXRC3FIXR1, RT126RC3FIX's F-c).
+	// "" when none could be taken: the path alone is checked, as an engine row with none is.
+	placeID string
 	// For such a hire of a role, the project the office picked for it, by its name in the folder for hires, and its
 	// own worktree's branch ("" for a project that isn't a repo): it is told that project rather than asked which
 	// (FXPICKEDPROJECT). "" for none picked.
@@ -122,7 +126,7 @@ type launcherRun struct {
 }
 
 // parseRun reads `smolcorp run`'s arguments: [--hire <token> [--hire-id <id> |
-// [--desk <desk> [--project <name> [--branch <branch>]] [--place <folder>]] [--claude-config <folder>]] [--pinned] [--sandbox-off]
+// [--desk <desk> [--project <name> [--branch <branch>]] [--place <folder> [--place-id <id>]]] [--claude-config <folder>]] [--pinned] [--sandbox-off]
 // [--agent <agent>]] then <agent> [arguments], or --role <id>.
 func parseRun(args []string) (*launcherRun, error) {
 	run := &launcherRun{}
@@ -157,6 +161,12 @@ func parseRun(args []string) (*launcherRun, error) {
 					return nil, errors.New("not a hire's folder")
 				}
 				run.place, args = args[1], args[2:]
+				if len(args) >= 2 && args[0] == "--place-id" {
+					if !placeIdentity.MatchString(args[1]) {
+						return nil, errors.New("not a folder's identity")
+					}
+					run.placeID, args = args[1], args[2:]
+				}
 			}
 		}
 		if len(args) >= 2 && args[0] == "--claude-config" {
@@ -416,7 +426,7 @@ func launch(run *launcherRun) int {
 			return 126
 		}
 		programArgs, ownOff = append(words, programArgs...), set
-		if walled, err = newLauncherSandboxAt(run.desk, run.place, folder, run.role == gmRole, id, agentNamed(args[0]), program); err != nil {
+		if walled, err = newLauncherSandboxPlaced(run.desk, run.place, run.placeID, folder, run.role == gmRole, id, agentNamed(args[0]), program); err != nil {
 			fmt.Fprintln(os.Stderr, "smolcorp: "+err.Error())
 			return 1
 		}

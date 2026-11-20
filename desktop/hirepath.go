@@ -72,17 +72,19 @@ func (h Hire) checkedTree() (string, error) {
 }
 
 // checkedFolder is, for a hire with no worktree, the folder it works in, only while it still resolves where the rule
-// judged it at its hire (Hire.FolderResolved, on a Mac), and then in that very spelling: what is done there goes where
-// the hire was placed, never where a link put on the folder's way since leads. A row from before 1.26.0 keeps no
-// resolved folder: its folder is given as its row keeps it (D21, as ruled; its first start keeps one). For a hire with
-// a worktree, the folder it was hired into (the owner's project, which the hire doesn't work in) is a look-up only:
-// storedOnly.
+// judged it at its hire (Hire.FolderResolved, on a Mac), and is still the folder that was there (Hire.FolderID), and
+// then in that very spelling: what is done there goes where the hire was placed, never where a link put on the
+// folder's way since leads, nor into another folder renamed into its place (FXRC3FIX, RT126RC3's F1). A row from
+// before 1.26.0 keeps no resolved folder: its folder is given as its row keeps it (D21, as ruled; its first start
+// keeps one). A row kept without an identity is checked by its path alone until its first start keeps one. For a hire
+// with a worktree, the folder it was hired into (the owner's project, which the hire doesn't work in) is a look-up
+// only: storedOnly.
 func (h Hire) checkedFolder() (string, error) {
 	folder := h.Folder.stored
 	if folder == "" || runtime.GOOS != "darwin" || h.FolderResolved == "" {
 		return folder, nil
 	}
-	if real, ok := resolvedFolder(folder); !ok || real != h.FolderResolved {
+	if real, ok := resolvedFolder(folder); !ok || real != h.FolderResolved || h.FolderID != "" && folderIdentity(real) != h.FolderID {
 		return "", &hireMoved{movedFolderWords(folder)}
 	}
 	return h.FolderResolved, nil
