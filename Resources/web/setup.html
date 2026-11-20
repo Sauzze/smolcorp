@@ -1379,7 +1379,7 @@
       <div class="tools">
         <button class="btn" id="role-add">Add a role</button>
         <button class="btn" id="role-shipped">Bring back Smolcorp's roles</button>
-        <button class="btn" id="briefs-restore" title="Put the briefs in Application Support/AgentDeck/briefs/templates back to the ones that came with the app. Your edits there are lost.">Restore default briefs</button>
+        <button class="btn" id="briefs-restore" title="Put back the briefs that came with the app, in briefs/templates in Smolcorp's folder (Application Support/AgentDeck). Your edits there are lost.">Restore default briefs</button>
       </div>
     </section>
     <div class="group">
@@ -2151,10 +2151,10 @@
    * for word.
    */
   const OFF_MAC_WAY_OUT = "Phone lost, or it can't reach this computer over Tailscale? Quit Smolcorp from its tray icon "
-    + '(with no tray, run smolcorp quit, or smolcorp-cli quit on Windows), then rename phones.json in Smolcorp\'s folder, '
-    + 'for example to phones.json.old: on Linux the folder is ~/.config/sauzzedeck-pro, on Windows %AppData%\\SauzzeDeck Pro. '
-    + 'That unpairs every phone. Start Smolcorp again: Open Setup… opens Setup with a link once more, and you can pair '
-    + 'your phone again.';
+    + '(with no tray, run smolcorp quit, or smolcorp-cli quit on Windows), then rename phones.json in Smolcorp\'s folder '
+    + '(on Linux ~/.config/sauzzedeck-pro, on Windows %AppData%\\SauzzeDeck Pro: the name the app had before), '
+    + 'for example to phones.json.old. That unpairs every phone. Start Smolcorp again: Open Setup… opens Setup with a link '
+    + 'once more, and you can pair your phone again.';
   function offMacWayOut() {
     return Object.assign(document.createElement('p'), { className: 'hint', textContent: OFF_MAC_WAY_OUT });
   }

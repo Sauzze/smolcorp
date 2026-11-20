@@ -568,8 +568,8 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 	pl.TmuxFolder = filepath.Join(physical(filepath.Dir(tmux)), filepath.Base(tmux))
 	if testCopyPort() != 0 {
 		// A test copy's desks are denied the owner's own folder with no exception.
-		if base, err := os.UserConfigDir(); err == nil {
-			pl.OtherSupports = []string{physical(filepath.Join(base, supportDirName(runtime.GOOS)))}
+		if real := realSupportDir(); real != "" {
+			pl.OtherSupports = []string{physical(real)}
 		}
 	}
 	if d.Checkout != "" {

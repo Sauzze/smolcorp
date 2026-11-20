@@ -1568,8 +1568,11 @@ var protectedNames = []string{"gm-token", "gm-token-kept", "smolcorp_gm_token", 
 	"grants.jsonl", "phones-seal", "claude-install", "push-key-kept", "gm-memory", nightFile, phonesFile, "hold-key", "paste-hold", "paste-hold-seen"}
 
 // supportWords are the words of the app's support folder on each system (appdirs: AgentDeck, sauzzedeck-pro,
-// SauzzeDeck Pro), and Smolcorp's: a path before a pattern that could hold one may be that folder.
-var supportWords = []string{appdirs.Mac, appdirs.Linux, appdirs.Windows, "smolcorp", "application support"}
+// SauzzeDeck Pro), and Smolcorp's, which is also its new folders' name (appdirs.NewName: Application
+// Support/Smolcorp, ~/.config/smolcorp, %APPDATA%\Smolcorp, FXRENAME126A): a path before a pattern that could hold
+// one may be that folder. Only a pattern reads them (cat ~/.config/smolc*/ph*s.json); a folder written out is
+// keptFolderName's, which takes smolcorp only after the folder it's in.
+var supportWords = []string{appdirs.Mac, appdirs.Linux, appdirs.Windows, appdirs.NewLinux, "application support"}
 
 // protectedByPattern is the names the guard keeps that a word with a pattern in it could fill in (skeletonNames:
 // the setup key, the token, the guard file, Claude Code's settings and their folder), by a run in any of its path

@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+
+	"github.com/Sauzze/smolcorp/internal/appdirs"
 )
 
 // The Policy (SA-X1, SANDBOX-PLAN §A4.1): which files and places a desk Smolcorp starts may read, write and
@@ -510,6 +512,9 @@ const (
 	rowSupport    = "the support folder, whole"
 	rowAbove      = "the folders above a denied place can't be moved or removed"
 )
+
+// rowSupportOtherName is a support folder by its other name, whole (supportSiblings).
+const rowSupportOtherName = "the support folder by its other name, whole"
 
 // rowUnknownCodePoint is Decide's on a Mac for a path with a code point the fold's Unicode (foldUnicode) doesn't assign.
 const rowUnknownCodePoint = "a name with a code point Unicode " + foldUnicode + " doesn't assign"
@@ -1231,6 +1236,12 @@ func build(pl Places) (*Policy, error) {
 	for _, s := range pl.OtherSupports {
 		b.add(Rule{Row: "another support folder, whole", Path: s, Below: true, Read: Deny, Write: Deny, Connect: Deny})
 	}
+	// Each support folder by its other name, whole, with no exception (FXRENAME126A): Smolcorp's own beside the old
+	// one, and the old one beside a Smolcorp one, there or not. The core uses one of them (appdirs.Resolve), and a desk
+	// reaches neither.
+	for _, s := range supportSiblings(goos, supports) {
+		b.add(Rule{Row: rowSupportOtherName, Path: s, Below: true, Read: Deny, Write: Deny, Connect: Deny})
+	}
 	// A support folder in the projects folder (a test copy's, in the source checkout) is the desk's to use as any other:
 	// its exceptions open the projects folder's row too.
 	support, opens := pl.Support, []string{rowSupport, rowProjects}
@@ -1757,4 +1768,39 @@ func SupportRow(name string) (string, bool) {
 	}
 	why, ok := supportFiles[name]
 	return why, ok
+}
+
+// supportSiblings are the support folders by their other name (appdirs), each beside one of supports whose own name is
+// one of the two on goos: Application Support/Smolcorp beside Application Support/AgentDeck on a Mac, ~/.config/smolcorp
+// beside ~/.config/sauzzedeck-pro on Linux, %APPDATA%\Smolcorp beside %APPDATA%\SauzzeDeck Pro on Windows, and the old
+// name beside a Smolcorp one. Only the whole path counts, never the name alone: ~/Projects/smolcorp is no support
+// folder. One that is a support folder already, or not whole, is left out.
+func supportSiblings(goos string, supports []string) []string {
+	old, new := foldName(goos, appdirs.Name(goos)), foldName(goos, appdirs.NewName(goos))
+	have := map[string]bool{}
+	for _, s := range supports {
+		have[key(goos, s)] = true
+	}
+	var out []string
+	for _, s := range supports {
+		spelled := spell(goos, s)
+		if spelled == "" {
+			continue
+		}
+		var other string
+		switch foldName(goos, path.Base(spelled)) {
+		case old:
+			other = appdirs.NewName(goos)
+		case new:
+			other = appdirs.Name(goos)
+		default:
+			continue
+		}
+		sibling := path.Join(path.Dir(spelled), other)
+		if k := key(goos, sibling); k != "" && !have[k] {
+			have[k] = true
+			out = append(out, sibling)
+		}
+	}
+	return out
 }

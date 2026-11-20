@@ -94,13 +94,14 @@ The setup page is a set of HTTP calls to Smolcorp on this computer. No file
 holds a key to them: the setup key lives in Smolcorp's memory only, new each
 time it starts, so nothing that can read your files can use it.
 
-- **The checklist.** `smolcorp setup` (on a Mac, `AgentDeck --setup`) reads it
+- **The checklist.** `smolcorp setup` (on a Mac,
+  `/Applications/Smolcorp.app/Contents/MacOS/AgentDeck --setup`) reads it
   with the check-only key, in the `selftest-key` file in Smolcorp's folder. That
   key opens `GET /setup/selftest` and nothing else, sent as
   `X-Smolcorp-Selftest-Key`.
 - **Anything more.** A script asks Smolcorp for a key, as `smolcorp demo`,
   `status` and `desks` do: `POST /terminal/ask?kind=tool` (with
-  `X-AgentDeck-Setup: 1`) answers a ticket and a four-digit code to show. Setup
+  `X-AgentDeck-Setup: 1`, Smolcorp's setup header) answers a ticket and a four-digit code to show. Setup
   then shows the ask with the same code, and once you tick that the codes match
   and click **Allow**, `GET /terminal/ask?ticket=…` answers the key, once. Send
   it as `X-Smolcorp-Setup-Key`; it works until Smolcorp quits. Only

@@ -521,6 +521,7 @@
 (deny file-write-create (require-all (subpath "/private/tmp/smolcorp-501") (vnode-type SYMLINK))) ; no links anywhere in the socket folder
 (deny file-write* file-link (subpath "/private/tmp/tmux-501")) ; tmux's own folder
 (deny file-read-data file-read-xattr file-write* file-link network-outbound (subpath "/Users/ada/Library/Application Support/AgentDeck")) ; another support folder, whole
+(deny file-read-data file-read-xattr file-write* file-link network-outbound (subpath "/Users/ada/Library/Application Support/Smolcorp")) ; the support folder by its other name, whole
 (deny file-write* file-link (regex "^/Users/ada/Projects/smolcorp/\\.dev/support/hires/h1/BRIEF[^/]*\\.md$")) ; its brief and its fence
 (deny file-write* file-link (regex "^/Users/ada/Projects/smolcorp/\\.dev/support/hires/h1/settings\\.json$")) ; its brief and its fence
 (deny file-write* file-link (regex "^/Users/ada/Projects/smolcorp/\\.dev/support/hires/h1/sandbox\\.sb$")) ; its brief and its fence
@@ -1151,6 +1152,8 @@
 (deny file-write-create (require-all (literal "/private/tmp") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/private/tmp/tmux-501")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/private/tmp/tmux-501") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/Smolcorp")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/Smolcorp") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Projects/smolcorp/.dev/support/hires/h1")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/Projects/smolcorp/.dev/support/hires/h1") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Projects/smolcorp/.dev/support/hires")) ; the folders above a denied place can't be moved or removed

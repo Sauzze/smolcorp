@@ -6,7 +6,7 @@ The table that decides who may call what is `desktop/routes.go`. Its copy for te
 
 ## Who is calling
 
-The app tells callers apart by what they send. Every request is local, and has the header `x-agentdeck-setup: 1`.
+The app tells callers apart by what they send. Every request is local, and has the header `x-agentdeck-setup: 1`: Smolcorp's setup header, which kept the app's first name.
 
 | Caller | Sends | Notes |
 |---|---|---|

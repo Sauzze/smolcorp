@@ -175,10 +175,10 @@ func newOffice(work, install string) *office {
 		o.env = append(o.env, name+"="+value)
 	}
 	if runtime.GOOS == "windows" {
-		o.support = filepath.Join(set["APPDATA"], appdirs.Name("windows"))
+		o.support = appdirs.ResolveIn(set["APPDATA"], "windows")
 		o.program = filepath.Join(install, "smolcorp-cli.exe")
 	} else {
-		o.support = filepath.Join(set["XDG_CONFIG_HOME"], appdirs.Name(runtime.GOOS))
+		o.support = appdirs.ResolveIn(set["XDG_CONFIG_HOME"], runtime.GOOS)
 		o.program = filepath.Join(install, "smolcorp")
 	}
 	if _, err := os.Stat(o.program); err != nil {

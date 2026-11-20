@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Sauzze/smolcorp/internal/appdirs"
 )
 
 // WIN125k (RWIN9 B1, B6): ways to reach Claude Code's settings, or the app's support folder, that name neither and use
@@ -95,15 +97,28 @@ func dirTargets(name string, words simple, args []string) (targets []string, two
 }
 
 // dirTargetsFolded are the skeleton targets of a folder that is, or is below, a .claude folder, or could be the app's
-// support folder: three of the letters of application support or sauzzedeck written out (cd ~/Lib*/App*/A*).
+// support folder: three of the letters of application support or sauzzedeck written out (cd ~/Lib*/App*/A*), or of
+// smolcorp right after the folder Linux's or Windows' Smolcorp folder is in (cd ~/.c*/smol*, cd …\Roaming\Smol*). A
+// smolcorp anywhere else is no move into the support folder here (smolcorpParents); a pattern in it is still read for
+// the files it could fill in, as before (supportWords: cd ~/Projects/smol* could be gm-token's folder).
 var dirTargetsFolded = func() []skTarget {
-	return []skTarget{
+	targets := []skTarget{
 		target(0, piece{any: true}, piece{text: "/"}, piece{start: true}, piece{text: ".claude"}),
 		target(0, piece{any: true}, piece{text: "/"}, piece{start: true}, piece{text: ".claude/"}, piece{any: true}),
 		target(3, piece{any: true}, piece{text: "application support", counted: true}, piece{any: true}),
 		target(3, piece{any: true}, piece{text: "sauzzedeck", counted: true}, piece{any: true}),
 	}
+	for _, parent := range smolcorpParents {
+		targets = append(targets, target(3, piece{any: true}, piece{text: "/"}, piece{text: parent + "/"}, piece{text: appdirs.NewLinux, counted: true}, piece{any: true}))
+	}
+	return targets
 }()
+
+// smolcorpParents are the folders, as one path part, that Smolcorp's own support folder (appdirs.NewName) is in, off
+// a Mac (where it is in Application Support, kept whole already): Linux's ~/.config, and Windows' %APPDATA%, spelled
+// out (…\AppData\Roaming) or as cmd and PowerShell name it. A part named smolcorp counts only right after one of
+// them: ~/.config/smolcorp is the support folder, ~/Projects/smolcorp a checkout.
+var smolcorpParents = []string{".config", "roaming", "%appdata%", "$env:appdata", "${env:appdata}"}
 
 // keptDir says whether a folder a command moves into is, or could be, in a .claude folder or the app's support
 // folder: after cleaning it (cleanWord: .claude/., x/..), one of its parts is .claude (as Windows reads it too:
@@ -140,7 +155,8 @@ func keptDirMarked(marked string, unq []bool) bool {
 
 // keptFolderName says whether a folder's path, as written (/ between its parts), has a part that is .claude (as
 // Windows reads it too: .claude. is .claude), Application Support, or sauzzedeck-pro or SauzzeDeck Pro (Linux's and
-// Windows' support folders), or ends in .config (Linux's folder above it), case aside.
+// Windows' support folders), or smolcorp right after .config or Windows' %APPDATA% (Smolcorp's own name for them,
+// smolcorpParents: never a smolcorp folder anywhere else), or ends in .config (Linux's folder above it), case aside.
 func keptFolderName(dir string) bool {
 	parts := strings.Split(Fold(strings.ReplaceAll(dir, `\`, "/")), "/")
 	for i, part := range parts {
@@ -149,6 +165,10 @@ func keptFolderName(dir string) bool {
 			return true
 		case ".config":
 			if i == len(parts)-1 {
+				return true
+			}
+		case appdirs.NewLinux:
+			if i > 0 && slices.Contains(smolcorpParents, strings.TrimRight(parts[i-1], ". ")) {
 				return true
 			}
 		}

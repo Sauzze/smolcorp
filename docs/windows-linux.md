@@ -120,11 +120,11 @@ as above.
 
 Phone lost, or it can't reach this computer over Tailscale? Quit Smolcorp from
 its tray icon (with no tray, run `smolcorp quit`, or `smolcorp-cli quit` on
-Windows), then rename `phones.json` in Smolcorp's folder, for example to
-`phones.json.old`: on Linux the folder is `~/.config/sauzzedeck-pro`, on Windows
-`%AppData%\SauzzeDeck Pro`. That unpairs every phone. Start Smolcorp again:
-**Open Setup…** opens Setup with a link once more, and you can pair your phone
-again.
+Windows), then rename `phones.json` in Smolcorp's folder (on Linux
+`~/.config/sauzzedeck-pro`, on Windows `%AppData%\SauzzeDeck Pro`: the name the
+app had before), for example to `phones.json.old`. That unpairs every phone.
+Start Smolcorp again: **Open Setup…** opens Setup with a link once more, and
+you can pair your phone again.
 
 ### Who can reach Smolcorp (Windows and Linux)
 
@@ -157,7 +157,7 @@ within about 15 seconds, with no restart; if it stops, the address is let go.
   On Linux there's no firewall rule to add: it sets `"listen": "all"` and starts
   Smolcorp again. Run as `smolcorp serve`, under systemd say, or with no display,
   it starts again in place: the same process, which prints its new setup link
-  in its terminal or log, and stops as before. By hand, `"listen": "all"` in `config.json` (in
+  in its terminal or log, and stops as before. By hand, `"listen": "all"` in `config.json` (in Smolcorp's folder,
   `%APPDATA%\SauzzeDeck Pro`, or `~/.config/sauzzedeck-pro` on Linux) does the
   same once Smolcorp starts again, without the firewall's rule. The Mac listens
   on every interface.

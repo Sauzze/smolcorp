@@ -64,6 +64,9 @@ func main() {
 	desktop.Version = version
 	gm.AppVersion = version
 	args := os.Args[1:]
+	if makesSupportFolder(args) {
+		desktop.MakeSupportFolder()
+	}
 	if len(args) == 0 {
 		// The app and the server keep their memory from your other programs as their own first step, and don't
 		// start if they can't (desktop/memory.go).
@@ -130,6 +133,20 @@ func main() {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
+}
+
+// makesSupportFolder says whether a run makes the support folder, if it isn't there, before its command: every run
+// did, as desktop made it when it loaded, but the Mac app's engine (core: the app gives it the folder to use) and
+// version and help, which keep nothing.
+func makesSupportFolder(args []string) bool {
+	if len(args) == 0 {
+		return true
+	}
+	switch args[0] {
+	case "core", "version", "--version", "help", "--help", "-h":
+		return false
+	}
+	return true
 }
 
 // protect keeps the guard's memory from your other programs, as far as the system lets it (internal/procmem), before

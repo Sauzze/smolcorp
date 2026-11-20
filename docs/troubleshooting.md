@@ -91,8 +91,8 @@ closes: quit the other one and open Smolcorp again.
 1. On the setup page, click **Disconnect** next to your coding agents, and turn
    off **Open at login**.
 2. Quit Smolcorp from the menu bar.
-3. Delete **Smolcorp** from Applications, and the folder
-   `~/Library/Application Support/AgentDeck`. It kept the app's original name.
+3. Delete **Smolcorp** from Applications, and Smolcorp's folder,
+   `~/Library/Application Support/AgentDeck`, which kept the app's original name.
 4. If you installed the screen saver, choose another one in System Settings →
    Screen Saver, then delete **Smolcorp Office.saver** from
    `~/Library/Screen Savers`, and the files starting with
