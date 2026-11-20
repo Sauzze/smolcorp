@@ -72,8 +72,11 @@ type demoMember struct {
 	State      string `json:"state"`
 }
 
+// newOfficeTeam asks Setup where Setup is, 127.0.0.1 (setupBase), never localhost: a GET there is sent on to 127.0.0.1,
+// and Go's client follows with a Referer of localhost, which Setup refuses as another page (setupAskedByAnotherPage).
+// Every demo on 1.26.0 (40) stopped so right after Allow, at its first GET (FXDEMO126).
 func newOfficeTeam() *officeTeam {
-	return &officeTeam{base: localBase(), key: askedOnce(askDemoKey),
+	return &officeTeam{base: setupBase(), key: askedOnce(askDemoKey),
 		http: &http.Client{Timeout: time.Minute}, start: startApp, every: 3 * time.Second, wait: demoHireWait}
 }
 
