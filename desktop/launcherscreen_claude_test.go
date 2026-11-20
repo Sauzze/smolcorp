@@ -211,6 +211,8 @@ func TestScreenDrawsEachSequenceClaudeCodeAndConPTYSend(t *testing.T) {
 		{"synchronized output", 1, 5, "\x1b[?2026hab\x1b[?2026l", "ab"},
 		{"wide characters take two cells", 1, 10, "漢字\x1b[1;6Hx", "漢字 x"},
 		{"a full reset", 2, 5, "ab\x0e\x1bcxy", "xy\n"},
+		{"save and restore the cursor (ESC 7, ESC 8)", 3, 10, "ab\x1b7\x1b[3;5Hxy\x1b8c", "abc\n\n    xy"},
+		{"restore with nothing saved goes home", 2, 10, "ab\x1b8c", "cb\n"},
 	} {
 		s := drawn(t, c.rows, c.cols, c.out)
 		if got := s.Text(); got != c.want || s.Unknown() {
@@ -224,8 +226,6 @@ func TestScreenDrawsEachSequenceClaudeCodeAndConPTYSend(t *testing.T) {
 		rows, cols int
 		out, want  string
 	}{
-		{"save and restore the cursor (ESC 7, ESC 8)", 3, 10, "ab\x1b7\x1b[3;5Hxy\x1b8c", "abc\n\n    xy"},
-		{"restore with nothing saved goes home", 2, 10, "ab\x1b8c", "cb\n"},
 		{"save and restore the cursor (CSI s, CSI u)", 3, 10, "ab\x1b[s\x1b[3;5Hxy\x1b[uc", "abc\n\n    xy"},
 		{"insert lines", 4, 5, "a\r\nb\r\nc\r\nd\x1b[2;3H\x1b[1Lx", "a\nx\nb\nc"},
 		{"delete lines", 4, 5, "a\r\nb\r\nc\r\nd\x1b[2;3H\x1b[2Mx", "a\nx\n\n"},
@@ -259,17 +259,18 @@ func TestScreenDrawsEachSequenceClaudeCodeAndConPTYSend(t *testing.T) {
 
 // A sequence off the allow-list that changes no cell (FXWINSCREENR3): the reports and settings ConPTY and Claude
 // Code send as they start break the screen until a full redraw (their clear); any other report, setting or string
-// until a full reset, as of unknown effect (Windows 10's conhost prints a DCS's, SOS's, PM's or APC's body).
+// until a full reset, as of unknown effect (Windows 10's conhost prints a DCS's, SOS's, PM's or APC's body). DA1
+// and XTVERSION asked in Claude Code's own spelling are on the list (FXSCREENSTART126R2); spelled otherwise, not.
 func TestScreenSkipsAnUnknownSequenceThatDrawsNothing(t *testing.T) {
 	idle := ptyOutput(pane(t, "idle-empty"))
 	for _, c := range []struct {
 		seqs  []string
 		heals bool // a full redraw brings the screen back
 	}{
-		{[]string{"\x1b[c", "\x1b[0c", "\x1b[>0q", "\x1b[6n", "\x1b[5n", "\x1b[?2026$p", "\x1b[18t", "\x1b[8;60t", "\x1b[>4;2m",
+		{[]string{"\x1b[00c", "\x1b[>00q", "\x1b[>1q", "\x1b[6n", "\x1b[5n", "\x1b[?2026$p", "\x1b[18t", "\x1b[8;60t", "\x1b[>4;2m",
 			"\x1b[>1u", "\x1b[?9001h", "\x1b[0 q"}, true},
 		{[]string{"\x1b[>c", "\x1b[=c", "\x1b[?996n", "\x1b[=1;1u", "\x1b[>1p", "\x1bP+q544e\x1b\\", "\x1bP$q\x07m\x1b\\",
-			"\x1b_Gi=1,a=q\x1b\\", "\x1b^pm\x1b\\", "\x1bXsos\x1b\\", "\x1b]8;;http://x\x07", "\x1b]1;icon\x07"}, false},
+			"\x1b_Gi=1,a=q\x1b\\", "\x1b^pm\x1b\\", "\x1bXsos\x1b\\", "\x1b]52;c;aGk=\x07", "\x1b]1;icon\x07", "\x1b[?0u"}, false},
 	} {
 		for _, seq := range c.seqs {
 			s := drawn(t, 60, 200, seq+idle)
@@ -282,6 +283,12 @@ func TestScreenSkipsAnUnknownSequenceThatDrawsNothing(t *testing.T) {
 			if s.Write([]byte("\x1bc" + idle)); s.Unknown() || s.PaneState() != PaneIdle {
 				t.Errorf("%q, then a full reset: unknown %v, state %v", seq, s.Unknown(), s.PaneState())
 			}
+		}
+	}
+	// DA1 and XTVERSION asked exactly as Claude Code asks them (FXSCREENSTART126R2): on the list, known.
+	for _, seq := range []string{"\x1b[c", "\x1b[0c", "\x1b[>0q"} {
+		if s := drawn(t, 60, 200, seq+idle); s.Unknown() || s.PaneState() != PaneIdle {
+			t.Errorf("%q: %v, unknown %v, why %q", seq, s.PaneState(), s.Unknown(), s.Why())
 		}
 	}
 	// A DCS ends only at its string terminator: a BEL inside it doesn't end it, so what follows it is drawn.

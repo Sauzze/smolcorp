@@ -79,11 +79,11 @@ func TestScreenStaysUnknownWhenABreakChangedWhatARedrawKeeps(t *testing.T) {
 	if s.Write([]byte("\x1b(B\x1b[2J\x1b[H" + idle)); s.Unknown() || s.PaneState() != PaneIdle {
 		t.Errorf("ASCII again, then a full redraw: %v unknown %v", s.PaneState(), s.Unknown())
 	}
-	// A cursor saved while known and restored is drawn where a terminal puts it, but ESC 7 and ESC 8 are off the
-	// allow-list (FXWINSCREENR4): unknown until the next full redraw.
+	// A cursor saved while known and restored with the same pen and no region is drawn where xterm and conhost put
+	// it: ESC 7 and ESC 8 are on the allow-list so (FXSCREENSTART126R2), and the draft reads at once.
 	s = drawn(t, 10, 40, "\x1b[2J\x1b[H"+boxAt(6, "❯")+"\x1b[7;3H\x1b7\x1b[1;1Hspin\x1b8hello")
-	if !s.Unknown() || !strings.Contains(s.Text(), "\n❯ hello\n") {
-		t.Errorf("a cursor saved while known: %q unknown %v", s.Text(), s.Unknown())
+	if s.Unknown() || s.PaneState() != PaneDraft || !strings.Contains(s.Text(), "\n❯ hello\n") {
+		t.Errorf("a cursor saved while known: %q, %v, unknown %v, why %q", s.Text(), s.PaneState(), s.Unknown(), s.Why())
 	}
 	if s.Write([]byte("\x1b[2J\x1b[H" + boxAt(6, "❯"))); s.Unknown() || s.PaneState() != PaneIdle {
 		t.Errorf("a cursor saved while known, then a full redraw: %v unknown %v", s.PaneState(), s.Unknown())

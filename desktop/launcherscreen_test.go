@@ -114,9 +114,10 @@ func TestScreenScrollsAtTheBottomWrapsAndTabs(t *testing.T) {
 	if got := s.Text(); got != "hi\n" || s.Unknown() {
 		t.Errorf("titles skipped: %q, unknown %v", got, s.Unknown())
 	}
-	// Any OSC but a title is off the allow-list (FXWINSCREENR3): of unknown effect.
-	if s = drawn(t, 2, 10, "\x1b]8;;http://x\x07hi"); s.Text() != "hi\n" || !s.Unknown() {
-		t.Errorf("a link: %q, unknown %v", s.Text(), s.Unknown())
+	// Any other OSC is off the allow-list (FXWINSCREENR3): of unknown effect. (A link, OSC 8, joined the titles on
+	// it in FXSCREENSTART126.)
+	if s = drawn(t, 2, 10, "\x1b]52;c;aGk=\x07hi"); s.Text() != "hi\n" || !s.Unknown() {
+		t.Errorf("the clipboard set: %q, unknown %v", s.Text(), s.Unknown())
 	}
 }
 

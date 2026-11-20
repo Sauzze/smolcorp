@@ -213,8 +213,10 @@ func TestScreenTakesTheSequencesConPTYSendsAndBreaksOnTheRest(t *testing.T) {
 		{"DECSTBM, valid", "\x1b[2;60r\x1b[1;2r\x1b[r", 0},
 		{"ICH and DCH", "\x1b[3;3H\x1b[2@\x1b[2P", 0},
 		{"the window's size said, the screen's own", "\x1b[8;60;200t", 0},
-		{"ESC 7, ESC 8", "\x1b[3;3H\x1b7\x1b8", 1},
-		{"ESC 7 alone", "\x1b7", 1},
+		{"ESC 7, ESC 8", "\x1b[3;3H\x1b7\x1b8", 0},
+		{"ESC 7 alone", "\x1b7", 0},
+		{"ESC 8 with a scroll region set", "\x1b[2;59r\x1b[3;3H\x1b7\x1b8\x1b[r", 1},
+		{"ESC 8 with another style saved", "\x1b[3;3H\x1b[2m\x1b7\x1b[22m\x1b8\x1b[22m", 1},
 		{"CSI s, CSI u", "\x1b[3;3H\x1b[s\x1b[u", 1},
 		{"SU and SD inside a region of part of the screen (RT126WINSCREENR4 N2)", "\x1b[1;30r\x1b[30;1H\x1b[3S\x1b[29T\x1b[r", 1},
 		{"SU with the cursor outside the region", "\x1b[1;30r\x1b[40;1H\x1b[S\x1b[r", 1},
@@ -236,7 +238,7 @@ func TestScreenTakesTheSequencesConPTYSendsAndBreaksOnTheRest(t *testing.T) {
 		{"an APC", "\x1b_Ga=q\x1b\\", 2},
 		{"an SOS", "\x1bXa\x1b\\", 2},
 		{"a PM", "\x1b^a\x1b\\", 2},
-		{"an OSC other than a title", "\x1b]8;;http://x\x1b\\", 2},
+		{"an OSC off the list", "\x1b]52;c;aGk=\x1b\\", 2},
 		{"a region kept through a switch of screens", "\x1b[1;30r\x1b[?1049h\x1b[?1049l\x1b[r", 2},
 	} {
 		s := drawn(t, 60, 200, box+c.out)

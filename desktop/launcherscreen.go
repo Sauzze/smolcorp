@@ -23,8 +23,9 @@ import (
 //     terminal): a full redraw brings the page back, that is an erase of the
 //     whole screen (CSI 2J) and then the cursor put at a known place (CSI H),
 //     or the alternate screen entered fresh (CSI ?1049h). A cursor saved
-//     meanwhile is the terminal's, not the screen's: restoring it breaks the
-//     page again.
+//     meanwhile (ESC 7 while the page is broken) may be elsewhere in the
+//     terminal than on the screen: restoring it breaks the page again, even
+//     after the redraw.
 //   - Of unknown effect (any other sequence, a mode not on the list, a
 //     string other than a title): it may have changed what a terminal keeps
 //     through a redraw (the saved cursors, the scroll region, the tab stops,
@@ -109,11 +110,22 @@ import (
 //     only while no region of part of the screen is set).
 //   - SGR (m), colon forms included: styles only, no cell moves. Faint is
 //     kept for Claude Code's grey suggestion (panestyle.go).
+//   - The questions Claude Code asks as it starts, each only in the exact
+//     form it sends (2.1.329): the device's attributes (DA1, CSI c or
+//     CSI 0c), which xterm and conhost both answer on input; the terminal's
+//     version (XTVERSION, CSI >q or CSI >0q), which xterm answers and conhost
+//     ignores as a CSI it doesn't know; and the kitty keyboard's flags (CSI ?u,
+//     no number), which xterm and conhost read with ? as a private marker, so
+//     never as CSI u (the cursor restored), and answer or ignore. No cell
+//     changes on either. Any other spelling (CSI 00c, CSI >1q, CSI ?0u) stays
+//     off the list, and a ?u with a number in it (?5u) is no question.
 //   - The private modes known to draw nothing, set or reset: the cursor
 //     shown (?25), bracketed paste (?2004), synchronized output (?2026),
-//     focus reports (?1004) and the mouse reports (?9, ?1000, ?1002, ?1003,
-//     ?1005, ?1006, ?1015, ?1016). They change what the terminal sends, or
-//     when it paints, never a cell.
+//     focus reports (?1004), the mouse reports (?9, ?1000, ?1002, ?1003,
+//     ?1005, ?1006, ?1015, ?1016) and the colour palette's updates (?2031,
+//     a theme change reported as CSI ?997;1n or 2n; Claude Code sets it as
+//     it starts from 2.1.327 at least). They change what the terminal sends,
+//     or when it paints, never a cell.
 //   - The alternate screen (?1049h from the main screen, ?1049l back from
 //     it): entering saves the cursor and shows a blank page with the cursor
 //     where it was; leaving shows the main page as it was and restores the
@@ -128,14 +140,45 @@ import (
 // Other:
 //   - A title (OSC 0 or OSC 2, ended by BEL or ST, with no control inside):
 //     xterm and conhost both set the window's title and draw nothing.
+//   - The same, ended so and with no control inside, for the other strings
+//     Claude Code sends as it starts (2.1.329), known to draw nothing on xterm
+//     and on conhost: the background colour asked (OSC 11, its body exactly
+//     11;?), which a terminal answers or ignores; Claude Code's own question
+//     (OSC 7501, its body exactly 7501;?), a number both ignore, as they
+//     ignore any OSC they don't know; and a link opened (OSC 8;params;URI)
+//     or closed (OSC 8;;), whose text between the two is ordinary text,
+//     drawn as text. Any other body of OSC 11 or 7501 (a colour set, say),
+//     and any other OSC, stays off the list.
+//   - The cursor saved and restored (ESC 7, ESC 8: DECSC, DECRC), with the
+//     screen's own saved cursor per page. Both terminals keep the position
+//     (xterm by screen row; conhost relative to the viewport, which in ConPTY
+//     is the page), and text that scrolls moves it on neither. With nothing
+//     saved, ESC 8 goes home in the plain style with origin and the character
+//     sets off, on xterm and on current conhost (an empty saved cursor there
+//     is row 1, column 1, default attributes). What the screen can't be sure
+//     a terminal restores alike stays off the list, so the restore breaks the
+//     page until a full redraw: a cursor saved while the page was broken,
+//     with a wrap unsure, before a resize, or on the alternate page before
+//     leaving it (unsure); one saved after the last column (whether the
+//     deferred wrap comes back differs); on the alternate page, one it never
+//     saved; a restore with a scroll region set (both restore by absolute
+//     position with origin off, but kept off to be safe); and a saved style
+//     other than the pen (xterm and current conhost restore it, Windows 10's
+//     conhost may keep the position only, and faint is what tells a draft
+//     from a suggestion), so a known restore leaves the pen as it was on any
+//     of them. A save while the page is known carries no followed mode (one
+//     on means the page is broken), so a known restore turns none on; one
+//     that turns a mode off still breaks the page.
 //   - The full redraw: CSI 2J, then CSI H (or CSI f). Every visible cell is
 //     blank on both and the cursor is put at a known place.
 //   - The full reset, ESC c: both reset every mode, the region, the tab
-//     stops and the character sets, and leave the alternate screen.
+//     stops and the character sets, and leave the alternate screen, and
+//     clear the saved cursor.
 //
-// Off the list still: the cursor saved and restored (ESC 7, ESC 8, CSI s,
-// CSI u). The screen keeps a saved cursor per page, but no review has passed
-// that as what both terminals do, so each breaks the page until a full redraw.
+// Off the list still: the cursor saved and restored by CSI s and CSI u. CSI s
+// is also how a terminal with left and right margins (?69) sets them, and
+// CSI u also the kitty keyboard's spelling, so each breaks the page until a
+// full redraw, and a CSI s with numbers leaves the saved cursor unsure.
 //
 // The launcher feeds it through a launcherScreen (launcherlook.go), which
 // holds the lock. Not safe for concurrent use by itself.
@@ -612,12 +655,17 @@ func (s *textScreen) feed(b byte) {
 			s.mode = modeCharset
 		case ')':
 			s.mode = modeCharset1
-		case '7': // the cursor saved and restored: off the list (see above), until a full redraw
-			s.breakCells("ESC 7")
+		case '7': // the cursor saved (DECSC): on the list, see above
 			s.saveCursor()
-		case '8': // restored first, so the page names why the cursor was unsure, if it was
+		case '8': // restored (DECRC): on the list, but with a region set or another style saved (see above)
+			region, style := s.top != 0 || s.bottom != s.rows-1, s.saved.pen != s.pen
 			s.restoreCursor()
-			s.breakCells("ESC 8")
+			switch {
+			case region:
+				s.breakCells("ESC 8 with a scroll region set")
+			case style:
+				s.breakCells("ESC 8 with another style saved")
+			}
 		case 'D': // index, next line, reverse index: off the list, cells and the cursor only
 			s.breakCells("ESC D")
 			s.endWrapUnsure()
@@ -853,10 +901,12 @@ func (p *screenPage) fill(row, from, to int) {
 // Neutral and not an emoji, so one cell in xterm's, conhost's and Windows
 // Terminal's width tables alike, whatever the font: the no-break space after
 // ❯, ⎿ (a tool's result), ⏵ (the footer's mode), ╌ (a dialog's dashed rule),
-// the logo's ▐ ▛ ▜ ▝, the spinner's ✢ ✶ ✻, and ❯ (the box's prompt).
+// the logo's ▐ ▛ ▜ ▝ and ▟ (2.1.329), the onboarding banner's light shade ░
+// (2.1.329), the spinner's ✢ ✶ ✻, and ❯ (the box's prompt). ░'s neighbours
+// ▒ ▓ and the blocks ▀..▏ are Ambiguous instead, so in screenAmbiguous.
 var screenGlyphs = map[rune]bool{
-	0x00a0: true, 0x23bf: true, 0x23f5: true, 0x254c: true, 0x2590: true, 0x259b: true, 0x259c: true,
-	0x259d: true, 0x2722: true, 0x2736: true, 0x273b: true, 0x276f: true,
+	0x00a0: true, 0x23bf: true, 0x23f5: true, 0x254c: true, 0x2590: true, 0x2591: true, 0x259b: true, 0x259c: true,
+	0x259d: true, 0x259f: true, 0x2722: true, 0x2736: true, 0x273b: true, 0x276f: true,
 }
 
 // screenFrenchSpacing: what a reply in proper French typography holds besides
@@ -1119,9 +1169,14 @@ func (s *textScreen) csi(final byte) {
 	case 'm': // colours and styles move nothing, so keep a pending wrap
 		return
 	case 'n', 'c':
-		// The reports ConPTY and Claude Code ask of the terminal as they
-		// start (DSR 5n, 6n; DA1 c, 0c): off the list, but known to draw
-		// nothing, so until a full redraw. Any other is of unknown effect.
+		// DA1 asked exactly as Claude Code asks it (CSI c, CSI 0c) is on
+		// the list (see above). The reports ConPTY asks of the terminal as
+		// it starts (DSR 5n, 6n), and DA1 spelled otherwise (CSI 00c): off
+		// the list, but known to draw nothing, so until a full redraw. Any
+		// other is of unknown effect.
+		if final == 'c' && (len(s.params) == 0 || string(s.params) == "0") {
+			return // DA1 asked as Claude Code asks it: on the list, see above
+		}
 		if len(nums) <= 1 && (final == 'n' && (arg(0, 0) == 5 || arg(0, 0) == 6) || final == 'c' && arg(0, 0) == 0) {
 			s.breakCells(s.csiName(final))
 		} else {
@@ -1540,24 +1595,31 @@ func (s *textScreen) alternate(on bool) {
 
 // screenQuietModes: the private modes on the allow-list, known to draw
 // nothing on xterm or conhost (see the list above): the cursor shown, focus
-// reports, synchronized output and the mouse reports. Bracketed paste (2004)
-// and the alternate screen (1049) are apart.
+// reports, synchronized output, the mouse reports and the colour palette's
+// updates. Bracketed paste (2004) and the alternate screen (1049) are apart.
 var screenQuietModes = map[int]bool{
 	25: true, 1004: true, 2026: true, 9: true, 1000: true, 1002: true, 1003: true, 1005: true, 1006: true,
-	1015: true, 1016: true,
+	1015: true, 1016: true, 2031: true,
 }
 
 // csiPrivate: CSI ? ... h/l (modes), and the private CSIs ConPTY and Claude
-// Code send as they start; any other is of unknown effect. Those are off the
-// list but known to draw nothing, so they break the page until a full
-// redraw: win32 input (?9001h, which conhost on Windows 11 takes and xterm
-// and Windows 10's conhost ignore), a mode's state asked (DECRQM ?…$p), the
-// terminal's version asked (XTVERSION >q), the kitty keyboard (>…u) and
-// modifier keys (XTMODKEYS >…m).
+// Code send as they start; any other is of unknown effect. The terminal's
+// version asked exactly as Claude Code asks it (XTVERSION >q, >0q) and the
+// kitty keyboard's flags asked (?u with no number, which Claude Code sends
+// from 2.1.329 at least where it used to send >1u) are on the list (see
+// above). The others are off the list but known to draw nothing, so they
+// break the page until a full redraw: win32 input (?9001h, which conhost on
+// Windows 11 takes and xterm and Windows 10's conhost ignore), a mode's state
+// asked (DECRQM ?…$p), XTVERSION spelled otherwise (>00q, >1q), the kitty
+// keyboard (>…u) and modifier keys (XTMODKEYS >…m). A ?u with a number in it
+// (?0u, ?5u) is no question and stays of unknown effect.
 func (s *textScreen) csiPrivate(prefix byte, params string, final byte) {
 	name := "CSI " + string(prefix) + params[:min(len(params), 24)] + byteName(final)
 	numbers := strings.Trim(params, "0123456789;") == ""
 	switch {
+	case prefix == '>' && final == 'q' && (params == "" || params == "0"),
+		prefix == '?' && final == 'u' && params == "":
+		return // XTVERSION and the kitty keyboard's flags asked: on the list, see above
 	case prefix == '?' && (final == 'h' || final == 'l'):
 		// Numbers, as a terminal reads them: ?01049l is 1049.
 		on := final == 'h'
@@ -1607,25 +1669,30 @@ func (s *textScreen) csiPrivate(prefix byte, params string, final byte) {
 }
 
 // stringEnded: a string (OSC, DCS, SOS, PM, APC) ended, at its terminator or
-// cut off by another sequence (terminated false). A title (OSC 0 or 2, with
-// no control byte in it) ended at its terminator is on the list; one cut off
-// breaks the page until a full redraw. Any other string is of unknown effect:
-// a DCS or APC may draw an image or restore modes where a terminal has it,
-// and Windows 10's conhost, which has no DCS, SOS, PM or APC, prints the body.
+// cut off by another sequence (terminated false). An OSC known to draw
+// nothing (screenQuietOSC, with no control byte in it) ended at its
+// terminator is on the list; one cut off breaks the page until a full
+// redraw. Any other string is of unknown effect: a DCS or APC may draw an
+// image or restore modes where a terminal has it, and Windows 10's conhost,
+// which has no DCS, SOS, PM or APC, prints the body.
 func (s *textScreen) stringEnded(terminated bool) {
 	head := string(s.strHead)
-	if s.str == ']' && !s.strCtl && (strings.HasPrefix(head, "0;") || strings.HasPrefix(head, "2;")) {
-		if !terminated {
+	n := strings.IndexFunc(head, func(r rune) bool { return r < '0' || r > '9' })
+	if n < 0 {
+		n = len(head)
+	}
+	if s.str == ']' && !s.strCtl && screenQuietOSC(head) {
+		switch {
+		case terminated:
+		case strings.HasPrefix(head, "0;") || strings.HasPrefix(head, "2;"):
 			s.breakCells("a title cut off by another sequence")
+		default:
+			s.breakCells("OSC " + head[:n] + " cut off by another sequence")
 		}
 		return
 	}
 	switch s.str {
 	case ']':
-		n := strings.IndexFunc(head, func(r rune) bool { return r < '0' || r > '9' })
-		if n < 0 {
-			n = len(head)
-		}
 		s.breaks("OSC " + head[:min(n, 8)])
 	case 'P':
 		s.breaks("DCS " + dcsName(s.strHead))
@@ -1640,6 +1707,22 @@ func (s *textScreen) stringEnded(terminated bool) {
 	default:
 		s.breaks("PM")
 	}
+}
+
+// screenQuietOSC: an OSC's body (its first screenMaxHead bytes) is one on the
+// list, known to draw nothing on xterm and conhost (see the list above): a
+// title (0 or 2), a link opened or closed (8;params;URI, the second ; inside
+// those bytes), or exactly the background colour asked (11;?) or Claude Code's
+// own question (7501;?). A body as long as the bytes kept is never one of the
+// last two, since it holds more than they do.
+func screenQuietOSC(head string) bool {
+	switch {
+	case strings.HasPrefix(head, "0;"), strings.HasPrefix(head, "2;"):
+		return true
+	case strings.HasPrefix(head, "8;"):
+		return strings.IndexByte(head[2:], ';') >= 0
+	}
+	return head == "11;?" || head == "7501;?"
 }
 
 // dcsIntro splits a DCS's start into its parameters (0x30..0x3F), its
