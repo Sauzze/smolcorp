@@ -71,9 +71,11 @@ func TestOnlyTheOfficeWindowsPageFramesAPreview(t *testing.T) {
 			}
 		}
 	}
-	// The window's key on this computer, as the Mac app's window or a browser here: never a phone, the Windows
-	// window's paired device, a proxy's made-up headers, or the window's key from the Wi-Fi.
-	if want := []string{"window", "browser", "window-mac-app"}; !slices.Equal(framing, want) {
+	// The window's key on this computer, as the Mac app's window or a browser here, and the key of Windows' own window
+	// (its device, which reads the window's routes since FXTALKFIX): never a phone, a proxy's made-up headers, or the
+	// window's key from the Wi-Fi. Windows' window loads its page alone (?deck), with no key, so its page frames
+	// nothing all the same (the next check).
+	if want := []string{"window", "window-device", "browser", "window-mac-app"}; !slices.Equal(framing, want) {
 		t.Errorf("the pages that may frame a preview are %v's, want %v's", framing, want)
 	}
 	// Those checked above include a stranger, the phones, the window's key from the Wi-Fi and the Windows window's

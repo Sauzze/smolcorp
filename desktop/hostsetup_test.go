@@ -109,7 +109,7 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 		return bridgeAnswer{OK: true, Abilities: said}, nil
 	case "bots-resolve":
 		return bridgeAnswer{OK: true, Resolved: make([]*botResolution, len(request.Bots))}, nil
-	case "office", "office-ontop", "office-key", "folder-panel-close":
+	case "office", "office-ontop", "office-key", "folder-panel-close", "settings":
 		return bridgeAnswer{OK: true}, nil
 	case "login-item":
 		if request.On != nil {

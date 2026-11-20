@@ -235,12 +235,15 @@ func wantChecks() []string {
 	return append(ids, "phone", "login", "sandbox", "limits") // the sandbox's line before the limits (SA-X14)
 }
 
-// Linux's line for the hires' sandbox (L1APPARMOR1) is the start's own check: ticked when it passes; in the way when
-// it doesn't, so the checklist isn't ready, with why and the one command, whole. Not on a Mac or Windows, whose
-// sandbox line is Setup's Sandbox row's alone (SA-X14; MSYSTACK4: one line per system, sandboxLine).
+// Linux's line for the hires' sandbox (L1APPARMOR1), once Linux desks start in their sandbox (SA-L4; played here), is
+// the start's own check: ticked when it passes; in the way when it doesn't, so the checklist isn't ready, with why
+// and the one command, whole. Not on a Mac or Windows, whose sandbox line is Setup's Sandbox row's alone (SA-X14;
+// MSYSTACK4: one line per system, sandboxLine). Until then, Linux's line is the row's alone too (FXLINUXCLAIMS:
+// TestOnLinuxWithNoDeskInASandboxSetupNeverAsksForBubblewrap).
 func TestTheChecklistShowsTheSandboxsOneCommandOnLinux(t *testing.T) {
 	saved, savedCheck := setupSystem, checkSandbox
 	t.Cleanup(func() { setupSystem, checkSandbox = saved, savedCheck })
+	playSandboxedHere(t, true)
 	setupSystem = "linux"
 	checkSandbox = func() error { return fmt.Errorf("%w: smolcorp-bwrap isn't loaded", sandbox.ErrNoProfile) }
 	d := newTestDeck(t)

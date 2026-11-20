@@ -97,7 +97,7 @@ func TestTheGMHireAnswersAndRefusesAsTheFixtureDoes(t *testing.T) {
 		}
 	}
 	if hires := registered(t); code != f.Answer.Status || len(got) != len(f.Answer.Body)+extra || extra > 2 || got["ok"] != true || got["session"] != nil || got["desk"] != 0.0 ||
-		len(hires) != 1 || hires[0].Role != "janitor" || hires[0].Worktree == "" || !r.tmux.ran("new-session") {
+		len(hires) != 1 || hires[0].Role != "janitor" || hires[0].Worktree.none() || !r.tmux.ran("new-session") {
 		t.Errorf("answer %d %q, registry %+v: want %d, ok, desk 0, no session, a worktree hire by the engine", code, text, hires, f.Answer.Status)
 	}
 }
@@ -110,21 +110,22 @@ func TestTheGMHireAnswerSaysWhereTheHireWorks(t *testing.T) {
 	var got struct{ WorksIn, Branch string }
 	json.Unmarshal([]byte(text), &got)
 	hires := registered(t)
-	if code != http.StatusOK || len(hires) != 1 || hires[0].Worktree == "" {
+	if code != http.StatusOK || len(hires) != 1 || hires[0].Worktree.none() {
 		t.Fatalf("answer %d %q, registry %+v", code, text, hires)
 	}
-	if got.WorksIn != hires[0].Worktree || got.Branch != hires[0].Branch || got.Branch == "" || physical(got.WorksIn) == physical(r.repo) {
+	if got.WorksIn != hires[0].Worktree.storedOnly() || got.Branch != hires[0].Branch || got.Branch == "" || physical(got.WorksIn) == physical(r.repo) {
 		t.Errorf("worksIn %q branch %q: want the hire's worktree %q on %q, not the folder %q", got.WorksIn, got.Branch, hires[0].Worktree, hires[0].Branch, r.repo)
 	}
-	if !strings.Contains(got.WorksIn, "-hires") {
-		t.Errorf("worksIn %q isn't in <folder>-hires", got.WorksIn)
+	// In the folder hires' worktrees are made in: on a Mac the core's own (FXCOREWORKTREES126), else <folder>-hires.
+	if filepath.Dir(got.WorksIn) != physical(hiresFolder(physical(r.repo), "")) {
+		t.Errorf("worksIn %q isn't in %s", got.WorksIn, hiresFolder(physical(r.repo), ""))
 	}
 }
 
 // Only the GM and the page, the manager on, and never the gm role for the GM's token.
 func TestTheGMHireCallersAndTheGMRole(t *testing.T) {
 	d, r, h, token := gmHireDeck(t)
-	writeRegistry(t, Hire{ID: "a1b2c3", Name: "Rev", Folder: "/w", Role: "reviewer", State: "working"})
+	writeRegistry(t, Hire{ID: "a1b2c3", Name: "Rev", Folder: keptPath("/w"), Role: "reviewer", State: "working"})
 	key, err := newSendKey(registryPath(), "a1b2c3")
 	if code, _ := postGMHire(t, d, asHireCaller, key, `{"role":"janitor"}`); err != nil || code != http.StatusForbidden {
 		t.Errorf("a hire's token: %d (key error %v), want 403", code, err)
@@ -141,7 +142,7 @@ func TestTheGMHireCallersAndTheGMRole(t *testing.T) {
 	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"gm"}`); code != http.StatusConflict || text != onlyOwnerHiresGMRefusal {
 		t.Errorf("no GM yet: %d %q, want %q", code, text, onlyOwnerHiresGMRefusal)
 	}
-	writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: "/w", Role: "gm", State: "working"})
+	writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: keptPath("/w"), Role: "gm", State: "working"})
 	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"gm"}`); code != http.StatusConflict || text != secondGMRefusal {
 		t.Errorf("a GM is working: %d %q, want %q", code, text, secondGMRefusal)
 	}
@@ -176,16 +177,17 @@ func TestTheGMHireFolder(t *testing.T) {
 		}
 		if hires := registered(t); c.status != 200 {
 			nothingMade(t, r, h)
-		} else if len(hires) != 1 || (strings.TrimSpace(c.folder) != "" && physical(hires[0].Folder) != physical(at(c.folder))) || physical(hires[0].Folder) == physical(homeDir) {
+		} else if len(hires) != 1 || (strings.TrimSpace(c.folder) != "" && physical(hires[0].Folder.storedOnly()) != physical(at(c.folder))) || physical(hires[0].Folder.storedOnly()) == physical(homeDir) {
 			t.Errorf("%s: registry %+v", c.name, hires)
 		}
 	}
 }
 
-// What the Go path can't honour is refused naming the field; what's already so is honoured; a floor is the hire's, on its first free desk.
+// What the Go path can't honour is refused naming the field, and a model or nickname that isn't one is refused in
+// setup's words, naming it; what's already so is honoured; a floor is the hire's, on its first free desk.
 func TestTheGMHireFieldsAndFloor(t *testing.T) {
 	d, r, h, token := gmHireDeck(t)
-	for field, value := range map[string]string{"model": `"opus"`, "nickname": `"Ada"`, "apiKey": `true`,
+	for field, value := range map[string]string{"model": `"op us"`, "nickname": `"Ada\nLovelace"`, "apiKey": `true`,
 		"worktree": `false`, "answers": `["a"]`, "floor": `6`, "floor ": `"2"`} {
 		code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","`+strings.TrimSpace(field)+`":`+value+`}`)
 		if code != http.StatusBadRequest || !strings.Contains(text, field) && field != "floor" || strings.Contains(text, "\n") {
@@ -193,8 +195,8 @@ func TestTheGMHireFieldsAndFloor(t *testing.T) {
 		}
 	}
 	for range 20 { // several at once: the field named is always the first in the order the route checks them
-		if _, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","answers":["a"],"worktree":false,"nickname":"Ada","model":"opus"}`); !strings.Contains(text, `"model"`) {
-			t.Fatalf("with several refused, the 400 names %q, want model", text)
+		if _, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","answers":["a"],"worktree":false,"nickname":"Ada","model":"opus"}`); !strings.Contains(text, `"worktree"`) {
+			t.Fatalf("with several refused, the 400 names %q, want worktree", text)
 		}
 	}
 	// The account is honoured as the Mac's route honours it: one that isn't saved is said, in the Mac's words.
@@ -218,7 +220,7 @@ func TestTheGMHireFieldsAndFloor(t *testing.T) {
 	if seat.floor != 2 || seat.desk != 0 {
 		t.Errorf("the hire's seat is %+v, want floor 2, desk 0", seat)
 	}
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","engine":""}`); code != http.StatusOK || len(registered(t)) != 2 || registered(t)[1].Engine == t3Engine {
 		t.Errorf(`engine "": %d %q, registry %+v, want a terminal hire`, code, text, registered(t))
 	}
@@ -257,7 +259,7 @@ func TestTheGMHireHonoursATaskAndAnAccount(t *testing.T) {
 	work := claudeFolder(t, filepath.Join(homeDir, "accounts", "work"), "settings.json", ".claude.json")
 	d.config.ClaudeProfiles = []claudeProfile{{Name: "work", Dir: work}}
 	for i, account := range []string{"work", "default"} {
-		d.lastHire = time.Time{}
+		d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 		if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","account":"`+account+`"}`); code != http.StatusOK {
 			t.Fatalf("on %s: %d %q", account, code, text)
 		}
@@ -343,6 +345,9 @@ func TestTheGMHireNeverOpensAPlainTerminal(t *testing.T) {
 			t.Errorf("%s: %d %q, want 409 with %q", c.name, code, text, c.want)
 		}
 		nothingMade(t, r, h)
+		if role == "scribe" {
+			hiresOfEveryAgentHere(d)
+		}
 		if status, message := d.Perform("hire", "", url.Values{"role": {role}}); status != http.StatusNoContent || len(h.windows) != 1 && c.name != "another agent" {
 			t.Errorf("%s, from the office: %d %q, %d windows, want what it did before", c.name, status, message, len(h.windows))
 		}
@@ -420,7 +425,7 @@ func TestTheGMHireHasTheSameFenceAsAHireFromTheOffice(t *testing.T) {
 		deniesTheAccounts(t, map[bool]string{false: "desk", true: "route"}[route]+" hire of "+role, data, work)
 		// The desks' Claude folders' rules name the support folder short (SA-X8), as claudeStoreFolder writes it.
 		short, _ := claudeStoreFolder(supportDir)
-		plain := strings.NewReplacer(hires[0].ID, "<hire>", work, "<work>", hires[0].Worktree, "<worktree>", d.config.HireFolder, "<repo>", supportDir, "<support>",
+		plain := strings.NewReplacer(hires[0].ID, "<hire>", work, "<work>", hires[0].Worktree.storedOnly(), "<worktree>", d.config.HireFolder, "<repo>", supportDir, "<support>",
 			short+"/hires/", "<support-short>/hires/", homeDir, "<home>")
 		return plain.Replace(data), guard
 	}

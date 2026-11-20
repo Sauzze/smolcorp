@@ -59,15 +59,16 @@ same(B.didOf(item(1, 'tool', 'WebFetch: https://example.com', 'WebFetch')), 'loo
 same(B.didOf(item(1, 'tool', 'mcp__x', 'mcp__x')), 'used mcp__x', 'any other tool');
 
 // A question's choices by label, and No; a permission's Yes and No; not pickable, none: the four keys answer it.
-same(B.choicesOf(question(true)).map((c) => [c.n || c.act, c.label]), [[1, 'Yes'], [2, 'Later'], ['reject', 'No']], 'a question');
+same(B.choicesOf(question(true)).map((c) => [c.n || c.act || null, c.label, !!c.no]), [[1, 'Yes', false], [2, 'Later', false], [null, 'No', true]], 'a question');
 same(B.choicesOf(permission).map((c) => [c.n, c.label, !!c.no]), [[1, 'Yes', false], [2, 'No', true]], 'a permission');
 same([B.choicesOf(question(false)), B.choicesOf(null)], [null, null], 'not pickable');
 same(B.KEYS.map((k) => k.act), ['up', 'down', 'accept', 'reject'], 'the four keys');
-// A choice's request: its number and the prompt's since, never any text; a key, /act.
+// A choice's request: its number and the prompt's since, never any text; a key, /act. A question's No is a pick too
+// (n=no), so the computer looks at the screen first: never an /act Escape into a turn that went on (FXTALKFIX).
 same(B.sendOf('s1', question(true), B.choicesOf(question(true))[1]),
   { path: '/talk/pick', params: { session: 's1', n: '2', since: '1761000545000' } }, 'a question\'s option');
 same(B.sendOf('s2', permission, B.choicesOf(permission)[1]), { path: '/talk/pick', params: { session: 's2', n: '2', since: '1761000541000' } }, 'a permission\'s No');
-same(B.sendOf('s1', question(true), B.choicesOf(question(true))[2]), { path: '/act', params: { session: 's1', action: 'reject' } }, 'a question\'s No');
+same(B.sendOf('s1', question(true), B.choicesOf(question(true))[2]), { path: '/talk/pick', params: { session: 's1', n: 'no', since: '1761000545000' } }, 'a question\'s No');
 same(B.sendOf('s1', question(false), B.KEYS[2]), { path: '/act', params: { session: 's1', action: 'accept' } }, '✓');
 same([B.questionOf(question(true)), B.questionOf(permission), B.questionOf({ kind: 'unknown', questions: [] })],
   ['Run the migration now?', 'Allow Bash: make?', 'It\'s asking you something.'], 'what it asks');
@@ -323,6 +324,27 @@ const keys = () => panel().find('talk-key').filter((k) => !['Expand', 'Esc', 'Se
   await settle();
   same(sent[n], ['post', '/act', { session: 's1', action: 'reject' }, undefined], '✕');
 
+  // A question's No: a pick (n=no), never an /act; the computer presses Escape only while its menu is on the screen.
+  card = { state: 'asking', asking: question(true), size: 40, typing: { ok: false, why: 'answer first' } };
+  await reopen();
+  same(keys().map((k) => k.textContent), ['1Yes', '2Later', 'No'], 'a question\'s choices and No');
+  n = sent.length;
+  keys()[2].dispatch('click');
+  await settle();
+  same(sent.slice(n).filter((s) => s[0] === 'post'), [['post', '/talk/pick', { session: 's1', n: 'no', since: '1761000545000' }, undefined]], 'a question\'s No');
+  // Answered in its own terminal meanwhile: the computer pressed nothing (409), and the page says why, in its words.
+  const flashed = [], post = page.post, flash = page.flash;
+  const gone = 'It\'s asking something else now, or nothing: look again.';
+  page.post = async (path, params, signal, json) => { sent.push(['post', path, params, json]); return res(409, gone); };
+  page.flash = (text) => flashed.push(text);
+  await reopen();
+  n = sent.length;
+  keys()[2].dispatch('click');
+  await settle();
+  same([sent.slice(n).filter((s) => s[0] === 'post').map((s) => s[1]), flashed], [['/talk/pick'], [gone]], 'No after it was answered: nothing more, and said');
+  page.post = post;
+  page.flash = flash;
+
   // The same bubble clicked again closes it; Esc does too.
   bubble.open('s1');
   timers.splice(0).forEach((f) => f());
@@ -349,6 +371,11 @@ func TestTheDeckGivesTheRoomTalkOnlyInItsOwnWindow(t *testing.T) {
 	if start < 0 || end < start || !strings.Contains(page, "...(talkHere ? { talk: { get, post, flash, tick, openInTerminal: ") {
 		t.Fatal("deck.html no longer decides talkHere as this test expects: update it")
 	}
+	// Windows' own window loads the page alone, marked own (its key comes in-process): it is let into the talk routes
+	// (accessWindow, FXTALKFIX), so it takes the bubble and its ✓ ✕ give way to the choices, as the Mac's window.
+	if got := officeAddress("http://localhost:7710", "k"); got != "http://localhost:7710/office?deck&own" {
+		t.Fatalf("Windows' window opens %s: update the check below", got)
+	}
 	runNode(t, `
 const lines = process.argv[1];
 const check = (address, want) => {
@@ -360,6 +387,7 @@ const check = (address, want) => {
 };
 check('/office?window&t=k', true);       // the Mac app's own window
 check('/office?t=k&own', true);          // the office's window on Linux and Windows
+check('/office?deck&own', true);        // Windows' WebView2 window (window.go's officeAddress)
 check('/office?t=k', false);             // a browser paired with its own key
 check('/?t=k', false);                   // a phone's deck
 check('/office?saver&t=k&own', false);   // the screen saver

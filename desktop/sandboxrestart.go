@@ -24,7 +24,7 @@ func restartedMessage(h Hire) string {
 	text := "Smolcorp started you again, this time in its sandbox, in the same folder and on the same branch as before. " +
 		"Your earlier conversation isn't here, so look at the work so far (git status, git log) before going on."
 	if h.Brief != "" {
-		text += " Your brief is " + h.Brief + "."
+		text += " Your brief is " + shownInWords(h.Brief) + "." // on one line, whatever its folder's name (FXPICKEDPROJECTR3, B1)
 	}
 	return text
 }
@@ -66,7 +66,7 @@ func restartDesk(h Hire, role Role, account string, profiles []claudeProfile, o 
 	// Linux, once desks start in their sandbox there (RT126SAL2 S1).
 	settings, err := writeHireSettings(hireSettingsOptions{HireID: h.ID, Auto: engineAutoMode, Profile: guardHire, CLI: o.CLI,
 		Support: supportDir, ReportPort: testPort, Profiles: profiles, Run: o.Guard, IsExec: o.IsExec, OwnClaude: true,
-		Kept: deskKeptFolder(runtime.GOOS, tmux.sandboxed, h.ID)})
+		Kept: deskKeptFolder(runtime.GOOS, tmux.sandboxed, h.ID), ReadsOwnFolder: !engineAutoMode})
 	if err != nil {
 		return stopped("its settings, its fence, couldn't be made.")
 	}
@@ -90,18 +90,41 @@ func restartDesk(h Hire, role Role, account string, profiles []claudeProfile, o 
 	if err := os.MkdirAll(hireFolder(supportDir, h.ID), 0o700); err != nil {
 		return stopped("its own folder couldn't be made.")
 	}
+	// Its place checked as its start checks it, before anything is made there (FXGMHIRENOGIT126R5): its plans and its
+	// trust go to the folder as checked, never its path resolved again.
+	at := deskAtOf(h, tmux.socket, profiles, o)
+	folder, checked, words := deskStartFolder(h, at)
+	if words != "" {
+		return stopped(words)
+	}
 	// Its own Claude folder, made new (SA-X8): one from a start without the sandbox goes, transcripts and all, as at
 	// a fire. Trusted where it works, as its hire trusted it.
-	trusted := h.Folder
-	if h.Worktree != "" {
-		trusted = h.Worktree
+	// Through the accessors (FXCOREWORKTREES126): a place moved or replaced since its hire is never trusted.
+	var trusted string
+	switch {
+	case checked && !h.Worktree.none():
+		tree, err := h.checkedTree() // as its row keeps it, resolved: just checked so
+		if err != nil {
+			return stopped(err.Error())
+		}
+		trusted = tree
+	case checked:
+		trusted = folder
+	case at.Projects != "":
+		trusted = physical(h.Folder.storedOnly()) // a GM with its workspace reads the folder it starts in (R15, as ruled)
+	default:
+		place, err := h.checkedPlace()
+		if err != nil {
+			return stopped(err.Error())
+		}
+		trusted = physical(place)
 	}
 	if removeDeskClaude(supportDir, h.ID) != nil {
 		return stopped("its Claude folder couldn't be made new.")
 	}
 	// No MCP servers: nothing records which ones were ticked at its hire (no caller sets engineRequest.MCPServers yet,
 	// and a row doesn't keep them). Once a row does, they go here as the engine's start passes them (RT126SAX14 nit 1).
-	if err := makeDeskClaude(start.DeskClaude, deskClaude{Account: account, Trusted: physical(trusted)}); err != nil {
+	if err := makeDeskClaude(start.DeskClaude, deskClaude{Account: account, Trusted: trusted}); err != nil {
 		return stopped(strings.TrimSuffix(err.Error(), ".") + ".")
 	}
 	// Its sign-in, as its new folder sees it, as at every start (SA-X9): one Claude Code says is missing refuses the
@@ -112,22 +135,30 @@ func restartDesk(h Hire, role Role, account string, profiles []claudeProfile, o 
 		return t3Resumed{}, t3Refused(http.StatusConflict, why+" "+name+" was stopped, and its worktree and branch are as it "+
 			"left them: once it's signed in, press Restart in the sandbox again, or fire it.")
 	}
-	if makeDeskPlans(startedIn(h), h.ID) != nil {
+	if makeStartPlans(folder, checked, h.ID) != nil {
 		return stopped("Smolcorp couldn't make its plans folder.")
 	}
 	// Its sandbox, made from where it works and checked before anything of it runs (X12's checks among them).
-	if err := o.sandboxDesk(tmux, deskAtOf(h, tmux.socket, profiles, o)); err != nil {
+	if err := o.sandboxDesk(tmux, at); err != nil {
 		return stopped(err.Error())
 	}
 	command, err := deskStarts.issue(o.CLI, h.ID, tmux, plan, o.Key)
 	if err != nil {
-		deskStopped(Hire{ID: h.ID, TmuxSocket: tmux.socket}, o)
+		// A program its stop couldn't end in its sandbox is said too (FXFIREREAPR3).
+		if why := deskStopped(Hire{ID: h.ID, TmuxSocket: tmux.socket}, o); why != "" {
+			return stopped(err.Error() + " " + why + ".")
+		}
 		return stopped(err.Error())
 	}
-	_, socket, started, err := tmux.start(startedIn(h), command)
+	_, socket, started, err := tmux.start(folder, command) // the folder it starts in, as deskStartFolder checked it
 	if err != nil {
 		deskStarts.forget(h.ID)
-		deskStopped(Hire{ID: h.ID, TmuxSocket: tmux.socket}, o)
+		// What the refused start left running in its sandbox is ended first (FXFIREREAPR1): one that can't be says so.
+		ended := h
+		ended.TmuxSocket = tmux.socket
+		if why := deskStopped(ended, o); why != "" {
+			return stopped(reapWordsAfterColon(why) + ".")
+		}
 		_, words := tmuxStartRefusal(err)
 		return stopped(words)
 	}

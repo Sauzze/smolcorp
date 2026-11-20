@@ -109,7 +109,7 @@ func TestAPinOnAT3HiresFolderOrACloudBotsDoesNotMoveIt(t *testing.T) {
 		t.Fatalf("3F before any pin: %v", got)
 	}
 	// The hire's worktree and the bot's folder pinned to the first desk of 3F.
-	d.config.PinOn(hire.Worktree, 2, 0)
+	d.config.PinOn(hire.Worktree.storedOnly(), 2, 0)
 	if got := atDesks(); got[id] != 4 || got[botID] == 0 {
 		t.Errorf("a pin on the hire's folder moved them: %v", got)
 	}

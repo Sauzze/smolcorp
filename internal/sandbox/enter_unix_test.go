@@ -34,7 +34,19 @@ import (
 // (argument "standin"), as the core would start them.
 const enterTestVar = "SMOLCORP_SANDBOX_ENTER_TEST"
 
+// standInRefused begins what this test program says when it's started as a stand-in without enterTestVar
+// (FXSWEEP3P1R1, RT126SWEEP3FIXP1's B2): it ends at once, with standInRefusedStatus, instead of running every test
+// here a second time, nested, with no timeout and whatever the row's environment holds.
+const (
+	standInRefused       = "a stand-in started without " + enterTestVar + "=1"
+	standInRefusedStatus = 97
+)
+
 func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Getenv(enterTestVar) != "1" && standInName(os.Args[1]) {
+		fmt.Fprintf(os.Stderr, "%s (%q): not run, and no test runs nested\n", standInRefused, os.Args[1])
+		os.Exit(standInRefusedStatus)
+	}
 	if os.Getenv(enterTestVar) == "1" && len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "sandbox":
@@ -51,6 +63,12 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Exit(m.Run())
+}
+
+// standInName is whether name, this test program's first argument, is one of the stand-ins it can be.
+func standInName(name string) bool {
+	_, more := moreStandIns[name]
+	return more || name == "sandbox" || name == "standin" || name == "serve"
 }
 
 // moreStandIns are other stand-ins this test program can be, by their first argument, as other files of the

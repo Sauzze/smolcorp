@@ -187,8 +187,8 @@ func TestAFireFailsTheHiresWaitingMailAtOnce(t *testing.T) {
 func TestAFiredGMNeverTakesANewerGMsToken(t *testing.T) {
 	d := newTestDeck(t)
 	file := readRegistry(registryPath(), true)
-	file.hires = append(file.hires, Hire{ID: "gmold", Name: "GM", Role: "gm", Folder: homeDir, State: "fired"},
-		Hire{ID: "gmnew", Name: "GM", Role: "gm", Folder: homeDir, State: "starting"})
+	file.hires = append(file.hires, Hire{ID: "gmold", Name: "GM", Role: "gm", Folder: keptPath(homeDir), State: "fired"},
+		Hire{ID: "gmnew", Name: "GM", Role: "gm", Folder: keptPath(homeDir), State: "starting"})
 	if err := file.save(registryPath()); err != nil {
 		t.Fatal(err)
 	}

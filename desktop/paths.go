@@ -34,7 +34,8 @@ func portFromEnvironment(text string) int {
 // moved or updated without losing the paired phones: ~/.config/sauzzedeck-pro
 // on Linux, %APPDATA%\SauzzeDeck Pro on Windows, Application Support/AgentDeck
 // on a Mac. They keep the name the app had before it was Smolcorp, as the Mac
-// app keeps AgentDeck's.
+// app keeps AgentDeck's, unless a Smolcorp folder holds the app's state already
+// (appdirs.Resolve). Nothing here makes it: MakeSupportFolder does, at a start.
 var (
 	supportDir  = makeSupportDir()
 	phonesFile  = filepath.Join(supportDir, "phones.json")
@@ -68,9 +69,15 @@ func makeSupportDir() string {
 	if err != nil {
 		base = os.TempDir()
 	}
-	dir := filepath.Join(base, supportDirName(runtime.GOOS))
-	_ = os.MkdirAll(dir, 0o700)
-	return dir
+	return appdirs.ResolveIn(base, runtime.GOOS)
+}
+
+// MakeSupportFolder makes the support folder if it isn't there, as each start of the program did when it loaded:
+// cmd/smolcorp calls it before a command of the app's, never at load, so nothing that only imports this package (or
+// a test binary, whose folder is its own) makes a folder. The folder is the one appdirs.Resolve found: the old name,
+// unless a Smolcorp folder holds the app's state already, so a new, empty one never appears.
+func MakeSupportFolder() {
+	_ = os.MkdirAll(supportDir, 0o700)
 }
 
 // useSupportDir points everything kept in the support folder at dir, before
@@ -88,9 +95,19 @@ func useSupportDir(dir string) {
 	hookHeaderFile = filepath.Join(dir, "hook-header")
 }
 
-// supportDirName is the folder's name on a system: the one the Mac app writes
+// supportDirName is the folder's old name on a system: the one the Mac app writes
 // on a Mac (AgentDeck), so the setup key is found there.
 func supportDirName(goos string) string { return appdirs.Name(goos) }
+
+// realSupportDir is the owner's real support folder as the resolver finds it (appdirs.Resolve), for a test copy's
+// desks to be denied; "" if there is no config folder.
+func realSupportDir() string {
+	dir, err := appdirs.Resolve()
+	if err != nil {
+		return ""
+	}
+	return dir
+}
 
 // writePrivate writes a file only its owner can read, as the keys need: to a new file beside it, then put in its
 // place. The new file is named after the file with a random part (`<name>.<random>.tmp`, os.CreateTemp's), so no

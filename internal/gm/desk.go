@@ -17,12 +17,15 @@ const (
 	maxTextFile  = 1 << 20
 )
 
+// T3HireRefusal is a hire into T3 Code asked for by the General Manager, refused: only the owner hires there, from
+// Setup. The app answers it to the GM's token (desktop's gmT3HireRefusal), and `gm hire --t3` says it without asking.
+const T3HireRefusal = "The General Manager can't hire into T3 Code. Only you can, from Setup in Smolcorp's window."
+
 // HireOptions is what `gm hire` asks for. Empty fields are left out of the request.
 type HireOptions struct {
 	Role, Folder, Account, Model, Nickname, Task string
 	Floor                                        int // -1: not given
 	Worktree, APIKey                             bool
-	T3                                           bool // into T3 Code (experimental; needs T3 Code and its t3 command)
 }
 
 // body is the request as POST /setup/gm/hire takes it.
@@ -41,9 +44,6 @@ func (o HireOptions) body() map[string]any {
 	}
 	if o.APIKey {
 		m["apiKey"] = true
-	}
-	if o.T3 {
-		m["engine"] = "t3"
 	}
 	return m
 }
@@ -211,7 +211,7 @@ func runDesk(cmd string, args []string, env Env, stdout, stderr io.Writer) int {
 	asJSON := fs.Bool("json", false, "the JSON as served")
 	o := HireOptions{Floor: -1}
 	var taskFile, text, file string
-	var force, removeWorktree bool
+	var force, removeWorktree, t3 bool
 	switch cmd {
 	case "hire":
 		fs.StringVar(&o.Role, "role", "", "the role to hire")
@@ -222,7 +222,9 @@ func runDesk(cmd string, args []string, env Env, stdout, stderr io.Writer) int {
 		fs.IntVar(&o.Floor, "floor", -1, "the floor, 0 to 5")
 		fs.BoolVar(&o.Worktree, "worktree", false, "a worktree of its own")
 		fs.BoolVar(&o.APIKey, "api-key", false, "on the API-key account")
-		fs.BoolVar(&o.T3, "t3", false, "into T3 Code (experimental)")
+		// Not offered: only the owner hires into T3 Code, from Setup. Still read, so an old script's --t3 gets the
+		// app's own plain refusal here, with no request (FXSWEEP3P3R1 N1).
+		fs.BoolVar(&t3, "t3", false, "refused")
 		fs.StringVar(&o.Task, "task", "", "what to do")
 		fs.StringVar(&taskFile, "task-file", "", "a file with what to do (- for standard input)")
 	case "brief":
@@ -247,6 +249,9 @@ func runDesk(cmd string, args []string, env Env, stdout, stderr io.Writer) int {
 	}
 	switch cmd {
 	case "hire":
+		if t3 {
+			return finish(&Error{Code: exitApp, Msg: T3HireRefusal}, stderr)
+		}
 		if strings.TrimSpace(o.Role) == "" {
 			return usageError(stderr, "hire needs --role")
 		}

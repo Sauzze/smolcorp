@@ -36,7 +36,7 @@ func TestTheEditNeverMarksAHireGoneWhileItsSessionRunsOrCantBeTold(t *testing.T)
 	for _, row := range rows {
 		for _, state := range []string{"fired", "failed"} {
 			t.Run(row.name+" "+state, func(t *testing.T) {
-				h := Hire{ID: "a1b2c3", Name: "Reviewer", Nickname: "Ada", Role: "reviewer", Folder: homeDir, State: "working", Engine: row.engine}
+				h := Hire{ID: "a1b2c3", Name: "Reviewer", Nickname: "Ada", Role: "reviewer", Folder: keptPath(homeDir), State: "working", Engine: row.engine}
 				if err := updateRegistry(func(f *registryFile) { f.hires = []Hire{h} }); err != nil {
 					t.Fatal(err)
 				}
@@ -68,7 +68,7 @@ func TestTheEditNeverMarksAHireGoneWhileItsSessionRunsOrCantBeTold(t *testing.T)
 // edit as they did, with a session running.
 func TestTheEditLooksOnlyWhenAnOpenHireWouldBeMarkedGone(t *testing.T) {
 	isolate(t)
-	h := Hire{ID: "a1b2c3", Name: "Reviewer", Nickname: "Ada", Role: "reviewer", Folder: homeDir, State: "working"}
+	h := Hire{ID: "a1b2c3", Name: "Reviewer", Nickname: "Ada", Role: "reviewer", Folder: keptPath(homeDir), State: "working"}
 	if err := updateRegistry(func(f *registryFile) { f.hires = []Hire{h} }); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestTheEditRefusesWhileAStartIsUnderWayForEveryKind(t *testing.T) {
 		for _, state := range []string{"fired", "failed"} {
 			t.Run(row.name+" "+state, func(t *testing.T) {
 				h := row.hire
-				h.ID, h.Name, h.Nickname, h.Role, h.Folder, h.State = "a1b2c3", "Reviewer", "Ada", "reviewer", homeDir, "starting"
+				h.ID, h.Name, h.Nickname, h.Role, h.Folder, h.State = "a1b2c3", "Reviewer", "Ada", "reviewer", keptPath(homeDir), "starting"
 				if err := updateRegistry(func(f *registryFile) { f.hires = []Hire{h} }); err != nil {
 					t.Fatal(err)
 				}
@@ -139,7 +139,7 @@ func TestTheEditRefusesWhileAStartIsUnderWayForEveryKind(t *testing.T) {
 // refused again under the registry's lock, with the row unchanged.
 func TestTheEditLooksAgainUnderTheRegistrysLockForAStartUnderWay(t *testing.T) {
 	isolate(t)
-	h := Hire{ID: "a1b2c3", Name: "Reviewer", Nickname: "Ada", Role: "reviewer", Folder: homeDir, State: "working"}
+	h := Hire{ID: "a1b2c3", Name: "Reviewer", Nickname: "Ada", Role: "reviewer", Folder: keptPath(homeDir), State: "working"}
 	if err := updateRegistry(func(f *registryFile) { f.hires = []Hire{h} }); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestTheEditLooksAgainUnderTheRegistrysLockForAStartUnderWay(t *testing.T) {
 // worktree, so the edit never marks it gone: it says to close the window there, then fire it with force.
 func TestTheEditNeverMarksAHireInAWindowOfItsOwnGone(t *testing.T) {
 	d := newTestDeck(t)
-	h := Hire{ID: "a1b2c3", Name: "Reviewer", Nickname: "Ada", Role: "reviewer", Folder: homeDir, Worktree: t.TempDir(), State: "working"}
+	h := Hire{ID: "a1b2c3", Name: "Reviewer", Nickname: "Ada", Role: "reviewer", Folder: keptPath(homeDir), Worktree: keptPath(t.TempDir()), State: "working"}
 	if err := updateRegistry(func(f *registryFile) { f.hires = []Hire{h} }); err != nil {
 		t.Fatal(err)
 	}

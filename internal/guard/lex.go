@@ -183,6 +183,9 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 		array    bool      // the words are a NAME=( … ) array's (RWIN10 B3)
 		pending  []heredoc // here documents whose bodies start at the next newline
 		closed   bool      // the last word of the command was a ]], or it was a (( )): see plainShort
+		called   bool      // the command follows PowerShell's & (callAt): its program's name may be a variable's
+		semi     bool      // the command follows a ; (see wtSubcommands)
+		piped    bool      // the command follows a | (see pipedMark)
 	)
 	lit := func(c byte) { word = append(word, c); unq = append(unq, false) }
 	raw := func(c byte) { word = append(word, c); unq = append(unq, true) }
@@ -219,7 +222,7 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 		l.judge([]byte(plainText), plainUnq, ps)
 		if skipOne {
 			if redirOut {
-				words, pieces := l.finishWord(word, unq, opens, closes, ps)
+				words, pieces, _ := l.finishWord(word, unq, opens, closes, ps)
 				out = append(out, append(simple{redirMark}, words...))
 				for _, p := range pieces {
 					out = append(out, append(simple{redirMark}, p...))
@@ -229,7 +232,7 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 					// read x <<< …, mapfile -t a <<< …: the here-string is a variable's value (RWIN10 B3).
 					l.value(string(word), unq)
 				}
-				words, pieces := l.finishWord(word, unq, opens, closes, ps)
+				words, pieces, _ := l.finishWord(word, unq, opens, closes, ps)
 				out = append(out, append(simple{redirInMark}, words...))
 				for _, p := range pieces {
 					out = append(out, append(simple{redirInMark}, p...))
@@ -261,9 +264,9 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 					l.value(string(word[eq+1:]), unq[eq+1:])
 				}
 			}
-			words, pieces := l.finishWord(word, unq, opens, closes, ps)
+			words, pieces, split := l.finishWord(word, unq, opens, closes, ps)
 			if len(pieces) > 0 {
-				swaps = append(swaps, swap{len(cur), len(words), pieces})
+				swaps = append(swaps, swap{len(cur), len(words), pieces, split})
 			}
 			cur = append(cur, words...)
 		}
@@ -271,14 +274,38 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 	}
 	endCommand := func() {
 		endWord()
+		if called {
+			// & $c, & "$c", & $(…): a name filled in when it runs, which the guard can't read (RT126SWEEP3 F4).
+			cur, called = calledAtRunTime(cur), false
+		}
+		// A command after a ; that starts with one of wt's subcommands is wt's own (RT126SWEEP3FIXP2 N2): cmd, and
+		// PowerShell after --%, hand wt the ; with the words after it (wt nt ; nt claude). So is one that starts with
+		// an option: wt reads a command that names no subcommand as its default, new-tab (wt nt ; -d . git push,
+		// RT126SWEEP3FIXP2R1 N1). No program a hire runs is named with a - first.
+		var lead simple
+		if semi && len(cur) > 0 && (wtSubcommands[strings.ToLower(withoutSubs(cur[0]))] || strings.HasPrefix(cur[0], "-")) {
+			lead = simple{"wt"}
+		}
+		// A WMI method call a pipeline feeds gets its object from it (… | icim -MethodName StopService): wmiClassUnwritten.
+		if piped && len(cur) > 0 && wmiMethods[commandName(strings.TrimPrefix(withoutSubs(cur[0]), unreadable))] {
+			cur = append(cur, pipedMark)
+		}
+		semi, piped = false, false
 		if len(cur) > 0 {
-			out = append(out, cur)
+			out = append(out, slices.Concat(lead, cur))
 		}
 		// The command once more for each piece of a word, that word's words swapped for the piece's: each piece is
-		// read where the word stands, by the command it is given to, and no other word moves.
+		// read where the word stands, by the command it is given to, and no other word moves. A command that runs its
+		// words as a line (powershell -Command, iex, cmd /c) gets the piece with the word's text before and after it as
+		// words of their own, as PowerShell would hand them on: the piece alone would be the line's start, and a piece
+		// of a string (-Filter "Name='claude.exe'") its command (FXGUARDWIN126 6c).
 		for _, sw := range swaps {
-			for _, p := range sw.pieces {
-				out = append(out, slices.Concat(cur[:sw.at], p, cur[sw.at+sw.n:]))
+			pieces := sw.pieces
+			if slices.ContainsFunc(cur[:sw.at], func(w string) bool { return lineRunners[commandName(strings.TrimPrefix(w, unreadable))] }) {
+				pieces = sw.split
+			}
+			for _, p := range pieces {
+				out = append(out, slices.Concat(lead, cur[:sw.at], p, cur[sw.at+sw.n:]))
 			}
 		}
 		cur, closed, swaps = nil, false, nil
@@ -490,6 +517,10 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 			endWord()
 			i++
 		case c == ';' || c == '&' || c == '|' || c == '\n' || c == '(' || c == ')' || ps && (c == '{' || c == '}'):
+			// PowerShell's & at a command's start runs the program its next word names, and & ( … ) and . ( … ) the one
+			// an expression gives (& (gcm claude)): a name the guard can't read (RT126SWEEP3 F4).
+			call := ps && c == '&' && callAt(line, i, inWord, cur, word)
+			dot := ps && c == '(' && (!inWord && slices.Equal(cur, simple{"."}) || inWord && len(cur) == 0 && string(word) == ".")
 			startArray := false
 			if c == '(' && !ps {
 				plain, _ := stripRuns(string(word), nil)
@@ -500,7 +531,23 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 			}
 			endCommand()
 			array = startArray || array && c != ')'
+			semi = c == ';'
+			piped = c == '|' && (i == 0 || line[i-1] != '|') && (i+1 >= len(line) || line[i+1] != '|')
 			i++
+			if call || dot {
+				j := i
+				for j < len(line) && (line[j] == ' ' || line[j] == '\t') {
+					j++
+				}
+				switch {
+				case dot:
+					out = append(out, simple{unreadable + ".", "(" + expressionText(line, i)})
+				case j < len(line) && line[j] == '(':
+					out = append(out, simple{unreadable + "&", "(" + expressionText(line, j+1)})
+				default:
+					called = true
+				}
+			}
 			if c == '\n' {
 				// The bodies of the here documents opened on the line just ended.
 				for _, h := range pending {
@@ -562,6 +609,19 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 		case c == '$':
 			inWord = true
 			i = dollar(i, raw)
+		case c == '.' && ps && inWord && len(cur) == 0 && psAssigned(word):
+			// $x=.$c: PowerShell's dot straight after an assignment starts the command it runs (RT126SWEEP3FIXP2 N3).
+			endCommand()
+			inWord = true
+			raw(c)
+			i++
+		case c == '.' && ps && !inWord && len(cur) > 0 && callsNext(cur) && i+1 < len(line) && (line[i+1] == ' ' || line[i+1] == '\t'):
+			// $x= . $c, $x = . $c, return . $c: the dot, a word of its own, starts the command it runs
+			// (RT126SWEEP3FIXP2R1 N2).
+			endCommand()
+			inWord = true
+			raw(c)
+			i++
 		default:
 			inWord = true
 			raw(c)
@@ -749,18 +809,29 @@ func heredocBody(line string, i int, h heredoc) (body string, next int) {
 }
 
 // readsOnly is whether a here document's command only reads its text and
-// never runs it: cat, git (commit -F -), a database client. A shell, eval,
-// ssh, a command we don't know, or none (<<EOF cat) may run the body, so
-// that is read as commands.
+// never runs it: cat, git (commit -F -), a database client, smolcorp gm
+// brief, send and hire (smolcorpTextReaders). A shell, eval, ssh, a command we
+// don't know, or none (<<EOF cat) may run the body, so that is read as commands.
 func readsOnly(cur simple) bool {
-	for _, w := range cur {
+	for i, w := range cur {
 		if isAssignment(w) {
 			continue
 		}
-		return textReaders[commandName(strings.TrimPrefix(w, unreadable))]
+		name := commandName(strings.TrimPrefix(w, unreadable))
+		if name == "smolcorp" || name == "smolcorp-cli" {
+			// Only gm's commands that take their text from standard input: smolcorp run hands it to an agent, which
+			// may be a shell. Their words written before the << as gm reads them (a mark, as any other word, isn't).
+			return len(cur) > i+2 && cur[i+1] == "gm" && smolcorpTextReaders[cur[i+2]]
+		}
+		return textReaders[name]
 	}
 	return false
 }
+
+// smolcorpTextReaders are the gm commands that read text from standard input (internal/gm): brief --file -, hire
+// --task-file -, send --file /dev/stdin. Their text goes to the app as a brief, a task or a message, and none runs it
+// (FXGUARDWIN126 6d: a brief with an arrow in it was read as commands, and refused as not written plainly).
+var smolcorpTextReaders = map[string]bool{"brief": true, "hire": true, "send": true}
 
 var textReaders = map[string]bool{
 	"cat": true, "tee": true, "git": true, "mysql": true, "psql": true, "sqlite3": true, "sort": true, "uniq": true, "wc": true,
@@ -1003,10 +1074,10 @@ func isDigits(s string) bool {
 // In PowerShell's and cmd's wild reading the word is also read as each piece of it PowerShell may take as an argument
 // or an array's item of its own (psPieces): pieces holds each piece's words, which the command is read with in the
 // word's place too (lexLine's swaps). opens and closes are where a quote opens and closes in the word.
-func (l *lexer) finishWord(word []byte, unq []bool, opens, closes []int, ps bool) (words []string, pieces [][]string) {
+func (l *lexer) finishWord(word []byte, unq []bool, opens, closes []int, ps bool) (words []string, pieces, split [][]string) {
 	words = l.finishOne(word, unq, ps)
 	if !l.wild {
-		return words, nil
+		return words, nil, nil
 	}
 	spans, ok := psPieces(string(word), unq, opens, closes)
 	if !ok {
@@ -1014,17 +1085,35 @@ func (l *lexer) finishWord(word []byte, unq []bool, opens, closes []int, ps bool
 		l.flag(plainBudget, plain)
 	}
 	for _, p := range spans {
-		pieces = append(pieces, l.finishOne(word[p[0]:p[1]], unq[p[0]:p[1]], ps))
+		piece := l.finishOne(word[p[0]:p[1]], unq[p[0]:p[1]], ps)
+		pieces = append(pieces, piece)
+		before, _ := stripRuns(string(word[:p[0]]), nil)
+		after, _ := stripRuns(string(word[p[1]:]), nil)
+		split = append(split, slices.Concat(nonEmpty(before), piece, nonEmpty(after)))
 	}
-	return words, pieces
+	return words, pieces, split
+}
+
+// nonEmpty is s as a word, or none when it is empty.
+func nonEmpty(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return []string{s}
 }
 
 // A swap is a word of a command read piece by piece (psPieces): at is where its words start in the command, n how
-// many there are, and pieces the words of each piece, read in their place.
+// many there are, pieces the words of each piece, read in their place, and split the same with the word's text before
+// and after the piece as a word each (for lineRunners).
 type swap struct {
-	at, n  int
-	pieces [][]string
+	at, n         int
+	pieces, split [][]string
 }
+
+// lineRunners are the commands that run the words after them as one line (wrapped): PowerShell's -Command, iex and
+// Invoke-Expression, Start-Process, cmd's /c, eval, env's -S.
+var lineRunners = map[string]bool{"powershell": true, "pwsh": true, "iex": true, "invoke-expression": true, "cmd": true,
+	"start-process": true, "start": true, "saps": true, "eval": true, "env": true}
 
 // maxPieces is the most pieces one word is read as (psPieces): past it, the line is refused (plainBudget).
 const maxPieces = 256
@@ -1532,20 +1621,66 @@ var protectedNames = []string{"gm-token", "gm-token-kept", "smolcorp_gm_token", 
 	"grants.jsonl", "phones-seal", "claude-install", "push-key-kept", "gm-memory", nightFile, phonesFile, "hold-key", "paste-hold", "paste-hold-seen"}
 
 // supportWords are the words of the app's support folder on each system (appdirs: AgentDeck, sauzzedeck-pro,
-// SauzzeDeck Pro), and Smolcorp's: a path before a pattern that could hold one may be that folder.
-var supportWords = []string{appdirs.Mac, appdirs.Linux, appdirs.Windows, "smolcorp", "application support"}
+// SauzzeDeck Pro), and Smolcorp's, which is also its new folders' name (appdirs.NewName: Application
+// Support/Smolcorp, ~/.config/smolcorp, %APPDATA%\Smolcorp, FXRENAME126A): a path before a pattern that could hold
+// one may be that folder. Only a pattern reads them (cat ~/.config/smolc*/ph*s.json); a folder written out is
+// keptFolderName's, which takes smolcorp only after the folder it's in.
+var supportWords = []string{appdirs.Mac, appdirs.Linux, appdirs.Windows, appdirs.NewLinux, "application support"}
 
 // protectedByPattern is the names the guard keeps that a word with a pattern in it could fill in (skeletonNames:
 // the setup key, the token, the guard file, Claude Code's settings and their folder), by a run in any of its path
 // parts; none for a word with no pattern. The word is cleaned first (cleanWord: .claude/./s*, x/../s*). budget is the line's for comparing (skeletonBudget). odd says it has a bracket Go's matcher would once have read otherwise
 // (oddBracket).
 func protectedByPattern(s string, unq []bool, budget *int) (out []string, odd bool) {
+	unq, after := equalsAsLetters(s, unq)
+	if after >= 0 {
+		// What follows it starts a word of its own (cmd splits a word there; --opt=value's value is a path).
+		out, odd = protectedByPattern(s[after:], unq[after:], budget)
+	}
 	s, unq = cleanWord(s, unq)
 	if !isWild(s, unq) {
-		return nil, false
+		return out, odd
 	}
 	sk := skeletonOf(s, unq)
-	return skeletonNames(&sk, 3, budget), oddBracket(s, unq)
+	return append(out, skeletonNames(&sk, 3, budget)...), odd || oddBracket(s, unq)
+}
+
+// equalsAsLetters is unq with each = outside quotes that follows a letter, a digit, a - or a _ taken as written, and
+// where the first such = ends (-1 for none). The skeleton reads an = as a run that may be anything (zsh's =cmd is a
+// command's full path, and hash can make it any path), but zsh expands an = only at a word's start, or after an = or
+// a : in a NAME=value (MAGIC_EQUAL_SUBST: x==cmd, x=a:=cmd), and bash never: in --untracked-files=all the = is a
+// letter, and that run could fill in claude-install from its "all" (FXGUARDWIN126 6a). cmd ends a word at an =, and
+// the text after it is read as a word of its own (protectedByPattern), so x=setup-k* is refused as before. An = in a
+// run the lexer marked stays in that run.
+func equalsAsLetters(s string, unq []bool) ([]bool, int) {
+	if strings.IndexByte(s, '=') < 0 {
+		return unq, -1
+	}
+	q, after := unq, -1
+	for i := 1; i < len(s); i++ {
+		if s[i] == runOpen {
+			_, i = runText(s, i)
+			continue
+		}
+		if s[i] != '=' || unq != nil && (i >= len(unq) || !unq[i]) {
+			continue
+		}
+		if p := s[i-1]; !(isAlnum(rune(p)) || p == '-' || p == '_') {
+			continue
+		}
+		if after < 0 {
+			if q = make([]bool, len(s)); unq != nil {
+				copy(q, unq)
+			} else {
+				for j := range q {
+					q[j] = true
+				}
+			}
+			after = i + 1
+		}
+		q[i] = false
+	}
+	return q, after
 }
 
 // hasPattern is whether s, as a command name, could be a pattern the shell
@@ -1827,4 +1962,66 @@ func number(s string, base, max int) (value, used int) {
 		used++
 	}
 	return value, used
+}
+
+// callAt is whether the & at line[i] is PowerShell's call operator: at a command's start, or where callsNext says, (&
+// $c, $x = & $c, $x= & $c, return & $c), straight after an assignment too ($x=&$c, $x+=&$c: the word so far ends in =,
+// +=, -=, *=, /= or ??=, RT126SWEEP3FIXP2 N3), and not half of && or bash's & after a command (npm run dev & sleep 2).
+func callAt(line string, i int, inWord bool, cur simple, word []byte) bool {
+	start := !inWord && (len(cur) == 0 || callsNext(cur)) || inWord && strings.HasSuffix(string(word), "=")
+	return start && (i == 0 || line[i-1] != '&') && (i+1 >= len(line) || line[i+1] != '&')
+}
+
+// callsNext is whether PowerShell's & or . after cur's words calls what follows: after an = of its own ($x = & $c),
+// after an assignment whose last word is its variable and operator ($x= & $c, $x+= . $c: psAssigned's test), and after
+// a command's return, which takes a pipeline (return & $c, RT126SWEEP3FIXP2R1 N2).
+func callsNext(cur simple) bool {
+	last := cur[len(cur)-1]
+	return last == "=" || psAssigned([]byte(last)) || len(cur) == 1 && strings.EqualFold(last, "return")
+}
+
+// psAssigned is whether a command's first word so far is PowerShell's assignment up to its operator: a variable
+// ($x, [void]$x, $a,$b, $env:x), then =, +=, -=, *=, /= or ??=. A bash assignment (PATH=./bin:$PATH) names no $.
+func psAssigned(word []byte) bool {
+	w := strings.TrimLeft(string(word), string(runOpen))
+	for strings.HasPrefix(w, "[") {
+		end := strings.IndexByte(w, ']')
+		if end < 0 {
+			return false
+		}
+		w = strings.TrimLeft(w[end+1:], string(runOpen))
+	}
+	return strings.HasPrefix(w, "$") && strings.HasSuffix(w, "=")
+}
+
+// pipedMark ends the words of a WMI method call (wmiMethods) that a pipeline feeds (lexLine's piped).
+const pipedMark = "\x00piped"
+
+// wtSubcommands are Windows Terminal's subcommands, which start a command after a ; on wt's line (wt nt ; sp claude).
+var wtSubcommands = map[string]bool{"nt": true, "new-tab": true, "sp": true, "split-pane": true, "ft": true,
+	"focus-tab": true, "mf": true, "move-focus": true, "mp": true, "move-pane": true, "swap-pane": true}
+
+// expressionText is the text of the ( … ) whose inside starts at line[from], with its closing parenthesis: as a
+// refusal shows it, at most 80 bytes.
+func expressionText(line string, from int) string {
+	depth := 1
+	for j := from; j < len(line); j++ {
+		switch line[j] {
+		case '(':
+			depth++
+		case ')':
+			if depth--; depth == 0 {
+				return truncateText(line[from : j+1])
+			}
+		}
+	}
+	return truncateText(line[from:])
+}
+
+// truncateText is text cut at 80 bytes, … after it when cut.
+func truncateText(text string) string {
+	if len(text) > 80 {
+		return text[:80] + "…"
+	}
+	return text
 }

@@ -61,7 +61,7 @@ func attachedDeskRig(t *testing.T, server int) (socket string, profile string) {
 	if err := makeDeskSocketFolder(socket); err != nil {
 		t.Fatal(err)
 	}
-	writeRegistryHires(t, Hire{ID: "ab12", Name: "Sandboxed", State: "working", Folder: s.at.Root, TmuxSocket: socket,
+	writeRegistryHires(t, Hire{ID: "ab12", Name: "Sandboxed", State: "working", Folder: keptPath(s.at.Root), TmuxSocket: socket,
 		TmuxProgram: tmux, TmuxServer: server})
 	saved := attachSandboxEnvironment
 	attachSandboxEnvironment = func() []string { return append(attachEnvironment(), deskStandInVariable+"=1") }

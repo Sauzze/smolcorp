@@ -67,9 +67,19 @@ func (d *Deck) guideAgain() {
 // openGuidePage opens setup on the guide: a variable, for the tests.
 var openGuidePage = func(d *Deck) error { return d.openSetup("guide") }
 
-// It says if the browser could not be started; the tray and the first run have no one to tell. Off a Mac, once a
-// phone is paired, it opens Setup with no link, where the page asks for a tap on the phone (setupask.go).
+// It says if the browser could not be started; the tray and the first run have no one to tell. Where Smolcorp has a
+// Settings window of its own off the Mac (Windows with WebView2, settingswindow.go), Setup opens there, or the one
+// open comes forward. Otherwise, in the browser (openSetupInBrowser).
 func (d *Deck) openSetup(then string) error {
+	if d.macHost() == nil && settingsWebView() {
+		return d.showSettingsWindow(then)
+	}
+	return d.openSetupInBrowser(then)
+}
+
+// openSetupInBrowser is Setup in the browser: with a link that works once, or off a Mac, once a phone is paired,
+// with no link, where the page asks for a tap on the phone (setupask.go).
+func (d *Deck) openSetupInBrowser(then string) error {
 	if d.setupLinkGone() {
 		return openURL(setupAddress(setupTapFragment, then))
 	}
@@ -193,7 +203,7 @@ func startAndCheck(cmd *exec.Cmd, wait time.Duration) error {
 func setupAdvice(goos string) string {
 	switch goos {
 	case "darwin":
-		return "choose Settings… from Smolcorp's menu bar icon, or run /Applications/Smolcorp.app/Contents/MacOS/AgentDeck --setup --open"
+		return "choose Settings… from Smolcorp's menu bar icon, or run /Applications/Smolcorp.app/Contents/MacOS/Smolcorp --setup --open"
 	case "windows": // the tray is always there; no command makes a setup link
 		return "choose Open Setup… from Smolcorp's tray icon once your browser opens links, or quit Smolcorp from its tray icon and start it again for a new link"
 	default: // Linux: the same tray item, and with no tray the only new link comes from quitting and starting again

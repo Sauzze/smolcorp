@@ -80,7 +80,7 @@ func TestTheFireOfATmuxDeskMarkedGoneEndsItsSessionAndKeepsItsRow(t *testing.T) 
 			if now := registered(t)[0]; now.State != state || now.Notes != "by hand" {
 				t.Errorf("the row changed: %+v", now)
 			}
-			if _, err := os.Stat(g.hire.Worktree); err != nil || recapsWritten() != 0 {
+			if _, err := os.Stat(g.hire.Worktree.storedOnly()); err != nil || recapsWritten() != 0 {
 				t.Errorf("worktree %v, recaps %d", err, recapsWritten())
 			}
 			// Again: nothing is left to end.
@@ -107,13 +107,13 @@ func TestTheFireOfATmuxDeskMarkedGoneKeepsTheWindowRules(t *testing.T) {
 	}
 	// Changes nobody committed don't stop it: its worktree isn't removed.
 	g.showing(t, "idle-empty")
-	if err := os.WriteFile(filepath.Join(g.hire.Worktree, "new.txt"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(g.hire.Worktree.storedOnly(), "new.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if w := g.fire(t, true, nil); w.Code != http.StatusOK || !g.r.tmux.ran("kill-server") {
 		t.Errorf("uncommitted: %d %s", w.Code, w.Body)
 	}
-	if _, err := os.Stat(filepath.Join(g.hire.Worktree, "new.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join(g.hire.Worktree.storedOnly(), "new.txt")); err != nil {
 		t.Error(err)
 	}
 }
@@ -141,7 +141,7 @@ func TestTheStartListsATmuxDeskWhoseRowIsGoneWhileItsSessionRuns(t *testing.T) {
 	d.config.HiringEnabled = true
 	d.engine = r.o
 	tab := "tmux:%1@" + registered(t)[0].TmuxSocket
-	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "session_id": "orphan", "cwd": registered(t)[0].Worktree}, Claude, tab, "", 1)
+	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "session_id": "orphan", "cwd": registered(t)[0].Worktree.storedOnly()}, Claude, tab, "", 1)
 	status, message, handled := d.fireTab(tab, false)
 	if note := "Ada was already marked fired, but its tmux session was still running: it's ended now, and its row stays as it was."; !handled || status != http.StatusOK || message != note || r.tmux.up {
 		t.Fatalf("fireTab: %d %q %v", status, message, handled)
@@ -178,7 +178,7 @@ func TestALauncherDeskIsNeverMarkedGoneWhileItsWindowRunsAndItsFireEndsAnOrphan(
 	if id, _ := r.d.launcherOf(h.ID); id != "" || w.stopped() != 1 {
 		t.Errorf("the window wasn't stopped: %d", w.stopped())
 	}
-	if _, err := os.Stat(h.Worktree); err != nil || recapsWritten() != 0 || registered(t)[0].State != "fired" {
+	if _, err := os.Stat(h.Worktree.storedOnly()); err != nil || recapsWritten() != 0 || registered(t)[0].State != "fired" {
 		t.Errorf("worktree %v, recaps %d, %+v", err, recapsWritten(), registered(t)[0])
 	}
 	r.fireRefused(h, false, "Janitor is already gone.")
@@ -216,7 +216,7 @@ func TestAT3DeskIsNeverMarkedGoneWhileItsAgentWorksAndLetGoEndsAnOrphan(t *testi
 		answer["note"] != "Ada was already marked fired, but its T3 Code agent was still running: it's ended now, and its row stays as it was." {
 		t.Fatalf("%d %s", got.Code, got.Body)
 	}
-	if runs := r.runs(); !reflect.DeepEqual(runs, [][]string{{"project", "remove", h.Worktree, "--force"}}) {
+	if runs := r.runs(); !reflect.DeepEqual(runs, [][]string{{"project", "remove", h.Worktree.storedOnly(), "--force"}}) {
 		t.Errorf("%q", runs)
 	}
 	if now := registered(t)[0]; now.State != "fired" || now.Notes != "by hand" || recapsWritten() != 0 {
@@ -341,7 +341,7 @@ func TestALauncherStartIsNeverMarkedGoneAndStartsNothingBehindAGoneRow(t *testin
 	}
 	again := newID()
 	r.d.expectLauncher(again, h.ID, hireStartEnv{})
-	if tab := r.d.launcherConnected("L-late", Claude, hireDir(h), "janitor", again); tab == nil || tab.hireID != "" {
+	if tab := r.d.launcherConnected("L-late", Claude, h.storedPlace(), "janitor", again); tab == nil || tab.hireID != "" {
 		t.Errorf("a window was tied to a gone row: %+v", tab)
 	}
 	if id, _ := r.d.launcherOf(h.ID); id != "" {
@@ -368,7 +368,7 @@ func TestALauncherWindowThatConnectedAgainWithoutItsIDIsNeverMarkedGone(t *testi
 	if _, refused := editHire(registryPath(), []byte(`{"id":"`+h.ID+`","state":"fired"}`), r.d.deskSession); refused != nil || registered(t)[0].State != "fired" {
 		t.Fatalf("its window gone: %+v", refused)
 	}
-	third := r.connect("L-third-"+h.ID, hireDir(h), "janitor", flagAfter(r.opened[0], "--hire"), "", w.env)
+	third := r.connect("L-third-"+h.ID, h.storedPlace(), "janitor", flagAfter(r.opened[0], "--hire"), "", w.env)
 	_, err := r.d.fireLauncherHire(registered(t)[0], r.o, true)
 	if want := "Janitor is already marked fired, but a window connected again in its worktree without its id, and Smolcorp can't end that: close it there."; err == nil || err.Error() != want {
 		t.Errorf("the fire: %v", err)
@@ -418,7 +418,7 @@ func TestANewDeckListsAGoneDeskStillRunningOnSetup(t *testing.T) {
 	kept := t3Stand
 	t.Cleanup(func() { t3Stand = kept }) // after the deck has stopped
 	t3Stand.Leaving = func() t3Leaving { return t3Leaving{Working: func(string) ([]int, bool) { return []int{4242}, true }} }
-	h := Hire{ID: "a1b2c3", Name: "Reviewer", Nickname: "Ada", Role: "reviewer", Folder: homeDir, Worktree: t.TempDir(), State: "fired", Engine: t3Engine}
+	h := Hire{ID: "a1b2c3", Name: "Reviewer", Nickname: "Ada", Role: "reviewer", Folder: keptPath(homeDir), Worktree: keptPath(t.TempDir()), State: "fired", Engine: t3Engine}
 	if err := updateRegistry(func(f *registryFile) { f.hires = []Hire{h} }); err != nil {
 		t.Fatal(err)
 	}

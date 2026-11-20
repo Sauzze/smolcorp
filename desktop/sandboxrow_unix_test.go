@@ -81,10 +81,10 @@ func TestRestartInTheSandboxStartsAnOldDeskAgainInItsPlace(t *testing.T) {
 		row.TmuxSocket != deskSocketPath(old.ID, 0) || row.Worktree != old.Worktree || row.Branch != old.Branch {
 		t.Fatalf("the row after: %+v", rows)
 	}
-	if len(*made) != 1 || (*made)[0].places.Root != physical(old.Worktree) || (*made)[0].places.OwnID != old.ID {
+	if len(*made) != 1 || (*made)[0].places.Root != physical(old.Worktree.storedOnly()) || (*made)[0].places.OwnID != old.ID {
 		t.Fatalf("its sandbox: %d made", len(*made))
 	}
-	if _, err := os.Stat(old.Worktree); err != nil {
+	if _, err := os.Stat(old.Worktree.storedOnly()); err != nil {
 		t.Errorf("its worktree: %v", err)
 	}
 	if info, err := os.Stat(deskClaudeFolder(supportDir, old.ID)); err != nil || !info.IsDir() {
@@ -237,7 +237,8 @@ func TestADeskStoppedButNotStartedAgainIsSaidSoAndKeepsItsRow(t *testing.T) {
 func TestRestartIsOfferedOnlyWhereItCanStartTheDeskInItsSandbox(t *testing.T) {
 	playSandboxedHere(t, true)
 	deskSockets(t)
-	roles := []Role{{ID: "janitor", Name: "Janitor", Agent: "claude", Model: "sonnet"}, {ID: "coder", Name: "Coder", Agent: "codex"}}
+	roles := []Role{{ID: "janitor", Name: "Janitor", Agent: "claude", Model: "sonnet"}, {ID: "coder", Name: "Coder", Agent: "codex"},
+		{ID: "gem", Agent: "gemini"}, {ID: "oc", Agent: "opencode"}, {ID: "gk", Agent: "grok"}}
 	saved := []claudeProfile{{Name: "work", Dir: filepath.Join(homeDir, ".claude-work")}}
 	own := func(h Hire) Hire { h.TmuxSocket = hireOwnSocket(h.ID, 0); return h }
 	base := own(Hire{ID: "aaaa00000001", Name: "Janitor", Role: "janitor", State: "working", Model: "opus"})
@@ -260,13 +261,28 @@ func TestRestartIsOfferedOnlyWhereItCanStartTheDeskInItsSandbox(t *testing.T) {
 		{"in a window", with(func(h *Hire) { h.TmuxSocket = "" }), false, false, "a tmux of Smolcorp's own"},
 		{"another desk's socket", with(func(h *Hire) { h.TmuxSocket = hireOwnSocket("bbbb00000002", 0) }), false, false, "a tmux of Smolcorp's own"},
 		{"the API key", with(func(h *Hire) { h.Account = apiKeyAccountName }), false, false, "API key"},
-		{"Codex", with(func(h *Hire) { h.Role = "coder" }), false, false, "isn't a Claude Code desk"},
+		// A desk of an agent a Mac's sandbox doesn't start yet, hired with the switch off: its hire again is refused now,
+		// so the row says that, not "fire it and hire it again", whatever else it is (FXPLANTSTERMR4, N2).
+		{"Codex", with(func(h *Hire) { h.Role = "coder" }), false, false, notOnAMacYet(Codex, true)},
+		{"Gemini CLI", with(func(h *Hire) { h.Role = "gem" }), false, false, notOnAMacYet(Gemini, true)},
+		{"OpenCode", with(func(h *Hire) { h.Role = "oc" }), false, false, notOnAMacYet(OpenCode, true)},
+		{"Grok", with(func(h *Hire) { h.Role = "gk" }), false, false, notOnAMacYet(Grok, true)},
+		{"Codex in a window", with(func(h *Hire) { h.Role, h.TmuxSocket = "coder", "" }), false, false, notOnAMacYet(Codex, true)},
+		{"Grok in T3 Code", with(func(h *Hire) { h.Role, h.Engine = "gk", t3Engine }), false, false, notOnAMacYet(Grok, true)},
+		{"Codex, the sandbox off", with(func(h *Hire) { h.Role = "coder" }), true, false, sandboxOffToRestart},
 		{"an account gone", with(func(h *Hire) { h.Account = "gone" }), false, false, "isn't in Setup's list any more"},
 	}
 	for _, c := range cases {
 		role, _, why := restartRefusal(c.h, roles, saved, c.off, c.apply)
 		if c.want == "" && (why != "" || role.ID != c.h.Role || role.Model != "opus") || c.want != "" && !strings.Contains(why, c.want) {
 			t.Errorf("%s: %q, role %+v", c.name, why, role)
+		}
+		agent := Claude
+		if i := slices.IndexFunc(roles, func(r Role) bool { return r.ID == c.h.Role }); i >= 0 {
+			agent = agentOrClaude(roles[i].Agent)
+		}
+		if notOnAMacYet(agent, true) != "" && strings.Contains(why, "hire it again") {
+			t.Errorf("%s: says to hire it again, which is refused: %q", c.name, why)
 		}
 	}
 	if err := os.MkdirAll(saved[0].Dir, 0o700); err != nil {

@@ -326,17 +326,62 @@ func TestEveryDenyRowIsLookedAtOrSkippedWithAReason(t *testing.T) {
 	pl.GitHooks, pl.GitNamed = []string{filepath.Join(tr.repo, ".husky", "_")}, []string{filepath.Join(tr.home, "more.gitconfig")}
 	pl.OtherSupports = []string{filepath.Join(tr.base, "test-copy")}
 	pl.OtherWorktrees = []string{"h1", "h2"}
-	pol, err := sandbox.New(pl)
+	// The GM hired into the projects folder (FXGMROOT): its workspace for its Root, the projects folder it reads.
+	gm := pl
+	gm.Subject, gm.OwnID, gm.Root, gm.OwnSockets = sandbox.GM, "gm1", sandbox.Workspace(tr.support, "gm1"), filepath.Join(tr.base, "k", "gm1")
+	gm.Checkout, gm.GitDir, gm.OwnWorktree, gm.OtherWorktrees, gm.HiresFolder, gm.GMFolder = "", "", "", nil, "", ""
+	gm.GMProjects = filepath.Join(tr.home, "P")
+	gm.GMPlans = filepath.Join(gm.GMProjects, filepath.FromSlash(deskPlansFor("gm1")))
+	// A hire under that GM (FXGMROOTR1 N2): kept out of its workspace, its plans and the agent files where it starts.
+	underGM := pl
+	underGM.GMFolder, underGM.GMStart, underGM.GMStartPlans = gm.Root, gm.GMProjects, gm.GMPlans
+	// A hire held to its own worktree in the folder for hires (FXHIREPROJECTS).
+	inProjects := pl
+	inProjects.Projects = filepath.Join(tr.home, "P")
+	// A hire under a GM with a workspace that started in a folder of its own, held whole (FXHIREPROJECTSR1).
+	underOwnGM := inProjects
+	underOwnGM.GMFolder, underOwnGM.GMStart = gm.Root, filepath.Join(tr.home, "gm-home")
+	// A hire in its worktree in the folder for hires, with a link on the way to it (FXHIREPROJECTSR3's N2).
+	linkedProjects := inProjects
+	linkedProjects.ProjectsLinks = []string{filepath.Join(tr.home, "Projects")}
+	rows := map[string]bool{}
+	for _, pl := range []sandbox.Places{pl, gm, underGM, inProjects, underOwnGM, linkedProjects} {
+		pol, err := sandbox.New(pl)
+		if err != nil {
+			t.Fatal(err)
+		}
+		looks, _ := linkLooks(pol, pl)
+		looked := func(at string, depth int) bool {
+			return slices.ContainsFunc(looks, func(l linkLook) bool {
+				return l.path == at && (l.depth < 0 || depth >= 0 && l.depth >= depth) || l.depth < 0 && inside(l.path, at)
+			})
+		}
+		eachDenyRowIsLooked(t, pol, pl, rows, looked)
+		// The support folder is walked whole.
+		if !looked(tr.support, -1) {
+			t.Error("the support folder isn't walked whole")
+		}
+	}
+	// The Mac's own rows (FXPLANTSTERM's), whatever computer this runs on: linkCheckSkipped names some of them.
+	mac, err := sandbox.New(sandbox.Places{GOOS: "darwin", Home: "/Users/ada", Support: "/Users/ada/Library/Application Support/Smolcorp",
+		OwnID: "h1", Root: "/Users/ada/p-hires/h1", HiresFolder: "/Users/ada/p-hires"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	looks, _ := linkLooks(pol, pl)
-	looked := func(at string, depth int) bool {
-		return slices.ContainsFunc(looks, func(l linkLook) bool {
-			return l.path == at && (l.depth < 0 || depth >= 0 && l.depth >= depth) || l.depth < 0 && inside(l.path, at)
-		})
+	for _, r := range mac.Rules() {
+		rows[r.Row] = true
 	}
-	rows := map[string]bool{}
+	for row, why := range linkCheckSkipped {
+		if !rows[row] || why == "" {
+			t.Errorf("linkCheckSkipped names %q, which is no row of the Policy's (or gives no reason)", row)
+		}
+	}
+}
+
+// eachDenyRowIsLooked is TestEveryDenyRowIsLookedAtOrSkippedWithAReason for one Policy, pol for a desk at pl: each of
+// its rows is noted in rows.
+func eachDenyRowIsLooked(t *testing.T, pol *sandbox.Policy, pl sandbox.Places, rows map[string]bool, looked func(string, int) bool) {
+	t.Helper()
 	for _, r := range pol.Rules() {
 		rows[r.Row] = true
 		if r.Read != sandbox.Deny && r.Write != sandbox.Deny {
@@ -353,23 +398,14 @@ func TestEveryDenyRowIsLookedAtOrSkippedWithAReason(t *testing.T) {
 			depth = strings.Count(r.Tail, "/") + 1
 		}
 		if r.Path == "" {
-			for _, root := range []string{pl.Root, pl.Checkout} {
-				if !looked(filepath.Join(root, ".claude"), 1) {
+			for _, root := range []string{pl.Root, pl.Checkout, pl.GMProjects} {
+				if root != "" && !looked(filepath.Join(root, ".claude"), 1) {
 					t.Errorf("row %q (anywhere %s): %s/.claude isn't looked at", r.Row, r.Tail, root)
 				}
 			}
 		} else if !looked(filepath.FromSlash(r.Path), depth) {
 			t.Errorf("row %q at %s (%s, below %v) isn't looked at, nor skipped with a reason", r.Row, r.Path, r.Tail, r.Below)
 		}
-	}
-	for row, why := range linkCheckSkipped {
-		if !rows[row] || why == "" {
-			t.Errorf("linkCheckSkipped names %q, which is no row of the Policy's (or gives no reason)", row)
-		}
-	}
-	// The support folder is walked whole.
-	if !looked(tr.support, -1) {
-		t.Error("the support folder isn't walked whole")
 	}
 }
 

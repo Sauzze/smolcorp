@@ -253,7 +253,10 @@ func updateWords(note updateNote, byHand bool, before []string) string {
 		words[0] = updateKeptBut
 	}
 	words = append(words, countWords(note.Phones, updatePhone, updatePhones)...)
-	words = append(words, countWords(note.Macs, updateMac, updateMacs)...)
+	// Macs paired for floors only while those are on (dormant.go): off, the update names no Mac.
+	if peersOn {
+		words = append(words, countWords(note.Macs, updateMac, updateMacs)...)
+	}
 	words = append(words, note.Reset...)
 	if byHand {
 		words = append(words, updateByHand)

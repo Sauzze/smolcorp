@@ -17,7 +17,7 @@ func TestSmolcorpsOwnFilesAreCheckedAtEachStartAndEvent(t *testing.T) {
 	if got := appHolding("/Applications/Smolcorp.app/Contents/Resources/bin/smolcorp"); got != "/Applications/Smolcorp.app" {
 		t.Errorf("the app of its own program: %q", got)
 	}
-	for _, program := range []string{"/usr/local/bin/smolcorp", "/x/Contents/Resources/bin/smolcorp", "/x/Smolcorp.app/Contents/MacOS/AgentDeck"} {
+	for _, program := range []string{"/usr/local/bin/smolcorp", "/x/Contents/Resources/bin/smolcorp", "/x/Smolcorp.app/Contents/MacOS/Smolcorp"} {
 		if got := appHolding(program); got != "" {
 			t.Errorf("%s is in an app: %q", program, got)
 		}

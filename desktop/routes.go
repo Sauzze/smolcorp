@@ -1,6 +1,10 @@
 package desktop
 
-import "strings"
+import (
+	"net/http"
+	"slices"
+	"strings"
+)
 
 // routeRow says which callers may use a setup route: one row of the table
 // Tests/fixtures/frontdesk/routes.json, which the Mac app writes from its
@@ -41,6 +45,11 @@ var routeTable = []routeRow{
 	{"GET", "/setup/gm/memory", []string{"gm", "page"}},
 	{"POST", "/setup/gm/memory/propose", []string{"gm", "page"}},
 	{"POST", "/setup/gm/memory/withdraw", []string{"gm", "page"}},
+	{"GET", "/setup/gm/memory/notes", []string{"page"}},
+	{"POST", "/setup/gm/memory/keep", []string{"page"}},
+	{"POST", "/setup/gm/memory/edit", []string{"page"}},
+	{"POST", "/setup/gm/memory/drop", []string{"page"}},
+	{"POST", "/setup/gm/memory/forget", []string{"page"}},
 	{"*", "/setup/gm/memory/*", []string{"page"}},
 	{"*", "/setup/gm/*", []string{"gm", "page"}},
 	{"POST", "/setup/hire", []string{"gm", "page"}},
@@ -48,7 +57,7 @@ var routeTable = []routeRow{
 	{"GET", "/setup/hire/gm/preflight", []string{"page"}},
 	{"POST", "/setup/hiring", []string{"gm", "page"}},
 	{"POST", "/setup/hiring/choose", []string{"page"}},
-	{"POST", "/setup/hire-folder", []string{"gm", "page"}},
+	{"POST", "/setup/hire-folder", []string{"page"}},
 	{"POST", "/setup/roles", []string{"gm", "page"}},
 	{"POST", "/setup/hooks", []string{"gm", "page"}},
 	{"POST", "/setup/unpair", []string{"gm", "page"}},
@@ -160,6 +169,9 @@ var goOnlyRoutes = []routeRow{
 	{"POST", nightPausePath, []string{"page"}},
 	{"POST", nightDeletePath, []string{"page"}},
 	{"POST", "/setup/preview", []string{"gm", "page", "hire"}},
+	// A new project folder in the GM's projects folder, made by the core (gmproject.go): the GM and the page, as a
+	// hire; an MCP key and a night job are refused at the gate.
+	{"POST", "/setup/gm/project", []string{"gm", "page"}},
 }
 
 // name is how the table spells a caller.
@@ -217,6 +229,79 @@ func routeAllows(who caller, method, path string) bool {
 	return false
 }
 
+// The owner's Strict (SANDBOX-PLAN §9 Q8, B8): "only Smolcorp's window (Mac, Windows) and your phone can". Where
+// Smolcorp has its own Settings window (under the Mac app, and on Windows with WebView2: settingswindow.go), Setup in a
+// browser (the Mac's Open Settings in Browser, a Windows link) is for looking only, since its cookie is one other
+// programs on this computer can read. So the page's routes have one access class more, "the page, and where Smolcorp
+// has its own Settings window only that window": every route the page may use that changes something, in the table or not (any method but GET
+// and HEAD: /setup/fix, unlisted, is the page's too), and windowOnlyReads, the reads that show a pairing code or hand
+// over a key. A browser's session gets windowOnlyRefusal's words there, and everywhere else reads as before; GET
+// /setup/state leaves out what it would hand over (forABrowserBesideTheWindow). The phone's tap is its own route
+// (/grants/answer), never the page's. With no window of Smolcorp's own (Linux, a Windows without WebView2) nothing
+// changes: Setup opens in the browser there, or by the phone's tap once a phone is paired (setupask.go).
+
+// windowOnlyReads are the reads in the class: each shows a code to pair with or a link that holds a key.
+var windowOnlyReads = []string{
+	"GET /setup/qr.png",         // the phone's pairing code
+	"GET /setup/viewer",         // the viewer's link, which holds its key (setupReadsNoted)
+	"GET /setup/viewer/qr.png",  // the same link
+	"GET /setup/peers",          // the code another Mac pairs with
+	"GET /setup/accounts/login", // a sign-in's link and code
+}
+
+// pageNeedsTheWindow is whether a route the page may use is in the class: where Smolcorp has its own Settings window,
+// that window's alone.
+func pageNeedsTheWindow(method, path string) bool {
+	if method == http.MethodHead {
+		method = http.MethodGet
+	}
+	return method != http.MethodGet || slices.Contains(windowOnlyReads, method+" "+path)
+}
+
+// What a browser's Setup beside Smolcorp's own Settings window is told, in the words of a terminal's ask (terminalask.go).
+const (
+	windowOnlyChange = "Change this in Smolcorp's own Settings window, not in a browser."
+	windowOnlyRead   = "Open this in Smolcorp's own Settings window, not in a browser."
+)
+
+// windowOnlyNote is what the page says at its top in a browser beside Smolcorp's own Settings window, and where that
+// window is: the Mac's menu bar icon, or Windows' tray.
+func windowOnlyNote(mac bool) string {
+	return "This is Setup in a browser: you can look, but you change things in Smolcorp's own Settings window (" + ownWindowWhere(mac) + ")."
+}
+
+// browserBesideTheWindow is whether a page's request comes from a browser's Setup where Smolcorp has its own Settings
+// window (ownSettingsWindow): any session but the one that window opened.
+func (d *Deck) browserBesideTheWindow(r *http.Request) bool {
+	return d.ownSettingsWindow() && !d.isWindowPage(r)
+}
+
+// windowOnlyRefusal is the class's gate, asked by every gate the page's cookie passes (server.go's /setup and /bots/):
+// "" lets the request on; otherwise it's what a browser's Setup beside the window is told.
+func (d *Deck) windowOnlyRefusal(r *http.Request, who caller) string {
+	if who != callerPage || !pageNeedsTheWindow(r.Method, r.URL.Path) || !d.browserBesideTheWindow(r) {
+		return ""
+	}
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return windowOnlyRead
+	}
+	return windowOnlyChange
+}
+
+// forABrowserBesideTheWindow is GET /setup/state for a browser's Setup beside Smolcorp's own Settings window: the
+// phone's pairing code and the webhook's secret left out, as they are for a tool, and the note that says where things
+// change.
+func forABrowserBesideTheWindow(state map[string]any, mac bool) map[string]any {
+	if pairing, ok := state["pairing"].(map[string]any); ok {
+		delete(pairing, "code")
+	}
+	if webhook, ok := state["webhook"].(map[string]any); ok {
+		webhook["secret"] = ""
+	}
+	state["windowOnly"] = windowOnlyNote(mac)
+	return state
+}
+
 // routeRefusal is what a refused caller is told.
 func routeRefusal(method, path string) string {
 	if row := routeFor(method, path); row != nil {
@@ -250,4 +335,25 @@ func webhookSecretFor(who caller, secret string) string {
 		return secret
 	}
 	return ""
+}
+
+// webhookOffOnly is what the GM is told when it asks POST /setup/webhook for more than {"enabled": false}.
+const webhookOffOnly = "The GM can only turn the webhook off. Where it sends is the owner's to set, in Setup."
+
+// What the GM is told by POST /setup/hiring (RT126SWEEP3 P4 B1, F2): the folder for hires is the owner's alone, as
+// POST /setup/hire-folder is the page's alone in the table, and the GM turns hiring off, never on. Why, only where
+// hires have a sandbox that holds it (RT126SWEEP4-P4 F1): a Mac with the sandbox on; elsewhere the plain words.
+const (
+	hireFolderPageOnly   = "Only the owner chooses the folder for hires, in Setup: every hire's sandbox holds it."
+	hireFolderOwnersOnly = "Only the owner chooses the folder for hires, in Setup."
+	hiringOffOnly        = "The GM can only turn hiring off. Turning it back on is the owner's, in Setup."
+)
+
+// gmHireFolderWords is what the GM is told when it asks to move the folder for hires: the sandbox named only when
+// hires start in one.
+func gmHireFolderWords(sandboxed bool) string {
+	if sandboxed {
+		return hireFolderPageOnly
+	}
+	return hireFolderOwnersOnly
 }

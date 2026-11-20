@@ -187,6 +187,16 @@ func (q *hireQueue) settle() {
 	}
 	age := q.now().Sub(time.UnixMilli(run.Saved))
 	switch {
+	case !templatesOn && !nightShiftOn:
+		// Neither a template's plan nor a night job runs in this version (dormant.go): a run kept from a version
+		// where they did is let go, and said nowhere.
+		run.State, run.Word = hqAbandoned, ""
+		for i := range run.Steps {
+			if run.Steps[i].State == hqWaiting {
+				run.Steps[i].State = hqCancelled
+			}
+		}
+		q.keep()
 	case run.Night != "":
 		// Nobody is there to resume it: let go, so it doesn't hold the queue. Its next run tries again.
 		q.end(hqAbandoned, "Let go: Smolcorp restarted while "+run.Label+" was being hired ("+q.progress()+"). Check the office for it.")
@@ -500,8 +510,11 @@ func (d *Deck) newHireQueue() *hireQueue {
 		say: func(text string) {
 			d.events.append(eventEntry{At: time.Now().UnixMilli(), Kind: eventKindHireQueue, Detail: cutEventDetail(text)})
 		},
-		nightApproves: func(by actor, steps []hireStep) bool { return d.night != nil && d.night.approvesHire(by, steps) },
-		nightEnded:    d.nightEnded,
+		// Never while the night shift is off (dormant.go).
+		nightApproves: func(by actor, steps []hireStep) bool {
+			return nightShiftOn && d.night != nil && d.night.approvesHire(by, steps)
+		},
+		nightEnded: d.nightEnded,
 	})
 }
 

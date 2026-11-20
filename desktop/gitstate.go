@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,6 +41,12 @@ const (
 	gitOutputCap    = 4 << 20 // bytes of one answer from git; more and that part is skipped
 	gitFilesShown   = 200
 	gitStatesKept   = 64
+)
+
+// A listing that grows with the repo is read as it comes (gitRecords), past gitOutputCap, with bounds of its own.
+const (
+	gitRecordMost = 64 << 10 // bytes of one record of such a listing
+	gitRefsMost   = 64 << 20 // bytes of a listing of the repo's branches (gitstatefolder.go, gitBranchesIn)
 )
 
 var errGitTooBig = errors.New("git's answer is over the size cap")
@@ -84,28 +91,101 @@ type GitState struct {
 //
 // env is more of git's environment, after gitReadEnv's: the git folder a read's status and diff go through
 // (gitstatefolder.go).
+//
+// stdout, when not nil, takes git's standard output as it comes, past no cap of gitOutput's, and the answer's out is
+// then empty: for a listing that grows with the repo, read as gitRecords (FXWINWORKTREER4). Whether the copy went
+// whole is stdout's to say: the caller asks it first, before git's exit.
 type gitCall struct {
 	global []string
 	config [][2]string
 	env    []string
+	stdout io.Writer
 }
 
 // gitReader runs one read-only git command in dir and returns its standard output, its exit code, and an error
 // when it could not run, took too long (ctx) or answered more than the cap.
 type gitReader func(ctx context.Context, dir string, call gitCall, args ...string) (out []byte, status int, err error)
 
-// gitOutput takes git's output and stops the copy, so git ends on a broken pipe, past the cap.
+// gitOutput takes git's output and stops the copy, so git ends on a broken pipe, past the cap. The buffer is a field,
+// not embedded: an embedded bytes.Buffer's ReadFrom would be gitOutput's too, and exec's copy of a command's stream
+// takes a ReadFrom over Write, so the cap never ran (FXWINWORKTREER3, the R2 review's O1).
 type gitOutput struct {
-	bytes.Buffer
+	buf  bytes.Buffer
 	over bool
 }
 
 func (b *gitOutput) Write(p []byte) (int, error) {
-	if b.Len()+len(p) > gitOutputCap {
+	if b.buf.Len()+len(p) > gitOutputCap {
 		b.over = true
 		return 0, errGitTooBig
 	}
-	return b.Buffer.Write(p)
+	return b.buf.Write(p)
+}
+
+func (b *gitOutput) Len() int { return b.buf.Len() }
+
+func (b *gitOutput) Bytes() []byte { return b.buf.Bytes() }
+
+func (b *gitOutput) String() string { return b.buf.String() }
+
+// gitRecords takes a listing from git that grows with the repo (its index, its branches) record by record as it comes
+// (FXWINWORKTREER4): each whole record, up to sep, goes to each, and nothing is held but the record under way, so
+// gitOutput's cap, which a clean tree's index passes at some 40,000 files, doesn't refuse it. each keeps what it needs
+// of a record (a copy: the bytes are reused). A record longer than gitRecordMost, a listing past most bytes (0 for no
+// bound), or an error from each stops the copy as gitOutput's cap does, so git ends on a broken pipe.
+type gitRecords struct {
+	sep  byte
+	most int64
+	each func(record []byte) error
+	seen int64
+	part []byte
+	err  error
+}
+
+func (r *gitRecords) Write(p []byte) (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	if r.seen += int64(len(p)); r.most > 0 && r.seen > r.most {
+		r.err = errGitTooBig
+		return 0, r.err
+	}
+	n := len(p)
+	for {
+		i := bytes.IndexByte(p, r.sep)
+		if i < 0 {
+			break
+		}
+		record := p[:i]
+		if len(r.part) > 0 {
+			r.part = append(r.part, record...)
+			record = r.part
+		}
+		if len(record) > gitRecordMost {
+			r.err = errGitTooBig
+			return 0, r.err
+		}
+		if err := r.each(record); err != nil {
+			r.err = err
+			return 0, err
+		}
+		r.part, p = r.part[:0], p[i+1:]
+	}
+	if len(r.part)+len(p) > gitRecordMost {
+		r.err = errGitTooBig
+		return 0, r.err
+	}
+	r.part = append(r.part, p...)
+	return n, nil
+}
+
+// end is why the listing wasn't taken whole, nil once it was: what stopped the copy, or a last record git didn't end
+// with sep (an answer cut short).
+func (r *gitRecords) end() error {
+	if r.err == nil && len(r.part) > 0 {
+		r.err = errors.New("git's listing ends in the middle of a record")
+	}
+	return r.err
 }
 
 // gitReadArgs go before every command: nothing paged, no lock taken for a refresh, no transport (so no fetch, not
@@ -123,6 +203,12 @@ var gitReadArgs = []string{"--no-pager", "--no-optional-locks", "-c", "protocol.
 // from outside (and git's own test switches, GIT_TEST_*, which change what it writes, and the switches that change
 // what every pathspec means, GIT_*_PATHSPECS): they are dropped, whole or by prefix, from a read's environment. GIT_TEST_ASSUME_DIFFERENT_OWNER is kept: it only makes git refuse a repo as
 // another account's, never write more, and it is how the tests stand in for another account.
+//
+// XDG_CONFIG_HOME is dropped too on a Mac, where a desk's sandbox runs (FXAGENTHOMEMAC; elsewhere it's kept, as it
+// always was there: FXAGENTHOMEMACR1, RT126AGENTHOMEMAC O1): git takes its user ignore and attributes files from
+// $XDG_CONFIG_HOME/git when no config names one (and its user config, which a read turns off anyway), and every read
+// takes them from ~/.config/git instead, as the Mac's core always did. A read of the owner's own config puts it back
+// (gitOwnerConfigEnv).
 var gitConfigNames = map[string]bool{
 	"GIT_DIR": true, "GIT_WORK_TREE": true, "GIT_INDEX_FILE": true, "GIT_COMMON_DIR": true, "GIT_OBJECT_DIRECTORY": true,
 	"GIT_ALTERNATE_OBJECT_DIRECTORIES": true, "GIT_PAGER": true, "GIT_TERMINAL_PROMPT": true, "GIT_OPTIONAL_LOCKS": true,
@@ -131,7 +217,24 @@ var gitConfigNames = map[string]bool{
 	"GIT_SSH": true, "GIT_SSH_COMMAND": true, "GIT_ASKPASS": true, "SSH_ASKPASS": true, "GIT_PROXY_COMMAND": true,
 	"GIT_ALLOW_PROTOCOL": true, "GIT_PROTOCOL_FROM_USER": true, "GIT_NO_LAZY_FETCH": true, "GIT_EXEC_PATH": true,
 	"GIT_LITERAL_PATHSPECS": true, "GIT_GLOB_PATHSPECS": true, "GIT_NOGLOB_PATHSPECS": true, "GIT_ICASE_PATHSPECS": true,
-	"GIT_NO_REPLACE_OBJECTS": true, "GIT_REPLACE_REF_BASE": true, "GIT_GRAFT_FILE": true,
+	"GIT_NO_REPLACE_OBJECTS": true, "GIT_REPLACE_REF_BASE": true, "GIT_GRAFT_FILE": true, "XDG_CONFIG_HOME": runtime.GOOS == "darwin",
+}
+
+// gitOwnerConfigEnv is a read's environment made from base (gitReadEnv), with the owner's own global config on
+// again, for a read of the owner's settings (reading config runs nothing): without GIT_CONFIG_GLOBAL, and with base's
+// XDG_CONFIG_HOME, never the core's own (O4), so git finds the owner's config where their own git does
+// ($XDG_CONFIG_HOME/git/config, which a desk's sandbox holds: Places.GitConfigs).
+func gitOwnerConfigEnv(base []string) []string {
+	env := slices.DeleteFunc(gitReadEnv(base, nil), func(kv string) bool { return strings.HasPrefix(kv, "GIT_CONFIG_GLOBAL=") })
+	if !gitConfigNames["XDG_CONFIG_HOME"] {
+		return env // kept already
+	}
+	for i := len(base) - 1; i >= 0; i-- {
+		if xdg, ok := strings.CutPrefix(base[i], "XDG_CONFIG_HOME="); ok {
+			return append(env, "XDG_CONFIG_HOME="+xdg)
+		}
+	}
+	return env
 }
 
 // gitReadAround are the settings every read is given last, so neither a repo's config nor a caller's beats them: git
@@ -139,6 +242,25 @@ var gitConfigNames = map[string]bool{
 // and each pack's own index (FXREPLACEREFS). A desk could have written either in the shared .git (off a Mac, or before
 // the Mac's rows), and either one bends what a base branch reads as: its ancestry, or a file's bytes.
 var gitReadAround = [][2]string{{"core.commitGraph", "false"}, {"core.multiPackIndex", "false"}}
+
+// gitNoGraftFile is the grafts file a read names (GIT_GRAFT_FILE), so that it reads none, and gitNoGraftHint what goes
+// with it (gitNoGrafts).
+var gitNoGraftFile, gitNoGraftHint = gitNoGrafts(runtime.GOOS == "windows")
+
+// gitNoGrafts is a grafts file that holds none, and any setting it needs so git says nothing about it. Git opens the
+// file at its first look at a commit (a status, a log), and says nothing when there's no such file; any other failure
+// to open it is a warning on standard error, with exit 0. An empty name is no file on a Mac and on Linux, and nothing
+// is printed. Windows can't open an empty name at all, so Git for Windows printed "warning: unable to access", the
+// empty name and "Invalid argument" beside each such look, and the fire kept every clean tree for it
+// (FXWINWORKTREER3, git 2.56.0.windows.4 on windows-latest). There it's the null device, read as no grafts; git then
+// prints its hint that a grafts file is deprecated, which advice.graftFileDeprecated turns off (handed over with the
+// read's config, which git reads before that first look).
+func gitNoGrafts(windows bool) (file string, hint [][2]string) {
+	if windows {
+		return os.DevNull, [][2]string{{"advice.graftFileDeprecated", "false"}}
+	}
+	return "", nil
+}
 
 // gitReadEnv is the environment of a read: the app's, without what would point git at another repo or hand it
 // config, a program or a transport, with nothing to ask the owner, and with config, if any, handed over (gitCall).
@@ -149,10 +271,16 @@ var gitReadAround = [][2]string{{"core.commitGraph", "false"}, {"core.multiPackI
 // (gitOwnerLineEnds, makeGitReadFolder; and deskGit's, gitLineEndsAround); nothing else of theirs applies here.
 //
 // Nor does anything that substitutes what a ref reads as (FXREPLACEREFS): no replace ref (GIT_NO_REPLACE_OBJECTS),
-// no grafts (GIT_GRAFT_FILE empty names no file, so none is read, and git's hint about grafts isn't printed either),
-// and gitReadAround last. The shallow list is still read: a shallow clone's history really ends there.
+// no grafts (gitNoGraftFile), and gitReadAround last. The shallow list is still read: a shallow clone's history
+// really ends there.
 func gitReadEnv(env []string, config [][2]string) []string {
-	config = append(slices.Clip(config), gitReadAround...)
+	return gitReadEnvGrafts(env, config, gitNoGraftFile, gitNoGraftHint)
+}
+
+// gitReadEnvGrafts is gitReadEnv with graftFile named as the grafts file, and graftHint after the read's config (the
+// two gitNoGrafts gives).
+func gitReadEnvGrafts(env []string, config [][2]string, graftFile string, graftHint [][2]string) []string {
+	config = append(append(slices.Clip(config), gitReadAround...), graftHint...)
 	out := make([]string, 0, len(env)+10+2*len(config))
 	for _, kv := range env {
 		name, _, _ := strings.Cut(kv, "=")
@@ -163,7 +291,7 @@ func gitReadEnv(env []string, config [][2]string) []string {
 		out = append(out, kv)
 	}
 	out = append(out, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_PAGER=cat", "GIT_ALLOW_PROTOCOL=", "GIT_NO_LAZY_FETCH=1",
-		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_NO_REPLACE_OBJECTS=1", "GIT_GRAFT_FILE=")
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_NO_REPLACE_OBJECTS=1", "GIT_GRAFT_FILE="+graftFile)
 	out = append(out, "GIT_CONFIG_COUNT="+strconv.Itoa(len(config)))
 	for i, kv := range config {
 		n := strconv.Itoa(i)
@@ -172,9 +300,11 @@ func gitReadEnv(env []string, config [][2]string) []string {
 	return out
 }
 
-// readGitOut is the real gitReader: `git -C dir …` with no shell, in ctx, with only its standard output kept.
+// readGitOut is the real gitReader: `git -C dir …` with no shell, in ctx, with only its standard output kept (or
+// handed to call.stdout as it comes).
 func readGitOut(ctx context.Context, dir string, call gitCall, args ...string) ([]byte, int, error) {
-	return execGit(ctx, append(gitReadEnv(os.Environ(), call.config), call.env...), append(append([]string{"-C", dir}, call.global...), args...)...)
+	return execGitTo(ctx, append(gitReadEnv(os.Environ(), call.config), call.env...), nil, call.stdout,
+		append(append([]string{"-C", dir}, call.global...), args...)...)
 }
 
 // execGit runs git with args in env, keeping its standard output up to the cap.
@@ -184,6 +314,12 @@ func execGit(ctx context.Context, env []string, args ...string) ([]byte, int, er
 
 // execGitIn is execGit with in as git's standard input (nil: the null device).
 func execGitIn(ctx context.Context, env []string, in io.Reader, args ...string) ([]byte, int, error) {
+	return execGitTo(ctx, env, in, nil, args...)
+}
+
+// execGitTo is execGitIn with git's standard output handed to stdout as it comes, when not nil (gitCall's stdout):
+// out is then empty.
+func execGitTo(ctx context.Context, env []string, in io.Reader, stdout io.Writer, args ...string) ([]byte, int, error) {
 	cmd := disclaim.Cmd(exec.CommandContext(ctx, "git", args...))
 	cmd.Env = env
 	cmd.Stdin = in
@@ -192,6 +328,9 @@ func execGitIn(ctx context.Context, env []string, in io.Reader, args ...string) 
 	hideGitWindow(cmd)
 	var out gitOutput
 	cmd.Stdout = &out // standard error goes to the null device, and standard input too without in
+	if stdout != nil {
+		cmd.Stdout = stdout
+	}
 	err := cmd.Run()
 	switch {
 	case out.over:
@@ -240,7 +379,7 @@ func askGitHere() gitHereInfo {
 	here := gitHereInfo{version: string(out)}
 	// The owner's own config, read with their global config left on (reading config runs nothing; --global follows
 	// no includes). Only these two keys are kept.
-	env := slices.DeleteFunc(gitReadEnv(os.Environ(), nil), func(kv string) bool { return strings.HasPrefix(kv, "GIT_CONFIG_GLOBAL=") })
+	env := gitOwnerConfigEnv(os.Environ())
 	list, _, _ := execGit(ctx, env, "-C", os.TempDir(), "--no-pager", "config", "--global", "-z", "--get-regexp", `^(core\.excludesfile|safe\.directory)$`)
 	for _, record := range strings.Split(string(list), "\x00") {
 		if key, value, found := strings.Cut(record, "\n"); found {
@@ -248,6 +387,18 @@ func askGitHere() gitHereInfo {
 		}
 	}
 	return here
+}
+
+// carriedExcludesFiles are the values of core.excludesFile the core's reads carry (gitHere's), as given: a desk's
+// start holds each one (deskPlaces, FXAGENTHOMEMACR2).
+func carriedExcludesFiles() []string {
+	var values []string
+	for _, kv := range gitHere().owner {
+		if strings.EqualFold(kv[0], "core.excludesfile") {
+			values = append(values, kv[1])
+		}
+	}
+	return values
 }
 
 // gitVersionAtLeast reads "git version 2.43.0.windows.1" or "git version 2.39.5 (Apple Git-154)".
@@ -476,6 +627,14 @@ func stampOf(gitDir string) gitStamp {
 // readGitState reads dir's state with read, within one timeout. gitDir is the repo's own git folder ("" when
 // dir is in no repo), for the cache to watch.
 func readGitState(dir string, read gitReader, now time.Time) (state GitState, gitDir string) {
+	return readGitStateIn(dir, "", read, now)
+}
+
+// readGitStateIn is readGitState for a desk whose place is place ("" for none): a repo whose top git gives outside the
+// place, a bare repo or a git folder there whose core.worktree names a folder of its choosing, is read no further than
+// git's rev-parse, which reads config and runs nothing (FXSWEEP3P3 F-7). Its answer names that top, which deskGit
+// refuses.
+func readGitStateIn(dir, place string, read gitReader, now time.Time) (state GitState, gitDir string) {
 	state = GitState{Files: []GitFile{}, At: now.UnixMilli()}
 	ctx, cancel := context.WithTimeout(context.Background(), gitStateTimeout)
 	defer cancel()
@@ -518,6 +677,11 @@ func readGitState(dir string, read gitReader, now time.Time) (state GitState, gi
 		return state, ""
 	}
 	state.Repo, state.Top, gitDir = true, filepath.FromSlash(lines[0]), filepath.FromSlash(lines[1])
+	if place != "" && !within(place, physical(state.Top)) {
+		state.Skipped = true
+		state.Note = deskOutsideNote
+		return state, ""
+	}
 	// Before 2.31 git can't be given a key in its environment, where an "=" in a filter's name can't split it, and
 	// before 2.32 the owner's own config can't be left out: so nothing more is read.
 	if !gitVersionAtLeast(here.version, 2, 32) {
@@ -700,11 +864,19 @@ func (g *gitStates) fresh(e gitEntry, event float64) bool {
 }
 
 // get is folder's state: kept while fresh, read again otherwise, one read at a time per folder (others wait for it).
-func (g *gitStates) get(folder string, event float64) GitState {
+func (g *gitStates) get(folder string, event float64) GitState { return g.getIn(folder, "", event) }
+
+// getIn is get for a desk whose place is place, "" for none (readGitStateIn), kept apart from the reads of the same
+// folder with no place.
+func (g *gitStates) getIn(folder, place string, event float64) GitState {
 	if folder == "" {
 		return GitState{Files: []GitFile{}, At: g.now().UnixMilli()}
 	}
-	key := physical(folder)
+	dir := physical(folder)
+	key := dir
+	if place != "" {
+		key += "\x00" + place
+	}
 	for {
 		g.mu.Lock()
 		e := g.byDir[key]
@@ -746,7 +918,7 @@ func (g *gitStates) get(folder string, event float64) GitState {
 				g.mu.Unlock()
 				close(done)
 			}()
-			state, gitDir = readGitState(key, g.read, g.now())
+			state, gitDir = readGitStateIn(dir, place, g.read, g.now())
 			stamp = stampOf(gitDir)
 			g.mu.Lock()
 			e.state, e.has, e.at, e.event, e.gitDir, e.stamp, e.running = state, true, g.now(), event, gitDir, stamp, nil
@@ -797,30 +969,46 @@ func (d *Deck) deskGit(id string) (int, any) {
 	if desk == "" {
 		return http.StatusOK, withPR(gits.get(folder, event))
 	}
-	outside := GitState{Files: []GitFile{}, Skipped: true, At: time.Now().UnixMilli(),
-		Note: "This desk names a folder outside its own worktree, so its git state isn't read."}
-	place, real, ok := deskReadsIn(desk, folder)
-	if !ok {
+	outside := GitState{Files: []GitFile{}, Skipped: true, At: time.Now().UnixMilli(), Note: deskOutsideNote}
+	place, real, note := deskReadsIn(desk, folder)
+	if note != "" {
+		outside.Note = note
 		return http.StatusOK, outside
 	}
-	state := gits.get(real, event)
+	state := gits.getIn(real, place, event)
 	if state.Top != "" && !within(place, physical(state.Top)) {
 		return http.StatusOK, outside
 	}
 	return http.StatusOK, withPR(state)
 }
 
+// deskOutsideNote is a desk's git state, not read: the folder it names, or the repo git found there, is outside its place.
+const deskOutsideNote = "This desk names a folder outside its own worktree, so its git state isn't read."
+
+// deskMovedNote is a hire's git state, not read: on a Mac, its worktree no longer resolves to the path stored at its
+// hire (hireTreeMoved). Whoever can write the folder for hires (a GM, for the owner's repos) could have swapped it for
+// a link to a folder of its own, and git would read there (FXGMHIRENOGIT126R8).
+const deskMovedNote = "This hire's worktree was moved or replaced since it was hired, so its git state isn't read. Fire it, then hire it again."
+
 // deskReadsIn is desk's own place, by the registry (its worktree, or the folder it works in when it has none), and
-// folder resolved, when that is the place or a folder below it, links resolved. A desk the registry doesn't hold has
-// none.
-func deskReadsIn(desk, folder string) (place, real string, ok bool) {
+// folder resolved, when that is the place or a folder below it, links resolved; else why its git state isn't read
+// (note): a desk the registry doesn't hold has no place, and a worktree moved or replaced since its hire is read
+// nowhere, before anything is resolved through it.
+func deskReadsIn(desk, folder string) (place, real, note string) {
 	h, found := registryHire(desk)
-	place = cmpOr(h.Worktree, h.Folder)
-	if !found || !filepath.IsAbs(place) || !filepath.IsAbs(folder) {
-		return "", "", false
+	if stored := h.storedPlace(); !found || !filepath.IsAbs(stored) || !filepath.IsAbs(folder) {
+		return "", "", deskOutsideNote
 	}
-	place, real = physical(place), physical(folder)
-	return place, real, within(place, real)
+	// Where it works, only while that still resolves to itself (checkedPlace, FXCOREWORKTREES126).
+	checked, err := h.checkedPlace()
+	if err != nil {
+		return "", "", deskMovedNote
+	}
+	place, real = physical(checked), physical(folder)
+	if !within(place, real) {
+		return "", "", deskOutsideNote
+	}
+	return place, real, ""
 }
 
 // gmGit answers GET /setup/gm/git for the GM (and the page and tools): ?hire= is a hire's registry id, read where it
@@ -834,7 +1022,27 @@ func (rt *router) gmGit(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusNotFound, "There is no hire with that id.")
 			return
 		}
-		writeJSON(w, http.StatusOK, withPR(gits.get(startedIn(h), 0)))
+		// Held to the hire's place as a desk's own read is (deskGit): a top outside it isn't read (FXSWEEP3P3 F-7), and
+		// a worktree moved or replaced since its hire isn't read at all (FXGMHIRENOGIT126R8).
+		// Where it works and starts, only while they still resolve to themselves (the accessors, FXCOREWORKTREES126).
+		place, moved := h.checkedPlace()
+		start, movedStart := h.checkedStart()
+		note := ""
+		if !filepath.IsAbs(h.storedPlace()) {
+			note = deskOutsideNote
+		} else if moved != nil || movedStart != nil {
+			note = deskMovedNote
+		}
+		if note != "" {
+			writeJSON(w, http.StatusOK, GitState{Files: []GitFile{}, Skipped: true, At: time.Now().UnixMilli(), Note: note})
+			return
+		}
+		place = physical(place)
+		state := gits.getIn(start, place, 0)
+		if state.Top != "" && !within(place, physical(state.Top)) {
+			state = GitState{Files: []GitFile{}, Skipped: true, At: time.Now().UnixMilli(), Note: deskOutsideNote}
+		}
+		writeJSON(w, http.StatusOK, withPR(state))
 	case query.Get("session") != "":
 		writeAnswer(w)(rt.deck.deskGit(query.Get("session")))
 	default:

@@ -298,9 +298,9 @@ func TestAHireThatDiesAfterReportingStillFails(t *testing.T) {
 func TestCleaningUpAHireThatNeverReported(t *testing.T) {
 	r := newRecorder()
 	h, socket := fakeHireTmux(t, r, 0)
-	hire := Hire{ID: "ab12-cd34", Worktree: "/w/ab12", Branch: "hire/ab12"}
+	hire := Hire{ID: "ab12-cd34", Worktree: keptPath("/w/ab12"), Branch: "hire/ab12"}
 	var failed, removed []string
-	remove := func(x Hire) bool { removed = append(removed, x.Worktree); return true }
+	remove := func(x Hire) bool { removed = append(removed, x.Worktree.storedOnly()); return true }
 	fail := func(id, why string) { failed = append(failed, id+": "+why) }
 
 	left := cleanUpHire(hire, "no word from it in 45 seconds", h, remove, fail)

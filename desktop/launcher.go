@@ -3,6 +3,7 @@ package desktop
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -97,19 +98,36 @@ type launcherRun struct {
 	// For an engine hire (hirelauncher.go): its id. The launcher then asks the app for
 	// the hire's environment and its settings before it starts anything.
 	hireID string
+	// For an office's plain hire on a Mac (hire.go, ruling (W)): the desk the office made its worktree for, whose
+	// sandbox the launcher makes (newLauncherSandboxAt). "" for a new one.
+	desk string
+	// For such a desk the office made no worktree for: the folder it was hired into as the rule judged it, its links
+	// resolved, where its folder must still lead (newLauncherSandboxAt). "" for one with a worktree.
+	place string
+	// placeID is that folder's identity at its hire (`--place-id`, folderIdentity's "<dev>:<ino>"): its start checks
+	// the folder at place is still that one, not a real folder renamed into it since (FXRC3FIXR1, RT126RC3FIX's F-c).
+	// "" when none could be taken: the path alone is checked, as an engine row with none is.
+	placeID string
+	// For such a hire of a role, the project the office picked for it, by its name in the folder for hires, and its
+	// own worktree's branch ("" for a project that isn't a repo): it is told that project rather than asked which
+	// (FXPICKEDPROJECT). "" for none picked.
+	project, branch string
 	// For a plain hire of Claude Code (hire.go) on an account other than ~/.claude: that account's folder, from
 	// setup's confirmed list. See plainHireEnv.
 	claudeConfig string
 	// For a hire of a role, its agent as the office checked it could start: the
 	// role must still have it.
 	agent string
+	// For a plain hire on a Mac made while the owner had the sandbox off (hire.go): its agent starts outside one, if
+	// the switch still reads off as it starts (sandboxed).
+	sandboxOff bool
 	// Whether the agent got as far as starting.
 	started bool
 }
 
 // parseRun reads `smolcorp run`'s arguments: [--hire <token> [--hire-id <id> |
-// --claude-config <folder>] [--pinned] [--agent <agent>]] then <agent>
-// [arguments], or --role <id>.
+// [--desk <desk> [--project <name> [--branch <branch>]] [--place <folder> [--place-id <id>]]] [--claude-config <folder>]] [--pinned] [--sandbox-off]
+// [--agent <agent>]] then <agent> [arguments], or --role <id>.
 func parseRun(args []string) (*launcherRun, error) {
 	run := &launcherRun{}
 	if len(args) >= 2 && args[0] == "--hire" {
@@ -123,6 +141,34 @@ func parseRun(args []string) (*launcherRun, error) {
 			}
 			run.hireID, args = args[1], args[2:]
 		}
+		if len(args) >= 2 && args[0] == "--desk" {
+			if run.hireID != "" || !plainDeskID(args[1]) {
+				return nil, errors.New("not a plain hire's desk")
+			}
+			run.desk, args = args[1], args[2:]
+			if len(args) >= 2 && args[0] == "--project" {
+				if !plainProjectName(args[1]) {
+					return nil, errors.New("not a project's name")
+				}
+				run.project, args = args[1], args[2:]
+				if len(args) >= 2 && args[0] == "--branch" {
+					// Checked against its role's once that's read, below.
+					run.branch, args = args[1], args[2:]
+				}
+			}
+			if len(args) >= 2 && args[0] == "--place" {
+				if !filepath.IsAbs(args[1]) || filepath.Clean(args[1]) != args[1] {
+					return nil, errors.New("not a hire's folder")
+				}
+				run.place, args = args[1], args[2:]
+				if len(args) >= 2 && args[0] == "--place-id" {
+					if !placeIdentity.MatchString(args[1]) {
+						return nil, errors.New("not a folder's identity")
+					}
+					run.placeID, args = args[1], args[2:]
+				}
+			}
+		}
 		if len(args) >= 2 && args[0] == "--claude-config" {
 			// The app's own word for a plain hire's account, a full path: an engine hire's comes with its start settings.
 			if run.hireID != "" || !filepath.IsAbs(args[1]) || filepath.Clean(args[1]) != args[1] {
@@ -132,6 +178,13 @@ func parseRun(args []string) (*launcherRun, error) {
 		}
 		if len(args) > 0 && args[0] == "--pinned" {
 			run.pinned, args = true, args[1:]
+		}
+		if len(args) > 0 && args[0] == "--sandbox-off" {
+			// A plain hire's word alone: an engine hire's start goes by the engine's own (hireengine.go).
+			if run.hireID != "" {
+				return nil, errors.New("--sandbox-off is for a plain hire")
+			}
+			run.sandboxOff, args = true, args[1:]
 		}
 		if len(args) > 0 && args[0] == "--agent" {
 			if len(args) < 3 || args[2] != "--role" || args[1] == "" {
@@ -154,12 +207,94 @@ func parseRun(args []string) (*launcherRun, error) {
 	default:
 		run.command = args
 	}
+	// A branch told is the one prepareHire made for this desk's hire of this role, named as it names it, whatever the
+	// role's id (FXPICKEDPROJECTR1, B2): hire/<desk>/<role>-<desk's 6>.
+	if run.branch != "" && (run.role == "" || run.branch != hireBranch(run.desk, hireWorktreeName(run.role, run.desk))) {
+		return nil, errors.New("not this desk's branch")
+	}
 	return run, nil
 }
+
+// sandboxed is whether this launcher starts its agent in a sandbox of its own: a plain hire's (an engine hire's
+// starts in its desk's tmux, and one run by hand is in none), on a system whose launcher makes one, unless the owner
+// turned the sandbox off (FXSWITCHPLAIN). Off only when both say so: the core, whose switch is sealed, at the hire
+// (--sandbox-off), and the config as its file holds it now (plainHireSandboxed, as the engine reads the switch at
+// each start). A file another program changed alone, or a word on the command line alone, never takes a sandbox away.
+func (run *launcherRun) sandboxed() bool {
+	if !launcherSandboxes || run.hire == "" || run.hireID != "" {
+		return false
+	}
+	return !run.sandboxOff || plainHireSandboxed(*savedConfig())
+}
+
+// sandboxOnAgainWords say why a plain hire the office made while the owner had the sandbox off can't start now in
+// folder, or "" when it can (FXSTACKG G22): with the switch on again by its launcher's start (sandboxed: the file no
+// longer says off), it would start in its sandbox, but it has no desk of its own (--desk): the office made no worktree
+// for it, so in a repo it would be sandboxed in the owner's checkout, which ruling (W) (FXHIREPROJECTSR7) keeps every
+// sandboxed plain hire out of. It never starts outside the sandbox either. A folder git finds no repo in it works in
+// itself, as ruling (W) keeps for one (its start still refuses one that holds a repo, or the projects folder); any
+// other answer is taken as a repo (gitFindsNoRepo). The GM's place is its own, with or without the switch.
+func (run *launcherRun) sandboxOnAgainWords(sandboxed bool, folder string) string {
+	if !sandboxed || !run.sandboxOff || run.desk != "" || run.role == gmRole {
+		return ""
+	}
+	if gitFindsNoRepo(folder) {
+		return "" // in no repo
+	}
+	return plainHireSandboxOnAgain
+}
+
+// gitNoRepoWords are git's own words when it finds no repo in a folder or any folder above it (in git's own
+// language, LC_ALL=C). A .git file naming no git folder says "not a git repository: <path>", and a stop at another
+// file system's mount "(or any parent up to mount point …)": neither is these words.
+const gitNoRepoWords = "fatal: not a git repository (or any of the parent directories)"
+
+// gitFindsNoRepo is whether git finds folder in no repo, by the launcher's refusal's own read (FXSTACKFIX5R1,
+// RT126STACKFIX5 N1, O1, O2). It is a read as every other is (gitReadArgs, gitReadEnv, the owner's trusted folders),
+// but it looks as far up as a repo goes: a launcher runs with its terminal's environment, and a ceiling there
+// (GIT_CEILING_DIRECTORIES) has git answer "not a git repository" for a folder inside one, so this read drops it; and
+// git stops at another file system's mount unless GIT_DISCOVERY_ACROSS_FILESYSTEM=1, so this read sets it. The
+// terminal's GIT_TRACE settings are dropped too: their lines would come before git's own words (RT126STACKFIX5R1 O3).
+// Only gitNoRepoWords, with git's exit 128, count as no repo; any other failure is taken as a repo: one git refuses as
+// another account's (GIT_TEST_ASSUME_DIFFERENT_OWNER is kept, gitConfigNames), a .git file naming no git folder, git
+// missing, too slow or saying too much. A hire's own tree is a repo, and git isn't run there outside its sandbox.
+// Only this read: every other one keeps the owner's ceiling, so that, at a folder hired into, a start's own read of
+// the repo (deskGitPlaces) takes a repo the owner hid from git for none, and the sandbox's rows hold its .git whole.
+func gitFindsNoRepo(folder string) bool {
+	args := []string{"rev-parse", "--show-toplevel"}
+	if _, mine := deskGitForAs(folder, args); mine {
+		return false
+	}
+	git, err := exec.LookPath("git")
+	if err != nil {
+		return false
+	}
+	env := slices.DeleteFunc(gitReadEnv(os.Environ(), gitHere().owner), func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		name = strings.ToUpper(name)
+		return name == "GIT_CEILING_DIRECTORIES" || name == "GIT_DISCOVERY_ACROSS_FILESYSTEM" || name == "LC_ALL" ||
+			strings.HasPrefix(name, "GIT_TRACE")
+	})
+	env = append(env, "GIT_DISCOVERY_ACROSS_FILESYSTEM=1", "LC_ALL=C")
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	var stdout, stderr gitOutput
+	err = deskRun(ctx, "", folder, env, &stdout, &stderr, git, append(append([]string{"-C", folder}, gitReadArgs...), args...)...)
+	var exit *exec.ExitError
+	return errors.As(err, &exit) && ctx.Err() == nil && !stdout.over && !stderr.over && exit.ExitCode() == 128 &&
+		strings.HasPrefix(strings.TrimSpace(stderr.String()), gitNoRepoWords)
+}
+
+// plainHireSandboxOnAgain is a plain hire's launcher's words when the sandbox was turned on again between its hire
+// and its start (sandboxOnAgainWords).
+const plainHireSandboxOnAgain = "This hire was made while the sandbox was off, and the sandbox is on again now, so it didn't start: " +
+	"on this Mac a hire in its sandbox works in a worktree of its own, and this one has none. Close this window and hire again."
 
 func launch(run *launcherRun) int {
 	args := run.command
 	folder, _ := os.Getwd()
+	// Whether its agent starts in a sandbox of its own, read once, before its first message is made (FXSWITCHPLAIN).
+	sandboxed := run.sandboxed()
 	// An engine hire's secrets come from the app, before anything starts: if they
 	// can't be had, nothing is started and the window says why. With them comes
 	// its first message, when the app wrote it a brief.
@@ -189,15 +324,24 @@ func launch(run *launcherRun) int {
 		}
 	}
 	if run.role != "" {
-		how := startedHere
-		if run.hire != "" {
-			how = map[bool]roleStart{true: hiredAtPinnedDesk, false: hiredIntoGeneralFolder}[run.pinned]
-		}
 		message := ""
 		if startEnv != nil {
 			message = startEnv.Message
 		}
-		found, err := roleArguments(run.role, folder, how, message)
+		var told []string
+		if run.role == gmRole && launcherSandboxes && run.hire != "" && run.hireID == "" && !sandboxed {
+			told = append(told, gmSandboxOffLine) // told it starts outside its sandbox, as the engine's GM is (§A5.2, AQ1)
+		}
+		model := ""
+		if startEnv != nil {
+			// The model it was hired on, which the role read from the config may not have; checked again here as the
+			// core checked it, so nothing else rides on the agent's command line.
+			if model = startEnv.Model; !hireModelAllowed(model) {
+				fmt.Fprintln(os.Stderr, "smolcorp: Smolcorp named a model for this hire that isn't one, so nothing was started. Hire again")
+				return 2
+			}
+		}
+		found, err := run.roleStartArguments(folder, message, model, told...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 			return 2
@@ -260,17 +404,29 @@ func launch(run *launcherRun) int {
 
 	// A plain hire's agent starts in a sandbox of its own where this system has one (a Mac's), its own sandbox switched
 	// off (launchersandbox_darwin.go, agentownsandbox.go): one that can't be is refused, never started outside it.
+	// With Smolcorp's sandbox off (sandboxed), it starts as it would without Smolcorp, its own sandbox as the owner set it.
 	id := newID()
 	var walled *launcherSandbox
 	var ownOff map[string]string
-	if launcherSandboxes && run.hire != "" && run.hireID == "" {
+	if sandboxed {
+		if why := run.sandboxOnAgainWords(sandboxed, folder); why != "" {
+			fmt.Fprintln(os.Stderr, "smolcorp: "+why)
+			return 126
+		}
+		// Codex, Gemini CLI, OpenCode and Grok can't start in it yet (notonamac.go): every hire route refuses them
+		// before a window opens while the sandbox is in force, and this refuses one that got here anyway, before
+		// anything of the desk is made. With the owner's switch off (sandboxed false) it starts without one, tagged.
+		if why := notOnAMacYet(agentNamed(args[0]), sandboxed); why != "" {
+			fmt.Fprintln(os.Stderr, "smolcorp: "+why)
+			return 126
+		}
 		words, set, refusal := ownSandboxOffFor(agentNamed(args[0]), program)
 		if refusal != "" {
 			fmt.Fprintln(os.Stderr, "smolcorp: "+refusal)
 			return 126
 		}
 		programArgs, ownOff = append(words, programArgs...), set
-		if walled, err = newLauncherSandbox(folder, run.role == gmRole, id, agentNamed(args[0]), program); err != nil {
+		if walled, err = newLauncherSandboxPlaced(run.desk, run.place, run.placeID, folder, run.role == gmRole, id, agentNamed(args[0]), program); err != nil {
 			fmt.Fprintln(os.Stderr, "smolcorp: "+err.Error())
 			return 1
 		}
@@ -306,7 +462,7 @@ func launch(run *launcherRun) int {
 		}
 	}
 	rows, cols, sized := consoleSize()
-	screen := newLauncherScreen(rows, cols, sized)
+	screen := newLauncherScreen(rows, cols, sized, consoleCodePage())
 	matchSize(terminal, screen)
 	if err := agent.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
@@ -327,7 +483,10 @@ func launch(run *launcherRun) int {
 	go func() { _, _ = io.Copy(input, os.Stdin) }()
 	go func() { _, _ = io.Copy(os.Stdout, io.TeeReader(terminal, io.MultiWriter(cursor, screen))) }()
 	go followSize(terminal, screen)
-	go serveDeck(id, agentNamed(args[0]), folder, run.role, run.hire, input, cursor, screen, func() { stopProcess(agent.process()) })
+	// A Mac's plain hire started outside its sandbox (the owner's switch off) says so each time it connects, so its desk
+	// keeps its No sandbox tag after the core restarts, its token spent (FXSWITCHPLAIN).
+	unsandboxed := launcherSandboxes && run.hire != "" && run.hireID == "" && walled == nil
+	go serveDeck(id, agentNamed(args[0]), folder, run.role, run.hire, unsandboxed, walled.ownHookKey(), walled.noteConnected, input, cursor, screen, func() { stopProcess(agent.process()) })
 
 	if err := agent.Wait(); err != nil {
 		var exit *exec.ExitError
@@ -513,21 +672,51 @@ func sameAgentAsHired(run *launcherRun, agent string) error {
 	return fmt.Errorf("the role's agent was changed to %s after it was hired, and only %s was checked. Hire it again", agent, run.agent)
 }
 
+// roleStartArguments are the agent and its arguments for run's role, started in folder as its hire came to start
+// there: from a terminal, at a pinned desk, into the folder for hires, or into the project the office picked for it.
+// message, unless it's empty, is its first message instead of the role's own (roleArguments), and model, unless it's
+// empty, its model instead of the role's (roleArgumentsOn). told are lines added at its end.
+func (run *launcherRun) roleStartArguments(folder, message, model string, told ...string) ([]string, error) {
+	how := startedHere
+	if run.hire != "" {
+		how = map[bool]roleStart{true: hiredAtPinnedDesk, false: hiredIntoGeneralFolder}[run.pinned]
+	}
+	return roleArgumentsIn(run.role, folder, how, pickedStart{project: run.project, branch: run.branch}, message, model, told...)
+}
+
 // roleArguments are the agent and its arguments for the role with the id
 // given, as set up on the setup page, started in folder as how says. message,
 // unless it's empty, is its first message instead of the role's own: the one
-// the app made with the hire's brief.
-func roleArguments(id, folder string, how roleStart, message string) ([]string, error) {
+// the app made with the hire's brief. told are lines added at its end.
+func roleArguments(id, folder string, how roleStart, message string, told ...string) ([]string, error) {
+	return roleArgumentsOn(id, folder, how, message, "", told...)
+}
+
+// roleArgumentsOn is roleArguments on model, an engine hire's own (hireStartEnv.Model), in place of the role's; ""
+// keeps the role's.
+func roleArgumentsOn(id, folder string, how roleStart, message, model string, told ...string) ([]string, error) {
+	return roleArgumentsIn(id, folder, how, pickedStart{}, message, model, told...)
+}
+
+// roleArgumentsIn is roleArgumentsOn for a hire whose project the office picked, when picked names one: the role's
+// own first message tells it so (Role.firstMessageIn).
+func roleArgumentsIn(id, folder string, how roleStart, picked pickedStart, message, model string, told ...string) ([]string, error) {
 	roles := loadConfig().Roles
 	for _, role := range roles {
 		if role.ID == id {
+			if model != "" {
+				role.Model = model
+			}
 			// An ACP role's agent is "acp:<id>", not a program: hiring it is A5's, and until then a launcher
 			// started by hand never looks that name up on PATH.
 			if Agent(role.Agent).IsACP() {
 				return nil, errors.New(acpNotHiredYet)
 			}
 			if message == "" {
-				message = role.firstMessage(folder, how)
+				message = role.firstMessageIn(folder, how, picked)
+			}
+			for _, line := range told {
+				message += " " + line
 			}
 			return append([]string{role.Agent}, role.arguments(message)...), nil
 		}
@@ -583,12 +772,13 @@ var consoleSize = func() (rows, cols int, ok bool) {
 
 // matchSize gives the agent's terminal the console's size, and the screen the
 // launcher reads the same one, first, so what the agent draws next lands at
-// the new size.
+// the new size; and the screen the console's code page, read again.
 func matchSize(terminal pty.Pty, screen *launcherScreen) {
 	if rows, cols, ok := consoleSize(); ok {
 		screen.Resize(rows, cols)
 		_ = terminal.Resize(cols, rows)
 	}
+	screen.SetCodePage(consoleCodePage())
 }
 
 // lockedWriter keeps your typing and the deck's keys from interleaving.
@@ -667,9 +857,14 @@ func (c *cursorMode) pasteBytes(text string) (string, bool) {
 }
 
 // serveDeck connects to the app and carries out its commands until the
-// agent exits, reconnecting whenever the connection drops.
-func serveDeck(id string, agent Agent, folder, role, hire string, input io.Writer, cursor *cursorMode, screen *launcherScreen, stop func()) {
+// agent exits, reconnecting whenever the connection drops. relayKey is the
+// launcher's own hook key, its sandboxed agent's relay's ("" for none), given
+// to the app at each connection; connected is told once the app took it.
+func serveDeck(id string, agent Agent, folder, role, hire string, unsandboxed bool, relayKey string, connected func(), input io.Writer, cursor *cursorMode, screen *launcherScreen, stop func()) {
 	query := url.Values{"id": {id}, "agent": {string(agent)}, "folder": {folder}, "role": {role}, "hire": {hire}}
+	if unsandboxed {
+		query.Set("sandbox", "off")
+	}
 	base := fmt.Sprintf("http://127.0.0.1:%d", Port)
 	address := base + "/launcher?" + query.Encode()
 	for {
@@ -677,7 +872,13 @@ func serveDeck(id string, agent Agent, folder, role, hire string, input io.Write
 			request, _ := http.NewRequest(http.MethodGet, address, nil)
 			secret := strings.TrimSpace(string(key))
 			request.Header.Set(hookKeyHeader, secret)
+			if relayKey != "" {
+				request.Header.Set(launcherRelayKeyHeader, relayKey)
+			}
 			if response, err := http.DefaultClient.Do(request); err == nil {
+				if response.StatusCode == http.StatusOK && relayKey != "" {
+					connected()
+				}
 				look := func(proof, number string) {
 					postScreenAnswer(http.DefaultClient, base, secret, proof, id, number, screen)
 				}
@@ -775,12 +976,23 @@ type launcherTab struct {
 	office bool
 	// The engine hire this launcher is the window of (hirelauncher.go), from the
 	// hire's one-time token and nothing the launcher says; "" for any other.
-	hireID   string
+	hireID string
+	// A plain hire the office made on a Mac while the owner had the sandbox off (hire.go): its agent runs outside a
+	// sandbox, and Setup lists it so (plainHireTag). From its hire's token, nothing the launcher says.
+	sandboxOff bool
+	// The plain hire with a worktree of its own this launcher is the window of (plainhireend.go): from its token, or
+	// from its folder once it connects again without it; "" for any other.
+	plainDesk string
+	// hookHash is the hash of the launcher's own hook key, which its sandboxed agent's relay sends with (hookrelay.go),
+	// as its connection gave it; "" for none. Under the deck's lock.
+	hookHash string
 	commands chan launcherCommand
 	// The secret the launcher proves its screen answers with, sent down its own
 	// stream only; and a channel closed when the launcher is gone.
 	screenSecret string
 	gone         chan struct{}
+	// What its screen said made it unknown, each logged once (launcherScreenAnswered). Under the deck's lock.
+	screenBroke map[string]bool
 	// The ends of its connection to this app as the app saw them, and the launcher's own process, found from them
 	// once it's asked for (process, in preview.go). Under conn.
 	conn             sync.Mutex

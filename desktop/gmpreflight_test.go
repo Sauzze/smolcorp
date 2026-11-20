@@ -676,12 +676,12 @@ func TestTheSetupStateSaysWhetherAGMIsHired(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	registry(Hire{ID: "h1", Name: "General Manager", Folder: "/x/hires", Role: gmRole, State: "working"})
+	registry(Hire{ID: "h1", Name: "General Manager", Folder: keptPath("/x/hires"), Role: gmRole, State: "working"})
 	if got := hired(); got != true {
 		t.Errorf("a GM at work: gmHired %v", got)
 	}
-	registry(Hire{ID: "h1", Name: "General Manager", Folder: "/x/hires", Role: gmRole, State: "fired"},
-		Hire{ID: "h2", Name: "Janitor", Folder: "/x/hires", Role: "janitor", State: "working"})
+	registry(Hire{ID: "h1", Name: "General Manager", Folder: keptPath("/x/hires"), Role: gmRole, State: "fired"},
+		Hire{ID: "h2", Name: "Janitor", Folder: keptPath("/x/hires"), Role: "janitor", State: "working"})
 	if got := hired(); got != false {
 		t.Errorf("a fired GM: gmHired %v", got)
 	}

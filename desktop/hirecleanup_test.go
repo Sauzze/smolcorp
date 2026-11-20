@@ -8,8 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // listenAt makes a real unix socket at path, kept for the test's length.
@@ -46,7 +48,7 @@ func cleanupHireIn(t *testing.T, id string, testPort int) (Hire, string, string)
 	}
 	socket := hireOwnSocket(id, testPort)
 	listenAt(t, socket)
-	return Hire{ID: id, Name: "x", Folder: place.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: repo,
+	return Hire{ID: id, Name: "x", Folder: keptPath(place.Folder), Branch: place.Branch, Worktree: keptPath(place.Worktree), Repo: repo,
 		TmuxSocket: socket}, repo, opts.Worktrees
 }
 
@@ -59,12 +61,12 @@ func TestACleanUpRemovesOnlyAHiresOwnCleanWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	main := hire
-	main.Worktree = link
+	main.Worktree = keptPath(link)
 	if remove(main) {
 		t.Error("the main repo was taken for a hire's worktree")
 	}
 	for name, edit := range map[string]func(*Hire){
-		"no worktree": func(h *Hire) { h.Worktree = "" },
+		"no worktree": func(h *Hire) { h.Worktree = keptPath("") },
 		"no repo":     func(h *Hire) { h.Repo = "" },
 		"no socket":   func(h *Hire) { h.TmuxSocket = "" },
 	} {
@@ -84,7 +86,7 @@ func TestACleanUpRemovesOnlyAHiresOwnCleanWorktree(t *testing.T) {
 
 func TestACleanUpKeepsAWorktreeThatHoldsChanges(t *testing.T) {
 	hire, repo, trees := cleanupHireIn(t, "ab12cd34ef56", 0)
-	os.WriteFile(filepath.Join(hire.Worktree, "new.txt"), []byte("work"), 0o644)
+	os.WriteFile(filepath.Join(hire.Worktree.storedOnly(), "new.txt"), []byte("work"), 0o644)
 	if removeHireWorktree(nil, 0, trees)(hire) || branches(t, repo) == "" {
 		t.Error("a worktree with changes was removed")
 	}
@@ -214,7 +216,7 @@ func TestTheMainRepoCheckIsTheGuardsOwnNotGits(t *testing.T) {
 			t.Chdir(c.cwd)
 		}
 		h := hire
-		h.Repo, h.Worktree = repo, c.worktree
+		h.Repo, h.Worktree = repo, keptPath(c.worktree)
 		h.Branch = "hire/" + filepath.Base(physical(c.worktree))
 		git := &yesGit{head: h.Branch}
 		if removeHireWorktree(git.run, 0, trees)(h) || git.removed() {
@@ -225,7 +227,7 @@ func TestTheMainRepoCheckIsTheGuardsOwnNotGits(t *testing.T) {
 	own := filepath.Join(trees, "proj", "x-ab12cd")
 	os.MkdirAll(own, 0o755)
 	h := hire
-	h.Repo, h.Worktree, h.Branch = repo, own, "hire/x-ab12cd"
+	h.Repo, h.Worktree, h.Branch = repo, keptPath(own), "hire/x-ab12cd"
 	git := &yesGit{head: h.Branch}
 	if !removeHireWorktree(git.run, 0, trees)(h) || !git.removed() {
 		t.Error("a hire's own worktree wasn't taken by the guard with a git that says yes")
@@ -250,10 +252,10 @@ func TestACleanUpNeverRemovesAUsersOwnWorktree(t *testing.T) {
 	for name, c := range map[string]struct{ path, branch string }{
 		"outside the hires folder, a hire/ branch": {elsewhere, "hire/mine"},
 		"in the hires folder, another branch":      {inFolder, "feature"},
-		"the hire's folder, another branch":        {hire.Worktree, "feature"},
+		"the hire's folder, another branch":        {hire.Worktree.storedOnly(), "feature"},
 	} {
 		h := hire
-		h.Worktree, h.Branch = c.path, c.branch
+		h.Worktree, h.Branch = keptPath(c.path), c.branch
 		if removeHireWorktree(nil, 0, trees)(h) {
 			t.Errorf("%s: removed", name)
 		}
@@ -394,7 +396,7 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 func TestACleanUpTakesOnlyADirectChildOfTheHiresFolder(t *testing.T) {
 	hire, repo, trees := cleanupHireIn(t, "ab12cd34ef56", 0)
 	folder := hiresFolder(repo, trees)
-	nested := filepath.Join(hire.Worktree, "inner")
+	nested := filepath.Join(hire.Worktree.storedOnly(), "inner")
 	gitIn(t, repo, "worktree", "add", "-b", "hire/inner", nested)
 	// A clean linked worktree at the hires folder itself is made by moving the
 	// hire's own out of the way first.
@@ -406,7 +408,7 @@ func TestACleanUpTakesOnlyADirectChildOfTheHiresFolder(t *testing.T) {
 	for name, c := range cases {
 		git := &yesGit{head: c.branch}
 		h := hire
-		h.Worktree, h.Branch = c.path, c.branch
+		h.Worktree, h.Branch = keptPath(c.path), c.branch
 		if removeHireWorktree(git.run, 0, trees)(h) || git.removed() {
 			t.Errorf("%s: taken for a hire's worktree", name)
 		}
@@ -417,13 +419,17 @@ func TestACleanUpTakesOnlyADirectChildOfTheHiresFolder(t *testing.T) {
 	if _, err := os.Stat(nested); err != nil {
 		t.Error("the nested worktree is gone")
 	}
-	if _, err := os.Stat(hire.Worktree); err != nil {
+	if _, err := os.Stat(hire.Worktree.storedOnly()); err != nil {
 		t.Error("the hire's worktree is gone")
 	}
 }
 
 // The guard and git read one path: git is only ever given the guard's own
 // resolved absolute paths, and a relative record is refused.
+//
+// Its expectation on a Mac changed by the lead's ruling (FXGMHIRENOGIT126R6), pending the cold review's ruling: there,
+// a tree spelt through links no longer resolves to the path its hire stored, so it is kept, git is never asked, and
+// the words say why and what to do. Off a Mac it is taken, as before.
 func TestGitOnlyEverSeesTheGuardsOwnResolvedPaths(t *testing.T) {
 	hire, repo, trees := cleanupHireIn(t, "ab12cd34ef56", 0)
 	links := t.TempDir()
@@ -435,12 +441,28 @@ func TestGitOnlyEverSeesTheGuardsOwnResolvedPaths(t *testing.T) {
 	}
 	h := hire
 	h.Repo = repoLink
-	h.Worktree = filepath.Join(treesLink, filepath.Base(repo), filepath.Base(hire.Worktree))
+	h.Worktree = keptPath(filepath.Join(treesLink, filepath.Base(repo), filepath.Base(hire.Worktree.storedOnly())))
 	git := &yesGit{head: h.Branch}
-	if !removeHireWorktree(git.run, 0, trees)(h) || !git.removed() {
+	if runtime.GOOS == "darwin" {
+		if removeHireWorktree(git.run, 0, trees)(h) || len(git.asked) != 0 {
+			t.Fatalf("the hire's worktree, spelt through links, was taken, or git was asked: %q", git.asked)
+		}
+		if _, err := os.Stat(hire.Worktree.storedOnly()); err != nil {
+			t.Errorf("the hire's worktree is gone: %v", err)
+		}
+		words := "It was moved or replaced, so Smolcorp left it alone. To remove it yourself, delete what's at " + h.Worktree.storedOnly() + " (only the link, if it's a link), then run git worktree prune in your own checkout."
+		if got := firedKept(git.run, h); got != words || len(git.asked) != 0 {
+			t.Errorf("the fire's words: %q (git asked %q), want %q", got, git.asked, words)
+		}
+		data, err := os.ReadFile(writeRecapMoved(h, "", false, hireTreeMoved(h), time.Unix(0, 0)))
+		line := "- Worktree: " + h.Worktree.storedOnly() + " (kept). It was moved or replaced, so Smolcorp left it alone. Don't run git in it. To remove it yourself, delete what's at " + h.Worktree.storedOnly() + " (only the link, if it's a link; a folder, once you've copied out what you need, without git), then run `git worktree prune` in your own checkout.\n"
+		if err != nil || !strings.Contains(string(data), line) {
+			t.Errorf("the recap (%v):\n%s\nwant the line %q", err, data, line)
+		}
+	} else if !removeHireWorktree(git.run, 0, trees)(h) || !git.removed() {
 		t.Fatal("the hire's own worktree, spelt through links, wasn't taken")
 	}
-	tree := physical(hire.Worktree)
+	tree := physical(hire.Worktree.storedOnly())
 	for _, a := range git.asked {
 		if a[0] != physical(repo) && a[0] != tree {
 			t.Errorf("git was run in %q: %q", a[0], a)
@@ -454,10 +476,10 @@ func TestGitOnlyEverSeesTheGuardsOwnResolvedPaths(t *testing.T) {
 	}
 	// A relative Repo or Worktree is refused, whatever the folder Smolcorp is in.
 	for name, edit := range map[string]func(*Hire){
-		"relative worktree": func(h *Hire) { h.Worktree = filepath.Base(hire.Worktree) },
+		"relative worktree": func(h *Hire) { h.Worktree = keptPath(filepath.Base(hire.Worktree.storedOnly())) },
 		"relative repo":     func(h *Hire) { h.Repo = filepath.Base(repo) },
 	} {
-		for _, cwd := range []string{filepath.Dir(hire.Worktree), filepath.Dir(repo), repo} {
+		for _, cwd := range []string{filepath.Dir(hire.Worktree.storedOnly()), filepath.Dir(repo), repo} {
 			t.Chdir(cwd)
 			h := hire
 			edit(&h)
@@ -480,7 +502,7 @@ func TestACleanUpKeepsAWorktreeWhoseBranchIsNotTheHires(t *testing.T) {
 			gitIn(t, repo, "branch", hire.Branch)
 		},
 		"detached": func(t *testing.T, hire Hire, repo string) {
-			gitIn(t, hire.Worktree, "checkout", "--detach")
+			gitIn(t, hire.Worktree.storedOnly(), "checkout", "--detach")
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -490,7 +512,7 @@ func TestACleanUpKeepsAWorktreeWhoseBranchIsNotTheHires(t *testing.T) {
 			if removeHireWorktree(nil, 0, trees)(hire) {
 				t.Error("removed")
 			}
-			if _, err := os.Stat(hire.Worktree); err != nil {
+			if _, err := os.Stat(hire.Worktree.storedOnly()); err != nil {
 				t.Error("the worktree is gone")
 			}
 			if after := gitIn(t, repo, "branch", "--list"); after != before {
@@ -538,15 +560,15 @@ func TestACleanUpRefusesARecordWhoseWorktreeIsALink(t *testing.T) {
 				hire, repo, trees := cleanupHireIn(t, "ab12cd34ef56", 0)
 				target, branch := hire.Worktree, hire.Branch
 				if !own {
-					target, branch = filepath.Join(hiresFolder(repo, trees), "other-111111"), "hire/other-111111"
-					gitIn(t, repo, "worktree", "add", "-b", branch, target)
+					target, branch = keptPath(filepath.Join(hiresFolder(repo, trees), "other-111111")), "hire/other-111111"
+					gitIn(t, repo, "worktree", "add", "-b", branch, target.storedOnly())
 				}
 				link := linkAt(hiresFolder(repo, trees))
-				if err := os.Symlink(target, link); err != nil {
+				if err := os.Symlink(target.storedOnly(), link); err != nil {
 					t.Fatal(err)
 				}
 				h := hire
-				h.Worktree, h.Branch = link, branch
+				h.Worktree, h.Branch = keptPath(link), branch
 				git := &yesGit{head: branch}
 				if removeHireWorktree(git.run, 0, trees)(h) || git.removed() {
 					t.Error("taken, with a git that says yes")
@@ -554,7 +576,7 @@ func TestACleanUpRefusesARecordWhoseWorktreeIsALink(t *testing.T) {
 				if removeHireWorktree(nil, 0, trees)(h) {
 					t.Error("removed with real git")
 				}
-				for _, p := range []string{target, link} {
+				for _, p := range []string{target.storedOnly(), link} {
 					if _, err := os.Lstat(p); err != nil {
 						t.Errorf("%s is gone", p)
 					}
@@ -591,18 +613,18 @@ func TestACleanUpRefusesAWorktreeSpeltInAnyUncleanWay(t *testing.T) {
 					hire, repo, trees := cleanupHireIn(t, "ab12cd34ef56", 0)
 					target, branch := hire.Worktree, hire.Branch
 					if !own {
-						target, branch = filepath.Join(hiresFolder(repo, trees), "other-111111"), "hire/other-111111"
-						gitIn(t, repo, "worktree", "add", "-b", branch, target)
+						target, branch = keptPath(filepath.Join(hiresFolder(repo, trees), "other-111111")), "hire/other-111111"
+						gitIn(t, repo, "worktree", "add", "-b", branch, target.storedOnly())
 					}
-					if err := os.MkdirAll(filepath.Join(target, "sub"), 0o755); err != nil {
+					if err := os.MkdirAll(filepath.Join(target.storedOnly(), "sub"), 0o755); err != nil {
 						t.Fatal(err)
 					}
 					link := linkAt(hiresFolder(repo, trees))
-					if err := os.Symlink(target, link); err != nil {
+					if err := os.Symlink(target.storedOnly(), link); err != nil {
 						t.Fatal(err)
 					}
 					h := hire
-					h.Worktree, h.Branch = link+tail, branch
+					h.Worktree, h.Branch = keptPath(link+tail), branch
 					git := &yesGit{head: branch}
 					if removeHireWorktree(git.run, 0, trees)(h) || len(git.asked) != 0 {
 						t.Errorf("taken or asked, with a git that says yes: %v", git.asked)
@@ -610,7 +632,7 @@ func TestACleanUpRefusesAWorktreeSpeltInAnyUncleanWay(t *testing.T) {
 					if removeHireWorktree(nil, 0, trees)(h) {
 						t.Error("removed with real git")
 					}
-					if _, err := os.Stat(target); err != nil {
+					if _, err := os.Stat(target.storedOnly()); err != nil {
 						t.Error("the target is gone")
 					}
 				})
@@ -637,7 +659,7 @@ func TestACleanUpRefusesARepoSpeltInAnyUncleanWay(t *testing.T) {
 			if removeHireWorktree(nil, 0, trees)(h) {
 				t.Error("removed with real git")
 			}
-			if _, err := os.Stat(h.Worktree); err != nil {
+			if _, err := os.Stat(h.Worktree.storedOnly()); err != nil {
 				t.Error("the hire's worktree is gone")
 			}
 		})
@@ -649,7 +671,7 @@ func TestACleanUpRefusesARepoSpeltInAnyUncleanWay(t *testing.T) {
 func TestACleanUpRefusesAWorktreeThatCannotBeLookedAt(t *testing.T) {
 	hire, _, trees := cleanupHireIn(t, "ab12cd34ef56", 0)
 	h := hire
-	h.Worktree = filepath.Join(filepath.Dir(hire.Worktree), "gone-111111")
+	h.Worktree = keptPath(filepath.Join(filepath.Dir(hire.Worktree.storedOnly()), "gone-111111"))
 	h.Branch = "hire/gone-111111"
 	git := &yesGit{head: h.Branch}
 	if removeHireWorktree(git.run, 0, trees)(h) || git.removed() {
@@ -679,7 +701,7 @@ func TestEachHalfOfTheMainRepoCheckStandsOnItsOwn(t *testing.T) {
 		"a repo inside the record's tree":                        {inner, holder},
 	} {
 		h := hire
-		h.Repo, h.Worktree, h.Branch = c.repo, c.tree, "hire/"+filepath.Base(c.tree)
+		h.Repo, h.Worktree, h.Branch = c.repo, keptPath(c.tree), "hire/"+filepath.Base(c.tree)
 		if filepath.Dir(physical(c.tree)) != physical(hiresFolder(physical(c.repo), trees)) {
 			t.Fatalf("%s: the setup is not a direct child of the hires folder", name)
 		}

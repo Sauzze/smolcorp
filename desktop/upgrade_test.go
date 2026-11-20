@@ -155,7 +155,7 @@ func TestTheUpdateFrom1242KeepsTheOfficeAndSaysWhatReset(t *testing.T) {
 	file := readRegistry(registryPath(), false)
 	for _, id := range []string{"h1", "h2", "gm1"} {
 		i := slices.IndexFunc(file.hires, func(h Hire) bool { return h.ID == id })
-		if i < 0 || file.hires[i].Account != "work" || file.hires[i].Folder != project || !isOpen(file.hires[i]) {
+		if i < 0 || file.hires[i].Account != "work" || file.hires[i].Folder.storedOnly() != project || !isOpen(file.hires[i]) {
 			t.Errorf("hire %s wasn't kept as it was", id)
 		}
 	}
@@ -178,7 +178,7 @@ func TestTheUpdateFrom1242KeepsTheOfficeAndSaysWhatReset(t *testing.T) {
 
 	// A desk in T3 Code made since the update has no hook key either (hookkeys.go): it isn't from 1.24.
 	if err := updateRegistry(func(f *registryFile) {
-		f.hires = append(f.hires, Hire{ID: "t3a", Name: "Designer", Nickname: "Dee", Folder: project, State: "working", Engine: t3Engine,
+		f.hires = append(f.hires, Hire{ID: "t3a", Name: "Designer", Nickname: "Dee", Folder: keptPath(project), State: "working", Engine: t3Engine,
 			Started: float64(time.Now().UnixMilli())})
 	}); err != nil {
 		t.Fatal(err)
@@ -226,7 +226,7 @@ func TestTheUpdateFrom1242KeepsTheOfficeAndSaysWhatReset(t *testing.T) {
 		for i := range f.hires {
 			f.hires[i].State = "fired"
 		}
-		f.hires = append(f.hires, Hire{ID: "h4", Name: "Builder", Nickname: "Ada", Folder: project, State: "working", Started: float64(time.Now().UnixMilli())})
+		f.hires = append(f.hires, Hire{ID: "h4", Name: "Builder", Nickname: "Ada", Folder: keptPath(project), State: "working", Started: float64(time.Now().UnixMilli())})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestTheUpdateFrom1242OnAMacSealsTheOfficeAndSaysWhatReset(t *testing.T) {
 		}
 	}
 	line := updateLineSays(t, d, time.Now(), checkTodo, []string{updateKept, updateKeys, updatePhone,
-		"The 2 Macs paired with this one before the update were let go: pair each one again.", updateByHand,
+		updateByHand,
 		"Re-hire your hires from 1.24 (Ada, Bo and the General Manager)"}, "fell back")
 	// In the self-test, as Start here and `smolcorp setup` show it: first, before the app's install line.
 	checks := d.selfTest()

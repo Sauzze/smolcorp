@@ -21,7 +21,7 @@ func queueDeckOf(t *testing.T) (*Deck, *engineRig, *hiring, string) {
 	d, r, h, token := gmHireDeck(t)
 	d.hq.sleep = func(time.Duration, <-chan struct{}) bool {
 		d.mu.Lock()
-		d.lastHire = time.Time{}
+		d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 		d.mu.Unlock()
 		return true
 	}
@@ -97,6 +97,7 @@ func queueEvents(d *Deck) string {
 
 // Each template's plan is answer 13's roles, the GM first: Small agency has the Designer, not the Art Director.
 func TestEachTemplatesPlanHasTheRolesOfAnswer13(t *testing.T) {
+	turnOn(t, &templatesOn)
 	d, _, _, _ := queueDeckOf(t)
 	want := map[string][]string{
 		"solo-builder": {"gm", "builder", "reviewer", "tester"},
@@ -128,7 +129,7 @@ func TestEachTemplatesPlanHasTheRolesOfAnswer13(t *testing.T) {
 		t.Errorf("brief lines %q / %q / %q", plan.Steps[1].Brief, plan.Steps[2].Brief, plan.Steps[3].Brief)
 	}
 	// With a GM up already, the plan is the roles alone.
-	writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: "/w", Role: "gm", State: "working"})
+	writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: keptPath("/w"), Role: "gm", State: "working"})
 	_, text = queueCall(t, d, asPageCaller, "", "POST", "/setup/hire/plan", `{"template":"solo-builder","planner":"own"}`)
 	if got := planRoles(planOf(t, text)); !slices.Equal(got, []string{"builder", "reviewer", "tester"}) {
 		t.Errorf("with a GM up: %q", got)
@@ -139,6 +140,7 @@ func TestEachTemplatesPlanHasTheRolesOfAnswer13(t *testing.T) {
 }
 
 func TestNothingIsHiredUntilThePageApprovesAndNoOneElseCan(t *testing.T) {
+	turnOn(t, &templatesOn)
 	d, r, h, token := queueDeckOf(t)
 	_, text := queueCall(t, d, asPageCaller, "", "POST", "/setup/hire/plan", `{"template":"solo-builder"}`)
 	plan := planOf(t, text)
@@ -147,7 +149,7 @@ func TestNothingIsHiredUntilThePageApprovesAndNoOneElseCan(t *testing.T) {
 	settled(d)
 	nothingMade(t, r, h)
 	// A hire's key, the GM's token, a tool, a tool with the GM's token, and the page with the GM's token riding along.
-	writeRegistry(t, Hire{ID: "a1b2c3", Name: "Rev", Folder: "/w", Role: "reviewer", State: "working"})
+	writeRegistry(t, Hire{ID: "a1b2c3", Name: "Rev", Folder: keptPath("/w"), Role: "reviewer", State: "working"})
 	key, err := newSendKey(registryPath(), "a1b2c3")
 	if err != nil {
 		t.Fatal(err)
@@ -188,6 +190,7 @@ func TestNothingIsHiredUntilThePageApprovesAndNoOneElseCan(t *testing.T) {
 
 // The queue through the real hire path: the GM first, then each role, fenced, one at a time.
 func TestApprovingAPlanHiresTheGMThenEachRoleThroughHireWith(t *testing.T) {
+	turnOn(t, &templatesOn)
 	d, r, h, _ := queueDeckOf(t)
 	// The GM's own hire is the GM route's tests': here it is a stand-in.
 	d.hq.hireGM = func(hireStep) (int, string) { return http.StatusNoContent, "" }
@@ -226,6 +229,7 @@ func TestApprovingAPlanHiresTheGMThenEachRoleThroughHireWith(t *testing.T) {
 // The gates hireWith has hold for each step: no folder set up, and hiring off, each stop the queue at its first step with
 // the deck's own sentence, and nothing is made.
 func TestEveryGateOfHireWithStillHoldsForAQueuedHire(t *testing.T) {
+	turnOn(t, &templatesOn)
 	for _, c := range []struct {
 		name    string
 		breakIt func(d *Deck)
@@ -238,7 +242,7 @@ func TestEveryGateOfHireWithStillHoldsForAQueuedHire(t *testing.T) {
 			d, r, h, _ := queueDeckOf(t)
 			// With the GM up, the first step is a role's. The folder goes before the plan is made, as it would have
 			// before the owner picked the company (a plan names the folder it was made with).
-			writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: "/w", Role: "gm", State: "working"})
+			writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: keptPath("/w"), Role: "gm", State: "working"})
 			d.mu.Lock()
 			c.breakIt(d)
 			d.mu.Unlock()
@@ -264,8 +268,9 @@ func TestEveryGateOfHireWithStillHoldsForAQueuedHire(t *testing.T) {
 
 // With a GM up, it is asked, and the owner sees the plan only once it proposes; only the owner approves it.
 func TestAskedForAPlanTheGMProposesAndTheOwnerApproves(t *testing.T) {
+	turnOn(t, &templatesOn)
 	d, _, _, token := queueDeckOf(t)
-	writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: "/w", Role: "gm", State: "working"})
+	writeRegistry(t, Hire{ID: "g1", Name: "Boss", Folder: keptPath("/w"), Role: "gm", State: "working"})
 	code, text := queueCall(t, d, asPageCaller, "", "POST", "/setup/hire/plan", `{"template":"small-agency"}`)
 	plan := planOf(t, text)
 	if code != http.StatusOK || plan.Status != hpAsked || plan.By != gmRole || len(plan.Steps) != 0 {
@@ -326,6 +331,7 @@ func TestAskedForAPlanTheGMProposesAndTheOwnerApproves(t *testing.T) {
 }
 
 func TestTheOwnerCanCancelAPlanAndAWaitingQueueFromThePage(t *testing.T) {
+	turnOn(t, &templatesOn)
 	d, _, _, _ := queueDeckOf(t)
 	_, text := queueCall(t, d, asPageCaller, "", "POST", "/setup/hire/plan", `{"template":"solo-builder"}`)
 	plan := planOf(t, text)
@@ -345,6 +351,7 @@ func TestTheOwnerCanCancelAPlanAndAWaitingQueueFromThePage(t *testing.T) {
 
 // The route table: a tool, a hire and the GM are each refused the rows only the page may use, before any handler runs.
 func TestTheQueueRoutesAreThePagesAloneExceptTheGMsProposalAndTheReading(t *testing.T) {
+	turnOn(t, &templatesOn)
 	for _, c := range []struct {
 		method, path string
 		allowed      []caller
@@ -367,6 +374,7 @@ func TestTheQueueRoutesAreThePagesAloneExceptTheGMsProposalAndTheReading(t *test
 
 // A restart of the deck reads the queue the last one kept: a plan waiting is still there, a running queue is paused.
 func TestADeckStartedAgainFindsItsQueuePausedWithAWord(t *testing.T) {
+	turnOn(t, &templatesOn)
 	d, _, _, _ := queueDeckOf(t)
 	_, text := queueCall(t, d, asPageCaller, "", "POST", "/setup/hire/plan", `{"template":"solo-builder"}`)
 	plan := planOf(t, text)

@@ -19,8 +19,9 @@ import (
 //   - through Smolcorp: words typed into the GM's session (typeText) by a caller the owner's tap would let in
 //     (accessOwnerTap): the Mac app's own office window, or a paired phone over Tailscale that isn't the device the
 //     Windows window holds. The office in a browser (its key in the browser's history), the Windows window's device
-//     (its key in a file any program here can read), any window off a Mac, and a phone over the Wi-Fi's plain http
-//     keep nothing: their words are noted as the core's, so the prompt they make isn't kept as the terminal's either;
+//     (its key in this run's memory alone, but a window off a Mac all the same), any window off a Mac, and a phone
+//     over the Wi-Fi's plain http keep nothing: their words are noted as the core's, so the prompt they make isn't
+//     kept as the terminal's either;
 //   - typed in the GM's terminal: a UserPromptSubmit of the GM's session whose text the core didn't type itself.
 //     Until A's X10 and M7, any program holding the shared hook key (every hire today) can send one, and a launcher
 //     names its own role as it connects, so a program with the hook key can make its own session count as the GM's:

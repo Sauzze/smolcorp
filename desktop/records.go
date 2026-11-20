@@ -453,12 +453,26 @@ func recordDropped(name, text string) {
 	if text != "" {
 		sayRecordOnce(text)
 	}
+	recordOwed(name, true)
+}
+
+// recordDroppedUnsaid is recordDropped for the record of a feature this version leaves off (dormant.go): it's left
+// out and the records rotate all the same, so its copies from before no longer count, but nothing names it, neither
+// the log, Setup nor the update's line.
+func recordDroppedUnsaid(name string) { recordOwed(name, false) }
+
+// recordOwed has the records rotate as the start ends, for the record called name that was dropped; named, Setup
+// names it (recordsDroppedText).
+func recordOwed(name string, named bool) {
 	records.mu.Lock()
 	defer records.mu.Unlock()
 	if records.state != recordsOK || records.key == nil || records.first || records.settled || slices.Contains(records.dropped, name) {
 		return
 	}
-	records.dropped, records.owed = append(records.dropped, name), true
+	if named {
+		records.dropped = append(records.dropped, name)
+	}
+	records.owed = true
 }
 
 // recordWasDropped is whether the record called name was dropped at this start (recordDropped).
@@ -619,15 +633,15 @@ func resetRecords() error {
 // granted, the security settings at their safe defaults and the guard as the built-in one plus what its file adds
 // (withoutGrants, vouchConfig, heldGuard): Reset seals that, so what the check dropped is gone for good.
 const (
-	recordsResetKeeps = "A reset clears only keys: every phone and paired Mac pairs again, and each hire and the General " +
+	recordsResetKeeps = "A reset clears only keys: every phone pairs again, and each hire and the General " +
 		"Manager get new keys when they next start. Your team, its desks and worktrees, who may write to whom, your " +
 		"settings and your guard stay as they are."
-	recordsResetLoses = "A reset pairs every phone and paired Mac again, and each hire gets a new key when it next starts. " +
+	recordsResetLoses = "A reset pairs every phone again, and each hire gets a new key when it next starts. " +
 		"Your team, its desks and worktrees stay, but what the failed check dropped is lost for good: who may write to " +
 		"whom, your security settings (back to their safe defaults, with the front desk and hiring off and no webhook), " +
 		"any guard group you switched off, and the General Manager and any hire held to a project, whom you'll hire again."
 	// What every confirm loses after a failed check, after its question.
-	recordsResetLosesInBrief = "Every phone and Mac pairs again, each hire gets a new key, and what the failed check dropped is " +
+	recordsResetLosesInBrief = "Every phone pairs again, each hire gets a new key, and what the failed check dropped is " +
 		"lost for good: who may write to whom, your security settings (the front desk, hiring and the webhook too), any " +
 		"guard group you switched off, and the General Manager and any hire held to a project, whom you'll hire again."
 )
@@ -637,7 +651,7 @@ const (
 func recordsResetConfirm(state string, stale bool) string {
 	switch {
 	case state == recordsOK && stale:
-		return "Reset Smolcorp's records? Every phone and Mac pairs again and each hire and the General Manager get new " +
+		return "Reset Smolcorp's records? Every phone pairs again and each hire and the General Manager get new " +
 			"keys when they next start, while your team, who may write to whom, your settings and your guard stay as they are."
 	case state == recordsUnreadable:
 		return "Reset Smolcorp's records instead of unlocking the keychain and restarting, which loses nothing you saved before? " +
@@ -653,17 +667,17 @@ func recordsResetConfirm(state string, stale bool) string {
 func recordsText(state string, stale bool) string {
 	if state == recordsOK && stale {
 		return "Smolcorp couldn't make a new key for its records in your login keychain after you took something away " +
-			"(a phone, a Mac, a hire's key, a setting or a guard rule), so a copy of the records from before would still " +
+			"(a phone, a hire's key, a setting or a guard rule), so a copy of the records from before would still " +
 			"count at the next start. Reset them to be sure. " + recordsResetKeeps
 	}
 	switch state {
 	case recordsChanged:
 		return "Another program changed Smolcorp's records or the key that seals them, so none of them counts: no phone, " +
-			"no paired Mac, no hire's key and no General Manager is let in. Reset them, then pair your phones again. " + recordsResetLoses
+			"no hire's key and no General Manager is let in. Reset them, then pair your phones again. " + recordsResetLoses
 	case recordsInterrupted:
-		return "An update of Smolcorp's records was interrupted, so none of them counts for now: no phone, no paired Mac, " +
+		return "An update of Smolcorp's records was interrupted, so none of them counts for now: no phone, " +
 			"no hire's key and no General Manager is let in. Reset them, then pair your phones again. If you had just taken " +
-			"something away (a phone, a Mac, a hire, a setting or a guard rule), check after the reset that it's still gone. " +
+			"something away (a phone, a hire, a setting or a guard rule), check after the reset that it's still gone. " +
 			recordsResetLoses
 	case recordsUnreadable:
 		// Nothing is written while the key can't be read (recordsHeldOnly, RT126SK1R3 N3), so the restart finds every
@@ -671,10 +685,10 @@ func recordsText(state string, stale bool) string {
 		return "Smolcorp couldn't read the key that seals its records from your login keychain without asking you, so none " +
 			"of them counts, and it saves none until it can. What you add or switch on meanwhile (a desk's key, a hire, a " +
 			"setting) lasts only until it restarts, as do changes to how the office looks. It refuses what would take " +
-			"something away, since that wouldn't last either: removing a phone, a Mac, a contact or a bot, or switching off " +
+			"something away, since that wouldn't last either: removing a phone, a contact or a bot, or switching off " +
 			"or changing any other setting. A fire, with hiring on, ends the hire's session and stops its key until the " +
 			"restart, but the hire stays on your team, unless you hired it meanwhile: that one is fired for good. Nor can " +
-			"you change your guard, pair a phone or Mac, or give the General Manager a new token, so you can't hire one; " +
+			"you change your guard, pair a phone, or give the General Manager a new token, so you can't hire one; " +
 			"its token from before works again once you unlock the keychain and restart. Unlock the keychain and restart " +
 			"Smolcorp: that loses nothing you saved before. Or reset them, and pair your phones again. " + recordsResetLoses
 	}

@@ -241,7 +241,7 @@ func TestContactsRefusalsAndHowANameIsFound(t *testing.T) {
 		{`{"from":"Failed One","to":"Rev"}`, 409}, // failed
 		{`{"from":"Rev","to":"Twin"}`, 200},       // two share a name, but one is open? both open: see below
 	} {
-		_, refused := setContacts(registryPath(), []byte(c.body))
+		_, refused := setContacts(registryPath(), []byte(c.body), nil)
 		got := 200
 		if refused != nil {
 			got = refused.status
@@ -257,13 +257,13 @@ func TestContactsRefusalsAndHowANameIsFound(t *testing.T) {
 		}
 	}
 	// A fired hire's name may be used again once an open hire has it; removing a pair with a gone hire is allowed.
-	if h, refused := findHire("  BOB ", readRegistry(registryPath(), false).hires); refused != nil || h.ID != "0a0b0c" {
+	if h, refused := findHire("  BOB ", readRegistry(registryPath(), false).hires, nil); refused != nil || h.ID != "0a0b0c" {
 		t.Errorf("a fired hire alone by its nickname, any case, spaces trimmed: %v %v", h, refused)
 	}
-	if h, refused := findHire("builder", readRegistry(registryPath(), false).hires); refused != nil || h.ID != "b2" {
+	if h, refused := findHire("builder", readRegistry(registryPath(), false).hires, nil); refused != nil || h.ID != "b2" {
 		t.Errorf("the open Builder is preferred to the fired one: %v %v", h, refused)
 	}
-	if _, refused := setContacts(registryPath(), []byte(`{"from":"Bob","to":"Rev","remove":true}`)); refused != nil {
+	if _, refused := setContacts(registryPath(), []byte(`{"from":"Bob","to":"Rev","remove":true}`), nil); refused != nil {
 		t.Errorf("removing a pair with a fired hire: %d", refused.status)
 	}
 	if len(readRegistry(registryPath(), false).contacts) != 0 {

@@ -69,7 +69,7 @@ func TestAFiresSaveHoldsTheFrontDeskLockOnlyForItsRecordWrite(t *testing.T) {
 	freshClaudeHeld(t)
 	checkingWithin(t, 100*time.Millisecond)
 	place := claudeTree(t, filepath.Join(claudeTempDir(t), "place"), ".claude/settings.json")
-	h := Hire{ID: "abcdef000031", Name: "slow", State: "working", Folder: place}
+	h := Hire{ID: "abcdef000031", Name: "slow", State: "working", Folder: keptPath(place)}
 	claudeRegistry(t, h)
 	reached, letGo := holdOnOpen(t, filepath.Join(place, ".claude", "settings.json"))
 	done := make(chan error, 1)
@@ -125,13 +125,14 @@ func TestAStartHeldWhileItsFolderIsCheckedGoesAheadByItself(t *testing.T) {
 			freshClaudeHeld(t)
 			checkingWithin(t, 200*time.Millisecond)
 			d.config.HireAgent = "claude"
-			// A desk at work in a worktree in the folder: the gate lists it. What's in it is as in its checkout.
+			// A desk at work in a worktree in the folder: the gate lists it. What's in it is as in its checkout. Its tree is
+			// spelled resolved, as a Mac's row keeps it: one that isn't is a turned tree, held whole (claudePlaceLook).
 			checkout := claudeTree(t, filepath.Join(claudeTempDir(t), "checkout"), ".claude/settings.json")
-			wt := claudeTree(t, filepath.Join(folder, "wt"), ".claude/settings.json")
+			wt := claudeTree(t, filepath.Join(physical(folder), "wt"), ".claude/settings.json")
 			if c.planted {
 				claudeTree(t, wt, ".claude/hooks/x.sh")
 			}
-			claudeRegistry(t, Hire{ID: "abcdef000032", Name: "Ada", Folder: checkout, Repo: checkout, Worktree: wt, State: "working"})
+			claudeRegistry(t, Hire{ID: "abcdef000032", Name: "Ada", Folder: keptPath(checkout), Repo: checkout, Worktree: keptPath(wt), State: "working"})
 			reached, letGo := holdOnOpen(t, filepath.Join(wt, ".claude", "settings.json"))
 			type answer struct {
 				status  int
@@ -208,7 +209,7 @@ func TestAListingCutShortByACrashLeavesThePlaceRefusedUntilItsListedAgain(t *tes
 			if c.planted {
 				files = append(files, "src/.claude/hooks/x.sh")
 			}
-			h := Hire{ID: "abcdef000033", Name: "Ada", Folder: claudeTree(t, filepath.Join(claudeTempDir(t), "project"), files...), State: "working"}
+			h := Hire{ID: "abcdef000033", Name: "Ada", Folder: keptPath(claudeTree(t, filepath.Join(claudeTempDir(t), "project"), files...)), State: "working"}
 			claudeRegistry(t, h)
 			reached, letGo := holdListings(t)
 			// The GM's edit makes it gone: its save asks for the listing, on record, and doesn't wait for it.
@@ -228,14 +229,14 @@ func TestAListingCutShortByACrashLeavesThePlaceRefusedUntilItsListedAgain(t *tes
 			case <-time.After(2 * time.Second):
 				t.Error("the new start didn't list the place again")
 			}
-			if why := claudeHeldRefusal(filepath.Join(h.Folder, "src")); !strings.Contains(why, "still checking what a hire left in "+h.Folder) {
+			if why := claudeHeldRefusal(filepath.Join(h.Folder.storedOnly(), "src")); !strings.Contains(why, "still checking what a hire left in "+h.Folder.storedOnly()) {
 				t.Errorf("after the crash: %q, want the place refused as still being checked", why)
 			}
 			if claudeListedNow(h.ID) {
 				t.Error("after the crash, the hire is on record as listed")
 			}
 			letGo()
-			why := claudeHeldRefusal(filepath.Join(h.Folder, "src"))
+			why := claudeHeldRefusal(filepath.Join(h.Folder.storedOnly(), "src"))
 			switch {
 			case c.planted && !strings.Contains(why, filepath.Join("src", ".claude")):
 				t.Errorf("listed again: %q, want the hook held", why)

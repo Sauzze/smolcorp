@@ -286,8 +286,8 @@ func TestARegistryThatCantBeReadOrHasNoRowStillRunsNothingOfTheTreesConfig(t *te
 					m.afterTheCheck(t, m.hostile(t, filepath.Join(r.repo, ".git")))
 				}
 				if registry == "no row" {
-					writeRegistry(t, Hire{ID: "fedcba654321", Name: "bo", Role: "builder", Folder: r.repo, Repo: r.repo,
-						Worktree: filepath.Join(r.base, "elsewhere"), Branch: "hire/bo", State: "working"})
+					writeRegistry(t, Hire{ID: "fedcba654321", Name: "bo", Role: "builder", Folder: keptPath(r.repo), Repo: r.repo,
+						Worktree: keptPath(filepath.Join(r.base, "elsewhere")), Branch: "hire/bo", State: "working"})
 				} else if err := writeRegistryFile(registryPath(), []byte("{not a registry"), 0o600); err != nil {
 					t.Fatal(err)
 				}
@@ -891,6 +891,43 @@ func TestTheRemoteAHiresBranchPushesTo(t *testing.T) {
 				t.Errorf("preset %q, want %q", got, row.want)
 			}
 		})
+	}
+}
+
+// Off a Mac, git checks a hire's tree out where it is and the carry keeps no name for it: the undo's emptied folder
+// goes by the path the hire made it at, and only while that name is still the folder the carry opened (FXCI53).
+func TestACarriedTreeWithNoNameGoesByItsPathOnlyWhileItIsTheSameFolder(t *testing.T) {
+	for _, swapped := range []bool{false, true} {
+		dir := t.TempDir()
+		tree := filepath.Join(dir, "ada-abcdef")
+		if err := os.Mkdir(tree, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		root, err := os.OpenRoot(tree)
+		if err != nil {
+			t.Fatal(err)
+		}
+		branch := "hire/abcdef123456/ada-abcdef"
+		carriedHires.Lock()
+		carriedHires.by[branch] = hireCarried{tree: root}
+		carriedHires.Unlock()
+		if swapped {
+			if err := os.Rename(tree, filepath.Join(dir, "moved")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(tree, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		removeCarriedTreeFolder(branch, "")
+		if _, err := os.Lstat(tree); err != nil {
+			t.Fatalf("swapped %v: no path given, yet the folder went: %v", swapped, err)
+		}
+		removeCarriedTreeFolder(branch, tree)
+		forgetCarried(branch)
+		if _, err := os.Lstat(tree); errors.Is(err, os.ErrNotExist) == swapped {
+			t.Errorf("swapped %v: the folder at the tree's name: %v", swapped, err)
+		}
 	}
 }
 

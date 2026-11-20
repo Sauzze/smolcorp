@@ -89,8 +89,8 @@ func tabLinkOffice(t *testing.T) (d *Deck, root string, desks map[string]*tabLin
 			}
 		}
 		desks[id] = desk
-		hires = append(hires, Hire{ID: id, Name: "Desk " + id, Role: "janitor", Folder: "/proj", Repo: "/proj",
-			Worktree: filepath.Join(root, "wt-"+id), TmuxSocket: desk.socket, TmuxProgram: program,
+		hires = append(hires, Hire{ID: id, Name: "Desk " + id, Role: "janitor", Folder: keptPath("/proj"), Repo: "/proj",
+			Worktree: keptPath(filepath.Join(root, "wt-"+id)), TmuxSocket: desk.socket, TmuxProgram: program,
 			TmuxServer: desk.server, State: "working"})
 	}
 	if err := updateRegistry(func(f *registryFile) { f.hires = hires }); err != nil {

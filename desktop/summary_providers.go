@@ -208,6 +208,8 @@ type summaryInvocation struct {
 	input      []byte
 	files      map[string][]byte
 	outputFile string
+	// env is added to the run's environment, for the run only.
+	env []string
 }
 
 const (
@@ -301,8 +303,13 @@ func summaryInvocationFor(goos string, p summaryProvider, system, prompt, folder
 			"--print", "--mode", "ask", "--sandbox", "enabled", "--trust", "--workspace", folder, "--output-format", "json",
 		}, input: both}
 	case providerOpenCode:
-		// OpenCode 2 ignores a config given for one run, so its own summary agent, which every tool is denied.
-		return summaryInvocation{args: []string{"run", "--standalone", "--agent", "summary", "--format", "json"}, input: both}
+		// OpenCode 2 ignores a config given for one run, so its own summary agent, which every tool is denied. Its
+		// server, its own (--standalone), loads no config from the folder it runs in nor from any folder above it
+		// (FXRC3FIX, RT126RC3's B1): OpenCode 2.0.32 skips that walk with either variable set (its server-process.ts
+		// and config/discovery.ts). It reads the first name first, and any value there wins over the second, so both
+		// are said (FXRC3FIXR1, RT126RC3FIX's O1). The desks' Policy holds those names above the support folder as well.
+		return summaryInvocation{args: []string{"run", "--standalone", "--agent", "summary", "--format", "json"}, input: both,
+			env: []string{openCodeNoProjectConfigFirst + "=1", openCodeNoProjectConfig + "=1"}}
 	}
 	return summaryInvocation{}
 }
@@ -602,15 +609,36 @@ func cleanSummary(text string) string {
 
 // MARK: Running it
 
+// openCodeNoProjectConfig is OpenCode's variable that turns off its project config: the opencode.json, .opencode and
+// .agents it would otherwise load from the folder it runs in and from each folder above it (FXRC3FIX).
+const openCodeNoProjectConfig = "OPENCODE_DISABLE_PROJECT_CONFIG"
+
+// openCodeNoProjectConfigFirst is the same variable's other name, which OpenCode 2.0.32 reads first
+// (OPENCODE_CONFIG_PROJECT_DISABLE ?? OPENCODE_DISABLE_PROJECT_CONFIG): set at all, even to 0, it alone decides.
+const openCodeNoProjectConfigFirst = "OPENCODE_CONFIG_PROJECT_DISABLE"
+
+// summaryRunGit is what every summary's run gets for the git its agent runs, the run only (FXRC3FIXR1, RT126RC3FIX's
+// N1): OpenCode runs git in the repo it finds in or above the summary's folder, and a repo's own config can have a
+// fetch run a program of its own. git then fetches no missing object by itself (a partial clone's lazy fetch) and asks
+// for no password at a terminal. A second fence: the desks' Policy holds a repo made in those folders.
+var summaryRunGit = []string{"GIT_NO_LAZY_FETCH=1", "GIT_TERMINAL_PROMPT=0"}
+
+// summaryFolderPrefix begins the name of the folder a summary runs in, in the support folder.
+const summaryFolderPrefix = "summary-"
+
 // runSummaryCLI runs p for a summary, in a folder made for it and deleted
 // after. Its login and its summary agent are checked again just before:
 // either may have changed since setup looked. expected is how setup showed a
 // Claude Code login paying.
+//
+// The folder is made in Smolcorp's support folder, which every desk's sandbox denies, as the sign-in folder is
+// (hiresSignInWith): never in the user's temp folder, where a desk could put a plugin or a config of its own for the
+// agent run there, outside any sandbox, to load (RT126SWEEP4 part 3's F1, FXSWEEP3P3 F-4's sibling).
 func runSummaryCLI(p summaryProvider, program, system, prompt string, base []string, expected providerKind) (string, cliFailure) {
 	if !p.supported() {
 		return "", cliUnsupported
 	}
-	folder, err := os.MkdirTemp("", "smolcorp-summary-")
+	folder, err := os.MkdirTemp(supportDir, summaryFolderPrefix)
 	if err != nil {
 		return "", cliFailed
 	}
@@ -636,7 +664,9 @@ func runSummaryCLI(p summaryProvider, program, system, prompt string, base []str
 			return "", cliUnsupported
 		}
 	}
-	ran := spawnSummary(program, call.args, call.input, env, folder, summaryCLITimeoutOf(p))
+	// The run's own variables, never the checks' before it: `opencode debug agents` asks OpenCode's background
+	// service, which may be started by that call and then kept for the owner's own sessions. Last, so they win.
+	ran := spawnSummary(program, call.args, call.input, slices.Concat(env, summaryRunGit, call.env), folder, summaryCLITimeoutOf(p))
 	if call.outputFile != "" {
 		ran.file, _ = os.ReadFile(filepath.Join(folder, call.outputFile))
 	}

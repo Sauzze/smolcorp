@@ -32,7 +32,7 @@ func ownWindowHire(t *testing.T, tab, closed string) (*Deck, *gmRig, *fakeHost) 
 	fake := withHost(t, bridgeAnswer{OK: true, Fired: closed})
 	if tab != "" {
 		g.d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "rex-1",
-			"cwd": g.hire.Worktree}, Claude, tab, "", nowMillis())
+			"cwd": g.hire.Worktree.storedOnly()}, Claude, tab, "", nowMillis())
 	}
 	return g.d, g, fake
 }
@@ -69,7 +69,7 @@ func TestTheGMAndSetupNeverCloseTheTabOfAHireInAWindowOfItsOwn(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(supportDir, "recaps", g.hire.ID+".md")); err != nil {
 		t.Errorf("no recap: %v", err)
 	}
-	if _, err := os.Stat(g.hire.Worktree); err != nil {
+	if _, err := os.Stat(g.hire.Worktree.storedOnly()); err != nil {
 		t.Errorf("the worktree went: %v", err)
 	}
 	if d.sessions.Get("rex-1") == nil {
@@ -83,7 +83,7 @@ func TestTheGMAndSetupNeverCloseTheTabOfAHireInAWindowOfItsOwn(t *testing.T) {
 func TestAHireInAWindowOfItsOwnKeepsTheRefusalsThatNeedNoWindow(t *testing.T) {
 	t.Run("uncommitted", func(t *testing.T) {
 		_, g, fake := ownWindowHire(t, "tty:/dev/ttys009", "fired")
-		os.WriteFile(filepath.Join(g.hire.Worktree, "draft.txt"), []byte("half"), 0o600)
+		os.WriteFile(filepath.Join(g.hire.Worktree.storedOnly(), "draft.txt"), []byte("half"), 0o600)
 		w := g.fire(t, true, nil)
 		if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "Rex has changes that aren't committed: ?? draft.txt") {
 			t.Fatalf("fire: %d %q", w.Code, w.Body)
@@ -134,13 +134,13 @@ func TestAHireInAWindowOfItsOwnWithNoTabIsMarkedFiredOnlyWithForceAndSaysSo(t *t
 				t.Fatalf("fire with force: %d %q", w.Code, w.Body)
 			}
 			if said["note"] != "Rex is marked fired, but Smolcorp couldn't find its window, so it wasn't closed. If it's still open, close it there." ||
-				said["kept"] != "Its window wasn't closed, so it may still be at work in it." || said["worktree"] != g.hire.Worktree {
+				said["kept"] != "Its window wasn't closed, so it may still be at work in it." || said["worktree"] != g.hire.Worktree.storedOnly() {
 				t.Errorf("said %v", said)
 			}
 			if registered(t)[0].State != "fired" {
 				t.Errorf("row %+v, want fired", registered(t)[0])
 			}
-			if _, err := os.Stat(g.hire.Worktree); err != nil {
+			if _, err := os.Stat(g.hire.Worktree.storedOnly()); err != nil {
 				t.Errorf("the clean worktree of a hire maybe still at work went: %v", err)
 			}
 			if len(fake.asked) != 0 {
@@ -175,7 +175,7 @@ func TestTheOwnersSessionAloneInTheWorktreeIsNeverClosedByTheGM(t *testing.T) {
 	t.Run("started before the hire", func(t *testing.T) {
 		d, g, fake := ownWindowHire(t, "", "fired")
 		d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "owner-1",
-			"cwd": g.hire.Worktree}, Claude, "tty:/dev/ttys004", "", g.hire.Started-60_000)
+			"cwd": g.hire.Worktree.storedOnly()}, Claude, "tty:/dev/ttys004", "", g.hire.Started-60_000)
 		refusedUnchanged(t, g.fire(t, true, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
 		refusedUnchanged(t, g.fire(t, false, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
 		if status, message := d.Perform("fire", "owner-1", url.Values{}); status != http.StatusNoContent || len(closedTabs(fake)) != 1 {
@@ -186,13 +186,13 @@ func TestTheOwnersSessionAloneInTheWorktreeIsNeverClosedByTheGM(t *testing.T) {
 		d, g, fake := ownWindowHire(t, "tty:/dev/ttys009", "fired")
 		d.sessions.Apply(map[string]any{"hook_event_name": "SessionEnd", "session_id": "rex-1"}, Claude, "tty:/dev/ttys009", "", nowMillis())
 		d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "owner-1",
-			"cwd": g.hire.Worktree}, Claude, "tty:/dev/ttys004", "", nowMillis()+1)
+			"cwd": g.hire.Worktree.storedOnly()}, Claude, "tty:/dev/ttys004", "", nowMillis()+1)
 		refusedUnchanged(t, g.fire(t, true, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
 	})
 	t.Run("first heard after a restart", func(t *testing.T) {
 		d, g, fake := ownWindowHire(t, "", "fired")
 		d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "owner-1",
-			"cwd": g.hire.Worktree}, Claude, "tty:/dev/ttys004", "", nowMillis())
+			"cwd": g.hire.Worktree.storedOnly()}, Claude, "tty:/dev/ttys004", "", nowMillis())
 		refusedUnchanged(t, g.fire(t, true, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
 		refusedUnchanged(t, g.fire(t, false, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
 		if len(fake.asked) != 0 {
@@ -203,7 +203,7 @@ func TestTheOwnersSessionAloneInTheWorktreeIsNeverClosedByTheGM(t *testing.T) {
 		d, g, fake := ownWindowHire(t, "tty:/dev/ttys009", "fired")
 		d.sessions.Prune(func(tab string) bool { return tab != "tty:/dev/ttys009" }, nowMillis())
 		d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "owner-1",
-			"cwd": g.hire.Worktree}, Claude, "tty:/dev/ttys009", "", nowMillis()+1)
+			"cwd": g.hire.Worktree.storedOnly()}, Claude, "tty:/dev/ttys009", "", nowMillis()+1)
 		refusedUnchanged(t, g.fire(t, true, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
 		refusedUnchanged(t, g.fire(t, false, nil), fake, http.StatusConflict, ownWindowNotFoundRex)
 		if len(fake.asked) != 0 {
@@ -337,7 +337,7 @@ func TestTheOfficeFiresAHireInAWindowOfItsOwnFromItsDesk(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(supportDir, "recaps", g.hire.ID+".md")); err != nil {
 		t.Errorf("no recap: %v", err)
 	}
-	if _, err := os.Stat(g.hire.Worktree); err != nil {
+	if _, err := os.Stat(g.hire.Worktree.storedOnly()); err != nil {
 		t.Errorf("the worktree went: %v", err)
 	}
 	if d.sessions.Get("rex-1") != nil {
@@ -349,7 +349,7 @@ func TestTheOfficeFiresAHireInAWindowOfItsOwnFromItsDesk(t *testing.T) {
 func TestTwoSessionsInAWorktreeAreNeitherTakenForTheHiresTab(t *testing.T) {
 	d, g, fake := ownWindowHire(t, "tty:/dev/ttys009", "fired")
 	d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "rex-2",
-		"cwd": g.hire.Worktree}, Claude, "tty:/dev/ttys010", "", nowMillis())
+		"cwd": g.hire.Worktree.storedOnly()}, Claude, "tty:/dev/ttys010", "", nowMillis())
 	if w := g.fire(t, true, nil); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "can't find that window") {
 		t.Fatalf("fire: %d %q", w.Code, w.Body)
 	}

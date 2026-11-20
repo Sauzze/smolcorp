@@ -82,9 +82,11 @@ func (f registryFile) mayWrite(from, to string) bool {
 }
 
 // findHire is the hire a name means: its id, else its nickname or name (open
-// hires first, so a fired hire's name can be used again). Says why not when
-// there is none or two (FrontDesk.find).
-func findHire(name string, all []Hire) (Hire, *refusal) {
+// hires first, so a fired hire's name can be used again), else, for a hire
+// with no nickname of its own, the name `gm team` shows for it (shown, from
+// Deck.shownNames; nil for none). Says why not when there is none or two
+// (FrontDesk.find).
+func findHire(name string, all []Hire, shown map[string]string) (Hire, *refusal) {
 	asked := strings.ToLower(strings.TrimFunc(name, func(r rune) bool { return r == '\t' || unicode.Is(unicode.Zs, r) }))
 	var found []Hire
 	for _, h := range all {
@@ -108,6 +110,9 @@ func findHire(name string, all []Hire) (Hire, *refusal) {
 		}
 	}
 	if len(found) == 0 {
+		found = shownMatch(asked, all, shown, nil)
+	}
+	if len(found) == 0 {
 		return Hire{}, &refusal{http.StatusNotFound, "There's no hire called that. Look at the team for ids and names."}
 	}
 	if len(found) > 1 {
@@ -116,13 +121,16 @@ func findHire(name string, all []Hire) (Hire, *refusal) {
 	return found[0], nil
 }
 
+// contactsShape is setContacts' answer to a request that isn't {from, to, …} with two names as text (a 400).
+const contactsShape = "Send {from, to, oneWay?, remove?}: two hires, by id or name."
+
 // setContacts is POST /setup/gm/contacts, with {from, to, oneWay?, remove?}:
 // from and to are hires' ids, nicknames or names. By default two hires may
 // write to each other; with oneWay, only from to to. remove takes the pair
 // away (with oneWay, only that direction). Answers the pairs as they are now
 // (FrontDesk.setContacts).
-func setContacts(path string, body []byte) ([]Contact, *refusal) {
-	badShape := &refusal{http.StatusBadRequest, "Send {from, to, oneWay?, remove?}: two hires, by id or name."}
+func setContacts(path string, body []byte, shown map[string]string) ([]Contact, *refusal) {
+	badShape := &refusal{http.StatusBadRequest, contactsShape}
 	var given map[string]json.RawMessage
 	if json.Unmarshal(body, &given) != nil {
 		return nil, badShape
@@ -146,11 +154,11 @@ func setContacts(path string, body []byte) ([]Contact, *refusal) {
 	frontDeskMu.Lock()
 	defer frontDeskMu.Unlock()
 	file := readRegistry(path, true)
-	first, refused := findHire(from, file.hires)
+	first, refused := findHire(from, file.hires, shown)
 	if refused != nil {
 		return nil, refused
 	}
-	second, refused := findHire(to, file.hires)
+	second, refused := findHire(to, file.hires, shown)
 	if refused != nil {
 		return nil, refused
 	}

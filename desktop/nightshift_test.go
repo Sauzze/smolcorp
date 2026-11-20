@@ -62,6 +62,7 @@ func nightJobs(t *testing.T, m *mailDeck, as who) []map[string]any {
 }
 
 func TestThePageMakesApprovesPausesAndDeletesANightJob(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	m, project, _ := nightDeck(t)
 	made := m.call(t, asPage, "POST", nightSavePath, nightBody(project, ""))
 	job := decoded(t, made)
@@ -123,6 +124,7 @@ func TestThePageMakesApprovesPausesAndDeletesANightJob(t *testing.T) {
 }
 
 func TestTheGMProposesAndListsButNeverApprovesEditsOrDeletes(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	m, project, _ := nightDeck(t)
 	// A proposal can't name its status: anything but the job's words is refused.
 	if w := m.call(t, asGM, "POST", nightProposePath, nightBody(project, `,"status":"approved"`)); w.Code != http.StatusBadRequest {
@@ -166,6 +168,7 @@ func TestTheGMProposesAndListsButNeverApprovesEditsOrDeletes(t *testing.T) {
 }
 
 func TestAnMCPKeyAHireAndAPhoneCantTouchTheNightShift(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	m, project, _ := nightDeck(t)
 	made := decoded(t, m.call(t, asPage, "POST", nightSavePath, nightBody(project, `,"status":"paused"`)))
 	id, _ := made["id"].(string)
@@ -245,6 +248,7 @@ func (r *nightRig) at(when time.Time) []nightDue {
 }
 
 func TestAProposedJobNeverFalls(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	paris := nightZone(t, "Europe/Paris")
 	r := newNightRig(t, paris, time.Date(2026, 11, 9, 10, 0, 0, 0, paris))
 	r.add(t, "proposal", nightProposed, NightWhen{Every: nightDaily, At: "02:00"})
@@ -277,6 +281,7 @@ func TestAProposedJobNeverFalls(t *testing.T) {
 }
 
 func TestNextDueAcrossDaylightSavingAndTimeZones(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	paris, newYork := nightZone(t, "Europe/Paris"), nightZone(t, "America/New_York")
 	la, tokyo := nightZone(t, "America/Los_Angeles"), nightZone(t, "Asia/Tokyo")
 	next := func(at string, every, day string, since time.Time, lastSlot string, loc *time.Location) time.Time {
@@ -333,6 +338,7 @@ func TestNextDueAcrossDaylightSavingAndTimeZones(t *testing.T) {
 }
 
 func TestARunMissedWhileAsleepRunsOnceAtWake(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	paris := nightZone(t, "Europe/Paris")
 	r := newNightRig(t, paris, time.Date(2026, 11, 9, 1, 0, 0, 0, paris)) // Monday, 01:00
 	r.add(t, "nightly", nightApproved, NightWhen{Every: nightDaily, At: "02:00"})
@@ -370,6 +376,7 @@ func TestARunMissedWhileAsleepRunsOnceAtWake(t *testing.T) {
 }
 
 func TestNightJobsRunOneAtATime(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	paris := nightZone(t, "Europe/Paris")
 	r := newNightRig(t, paris, time.Date(2026, 11, 9, 10, 0, 0, 0, paris))
 	r.add(t, "first", nightApproved, NightWhen{Every: nightDaily, At: "02:00"})
@@ -403,6 +410,7 @@ func TestNightJobsRunOneAtATime(t *testing.T) {
 }
 
 func TestAMalformedNightStoreIsSkippedWithAWord(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	folder := t.TempDir()
 	file := filepath.Join(folder, nightFileName)
 	good := `{"id":"nok","name":"Fine","kind":"gm","brief":"b","when":{"every":"daily","at":"02:00"},"limits":{"wallMinutes":30},"status":"approved","proposedBy":"page","created":"2026-11-09T10:00:00Z"}`
@@ -475,6 +483,7 @@ func TestAMalformedNightStoreIsSkippedWithAWord(t *testing.T) {
 // move a part of the text (RT126N1 B1): RT126N1's probe B, then each kind of character hidesText names, through
 // the server with the GM's token. A planted entry in the file with one is skipped.
 func TestAProposalHidesNothingFromTheOwner(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	m, project, _ := nightDeck(t)
 	propose := func(name, brief, folder string) (int, string) {
 		ask := map[string]any{"name": name, "kind": "hire", "role": "tester", "brief": brief, "folder": folder,
@@ -548,6 +557,7 @@ func TestAProposalHidesNothingFromTheOwner(t *testing.T) {
 // A proposal's or a save's keys are spelled as the page spells them, once each, or the body is refused: encoding/json
 // alone would read "Kind" as kind, and the last of two (RT126N1 B2).
 func TestANightBodySpellsEachKeyOnce(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	m, project, _ := nightDeck(t)
 	for _, as := range []who{asGM, asPage} {
 		path := nightProposePath

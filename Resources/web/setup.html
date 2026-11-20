@@ -123,6 +123,16 @@
   .group > h3.sub, #manager-tools > h3.sub { font-size: 12px; font-weight: 600; color: var(--dim); margin: 8px 2px 0; }
   #manager-tools:not([hidden]) { display: grid; gap: 7px; }
   .group > .said-under, #manager-tools > .said-under { margin: 0 2px; }
+  /* What your General Manager has learnt: its notes, waiting and kept, each a card with its words whole. */
+  #gm-memory:not([hidden]) { display: grid; gap: 7px; }
+  #gm-memory > h3.sub { font-size: 12px; font-weight: 600; color: var(--dim); margin: 8px 2px 0; }
+  #gm-memory > .said-under { margin: 0 2px; }
+  .memory-note { display: grid; gap: 4px; padding: 10px 14px; border-top: 1px solid var(--edge); min-width: 0; }
+  .memory-note:first-child { border-top: 0; }
+  .memory-note p { margin: 0; overflow-wrap: anywhere; }
+  .memory-note .tools { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .memory-note label { display: grid; gap: 2px; font-size: 12px; color: var(--dim); }
+  .memory-note input[type=text] { width: 100%; box-sizing: border-box; }
   /* The words about the token stacked; its switches' rows (.field.pad) with the switch on the right, like every other. */
   /* One column no wider than the box: a long path is cut in the middle, never pushing the text off a phone's edge. */
   .gm-token .pad:not(.field) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
@@ -446,10 +456,11 @@
   .attention .text { flex: 1 1 240px; }
   .terminal-asks { margin: 0 0 16px; border-color: color-mix(in srgb, var(--asking) 45%, transparent); }
   .terminal-asks .check { margin: 6px 0; }
-  .terminal-asks .folder { display: block; margin: 4px 0; overflow-wrap: anywhere; }
+  .terminal-asks .folder, .terminal-asks .program { display: block; margin: 4px 0; overflow-wrap: anywhere; }
   .terminal-asks .code { display: block; font-size: 22px; font-weight: 600; letter-spacing: 2px; margin: 6px 0; }
   .used-first-warning { margin: 0 0 16px; border-color: color-mix(in srgb, var(--asking) 45%, transparent); }
   .used-first-warning ul { margin: 6px 0; padding-left: 20px; }
+  .window-only-note { margin: 0 0 16px; }
   .attention b { display: block; }
   .attention span { color: var(--dim); font-size: 12px; }
   .easy-switch { display: flex; gap: 12px; align-items: center; }
@@ -759,6 +770,9 @@
     <p class="hint" id="used-first-clear"></p>
     <button class="btn" id="used-first-seen" hidden>I've seen it</button> <span class="result" id="used-first-result" role="status"></span>
   </div>
+  <!-- Setup in a browser on a Mac (routes.go's windowOnlyRefusal): for looking only. The core refuses each change, in
+       its own words; this says so before anything is clicked. -->
+  <div class="box pad window-only-note" id="window-only-note" role="note" hidden><p class="hint" id="window-only-text"></p></div>
   <!-- ================================================================ Easy -->
   <section class="pane" data-pane="easy" data-title="Easy setup">
     <header class="pane-head">
@@ -1314,7 +1328,8 @@
       </div>
       <p class="hint said-under" id="gm-fence"></p>
       <!-- Its token: what it is, who gets it, and how one started by hand asks for it. Never the token itself, and no
-           file holds it (1.26). Hidden where Smolcorp has no General Manager started by hand (Linux and Windows). -->
+           file holds it (1.26). Hidden where Smolcorp has no General Manager started by hand (Linux, and Windows without
+           WebView2: byHandHere). -->
       <h3 class="sub" id="gm-token-head">Its token</h3>
       <div class="box gm-token" id="gm-token" data-search="The General Manager's token" data-keywords="gm general manager token key file path copy by hand rotate new">
         <div class="pad">
@@ -1344,6 +1359,17 @@
         <div class="box" id="team-list"></div>
         <p class="hint said-under" id="team-problem" hidden></p>
       </div>
+      <!-- The General Manager's memory (1.26 FXMEMKEEP): what it suggests waits here for you, and only what you keep
+           counts. Every note is shown whole, as text. -->
+      <div id="gm-memory" hidden>
+        <h3 class="sub">What your General Manager has learnt</h3>
+        <p class="hint said-under">As it works, your General Manager suggests notes about you and your work. A note counts only once you keep it here, and your General Manager reads the notes you've kept before it plans. Notes are facts and preferences: none can allow a push, a merge, a release, a deployment, spending or deleting.</p>
+        <h3 class="sub" id="gm-memory-waiting-head">Waiting for you</h3>
+        <div class="box" id="gm-memory-waiting" data-search="What your General Manager has learnt" data-keywords="gm general manager memory notes learnt learned remember suggested keep edit drop forget"></div>
+        <h3 class="sub" id="gm-memory-kept-head">Kept</h3>
+        <div class="box" id="gm-memory-kept"></div>
+        <p class="hint said-under" id="gm-memory-problem" hidden></p>
+      </div>
     </div>
     <section class="group roles" id="roles-section" hidden>
       <h2>Roles</h2>
@@ -1353,7 +1379,7 @@
       <div class="tools">
         <button class="btn" id="role-add">Add a role</button>
         <button class="btn" id="role-shipped">Bring back Smolcorp's roles</button>
-        <button class="btn" id="briefs-restore" title="Put the briefs in Application Support/AgentDeck/briefs/templates back to the ones that came with the app. Your edits there are lost.">Restore default briefs</button>
+        <button class="btn" id="briefs-restore" title="Put back the briefs that came with the app, in briefs/templates in Smolcorp's folder (Application Support/AgentDeck). Your edits there are lost.">Restore default briefs</button>
       </div>
     </section>
     <div class="group">
@@ -1952,6 +1978,8 @@
    */
   let asks = 0, guideAsked = 0;
   async function load() {
+    // Waiting for the phone's tap (askThePhone): no session yet, and the page says so itself.
+    if (tapping) return;
     if (loading) { loadAgain = true; return; }
     loading = true;
     const asked = ++asks;
@@ -1987,11 +2015,23 @@
    * Opened from the menu, the page's address carries the setup key after #k=,
    * or, from the Windows and Linux tray, a token that works once after #o=.
    * It's handed over once, for a cookie this page's requests carry from then
-   * on, and taken out of the address and its history.
+   * on, and taken out of the address and its history. In Smolcorp's own
+   * Settings window on Windows, the token is the window's, handed to this
+   * page in the app itself (settingswindow.go), never in the address: it opens
+   * the window's session. Loaded again, the window keeps its session. Off a
+   * Mac, once a phone is paired, the menu opens it at #tap, with no link at
+   * all: the page asks the phone (askThePhone).
    */
   async function handOverKey() {
     const opened = new URLSearchParams(location.hash.slice(1));
-    const key = opened.get('k'), token = opened.get('o');
+    const key = opened.get('k'), token = opened.get('o'), windowed = !key && !token && window.smolcorpWindowSetup;
+    if (windowed) {
+      if (!(await fetch('/setup/state').then((res) => res.ok).catch(() => false))) {
+        await fetch('/setup/session', { method: 'POST', headers: { ...setupHeaders(false), 'X-Smolcorp-Window-Once': windowed } }).catch(() => null);
+      }
+      return;
+    }
+    if (!key && !token && opened.has('tap')) return askThePhone(opened);
     if (!key && !token) return;
     const given = key ? { 'X-Smolcorp-Setup-Key': key } : { 'X-Smolcorp-Setup-Once': token };
     const res = await fetch('/setup/session', { method: 'POST', headers: { ...setupHeaders(false), ...given } }).catch(() => null);
@@ -2000,6 +2040,123 @@
     const then = ['pair', 'unpair', 'viewer', 'guide'].find((action) => opened.has(action));
     // The query stays: ?demo= is the demo's page (loadDemo).
     history.replaceState(null, '', location.pathname + location.search + (then ? `#${then}` : ''));
+  }
+
+  /**
+   * Setup opened by a tap on the phone (setupask.go): off a Mac, once a phone is paired, the menu opens this page at
+   * #tap. It asks this computer for a code, shows it, and waits for the owner's Allow on the phone. The ticket that
+   * collects the answer stays in tapFor's memory, never in the address or the browser's storage. On Allow, the answer
+   * carries this page's session, its cookie, and Setup loads. On Deny, or once the ask runs out, the page says so, and
+   * how to ask again; nothing below runs, as there's no session. Loaded again with its session, it asks nothing.
+   */
+  let tapping = false;
+  async function askThePhone(opened) {
+    if (await fetch('/setup/state').then((res) => res.ok).catch(() => false)) return tookTheTap(opened);
+    tapping = true;
+    const main = document.querySelector('main');
+    const kept = [...main.childNodes];
+    const said = await tapFor(fetch, (asked) => main.replaceChildren(...tapNotes(tapWaitingWords(asked))));
+    if (said.state === 'allowed') {
+      main.replaceChildren(...kept);
+      tapping = false;
+      return tookTheTap(opened);
+    }
+    main.replaceChildren(...tapNotes(tapEndWords(said)), askAgain('Ask my phone again'), offMacWayOut());
+    // No session: the page stays on its note until it's asked again.
+    await new Promise(() => {});
+  }
+
+  /** Setup is open: the address keeps only what the page opens on, as a link's does. */
+  function tookTheTap(opened) {
+    const then = ['pair', 'unpair', 'viewer', 'guide'].find((action) => opened.has(action));
+    history.replaceState(null, '', location.pathname + location.search + (then ? `#${then}` : ''));
+  }
+
+  /**
+   * The ask and its wait, as the computer answers them (setupask.go): POST /setup/tap, then GET /setup/tap with the
+   * ticket, each waiting up to 20 s, until Allow, Deny, or the ask runs out (404). `shown` is called with the ask
+   * (its code, the phones' names, how long it lasts) as soon as there is one. Says how it ended: allowed, denied,
+   * ranOut, refused (with the computer's words) or unreachable.
+   */
+  async function tapFor(ask, shown) {
+    const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+    const words = async (res) => (await res.text().catch(() => '')).trim();
+    const res = await ask('/setup/tap', { method: 'POST', headers: setupHeaders(false) }).catch(() => null);
+    if (!res) return { state: 'unreachable' };
+    if (!res.ok) return { state: 'refused', words: await words(res) };
+    const asked = await res.json().catch(() => null);
+    if (!asked || typeof asked.ticket !== 'string') return { state: 'unreachable' };
+    shown(asked);
+    const until = Date.now() + (Number(asked.expiresIn) || 180) * 1000 + 5000;
+    while (Date.now() < until) {
+      const wait = await ask(`/setup/tap?ticket=${encodeURIComponent(asked.ticket)}`, { cache: 'no-store', headers: setupHeaders(false) })
+        .catch(() => null);
+      // Out of reach for a moment: try again shortly. A restart drops the ask, and then says 404, as an ask that ran
+      // out does: the page can't tell them apart, so its words name both (tapEndWords).
+      if (!wait) { await pause(2000); continue; }
+      if (wait.status === 404) return { state: 'ranOut' };
+      if (!wait.ok) return { state: 'refused', words: await words(wait) };
+      const answer = await wait.json().catch(() => ({}));
+      if (answer.state === 'allowed' || answer.state === 'denied') return { state: answer.state };
+    }
+    return { state: 'ranOut' };
+  }
+
+  /** What the page says while it waits: where to tap, and the code to check, as the phone shows it. */
+  function tapWaitingWords(asked) {
+    const phones = Array.isArray(asked.phones) && asked.phones.length ? asked.phones.join(' or ') : 'your paired phone';
+    const minutes = Math.max(1, Math.round((Number(asked.expiresIn) || 180) / 60));
+    return {
+      head: `Approve on your phone: open Smolcorp on ${phones} and tap Allow.`,
+      code: `Code: ${asked.code}`,
+      hint: 'Tap Allow only if your phone shows this same code. Your phone answers over Tailscale, never over the Wi-Fi. '
+        + `This ask runs out in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
+    };
+  }
+
+  /** What the page says when the tap didn't open Setup, in plain words. */
+  function tapEndWords(said) {
+    const head = {
+      denied: 'You tapped Deny on your phone, so Setup stayed closed.',
+      ranOut: 'The ask ran out or Smolcorp restarted, so Setup stayed closed.',
+      unreachable: "Smolcorp didn't answer on this computer. Is it running?",
+    }[said.state] || said.words || "Setup couldn't ask your phone.";
+    return { head, hint: 'To try again, ask below, or choose Open Setup… from the Smolcorp icon in the tray, then tap Allow on your phone.' };
+  }
+
+  /** The note's lines: a head, the code when there is one, and a hint. */
+  function tapNotes(words) {
+    const head = Object.assign(document.createElement('p'), { className: 'text', textContent: words.head });
+    head.setAttribute('role', 'status');
+    const notes = [head];
+    if (words.code) notes.push(Object.assign(document.createElement('p'), { className: 'text', textContent: words.code }));
+    notes.push(Object.assign(document.createElement('p'), { className: 'hint', textContent: words.hint }));
+    return notes;
+  }
+
+  /** A button that asks the phone again: the page opens afresh at #tap, keeping what it opens on. */
+  function askAgain(label) {
+    const button = Object.assign(document.createElement('button'), { className: 'btn primary', textContent: label });
+    button.onclick = () => {
+      const then = ['pair', 'unpair', 'viewer', 'guide'].find((action) => new URLSearchParams(location.hash.slice(1)).has(action));
+      location.hash = then ? `tap&${then}` : 'tap';
+      location.reload();
+    };
+    return button;
+  }
+
+  /**
+   * Where no phone can open Setup (it's lost, or can't reach this computer over Tailscale): the safe way back in, off a
+   * Mac. Unpairing every phone gives the menu its link again; no key is ever read. docs/windows-linux.md says it word
+   * for word.
+   */
+  const OFF_MAC_WAY_OUT = "Phone lost, or it can't reach this computer over Tailscale? Quit Smolcorp from its tray icon "
+    + '(with no tray, run smolcorp quit, or smolcorp-cli quit on Windows), then rename phones.json in Smolcorp\'s folder '
+    + '(on Linux ~/.config/sauzzedeck-pro, on Windows %AppData%\\SauzzeDeck Pro: the name the app had before), '
+    + 'for example to phones.json.old. That unpairs every phone. Start Smolcorp again: Open Setup… opens Setup with a link '
+    + 'once more, and you can pair your phone again.';
+  function offMacWayOut() {
+    return Object.assign(document.createElement('p'), { className: 'hint', textContent: OFF_MAC_WAY_OUT });
   }
 
   /**
@@ -2030,15 +2187,17 @@
     const note = document.createElement('p');
     note.className = 'hint';
     // The app that served the page says what it is; no header (an older app) gets the Linux/Windows text.
+    // Off a Mac, once a phone is paired, no link opens Setup: the note says what does, and the way back in without one.
     note.textContent = (app === 'mac'
       ? "This page opens from Smolcorp's menu bar: choose Open Settings in Browser. "
+        + 'A link from before Smolcorp last started, as for the home Wi-Fi, no longer works.'
       : "This page opens from Smolcorp's menu: Settings… (or Open Setup… in a browser). With no tray, use the link Smolcorp prints as it starts; "
-        + 'for a new one, run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again. ')
-      + 'A link from before Smolcorp last started, as for the home Wi-Fi, no longer works.'
+        + 'for a new one, run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again. '
+        + 'Once a phone is paired, Setup opens by a tap on it instead: use Ask my phone below, then tap Allow on it.')
       + (demoFromAddress(location.search) ? " Then open the demo's link again: Setup opens at the demo." : '')
       // Its session ended because its link was used a second time: by another program, or this page again.
       + (ended === 'used-first' ? " This page's link was used a second time, by another program or another tab, so Smolcorp ended this page's session to be safe." : '');
-    document.querySelector('main').replaceChildren(note);
+    document.querySelector('main').replaceChildren(note, ...(app === 'mac' ? [] : [askAgain('Ask my phone'), offMacWayOut()]));
   }
 
   // Every action carries this header. Other sites can't send it, so a web
@@ -2055,6 +2214,8 @@
       headers: setupHeaders(body),
       body: body ? JSON.stringify(body) : undefined,
     });
+    // Setup in a browser on a Mac: the core's refusal, said plainly, rather than a page that just doesn't change.
+    if (res.status === 403 && state.windowOnly) alert(await refusal(res.clone(), "Change this in Smolcorp's own Settings window, not in a browser."));
     if (res.headers.get('Content-Type') === 'application/json') {
       state = await res.json();
       render();
@@ -2075,6 +2236,11 @@
 
   /** The Mac app's own setup: its office is a window of the app, and the page says Mac where it means this computer. */
   function onMac() { return !!(state.officeWindow && state.officeWindow.mac); }
+  /**
+   * Whether a General Manager started by hand can ask for its token here: where Smolcorp's own Settings window answers
+   * a terminal's ask (the Mac's, and Windows' with WebView2). Where none does, the state says why (terminalAsksOff).
+   */
+  function byHandHere() { return onMac() || !state.terminalAsksOff; }
   /** A line of copy as the Mac says it: "this Mac" where Linux and Windows say "this computer". */
   function wording(text) {
     return onMac() ? text.replace(/\bthis computer\b/g, 'this Mac').replace(/\byour computer\b/g, 'your Mac').replace(/\bthe computer's\b/g, "the Mac's").replace(/\bthis computer's\b/g, "this Mac's") : text;
@@ -2117,6 +2283,8 @@
     renderAttention();
     renderTerminalAsks();
     renderUsedFirst();
+    $('window-only-note').hidden = !state.windowOnly;
+    $('window-only-text').textContent = state.windowOnly || '';
     showInvite();
     hideEmptyGroups();
     showJumps();
@@ -2281,8 +2449,10 @@
       $('manager-screens').hidden = true;
       $('manager-tools').hidden = true;
     }
+    $('gm-memory').hidden = !m.enabled;
     if (!m.enabled) return;
     renderScreens();
+    renderMemory();
     // An answer older than the one drawn, come back late, is left: it would draw the team as it was.
     const asked = ++teamAsked;
     const late = () => asked < teamDrawn;
@@ -2341,13 +2511,13 @@
   /**
    * Its token, with the manager on or off: what it is, and how a General Manager started by hand asks
    * for it (smolcorp gm login). Never the token, and no file holds it. A new one only with the manager
-   * on, as the app refuses it while off. Smolcorp on Linux and Windows has no General Manager started
-   * by hand: the whole box is hidden there, so neither the switch nor "New GM token" is offered only
-   * to say it couldn't.
+   * on, as the app refuses it while off. Where Smolcorp has no Settings window of its own (Linux, a
+   * Windows without WebView2) there's no General Manager started by hand: the whole box is hidden there,
+   * so neither the switch nor "New GM token" is offered only to say it couldn't.
    */
   function renderGmToken(m) {
-    $('gm-token-head').hidden = $('gm-token').hidden = !onMac();
-    if (!onMac()) return;
+    $('gm-token-head').hidden = $('gm-token').hidden = !byHandHere();
+    if (!byHandHere()) return;
     $('gm-byhand').classList.toggle('on', !!m.gmByHand);
     $('gm-byhand').setAttribute('aria-pressed', String(!!m.gmByHand));
     $('gm-byhand').onclick = async () => {
@@ -2381,6 +2551,160 @@
       : [Object.assign(document.createElement('p'), { className: 'hint',
         textContent: gm || byHand ? 'No one else is on the team yet.' : 'No one is hired yet.', style: 'padding:10px 14px;margin:0' })]));
     if (rest.length && state.t3CodeEnabled) t3State(false).then(paintT3);
+  }
+
+  /*
+   * What your General Manager has learnt (GET /setup/gm/memory/notes, FXMEMKEEP): what it suggested, each with Keep,
+   * Edit and Drop, and what you kept, each with Forget. Asked at most every 3 s, and at once after a change here.
+   * Every word is the note's own, set as text. A list with a note being edited, or a button waiting for its second
+   * tap, isn't drawn again under your hands. Under the Mac app, a browser's Setup only looks: its cards have no
+   * buttons, only the page's own note (state.windowOnly), and Smolcorp refuses a change all the same.
+   */
+  let memoryAsking = false;
+  let memoryAskedAt = 0;
+  const MEMORY_TYPES = { user: 'About you', feedback: 'A rule', project: 'About the work', reference: 'Where to find something' };
+  async function renderMemory(now = false) {
+    if (memoryAsking || (!now && Date.now() - memoryAskedAt < 3000)) return;
+    memoryAsking = true;
+    memoryAskedAt = Date.now();
+    const res = await fetch('/setup/gm/memory/notes', { cache: 'no-store', headers: setupHeaders() }).catch(() => null);
+    memoryAsking = false;
+    const list = res && res.ok ? await res.json().catch(() => null) : null;
+    if (!list || !state.manager || !state.manager.enabled) { $('gm-memory').hidden = true; return; }
+    $('gm-memory').hidden = false;
+    const waiting = list.waiting || [], kept = list.kept || [];
+    $('gm-memory-waiting-head').textContent = waiting.length ? `Waiting for you (${waiting.length})` : 'Waiting for you';
+    $('gm-memory-kept-head').textContent = `Kept (${kept.length} of ${list.keptMost || 200})`;
+    drawMemory($('gm-memory-waiting'), waiting, true, 'Nothing is waiting. When your General Manager suggests a note, it shows here.');
+    drawMemory($('gm-memory-kept'), kept, false, 'No notes kept yet.');
+  }
+
+  function drawMemory(host, notes, waiting, empty) {
+    if (host.querySelector('form, button[data-sure="1"], button:disabled') || !changed(host, notes)) return;
+    host.replaceChildren(...(notes.length ? notes.map((n) => memoryCard(n, waiting))
+      : [Object.assign(document.createElement('p'), { className: 'hint', textContent: empty, style: 'padding:10px 14px;margin:0' })]));
+  }
+
+  /** Where a note's words came from, in plain words: what you said, or what your General Manager saw. */
+  function memoryFrom(n) {
+    if (n.from === 'smolcorp') return `From what you said through Smolcorp: “${n.said}”`;
+    if (n.from === 'terminal') return `From what you typed in its terminal: “${n.said}”`;
+    if (n.from === 'seen') return `It saw this in: ${n.said}`;
+    if (n.from === 'owner') return 'In your own words.';
+    return '';
+  }
+
+  /** A line of the card, as text. */
+  function memoryLine(text, className) {
+    return Object.assign(document.createElement('p'), { className: className || '', textContent: text });
+  }
+
+  function memoryCard(n, waiting) {
+    const card = document.createElement('div');
+    card.className = 'memory-note';
+    const title = memoryLine('', '');
+    title.append(Object.assign(document.createElement('b'), { textContent: n.name }), ` · ${MEMORY_TYPES[n.type] || n.type}`);
+    card.append(title, memoryLine(n.description, 'hint'));
+    if (n.type === 'feedback') {
+      card.append(memoryLine(`Rule: ${n.rule || ''}`), memoryLine(`Why: ${n.why || ''}`), memoryLine(`How to apply it: ${n.how || ''}`));
+    } else {
+      card.append(memoryLine(n.body || ''));
+    }
+    const from = memoryFrom(n);
+    if (from) card.append(memoryLine(from, 'choice-line'));
+    if (n.held) card.append(memoryLine(n.held, 'choice-line'));
+    if (n.refused) {
+      card.append(memoryLine(waiting
+        ? `Smolcorp's checks refuse this note as it is (${n.refused}). Edit it, or drop it.`
+        : `Your General Manager doesn't see this note: Smolcorp's checks refuse it now (${n.refused}).`, 'choice-line'));
+    }
+    if (state.windowOnly) {
+      card.append(memoryLine(state.windowOnly, 'hint'));
+      return card;
+    }
+    const tools = document.createElement('div');
+    tools.className = 'tools';
+    if (waiting) {
+      // A note Smolcorp's checks refuse can't be kept as it is: Edit or Drop, as its card says (FXMEMKEEPR2 O3).
+      if (!n.refused) {
+        tools.append(memoryButton('Keep', `Keep ${n.name}`, () => `/setup/gm/memory/keep?id=${encodeURIComponent(n.id)}&shown=${encodeURIComponent(n.shown)}`, "That note couldn't be kept.", true));
+      }
+      tools.append(
+        Object.assign(document.createElement('button'), { className: 'btn', textContent: 'Edit', onclick: () => memoryEdit(card, n) }),
+        memoryButton('Drop', `Drop ${n.name}`, () => `/setup/gm/memory/drop?id=${encodeURIComponent(n.id)}`, "That note couldn't be dropped."));
+    } else {
+      tools.append(memoryForget(n));
+    }
+    card.append(tools);
+    return card;
+  }
+
+  /** One tap, one change: the list is asked again, and a refusal said under it. */
+  function memoryButton(text, label, path, failed, primary) {
+    const button = Object.assign(document.createElement('button'), { className: primary ? 'btn primary' : 'btn', textContent: text });
+    button.setAttribute('aria-label', label);
+    button.onclick = async () => {
+      button.disabled = true;
+      const res = await fetch(path(), { method: 'POST', headers: setupHeaders() }).catch(() => null);
+      tell('gm-memory-problem', res && res.ok ? '' : await refusal(res, failed));
+      button.disabled = false;
+      renderMemory(true);
+    };
+    return button;
+  }
+
+  /** Forget asks once more on the button: your General Manager won't see the note again. */
+  function memoryForget(n) {
+    const button = memoryButton('Forget', `Forget ${n.name}`, () => `/setup/gm/memory/forget?id=${encodeURIComponent(n.id)}`, "That note couldn't be forgotten.");
+    const forget = button.onclick;
+    button.onclick = () => {
+      if (!button.dataset.sure) {
+        button.dataset.sure = '1';
+        button.textContent = 'Yes, forget it';
+        setTimeout(() => { if (button.dataset.sure && !button.disabled) { button.dataset.sure = ''; button.textContent = 'Forget'; } }, ROTATE_WAIT);
+        return;
+      }
+      button.dataset.sure = '';
+      return forget();
+    };
+    return button;
+  }
+
+  /** Edit: the note's words in fields of your own, then kept in one step, as yours. Why it's held, or refused, stays in sight. */
+  function memoryEdit(card, n) {
+    const form = document.createElement('form');
+    form.className = 'memory-note';
+    const fields = [['name', 'Name'], ['description', 'One-line summary']].concat(n.type === 'feedback'
+      ? [['rule', 'Rule'], ['why', 'Why'], ['how', 'How to apply it']] : [['body', 'Note']]);
+    const inputs = {};
+    for (const [key, text] of fields) {
+      const label = Object.assign(document.createElement('label'), { textContent: text });
+      inputs[key] = Object.assign(document.createElement('input'), { type: 'text', value: n[key] || '' });
+      label.append(inputs[key]);
+      form.append(label);
+    }
+    if (n.held) form.append(memoryLine(n.held, 'choice-line'));
+    if (n.refused) form.append(memoryLine(`Smolcorp's checks refuse this note as it is (${n.refused}).`, 'choice-line'));
+    const save = Object.assign(document.createElement('button'), { className: 'btn primary', type: 'submit', textContent: 'Keep my version' });
+    const cancel = Object.assign(document.createElement('button'), { className: 'btn', type: 'button', textContent: 'Cancel' });
+    const tools = Object.assign(document.createElement('div'), { className: 'tools' });
+    tools.append(save, cancel);
+    form.append(tools);
+    cancel.onclick = () => { form.replaceWith(card); renderMemory(true); };
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const body = { id: n.id, shown: n.shown, type: n.type };
+      for (const key of Object.keys(inputs)) body[key] = inputs[key].value.trim();
+      save.disabled = true;
+      const res = await fetch('/setup/gm/memory/edit', { method: 'POST', headers: setupHeaders(true), body: JSON.stringify(body) }).catch(() => null);
+      save.disabled = false;
+      if (!res || !res.ok) return tell('gm-memory-problem', await refusal(res, "Your version couldn't be kept."));
+      tell('gm-memory-problem', '');
+      form.replaceWith(card);
+      renderMemory(true);
+    };
+    card.replaceWith(form);
+    inputs.name.focus();
   }
 
   /*
@@ -3394,7 +3718,7 @@
       loadFirstFolder();
     }
     const agents = state.agents.length ? state.agents : [{ id: 'claude', name: 'Claude Code' }];
-    $('hire-agent').replaceChildren(...agents.map((a) => new Option(a.name, a.id, false, a.id === h.agent)));
+    $('hire-agent').replaceChildren(...agents.map((a) => new Option(agentNotOnMac(a.id) ? `${a.name} (not on a Mac yet)` : a.name, a.id, false, a.id === h.agent)));
     // Where hires open, where there's more than one terminal to choose from; tmux, where it's there.
     const terminals = h.terminals || [];
     $('hire-terminal').hidden = terminals.length < 2;
@@ -3964,13 +4288,23 @@
     if (!r) return drawEasyRoles(null);
     const roles = r.roles;
     const agentOf = (id) => r.agents.find((a) => a.id === id) || r.agents[0];
+    // On a Mac whose hires start in their sandbox, the office asks which project first and tells the hire, so its first
+    // reply asks only its own questions (FXPICKEDPROJECT); one started in a terminal still asks which project itself.
+    const picked = !!state.hiresSandboxed;
     $('roles-hint').textContent = state.launcher && !(state.hiring && state.hiring.canHire)
       ? 'Start one in a terminal with the command on its card. Its first reply only asks you its questions, starting with whether '
         + "the folder you started it in is the one, and it waits for your answers before it works on its instructions."
+      : state.launcher && picked
+      ? 'Hold a free desk in the office and pick a role to hire it: the office asks which project first, so its first reply only '
+        + 'asks you its own questions. Or start one in a terminal with the command on its card: its first reply then asks which '
+        + 'project to work on too. Either way, it waits for your answers before it works on its instructions.'
       : state.launcher
       ? 'Hold a free desk in the office and pick a role to hire it, or start one in a terminal with the command on its card. '
         + 'Its first reply only asks you which project to work on and its own questions, and it waits for your answers before '
         + 'it works on its instructions.'
+      : picked
+      ? 'Hold a free desk in the office and pick a role to hire it, or Anyone for a regular hire. Its first reply only asks you its '
+        + 'own questions: the office asks which project first. It waits for your answers before it works on its instructions.'
       : 'Hold a free desk in the office and pick a role to hire it, or Anyone for a regular hire. Its first reply only asks you '
         + "which project to work on and its own questions, and it waits for your answers before it works on its instructions.";
     $('role-shipped').hidden = r.shipped.every((s) => roles.some((role) => role.id === s.id));
@@ -4028,12 +4362,17 @@
       };
 
       const agents = document.createElement('select');
-      agents.replaceChildren(...r.agents.map((a) => new Option(a.name, a.id, false, a.id === agent.id)));
+      agents.replaceChildren(...r.agents.map((a) => new Option(a.notOnMac ? `${a.name} (not on a Mac yet)` : a.name, a.id, false, a.id === agent.id)));
       agents.onchange = () => change((edit) => ({ ...edit, agent: agents.value }));
       body.append(field('Name', text(role.name, r.limits.name, 'Reviewer', (value) => {
         if (value.trim()) change((edit) => ({ ...edit, name: value }));
         else render();
       })), field('Agent', agents));
+      // An agent whose hires can't start on this Mac yet says why, in the core's words (notonamac.go): the picker
+      // above already says "not on a Mac yet".
+      if (agent.notOnMac) {
+        body.append(Object.assign(document.createElement('p'), { className: 'hint', textContent: agent.notOnMac }));
+      }
       if (agent.starts) {
         const model = text(role.model, r.limits.model, "The agent's own", (value) => change((edit) => ({ ...edit, model: value })));
         if (agent.id === 'claude') {
@@ -4072,7 +4411,10 @@
       const said = document.createElement('p');
       said.className = 'hint';
       if (agent.starts) {
-        said.textContent = 'Its first reply only asks you which project to work on, then these, one per line:';
+        said.textContent = !state.hiresSandboxed ? 'Its first reply only asks you which project to work on, then these, one per line:'
+          : state.launcher ? 'Its first reply only asks you these, one per line (the office asks which project first; started in a '
+            + 'terminal, it asks that first itself):'
+          : 'Its first reply only asks you these, one per line (the office asks which project first):';
         const questions = document.createElement('textarea');
         questions.className = 'questions';
         questions.value = (role.questions || []).join('\n');
@@ -4532,6 +4874,11 @@
   /** The role being hired from the sheet. */
   let hiring = null;
   const AGENT_NAMES = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', opencode: 'OpenCode', grok: 'Grok' };
+  /** Why a hire of agent `id` can't start on this Mac yet, in the core's words (notonamac.go), or '' where it can. */
+  function agentNotOnMac(id) {
+    const agent = ((state.roles && state.roles.agents) || []).find((a) => a.id === id);
+    return (agent && agent.notOnMac) || '';
+  }
   /** The sheet's line for a hire that won't get Smolcorp's fence, or '' for one that will. */
   function hireFenceNote(role, managerOn, worktree) {
     const agent = AGENT_NAMES[role.agent] ? role.agent : 'claude'; // as the Mac's Deck.hiredAgent: an unknown agent is Claude Code
@@ -4541,9 +4888,15 @@
   }
   function showHireFence() {
     if (!hiring) return;
-    const note = hireFenceNote(hiring, !!(state.manager && state.manager.enabled), $('hs-worktree').checked);
+    // A role whose agent can't start on this Mac yet says why instead, and can't be hired from here.
+    const notYet = agentNotOnMac(hiring.agent);
+    const note = notYet || hireFenceNote(hiring, !!(state.manager && state.manager.enabled), $('hs-worktree').checked);
     $('hs-fence').textContent = note;
     $('hs-fence').hidden = !note;
+    const was = $('hs-hire').dataset.notOnMac === '1';
+    $('hs-hire').dataset.notOnMac = notYet ? '1' : '';
+    if (notYet) $('hs-hire').disabled = true;
+    else if (was) $('hs-hire').disabled = false;
   }
   async function openHireSheet(role) {
     hiring = role;
@@ -4854,12 +5207,15 @@
 
   /**
    * A program in a terminal asks for a key: smolcorp gm login (the General Manager's token), or smolcorp demo,
-   * status or desks (a tool's key, until Smolcorp quits). Its folder, as it says it, and its code. Allow is offered
-   * only once you tick that the code in your terminal is this one: any program can ask, and the code is how you tell
-   * yours from another's. No key is ever shown here: it goes to that terminal alone.
+   * status or desks, or a tool of yours (a tool's key, until Smolcorp quits). Its folder, as it says it, and its code.
+   * Allow is offered only once you tick that the code in your terminal is this one: any program can ask, and the code
+   * is how you tell yours from another's. No key is ever shown here: it goes to that terminal alone. On Windows, which
+   * has no sandbox, a hire can ask too: there the ask also says which program asked, as Windows says it (program, ""
+   * when it couldn't say), and what started it (startedFrom). On a Mac an ask from a program in a sandbox is refused,
+   * and one macOS couldn't tell comes with mayBeAHire.
    */
   function renderTerminalAsks() {
-    // Off a Mac, none is let in: why, in the owner's words, as the terminal is told it.
+    // Where Smolcorp has no Settings window of its own, none is let in: why, in the owner's words, as the terminal is told it.
     $('step-terminal-asks-off').hidden = !state.terminalAsksOff;
     $('terminal-asks-off').textContent = state.terminalAsksOff || '';
     const asks = state.terminalAsks || [];
@@ -4871,12 +5227,33 @@
       el.className = 'pad';
       // The folder is the asker's own words, so it sits in a box of its own, and the real code alone, large: a folder
       // can't pass a code-like sentence of its own off as Smolcorp's.
-      el.innerHTML = '<p class="text"><b></b></p><p class="hint where"></p><code class="folder" hidden></code><p class="hint">Its code:</p><span class="code"></span>'
+      el.innerHTML = '<p class="text"><b></b></p><p class="hint who" hidden></p><code class="program" hidden></code><p class="hint from" hidden></p>'
+        + '<p class="hint where"></p><code class="folder" hidden></code><p class="hint">Its code:</p><span class="code"></span>'
         + '<p class="hint then"></p><label class="check"><input type="checkbox"> <span></span></label>'
         + '<button class="btn primary allow" disabled>Allow</button> <button class="btn deny">Don\'t allow</button> <span class="result" role="status"></span>';
       el.querySelector('b').textContent = ask.kind === 'gm'
         ? 'A General Manager you start in Terminal (smolcorp gm login) asks for its token.'
-        : 'A command in a terminal (smolcorp demo, status or desks) asks for a key to Setup, until Smolcorp quits.';
+        : 'A command in a terminal, or a tool of yours, asks for a key to Setup, until Smolcorp quits (smolcorp status and desks ask this way).';
+      // Windows: which program asked, as Windows says it, and what started it. A hire there has no sandbox, and can ask too.
+      if ('program' in ask) {
+        const from = Array.isArray(ask.startedFrom) ? ask.startedFrom : [];
+        el.querySelector('.who').hidden = false;
+        el.querySelector('.who').textContent = ask.program
+          ? 'Windows says this program asked:'
+          : 'Windows couldn\'t say which program asked. Allow it only if you just ran a command yourself.';
+        el.querySelector('.program').hidden = !ask.program;
+        el.querySelector('.program').textContent = ask.program || '';
+        el.querySelector('.from').hidden = false;
+        el.querySelector('.from').textContent = (from.length ? `Started by ${from[0]}${from.slice(1).map((name) => `, which ${name} started`).join('')}. ` : '')
+          + 'One of your hires can ask too, as nothing fences it on this computer: if this isn\'t a command you just ran, or a tool you just started, don\'t allow it.';
+      }
+      // A Mac that couldn't tell which program asked (askprogram.go): an ask from a program in a sandbox, as a hire's
+      // is, is refused before it's listed, so this one may be a hire's all the same. Its folder is shown below, as ever.
+      if (ask.mayBeAHire) {
+        el.querySelector('.who').hidden = false;
+        el.querySelector('.who').textContent = 'Smolcorp couldn\'t tell which program asked, so this may be one of your hires. '
+          + 'Allow it only if you just ran a command yourself, in your own terminal.';
+      }
       el.querySelector('.where').textContent = ask.folder ? 'It says it runs in this folder:' : 'It says nothing of where it runs.';
       el.querySelector('.folder').hidden = !ask.folder;
       el.querySelector('.folder').textContent = ask.folder || '';
@@ -4928,7 +5305,7 @@
   };
 
   /**
-   * Smolcorp's records (phones, paired Macs, the team's keys) when the key that seals them failed its check: none
+   * Smolcorp's records (phones, the team's keys) when the key that seals them failed its check: none
    * of them counts until you reset them here (desktop/records.go). The core says why, in its own words.
    */
   function renderRecords() {
@@ -9064,14 +9441,21 @@
   /* ------------------------------------------------------------------ the demo (FXX1d) */
 
   /**
-   * The demo folder `smolcorp demo` opened this page at, from the address's ?demo=<its full path>, or '' for none.
+   * The demo folder `smolcorp demo` opened this page at, from the address's ?demo=<its full path>, or, in Smolcorp's
+   * own Settings window, which is opened on what follows # (as on #pair), its #demo=<its full path>; '' for none.
    * Only a full path counts; the app checks it's a folder the demo made before anything is shown.
    */
-  function demoFromAddress(search) {
-    const root = (new URLSearchParams(search).get('demo') || '').trim();
+  function demoFromAddress(search, hash = '') {
+    const root = (new URLSearchParams(search).get('demo') || new URLSearchParams(hash.replace(/^#/, '')).get('demo') || '').trim();
     return root.startsWith('/') || /^[A-Za-z]:[\\/]/.test(root) ? root : '';
   }
-  const demoRoot = demoFromAddress(location.search);
+  const demoRoot = demoFromAddress(location.search, location.hash);
+  // The Mac's Settings window, already open, is sent to a demo by its address's # alone, which loads nothing: the page
+  // loads again at that demo.
+  window.addEventListener('hashchange', () => {
+    const asked = demoFromAddress('', location.hash);
+    if (asked && asked !== demoRoot) location.reload();
+  });
   // The demo's hire as the app reads it (GET /setup/demo), and where its Hire is.
   let demo = null, demoHiring = false, demoHired = false;
   function demoSaid(text, wrong = false) {

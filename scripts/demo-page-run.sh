@@ -112,7 +112,7 @@ stop() {
 }
 trap stop EXIT
 [ -n "$APP_PID" ] || { echo "FAIL the copy didn't come up (build/dp/app.log)"; exit 1; }
-case "$(ps -o command= -p "$APP_PID")" in "$APP/Contents/MacOS/AgentDeck"*) ;; *) echo "PID $APP_PID isn't this worktree's copy"; APP_PID=""; exit 1 ;; esac
+case "$(ps -o command= -p "$APP_PID")" in "$APP/Contents/MacOS/Smolcorp"*) ;; *) echo "PID $APP_PID isn't this worktree's copy"; APP_PID=""; exit 1 ;; esac
 echo "copy pid $APP_PID on $PORT (Go engine), hidden"
 
 # The demo itself, as you'd run it, but --no-open: its yes on its input, its words in build/dp/demo.out.

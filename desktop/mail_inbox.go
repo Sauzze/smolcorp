@@ -76,7 +76,7 @@ func (d *Deck) mailIntoInbox(h Hire, text string, commit func() bool) (result ma
 // that worktree only, not anywhere in its folder, as its fire goes by; and never a session the GM works in.
 func inboxSession(s *Session, h Hire, gms []Hire) bool {
 	place := liveSession{Folder: s.Folder, Project: s.Project}
-	if h.Worktree != "" && !works(place, Hire{Worktree: h.Worktree}) {
+	if !h.Worktree.none() && !works(place, Hire{Worktree: h.Worktree}) {
 		return false
 	}
 	return works(place, h) && !slices.ContainsFunc(gms, func(gm Hire) bool { return works(place, gm) })

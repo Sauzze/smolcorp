@@ -77,7 +77,14 @@ func TestOnlyTheOfficesOwnWindowReadsTheTalkCard(t *testing.T) {
 	gmToken := d.newGMToken()
 	d.mu.Lock()
 	window, setupKey, hookKey, cookie := d.access.WindowKey, d.access.SetupKey, d.access.HookKey, d.access.NewSetupSession()
+	// Windows' own office window: the device this run paired for it (window_windows.go's windowRun). Then a device
+	// that only carries its name, as any phones.json entry could: let in by the key the core holds, never by the name.
+	windowsWindow := ensureWindowKey(d.access.Phones, &d.access.windowDeviceKey)
+	namedLikeIt := d.access.Phones.Pair(windowDeviceName, false)
 	d.mu.Unlock()
+	if windowsWindow == "" || namedLikeIt == "" {
+		t.Fatal("no window device paired")
+	}
 
 	for _, target := range []string{"/talk?session=s1", "/talk/asking"} {
 		ask := func(c call) *httptest.ResponseRecorder {
@@ -94,9 +101,27 @@ func TestOnlyTheOfficesOwnWindowReadsTheTalkCard(t *testing.T) {
 		if got := ask(call{target: "&t=" + window}); got.Code != http.StatusOK {
 			t.Errorf("%s: the window: %d %s", target, got.Code, got.Body)
 		}
-		got := ask(call{target: "&t=" + phone, from: aPhone, host: deckOnWiFi})
-		if got.Code != http.StatusForbidden || strings.TrimSpace(got.Body.String()) != "The talk bubble shows only in the office's window on your computer." {
-			t.Errorf("%s: a phone: %d %s", target, got.Code, got.Body)
+		if got := ask(call{target: "&t=" + windowsWindow, host: "localhost:7710"}); got.Code != http.StatusOK {
+			t.Errorf("%s: Windows' own window: %d %s", target, got.Code, got.Body)
+		}
+		for name, c := range map[string]call{
+			"a phone":                           {target: "&t=" + phone, from: aPhone, host: deckOnWiFi},
+			"a phone on this computer":          {target: "&t=" + phone, host: "localhost:7710"},
+			"a device named as Windows' window": {target: "&t=" + namedLikeIt, host: "localhost:7710"},
+		} {
+			got := ask(c)
+			if got.Code != http.StatusForbidden || strings.TrimSpace(got.Body.String()) != "The talk bubble shows only in the office's window on your computer." {
+				t.Errorf("%s: %s: %d %s", target, name, got.Code, got.Body)
+			}
+		}
+		// Windows' window's key where it isn't that window: from another computer, or with a proxy's header made up.
+		for name, c := range map[string]call{
+			"Windows' window's key, from another computer": {target: "&t=" + windowsWindow, from: aPhone, host: deckOnWiFi},
+			"Windows' window's key, proxied":               {target: "&t=" + windowsWindow, host: "localhost:7710", headers: map[string]string{"X-Forwarded-For": "100.64.0.7"}},
+		} {
+			if got := ask(c); letIn(got.Code) {
+				t.Errorf("%s: %s: %d %s", target, name, got.Code, got.Body)
+			}
 		}
 		for name, c := range map[string]call{
 			"no key":                                  {},

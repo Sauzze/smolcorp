@@ -20,7 +20,9 @@ of your own, as many as you like. Each role has its own instructions, agent, mod
 effort, and comes in wearing its badge, like the Reviewer's glasses and red pen,
 and many dress for the job. A role never guesses what to work on: its first
 reply asks you which project, and its own questions, such as which branch to
-review. On Windows and Linux, `smolcorp run --role reviewer` also starts one
+review. When the office hires into your projects folder on a Mac with the
+sandbox on, it asks you which project first, so the hire is told its project,
+and its first reply asks only its own questions. On Windows and Linux, `smolcorp run --role reviewer` also starts one
 from any terminal.
 [More about roles](office.md#the-office).
 
@@ -40,7 +42,44 @@ want to approve yourself. Then it:
   or reaches a real person;
 - keeps its board of what's done and what's left next to its brief.
 
-Each hire works on a branch of its own, in its own git worktree. The GM can
+Each hire works on a branch of its own, in its own git worktree. On a Mac
+with the sandbox on, that goes for every hire, a plain one too (no role, or a
+Claude Code role with the manager off), and each works in one project: when
+you hire from the office, it first asks you which one in your projects folder.
+The General Manager is the exception: it gets a workspace of its own.
+A General Manager can change files across your home folder outside a few
+protected places, so a folder it prepared on purpose could affect a hire there.
+Look over a hire's changes before you merge them. Inside a General Manager's
+own folders, Smolcorp doesn't run git, and a hire there can read the files but
+not change them. Hires' worktrees are in `~/.smolcorp/worktrees`, which no
+General Manager can change. (On a Mac; Smolcorp says so in Setup's answer, on
+the hire's card and, for a managed hire from Setup or from the General Manager,
+to the hire.) A General Manager hired into your projects folder keeps its plans in
+`.smolcorp/plans/<its id>` there. It can't make a git folder in it, but it can
+move in a folder that holds one, and Smolcorp doesn't check that at its next
+start: don't run git in its plans folder, read or copy the plans instead.
+
+**Where a hire's work is.** On a Mac, each new hire's worktree is in
+`~/.smolcorp/worktrees/<repository>-<short id>/<hire>`, a folder Smolcorp
+makes for itself, readable by you alone; on Windows and Linux, and for a hire
+made before 1.26.0, it's beside the repository, in `<repository>-hires`. So
+is the General Manager's own worktree, when you hire it into a repository. A
+managed hire from Setup or from the General Manager names the folder and its
+branch in its first message; a hire from the office may not. To look at its work, open
+that folder, or run `git diff main...<its branch>` in your own checkout (with
+your default branch's name in place of `main`, if it has another). A recap marks the worktree **(kept)** when Smolcorp left it, and
+says how to remove it yourself. Wherever a hire's worktree or folder no longer
+leads where it did at its hire, Smolcorp doesn't run git there, or open a
+window or T3 Code there, and the answer says it was moved or replaced. Nothing
+there is listed through it or removed: Smolcorp holds the whole place for you
+instead, and your own Claude Code doesn't start in or around it until you've
+checked it yourself.
+A folder you set with `hireWorktrees` in `config.json` is used only if no
+General Manager could change it; otherwise the hire is refused and says why.
+A hire's sandbox lets it commit only to its own branches: that one, and any new
+one it makes under its own `hire/<id>/`. Other branches, tags and
+`git stash` aren't open to it. For another branch or a tag it asks the GM
+or you, and the GM asks you. The GM can
 pin a project to a desk and give a person a nickname: `smolcorp gm pin`,
 `smolcorp gm unpin --desk N` and `smolcorp gm nickname <name>`, with desks
 counted from 1, as in the office.
@@ -61,10 +100,12 @@ and fires, messages its hires, sets watches, names people and pins desks. It
 hires only into a hire Smolcorp can fence: on Linux in tmux, and on Windows
 only with managed hires turned on, a beta that's off by default
 (`"hireManagedWindows": true` in `config.json`). Otherwise its hire is refused,
-saying what to install or turn on. Tiling the team's windows, choosing the
-screen that holds them, and a General Manager started by hand are the Mac's.
-On Windows and Linux, a General Manager you hired keeps its token across
-restarts; for a new one, hire it again from Setup.
+saying what to install or turn on. Tiling the team's windows and choosing the
+screen that holds them are the Mac's. A General Manager started by hand
+(`smolcorp gm login`) works on a Mac and on Windows with the Microsoft Edge
+WebView2 Runtime. A General Manager you hired keeps its token across restarts.
+For a new token, on Linux and on Windows without WebView2, hire it again from
+Setup; elsewhere, use **New GM token** or `smolcorp gm login`.
 
 On a Mac, the General Manager and the hires it manages run in tmux, each in a
 session of its own: if tmux isn't installed, hiring them says so
@@ -132,10 +173,11 @@ Add `--json` to get the answers as Smolcorp serves them, and `smolcorp status
 
 - **They only read.** Each run asks Smolcorp for a key: it prints a
   four-digit code, Smolcorp shows the same code in its Settings window, and
-  you click **Allow** there once they match. That's on a Mac only for now: on
-  Windows and Linux nothing may say yes to a terminal yet (only your paired
-  phone will, and on Windows Smolcorp's own window), so these commands say so
-  and stop; Setup shows your team instead. The key stays in that
+  you click **Allow** there once they match. That's on a Mac, and on Windows
+  with WebView2 (the tray icon, then **Open Setup…**), where the window also
+  names the program that asked. On Linux, and on Windows without WebView2,
+  nothing may say yes to a terminal, so these commands say so and stop; Setup
+  shows your team instead. The key stays in that
   command's memory and goes with it: no file holds it, and no command prints it.
   They never use the General Manager's token or the office window's key, so a
   terminal of yours can't pass for the General Manager.
@@ -179,6 +221,13 @@ Gemini CLI, OpenCode and Grok. They run with their own settings, as they would
 if you'd started them yourself. The hire sheet in setup and the office say so
 when you pick one.
 
+**On a Mac with the sandbox on** (Setup's **Start desks in their sandbox**,
+which covers every hire, plain hires included), 1.26.0 hires run Claude Code:
+a hire of Codex, Gemini CLI, OpenCode or Grok is refused before anything
+opens, and they come back in 1.26.1. With the sandbox off, they start as
+before. Started yourself, in your own terminal, they work with the office as
+they always have.
+
 ## Hires in the background, and T3 Code
 
 Two choices, asked once on Start here and kept in setup under Hires and roles
@@ -201,10 +250,12 @@ Two choices, asked once on Start here and kept in setup under Hires and roles
     the office on this computer (never on a phone), opens the hire's worktree
     in a new T3 Code thread, with T3 Code's own agent, separate from your hire.
   - **Hire into T3 Code** (experimental): setup's hire sheet offers **Where
-    its agent runs: In T3 Code**, and the General Manager can ask for the same
-    (`smolcorp gm hire … --t3`). The hire gets its own worktree and branch, its
+    its agent runs: In T3 Code**. Only you can: the General Manager's ask
+    (`smolcorp gm hire … --t3`) is refused. The hire gets its own worktree and branch, its
     brief as the first message of a T3 Code thread, and the same fence as any
-    fenced hire, written into its worktree before T3 Code hears of it. It has a
+    fenced hire, written into its worktree before T3 Code hears of it. On a
+    Mac, it runs in T3 Code, outside Smolcorp's sandbox, and Setup lists it as
+    **No sandbox**. It has a
     desk in the office and gets the General Manager's mail. T3 Code has no stop,
     so it isn't fired: **Let go**, in setup's team list or on its desk's card,
     removes its thread in T3 Code and keeps its worktree and branch. It works
@@ -213,7 +264,8 @@ Two choices, asked once on Start here and kept in setup under Hires and roles
   - **Take over in T3 Code** (experimental, the Mac and Linux): on a hire's
     row in setup, it stops the hire's Claude Code in its own tmux session (only
     while it's idle, with nothing typed) and carries on the same session in T3
-    Code, in its worktree, with its fence. **Hand back** brings it home. Until
+    Code, in its worktree, with its fence (on a Mac, outside Smolcorp's
+    sandbox). **Hand back** brings it home, on a Mac back in its sandbox. Until
     then nobody can fire it. A hire on the API-key account can't be taken over.
 
 ## Supported agents

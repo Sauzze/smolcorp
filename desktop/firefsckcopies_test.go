@@ -161,7 +161,7 @@ func TestTheFiresLookHashesEveryStoredCopyOfEachName(t *testing.T) {
 			if err != nil || cause != aStoredCopy(base, packOf(r.dir, idx), r.b) {
 				t.Fatalf("cause %q, err %v; want %q", cause, err, aStoredCopy(base, packOf(r.dir, idx), r.b))
 			}
-			h := Hire{Name: "Rex", Repo: r.dir, Worktree: filepath.Join(r.dir, "w"), Branch: "hire/x"}
+			h := Hire{Name: "Rex", Repo: r.dir, Worktree: keptPath(filepath.Join(r.dir, "w")), Branch: "hire/x"}
 			said := fireStoreKept(h, nil)
 			if !strings.Contains(said, "the repo's stored objects were changed under it ("+cause+")") ||
 				strings.Contains(said, " gc") || strings.Contains(said, "repack") || !strings.Contains(said, "git fsck --full in "+r.dir) {
@@ -306,7 +306,7 @@ func TestTheFiresLookWalksEveryBaseBranch(t *testing.T) {
 			if out, _ := r.plain(t, "show", c.branch+":f"); out != "desk" {
 				t.Fatalf("the owner's git shows %q for %s:f; this case proves nothing", out, c.branch)
 			}
-			h := Hire{Name: "Rex", Repo: r.dir, Worktree: filepath.Join(r.dir, "w"), Branch: "hire/x"}
+			h := Hire{Name: "Rex", Repo: r.dir, Worktree: keptPath(filepath.Join(r.dir, "w")), Branch: "hire/x"}
 			cause := "the object " + blob + " holds other bytes than its name says: it is the file f in commit " + commit + ", on " + c.branch
 			want := "the repo's stored objects were changed under it (" + cause + "), so what git shows for " + c.shown + " can't be trusted"
 			if said := fireStoreKept(h, nil); !strings.Contains(said, want) {
@@ -431,7 +431,7 @@ func TestTheFiresLookCatchesTheReviewersOtherForms(t *testing.T) {
 		if after := gitRepoCmd(t, clone, "count-objects", "-v"); after != before {
 			t.Fatalf("the look fetched: %q, then %q", before, after)
 		}
-		said := fireStoreKept(Hire{Name: "Rex", Repo: clone, Worktree: filepath.Join(clone, "w"), Branch: "main"}, nil)
+		said := fireStoreKept(Hire{Name: "Rex", Repo: clone, Worktree: keptPath(filepath.Join(clone, "w")), Branch: "main"}, nil)
 		if !strings.Contains(said, ": it couldn't check the repo's stored objects (git couldn't read every object they reach: ") {
 			t.Errorf("the owner is told %q", said)
 		}
@@ -463,7 +463,7 @@ func TestTheFiresLookFailsClosedOnALinkInTheObjectStore(t *testing.T) {
 		if cause != "" || err == nil || err.Error() != want {
 			t.Fatalf("cause %q, err %v; want the error %q", cause, err, want)
 		}
-		said := fireStoreKept(Hire{Name: "Rex", Repo: repo, Worktree: filepath.Join(repo, "w"), Branch: "main"}, nil)
+		said := fireStoreKept(Hire{Name: "Rex", Repo: repo, Worktree: keptPath(filepath.Join(repo, "w")), Branch: "main"}, nil)
 		words := strings.ReplaceAll(said, filepath.Dir(physical(t.TempDir())), "<temp>")
 		if !strings.Contains(said, ": it couldn't check the repo's stored objects ("+want+"), so it didn't look at whether the branch is merged") ||
 			strings.Contains(words, " gc") || strings.Contains(words, "repack") || strings.Contains(words, "prune") {

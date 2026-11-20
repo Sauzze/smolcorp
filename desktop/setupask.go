@@ -3,6 +3,7 @@ package desktop
 import (
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -24,8 +25,8 @@ import (
 // once: the ask goes as it is taken. Any program here can ask, and each ask has a code of its own; none can see
 // another's ticket, nor answer one. An ask nobody answers runs out (askLifetime), and three may wait at once, one
 // new every two seconds, so a program can't bury the owner's ask under its own. Nothing of it is written: the asks
-// live in memory, and a restart drops them. Under the Mac app none of this is needed or taken: its Settings window
-// opens Setup with no link.
+// live in memory, and a restart drops them. Under the Mac app, and on Windows with WebView2, none of this is needed or
+// taken: Smolcorp's own Settings window opens Setup with no link (settingswindow.go).
 
 // setupTapFragment is what the menu opens Setup with once its link is gone: the page asks for the tap at once.
 const setupTapFragment = "tap"
@@ -54,7 +55,7 @@ func (s *setupAsks) ask() (*terminalAsk, int, string) {
 	s.last = now
 	s.pace.Unlock()
 	// The terminal's words name Smolcorp's window: a page is told where its asks are answered.
-	ask, _ := s.add(askSetup, "")
+	ask, _ := s.add(askSetup, "", askAsker{})
 	if ask == nil {
 		return nil, http.StatusTooManyRequests, "Your phone already has asks to open Setup waiting: answer them there first, or wait for them to run out."
 	}
@@ -114,6 +115,11 @@ func (d *Deck) setupTapRoute(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusForbidden, "On a Mac, Smolcorp's Settings window opens Setup: the menu bar icon, then Settings….")
 			return
 		}
+		// Windows with WebView2 has Smolcorp's own Settings window too (settingswindow.go): it opens Setup, not a tap.
+		if settingsWebView() {
+			writeStatus(w)(http.StatusForbidden, "Smolcorp's own Settings window opens Setup on this computer: "+ownWindowWhere(false)+".")
+			return
+		}
 		if !d.setupLinkGone() {
 			writeStatus(w)(http.StatusConflict, "No phone is paired yet, so nothing can say yes: until one is, Setup opens from the tray icon's Open Setup….")
 			return
@@ -125,7 +131,7 @@ func (d *Deck) setupTapRoute(w http.ResponseWriter, r *request) {
 		}
 		d.Refresh() // the phone's page hears of it now
 		writeJSON(w, http.StatusOK, map[string]any{"ticket": ask.ticket, "code": askCodeShown(ask.code),
-			"expiresIn": int(askLifetime.Seconds()), "where": setupTapWhere})
+			"expiresIn": int(askLifetime.Seconds()), "where": setupTapWhere, "phones": d.phoneNames()})
 	case http.MethodGet:
 		ticket := r.URL.Query().Get("ticket")
 		if done := d.setupAsks.doneOf(ticket); done != nil {
@@ -151,6 +157,36 @@ func (d *Deck) setupTapRoute(w http.ResponseWriter, r *request) {
 		w.WriteHeader(http.StatusNotFound)
 	}
 }
+
+// phoneNames are the paired phones' names, as the page says where to tap ("open Smolcorp on iPhone"): the names the
+// owner gave them, printable and cut short, never a key. Any program here that asks learns them, as it learns that a
+// phone is paired at all (the 409 before one is). The Windows window's own paired device is no phone.
+func (d *Deck) phoneNames() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	names := []string{}
+	for _, p := range d.access.Phones.All {
+		if name := askFolder(p.Name); !p.isWindowDevice() && name != "" && !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// setupAskNotHere is what the phone is told where it can't answer an ask to open Setup (GET /grants refused: the
+// Wi-Fi, above all) while one waits, so it says why rather than show nothing. It names this computer, never an ask's
+// id or code. The phone's page (deck.html) shows the refusal whole when it starts with setupAskNotHereStart.
+func (d *Deck) setupAskNotHere() string {
+	if d.macHost() != nil || len(d.setupAsks.waiting()) == 0 {
+		return ""
+	}
+	return setupAskNotHereStart + setupComputerName() + " asks to open Setup. This phone can't answer it here: Setup " +
+		"opens only by a tap that comes over Tailscale, never over the Wi-Fi. Open Smolcorp on this phone through " +
+		"Tailscale's HTTPS address, then tap Allow there."
+}
+
+// setupAskNotHereStart is how setupAskNotHere's words start, as the phone's page knows them.
+const setupAskNotHereStart = "Your computer "
 
 // newTappedSetupSession opens a page session for a browser the owner's tap let in: no link's token, and not the window's.
 func (d *Deck) newTappedSetupSession() string {

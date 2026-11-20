@@ -12,7 +12,7 @@ import (
 
 // `smolcorp gm memory` (1.26, MEM4): what this office has taught its GM. The app's answer starts with its own header,
 // which says what the notes are and aren't, and this command prints it first, as the MCP tool gives it. The GM reads
-// and proposes here; only the owner keeps a note, in Setup or on the phone, and no command here keeps or deletes one.
+// and proposes here; only the owner keeps a note, in Setup, and no command here keeps or deletes one.
 
 // MemoryMark starts every line the memory command prints as text, as the MCP tool gives it too: the app's summary of
 // the GM's transcript leaves out any result that holds it, so a note's words stay out of a summary even when the

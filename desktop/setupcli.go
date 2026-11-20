@@ -23,7 +23,8 @@ import (
 //
 //	smolcorp setup           as above
 //	smolcorp setup --check   the same, without starting Smolcorp (on Linux and Windows)
-//	smolcorp setup --open    and then where to get a link to the setup page, to pair a phone (it makes none)
+//	smolcorp setup --open    and then, on Windows, Setup in Smolcorp's own Settings window (or the browser, where
+//	                         there's no WebView2, which it says); elsewhere, where Setup opens (it makes no link)
 //
 // On a Mac it opens Smolcorp.app first if it is closed (only when setup is
 // aimed at the app's own port).
@@ -181,12 +182,19 @@ func (c setupClient) selfTest() (selfTestAnswer, error) {
 // openSetup says where to get a link to the setup page. It makes none: a
 // link that opens setup, and so pairing, must come from the app itself (the
 // tray's Open Setup…), never from a program that only holds the check-only key.
+// On Windows it asks the running app to open Setup itself, as its tray does:
+// its own Settings window, or the browser where there's none; this program is
+// handed nothing.
 func (c setupClient) openSetup(out io.Writer) {
 	if setupSystem == "darwin" {
 		fmt.Fprintln(out, "\nTo open setup, choose Open Settings in Browser from Smolcorp's icon in the menu bar.")
 		return
 	}
-	if setupSystem == "windows" { // the tray is always there
+	if setupSystem == "windows" { // the running app opens its own Settings window (settingswindow.go)
+		if said, opened := askRunningToShowSettings(c.base); opened {
+			fmt.Fprintln(out, "\n"+said)
+			return
+		}
 		fmt.Fprintln(out, "\nTo open setup, choose Open Setup… from the Smolcorp icon in the tray, or use the link smolcorp prints as it starts.")
 		return
 	}
@@ -194,6 +202,34 @@ func (c setupClient) openSetup(out io.Writer) {
 	if !setupHasDesktop() { // no browser to open anything: the office's address is what's left
 		fmt.Fprintln(out, "\nThis computer has no desktop to open a browser on. "+officeByHand(c.base))
 	}
+}
+
+// askRunningToShowSettings asks the running Smolcorp at base to open Setup, as a second start asks it to show the
+// office (/raise, with the hook's key): in its own Settings window, or in the browser where it has none, which it says.
+// opened is false when it couldn't be asked, or couldn't open Setup: the tray's words are said then.
+func askRunningToShowSettings(base string) (said string, opened bool) {
+	key, err := os.ReadFile(hookKeyFile)
+	if err != nil {
+		return "", false
+	}
+	request, err := http.NewRequest(http.MethodPost, base+raisePath+"?show=settings", nil)
+	if err != nil {
+		return "", false
+	}
+	request.Header.Set(hookKeyHeader, strings.TrimSpace(string(key)))
+	response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
+	if err != nil {
+		return "", false
+	}
+	defer response.Body.Close()
+	text, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
+	switch response.StatusCode {
+	case http.StatusNoContent:
+		return "Setup is open in Smolcorp's own Settings window.", true
+	case http.StatusOK:
+		return strings.TrimSpace(string(text)), true
+	}
+	return "", false
 }
 
 // setupHasDesktop says if there is a desktop to open a browser on: a variable, for the tests.

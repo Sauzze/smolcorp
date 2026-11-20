@@ -58,7 +58,7 @@ func TestTheKeysPageSaysWhatChangesAndWhatItCantStop(t *testing.T) {
 		"**Reset**", "Unlock the keychain and restart Smolcorp", "ad hoc rebuild", "nothing is sealed",
 		"readable by you alone",
 		// The update: the General Manager's new token comes with its next hire (RT126SD1 S3).
-		"Pair each phone again, and each paired Mac", "and the General Manager when you hire it again",
+		"Pair each phone again.**", "and the General Manager when you hire it again",
 		// The guard, a broken guard file as a desk meets it (S1), and the messages quoted whole (S6).
 		"2.1.314 or later", "can only add rules", "Anthropic's own installer", "a hard link",
 		"the guard refuses every command a desk runs", "can't answer. No desk was started.\"",
@@ -66,7 +66,7 @@ func TestTheKeysPageSaysWhatChangesAndWhatItCantStop(t *testing.T) {
 		// The start: which desks get the ticket, and what still runs for the others (B4); what can't be checked; the
 		// app's own seal, on a Mac and for Claude Code desks (S2).
 		"The General Manager and the Claude Code hires it manages, in tmux (Mac and Linux)",
-		"starts on tmux's usual server, which runs your `~/.tmux.conf`", "so its start files run first",
+		"starts on a tmux server of its own", "never your default one, and that server reads no start file", "so its start files run first",
 		"a desk gets a one-time token from Smolcorp's launcher", "**Use this copy**",
 		"Claude Code installed with npm, Codex, Gemini CLI, OpenCode and Grok",
 		"(on a Mac), it starts no more Claude Code desks", ownFilesChanged+" No desk was started.\"",
@@ -92,7 +92,9 @@ func TestTheKeysPageSaysWhatChangesAndWhatItCantStop(t *testing.T) {
 	// What the code doesn't back stays out (RT126SD1 B1–B3, nits).
 	mustNotSay(t, "docs/keys-and-guard.md", page, "No file holds a key", "can't be loosened or switched off by a hire",
 		"this line never shows for it", "doesn't yet", "starts no more hires", "or forge a record on a Mac",
-		"programs nobody signs")
+		"programs nobody signs",
+		// A plain hire's tmux server is its own since SA-M10, and reads no start file (RT126DOCSP3R1 O1).
+		"tmux's usual server", "which runs your `~/.tmux.conf`")
 	for _, link := range []string{"README.md", filepath.Join("docs", "setup.md")} {
 		if !strings.Contains(repoText(t, strings.Split(link, string(filepath.Separator))...), "keys-and-guard.md") {
 			t.Errorf("%s doesn't link the keys page", link)
@@ -153,12 +155,14 @@ func TestTheReleaseNotesCoverTheKeysOnEverySystem(t *testing.T) {
 		"the tray app leaves its own readable by every program of yours, Setup's key included",
 		"Windows and Linux can seal less",
 		"**Setup's key stays in memory.**", "the check-only `selftest-key`", "in tmux on a Mac or Linux",
-		"Other hires in tmux still run your `~/.tmux.conf`", "OpenCode and Grok", "with no General Manager hired",
+		"Other hires in tmux start on a tmux server of their own, which reads no `~/.tmux.conf` either", "OpenCode and Grok", "with no General Manager hired",
 		"get no such protection", "**On Windows and Linux, less can be sealed.**", "Start here says so",
 		"Claude Code installed with npm", "(docs/keys-and-guard.md)", "(docs/RELEASING.md)")
 	mustNotSay(t, "1.26's release notes", this, "No key in a file", "can't read Smolcorp's keys", "doesn't yet",
 		"hires and the General Manager get new keys", "From 1.26 they can't read Setup's key",
-		"can't read Setup's key or loosen", "aren't signed, so they can't be checked")
+		"can't read Setup's key or loosen", "aren't signed, so they can't be checked",
+		// As on the keys page (RT126DOCSP3R1 O1).
+		"still run your `~/.tmux.conf`")
 	// Nothing promises the desks' memory: each line that says memory is protected names Smolcorp, never a desk.
 	for _, sentence := range regexp.MustCompile(`[^.]*memory[^.]*\.`).FindAllString(this, -1) {
 		if regexp.MustCompile(`(?i)(desk|agent|hire)s?'? (own )?memory (is|are) (protected|safe|covered)`).MatchString(sentence) {
@@ -219,5 +223,20 @@ func TestStartHereSaysWhatAnotherProgramCanStillDo(t *testing.T) {
 		"at its next start", "secret store", "environment", "Keys, records and the guard")
 	if !ready([]check{c}) {
 		t.Error("the limits line stands in the way of being ready")
+	}
+}
+
+// At a hire's worktree or folder that was moved or replaced since its hire (by a General Manager or anyone), Smolcorp
+// runs no git and opens no window or T3 Code, and the plant listing holds the whole place for you rather than list
+// what's there through it, and Remove never acts through it (claudePlaceLook, removeHeldClaudePlant; RT126SWEEP4 part
+// 3's B2: FXCOREWORKTREES126's listing decision reversed for a moved place): the release notes and the team's guide
+// say both, and no longer that what the hire left there is listed.
+func TestTheDocsSayAMovedPlaceIsHeldWhole(t *testing.T) {
+	for _, doc := range [][]string{{"RELEASE-NOTES.md"}, {"docs", "team.md"}} {
+		text := repoText(t, doc...)
+		mustSay(t, doc[len(doc)-1], text,
+			"Wherever a hire's worktree or folder no longer leads where it did at its hire, Smolcorp doesn't run git there, or open a window or T3 Code there",
+			"Nothing there is listed through it or removed: Smolcorp holds the whole place for you instead, and your own Claude Code doesn't start in or around it until you've checked it yourself.")
+		mustNotSay(t, doc[len(doc)-1], text, "or read its files", "no reading there", "It still lists what the hire left there")
 	}
 }

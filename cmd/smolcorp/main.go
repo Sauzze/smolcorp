@@ -35,7 +35,10 @@ const usage = `Usage: smolcorp [command]
   serve                   the server alone, for a computer without a desktop
   run <agent> [args]      start an agent so the office can press its keys
   run --role <role>       start a role's agent on that role
-  setup [--check|--open]  set up and check everything, and say what's left
+  setup [--check|--open]  check everything and say what's left (changes nothing);
+                          --open then opens Setup: on Windows, in Smolcorp's own
+                          Settings window (or your browser without WebView2);
+                          elsewhere it says where Setup opens
   demo [--dry-run] [--in FOLDER]
                           watch a General Manager run a team on a sample
                           project, in a new folder (asks before it spends)
@@ -61,6 +64,9 @@ func main() {
 	desktop.Version = version
 	gm.AppVersion = version
 	args := os.Args[1:]
+	if makesSupportFolder(args) {
+		desktop.MakeSupportFolder()
+	}
 	if len(args) == 0 {
 		// The app and the server keep their memory from your other programs as their own first step, and don't
 		// start if they can't (desktop/memory.go).
@@ -92,7 +98,11 @@ func main() {
 		// Not in the usage: Smolcorp starts `sandbox enter` inside a desk's sandbox, before anything of the desk's,
 		// to check the sandbox holds and tell the core so (internal/sandbox/enter.go). On Linux, `sandbox check` and
 		// `sandbox command` are the installer's: whether hires can start in their sandbox, and the one command that
-		// sets it up (internal/sandbox/apparmor.go).
+		// sets it up (internal/sandbox/apparmor.go). `sandbox used` is asked first: whether desks here start in a
+		// sandbox at all (desktop.RunSandboxUsed); until they do, the installer neither sets one up nor mentions it.
+		if len(args) == 2 && args[1] == "used" {
+			os.Exit(desktop.RunSandboxUsed())
+		}
 		os.Exit(sandbox.Run(args[1:], os.Stdout, os.Stderr))
 	case "setup":
 		os.Exit(desktop.RunSetup(args[1:]))
@@ -123,6 +133,20 @@ func main() {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
+}
+
+// makesSupportFolder says whether a run makes the support folder, if it isn't there, before its command: every run
+// did, as desktop made it when it loaded, but the Mac app's engine (core: the app gives it the folder to use) and
+// version and help, which keep nothing.
+func makesSupportFolder(args []string) bool {
+	if len(args) == 0 {
+		return true
+	}
+	switch args[0] {
+	case "core", "version", "--version", "help", "--help", "-h":
+		return false
+	}
+	return true
 }
 
 // protect keeps the guard's memory from your other programs, as far as the system lets it (internal/procmem), before

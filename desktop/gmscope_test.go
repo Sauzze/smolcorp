@@ -44,12 +44,12 @@ func scopedGMOn(t *testing.T, account string, prepare func(*Deck)) (d *Deck, r *
 	if w.Code != http.StatusOK {
 		t.Fatalf("the owner's hire of the GM: %d %s", w.Code, w.Body)
 	}
-	if hires := registered(t); len(hires) != 1 || hires[0].Role != gmRole || hires[0].Scope != project || hires[0].Folder != project {
+	if hires := registered(t); len(hires) != 1 || hires[0].Role != gmRole || hires[0].Scope != project || hires[0].Folder.storedOnly() != project {
 		t.Fatalf("registry: %+v", hires)
 	}
 	d.mu.Lock()
 	token = d.gmToken
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	d.mu.Unlock()
 	if token == "" {
 		t.Fatal("the GM has no token")
@@ -168,7 +168,7 @@ func scopedCall(t *testing.T, d *Deck, token, method, target, body string) (int,
 		headers: map[string]string{setupHeader: "1", gmTokenHeader: token}})
 	d.watching.Wait()
 	d.mu.Lock()
-	d.lastHire = time.Time{} // the next hire needn't wait out the cooldown
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{} // the next hire needn't wait out the cooldown
 	d.mu.Unlock()
 	return w.Code, strings.TrimSpace(w.Body.String())
 }
@@ -213,8 +213,8 @@ func TestTheOwnersGMHireKeepsItsScope(t *testing.T) {
 	}
 	// Kept in its registry row, and only when set: every other row is written as it was.
 	shortSupport(t)
-	writeRegistry(t, Hire{ID: "g1", Name: "General Manager", Role: gmRole, Folder: project, State: "working", Scope: project},
-		Hire{ID: "t1", Name: "Tester", Role: "tester", Folder: project, State: "working"})
+	writeRegistry(t, Hire{ID: "g1", Name: "General Manager", Role: gmRole, Folder: keptPath(project), State: "working", Scope: project},
+		Hire{ID: "t1", Name: "Tester", Role: "tester", Folder: keptPath(project), State: "working"})
 	if err := updateRegistry(func(*registryFile) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -232,13 +232,13 @@ func TestTheScopeIsTheNewestOpenGMs(t *testing.T) {
 		want  string
 	}{
 		{nil, ""},
-		{[]Hire{{ID: "g1", Name: "GM", Role: gmRole, Folder: "/p", State: "working", Started: 1, Scope: "/p"}}, "/p"},
-		{[]Hire{{ID: "g1", Name: "GM", Role: gmRole, Folder: "/p", State: "working", Started: 1, Scope: "/p"},
-			{ID: "g2", Name: "GM", Role: gmRole, Folder: "/q", State: "working", Started: 2}}, ""},
-		{[]Hire{{ID: "g1", Name: "GM", Role: gmRole, Folder: "/q", State: "working", Started: 1},
-			{ID: "g2", Name: "GM", Role: gmRole, Folder: "/p", State: "starting", Started: 2, Scope: "/p"}}, "/p"},
-		{[]Hire{{ID: "g1", Name: "GM", Role: gmRole, Folder: "/p", State: "fired", Started: 1, Scope: "/p"}}, ""},
-		{[]Hire{{ID: "t1", Name: "Tester", Role: "tester", Folder: "/p", State: "working", Started: 1, Scope: "/p"}}, ""},
+		{[]Hire{{ID: "g1", Name: "GM", Role: gmRole, Folder: keptPath("/p"), State: "working", Started: 1, Scope: "/p"}}, "/p"},
+		{[]Hire{{ID: "g1", Name: "GM", Role: gmRole, Folder: keptPath("/p"), State: "working", Started: 1, Scope: "/p"},
+			{ID: "g2", Name: "GM", Role: gmRole, Folder: keptPath("/q"), State: "working", Started: 2}}, ""},
+		{[]Hire{{ID: "g1", Name: "GM", Role: gmRole, Folder: keptPath("/q"), State: "working", Started: 1},
+			{ID: "g2", Name: "GM", Role: gmRole, Folder: keptPath("/p"), State: "starting", Started: 2, Scope: "/p"}}, "/p"},
+		{[]Hire{{ID: "g1", Name: "GM", Role: gmRole, Folder: keptPath("/p"), State: "fired", Started: 1, Scope: "/p"}}, ""},
+		{[]Hire{{ID: "t1", Name: "Tester", Role: "tester", Folder: keptPath("/p"), State: "working", Started: 1, Scope: "/p"}}, ""},
 	} {
 		writeRegistry(t, c.hires...)
 		if got := gmScopeNow(); got != c.want {
@@ -263,7 +263,8 @@ func TestAScopedGMHiresOnlyIntoItsProject(t *testing.T) {
 		body, _ := json.Marshal(fields)
 		return scopedCall(t, d, token, "POST", "/setup/gm/hire", string(body))
 	}
-	trees, _ := filepath.Glob(filepath.Join(filepath.Dir(project), "*-hires", "*"))
+	madeIn := filepath.Join(hiresFolder(physical(project), ""), "*") // on a Mac the core's own folder (FXCOREWORKTREES126)
+	trees, _ := filepath.Glob(madeIn)
 	for name, fields := range map[string]map[string]any{
 		"outside the project (RX1 B1, RX1b B1)":      {"role": "janitor", "folder": elsewhere},
 		"the home folder":                            {"role": "janitor", "folder": "~"},
@@ -290,7 +291,7 @@ func TestAScopedGMHiresOnlyIntoItsProject(t *testing.T) {
 			t.Errorf("%s: %d %q, want the scope's 403", name, code, text)
 		}
 	}
-	if now, _ := filepath.Glob(filepath.Join(filepath.Dir(project), "*-hires", "*")); len(now) != len(trees)+1 || len(h.windows) != 2 {
+	if now, _ := filepath.Glob(madeIn); len(now) != len(trees)+1 || len(h.windows) != 2 {
 		t.Errorf("a refused hire made something: worktrees %q, windows %q", now, h.windows)
 	}
 	// Into the project, and into the top of a worktree of it: the office hires as it always does.
@@ -299,10 +300,10 @@ func TestAScopedGMHiresOnlyIntoItsProject(t *testing.T) {
 	}
 	hires := registered(t)
 	wt := hires[len(hires)-1].Worktree
-	if wt == "" || !(gmScope{root: project, git: runGit}).holds(wt) {
+	if wt.none() || !(gmScope{root: project, git: runGit}).holds(wt.storedOnly()) {
 		t.Fatalf("the hire's worktree %q isn't the project's", wt)
 	}
-	if code, text := hire(map[string]any{"role": "janitor", "folder": wt}); code != http.StatusOK {
+	if code, text := hire(map[string]any{"role": "janitor", "folder": wt.storedOnly()}); code != http.StatusOK {
 		t.Errorf("into a worktree of the project: %d %q", code, text)
 	}
 	if !r.tmux.ran("new-session") {
@@ -323,7 +324,6 @@ func TestAScopedGMCantHireOrChangeTheOfficeAnotherWay(t *testing.T) {
 		{"POST", "/setup/hire/gm", ""},
 		{"POST", "/setup/gm/manager?enabled=0", ""},
 		{"POST", "/setup/hiring?enabled=0", ""},
-		{"POST", "/setup/hire-folder?folder=" + homeDir, ""},
 		{"POST", "/setup/roles", `{}`},
 		{"POST", "/setup/hooks", ""},
 		{"POST", "/setup/layout", `{}`},
@@ -334,6 +334,10 @@ func TestAScopedGMCantHireOrChangeTheOfficeAnotherWay(t *testing.T) {
 		if code, text := scopedCall(t, d, token, c.method, c.target, c.body); !scopeRefused(code, text) {
 			t.Errorf("%s %s: %d %q, want the scope's 403", c.method, c.target, code, text)
 		}
+	}
+	// The folder for hires is the page's alone (RT126SWEEP3 P4 B1): the route table refuses every GM first.
+	if code, text := scopedCall(t, d, token, "POST", "/setup/hire-folder?folder="+homeDir, ""); code != http.StatusForbidden || scopeRefused(code, text) {
+		t.Errorf("/setup/hire-folder: %d %q, want the route table's 403", code, text)
 	}
 	// Not a route at all: the route table refuses it first, as for any caller but the page and a tool.
 	if code, _ := scopedCall(t, d, token, "POST", "/setup//hire", outside); code != http.StatusForbidden || len(registered(t)) != 1 {
@@ -355,9 +359,9 @@ func TestAScopedGMReachesOnlyItsOwnHiresAfterARestartToo(t *testing.T) {
 	gitOut(t, project, "worktree", "add", "-q", "-b", "hire/tester-1", wt)
 	gm := registered(t)[0]
 	writeRegistry(t, gm,
-		Hire{ID: "tester-1", Name: "Tester", Nickname: "Ada", Role: "tester", Folder: wt, Worktree: wt, Repo: project, State: "working", Started: 2},
-		Hire{ID: "rev-9", Name: "Reviewer", Nickname: "Rex", Role: "reviewer", Folder: elsewhere, State: "working", Started: 3},
-		Hire{ID: "tester-2", Name: "Tester", Nickname: "Bo", Role: "tester", Folder: project, Worktree: filepath.Join(elsewhere, "wt"), State: "working", Started: 4})
+		Hire{ID: "tester-1", Name: "Tester", Nickname: "Ada", Role: "tester", Folder: keptPath(wt), Worktree: keptPath(wt), Repo: project, State: "working", Started: 2},
+		Hire{ID: "rev-9", Name: "Reviewer", Nickname: "Rex", Role: "reviewer", Folder: keptPath(elsewhere), State: "working", Started: 3},
+		Hire{ID: "tester-2", Name: "Tester", Nickname: "Bo", Role: "tester", Folder: keptPath(project), Worktree: keptPath(filepath.Join(elsewhere, "wt")), State: "working", Started: 4})
 	// The app starts again: a new deck on the same support folder, the registry as it was, a new token.
 	d.stopWatchers()
 	d = startDeck(t)
@@ -365,7 +369,7 @@ func TestAScopedGMReachesOnlyItsOwnHiresAfterARestartToo(t *testing.T) {
 	d.config.Pins[1] = &elsewhere // the owner's pin
 	upstairs := filepath.Join(homeDir, "upstairs")
 	d.config.FloorPins = floorPinList{{Floor: 2, Desk: 4, Folder: upstairs}} // and one on 3F
-	owners, refused := d.watchers.add(map[string]any{"kind": "time", "target": "tea", "minutes": 5.0}, "owner")
+	owners, refused := d.watchers.add(map[string]any{"kind": "time", "target": "tea", "minutes": 5.0}, "owner", nil)
 	if refused != nil {
 		t.Fatal(refused.message)
 	}
@@ -435,8 +439,8 @@ func TestAGMWithNoScopeIsAsBefore(t *testing.T) {
 	d, _, _, token := gmHireDeck(t)
 	elsewhere := filepath.Join(homeDir, "elsewhere")
 	os.MkdirAll(elsewhere, 0o755)
-	writeRegistry(t, Hire{ID: "g1", Name: "General Manager", Role: gmRole, Folder: d.config.HireFolder, State: "working", Started: 1},
-		Hire{ID: "rev-9", Name: "Reviewer", Nickname: "Rex", Role: "reviewer", Folder: elsewhere, State: "working", Started: 3})
+	writeRegistry(t, Hire{ID: "g1", Name: "General Manager", Role: gmRole, Folder: keptPath(d.config.HireFolder), State: "working", Started: 1},
+		Hire{ID: "rev-9", Name: "Reviewer", Nickname: "Rex", Role: "reviewer", Folder: keptPath(elsewhere), State: "working", Started: 3})
 	for _, c := range []struct {
 		method, target, body string
 		status               int
@@ -445,7 +449,8 @@ func TestAGMWithNoScopeIsAsBefore(t *testing.T) {
 		{"POST", "/setup/gm/send", `{"to":"Rex","text":"hi"}`, http.StatusOK},
 		{"POST", "/setup/pin?key=2&folder=" + elsewhere, "", http.StatusNoContent},
 		{"POST", "/setup/gm/tile", "", http.StatusNotFound},
-		{"POST", "/setup/hiring?enabled=1", "", http.StatusOK},
+		// Hiring turned off: the GM never turns it on (RT126SWEEP3 P4 F2, sweep3p4_test.go).
+		{"POST", "/setup/hiring?enabled=0", "", http.StatusOK},
 	} {
 		if code, text := scopedCall(t, d, token, c.method, c.target, c.body); code != c.status {
 			t.Errorf("%s %s: %d %q, want %d", c.method, c.target, code, text, c.status)

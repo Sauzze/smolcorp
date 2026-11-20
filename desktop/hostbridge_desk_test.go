@@ -17,8 +17,8 @@ import (
 // never checked: the app then runs nothing on a desk's socket (TmuxTests, HostBridgeTests).
 func TestATmuxPanesFocusAndCloseCarryItsDeskAsTheCoreRecordedIt(t *testing.T) {
 	program, _, sandboxed, old := tmuxGateRig(t)
-	sandboxed.TmuxPaneStarted, sandboxed.Worktree, sandboxed.Folder = 1794000000000000, "/work/repo-hires/ab12", "/work/repo"
-	old.Folder = "/work/old"
+	sandboxed.TmuxPaneStarted, sandboxed.Worktree, sandboxed.Folder = 1794000000000000, keptPath("/work/repo-hires/ab12"), keptPath("/work/repo")
+	old.Folder = keptPath("/work/old")
 	fired := Hire{ID: "gh78", State: "fired", TmuxSocket: deskSocketPath("gh78", 0), TmuxProgram: program, TmuxServer: 6161, TmuxPane: 4343}
 	unchecked := Hire{ID: "ij90", State: "working", TmuxSocket: deskSocketPath("ij90", 0), TmuxProgram: program, TmuxPane: 4444}
 	writeRegistryHires(t, sandboxed, old, fired, unchecked)

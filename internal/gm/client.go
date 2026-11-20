@@ -20,8 +20,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -86,18 +84,18 @@ func (e *Error) Unwrap() error { return e.Cause }
 
 // supportDir is where the app keeps its state, as each app names it: the Mac
 // app's folder in Application Support; on Linux and Windows the same folder
-// as desktop/paths.go. (It is worked out again here, without importing
+// as desktop/paths.go, found as it finds it (appdirs.Resolve). (It is worked out again here, without importing
 // desktop, which makes the folder as a side effect.)
 func supportDir() (string, error) {
 	// A test copy of the Mac app (scripts/test-copy.sh) keeps its state in a folder of its own: its hires read that, never the real app's.
 	if dir := strings.TrimSpace(os.Getenv(testSupportEnv)); dir != "" {
 		return dir, nil
 	}
-	base, err := os.UserConfigDir()
+	dir, err := appdirs.Resolve()
 	if err != nil {
 		return "", fmt.Errorf("can't find the app's support folder: %v", err)
 	}
-	return filepath.Join(base, appdirs.Name(runtime.GOOS)), nil
+	return dir, nil
 }
 
 // Env is what the CLI reads from outside: the environment and the support

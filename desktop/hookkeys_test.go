@@ -18,14 +18,15 @@ func keyedOffice(t *testing.T) (d *Deck, keys, sockets map[string]string) {
 	t.Helper()
 	d = newTestDeck(t)
 	// Its links resolved, as the core spells a sandboxed desk's socket: a desk's tab through a link (the Mac's
-	// /var, here) counts only as the core recorded it (FXTABLINK).
+	// /var, here) counts only as the core recorded it (FXTABLINK). Its worktree too, as a real hire's row stores it:
+	// one that resolves elsewhere is moved, and its git state isn't read (FXGMHIRENOGIT126R8).
 	dir := physical(t.TempDir())
 	keys, sockets = map[string]string{}, map[string]string{}
 	var hires []Hire
 	for _, id := range []string{"aaa111", "bbb222", "ccc333"} {
 		sockets[id] = filepath.Join(dir, hireSocketPrefix+id)
-		hires = append(hires, Hire{ID: id, Name: "Desk " + id, Role: "janitor", Folder: "/proj", Repo: "/proj",
-			Worktree: filepath.Join(dir, "wt-"+id), TmuxSocket: sockets[id], State: "working"})
+		hires = append(hires, Hire{ID: id, Name: "Desk " + id, Role: "janitor", Folder: keptPath("/proj"), Repo: "/proj",
+			Worktree: keptPath(physical(filepath.Join(dir, "wt-"+id))), TmuxSocket: sockets[id], State: "working"})
 	}
 	if err := updateRegistry(func(f *registryFile) { f.hires = hires }); err != nil {
 		t.Fatal(err)

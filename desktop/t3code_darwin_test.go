@@ -39,7 +39,7 @@ func TestT3OnAMacOpenOpensTheAppThroughTheMacAppThenRunsT3App(t *testing.T) {
 		}
 		return t3Ran{Ended: true}
 	}
-	status, said := t3Open(Hire{ID: "abcdef12", Name: "Ada", Worktree: folder}, t3Status{State: t3Found, Version: "v0.1.8"}, m)
+	status, said := t3Open(Hire{ID: "abcdef12", Name: "Ada", Worktree: keptPath(folder)}, t3Status{State: t3Found, Version: "v0.1.8"}, m)
 	if status != http.StatusOK || !reflect.DeepEqual(said, map[string]any{"ok": true, "opened": "thread"}) {
 		t.Fatalf("%d %v", status, said)
 	}

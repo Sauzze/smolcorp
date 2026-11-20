@@ -198,11 +198,21 @@ func TestTheLaunchersScreenReadsAFaintSuggestionAsIdle(t *testing.T) {
 		{"an SGR it can't read", paneBox(paneAuto, "❯ \x1b[2;38;5mrun the tests\x1b[0m"), PaneDraft},
 		// One it can't read while faint is on leaves its pen faint: the styles are then not used at all (m7).
 		{"faint left on by an SGR it can't read", paneBox(paneAuto, "❯ \x1b[2mrun\x1b[0;38;5m typed"), PaneDraft},
-		{"modifyOtherKeys, CSI > 4;2 m, then typed text (L1)", "\x1b[>4;2m" + paneBox(paneAuto, "❯ my real draft"), PaneDraft},
+		// The 2 of modifyOtherKeys (CSI >4;2m, sent by Claude Code as it starts) never turns the pen faint (L1). A
+		// start setting leaves the screen unknown until a full redraw (FXWINSCREENR3), so these rows send Claude
+		// Code's own clear after it, as a real start does, then the box: a real draft reads draft, and a box with only
+		// a suggestion still reads idle (the setting leaves the pen neither faint nor plain).
+		{"modifyOtherKeys, CSI > 4;2 m, Claude Code's clear, then typed text (L1)", "\x1b[>4;2m\x1b[2J\x1b[3J\x1b[H" + paneBox(paneAuto, "❯ my real draft"), PaneDraft},
+		{"modifyOtherKeys, CSI > 4;2 m, Claude Code's clear, then a suggestion (L1)", "\x1b[>4;2m\x1b[2J\x1b[3J\x1b[H" + paneBox(paneAuto, "❯ "+faint("run the tests")), PaneIdle},
 	} {
 		if got := drawn(t, 24, 80, ptyOutput(c.out)).PaneState(); got != c.want {
 			t.Errorf("%s: %v, want %v", c.name, got, c.want)
 		}
+	}
+	// With no clear after it, the setting leaves the screen unknown, so mail waits: never idle over a real draft.
+	noClear := drawn(t, 24, 80, ptyOutput("\x1b[>4;2m"+paneBox(paneAuto, "❯ my real draft")))
+	if got := noClear.PaneState(); got != PaneUnknown || noClear.Why() != "CSI >4;2m" {
+		t.Errorf("modifyOtherKeys, CSI > 4;2 m, then typed text with no clear (L1): %v, why %q, want unknown for CSI >4;2m", got, noClear.Why())
 	}
 	// Typed over a suggestion in place: the faint cells written over are typed now.
 	s := drawn(t, 24, 80, ptyOutput(paneBox(paneAuto, "❯ "+faint("run the tests"))))

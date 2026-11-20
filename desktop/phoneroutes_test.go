@@ -99,6 +99,9 @@ var everyPhoneRoute = [][2]string{
 	{"GET", "/peer/events"}, {"POST", "/peer/events"},
 	// The owner's tap that opens Setup on this computer (setupask.go, OLD-TAP1), and its wrong method.
 	{"POST", "/grants/setup"}, {"GET", "/grants/setup"},
+	// How many notes the GM proposed wait for the owner, for the office window's badge (memoryowner.go, FXMEMKEEP),
+	// and its wrong method.
+	{"GET", "/memory/waiting"}, {"POST", "/memory/waiting"},
 }
 
 // probeRoute asks one route as one caller, through the whole router, and says the status and the text.
@@ -128,6 +131,24 @@ func probeRouteWith(t *testing.T, d *Deck, method, target, body, phoneKey string
 // probeAnswerWith is probeAnswer with the target's own query and a body of its own: what probeAnswer and
 // probeRouteWith both ask through.
 func probeAnswerWith(t *testing.T, d *Deck, method, target, body, phoneKey string, c routeCaller) *httptest.ResponseRecorder {
+	t.Helper()
+	askFromSystemOf(c)
+	return probeAnswerAsSet(t, d, method, target, body, phoneKey, c)
+}
+
+// askFromSystemOf sets the system a caller asks on and how its connection came: which hand-on is let in
+// (macTailscale, linuxTailscale, windowsTailscale) and whether it came through serve.sock (servedUnrecorded). The
+// router reads these package variables on every request, so nothing may set them while a live server of this
+// package's router (httptest.NewServer) runs: a test with one sets them before it starts, and asks through
+// probeAnswerAsSet.
+func askFromSystemOf(c routeCaller) {
+	macTailscale, linuxTailscale, windowsTailscale = c.mac, c.linux, !c.mac && !c.linux && !c.off
+	servedUnrecorded = func(*http.Request) bool { return c.tailscale }
+}
+
+// probeAnswerAsSet is probeAnswerWith for a caller whose system is set already (askFromSystemOf): it sets no package
+// variable, so a test may ask through it while a live server of the same router runs.
+func probeAnswerAsSet(t *testing.T, d *Deck, method, target, body, phoneKey string, c routeCaller) *httptest.ResponseRecorder {
 	t.Helper()
 	if c.signs {
 		// Signed as sign.js signs it: the key never sent, and a GET with no body (a signed GET with one is refused).
@@ -175,8 +196,6 @@ func probeAnswerWith(t *testing.T, d *Deck, method, target, body, phoneKey strin
 	if c.spoofProto {
 		r.Header.Set("X-Forwarded-Proto", "https")
 	}
-	macTailscale, linuxTailscale, windowsTailscale = c.mac, c.linux, !c.mac && !c.linux && !c.off
-	servedUnrecorded = func(*http.Request) bool { return c.tailscale }
 	w := httptest.NewRecorder()
 	(&router{deck: d}).ServeHTTP(w, r)
 	return w
@@ -284,7 +303,19 @@ func dumpPhoneRoutes(t *testing.T) string {
 // computer (setupask.go), answers as POST /grants/answer does, cell for cell (the owner's tap: a paired phone over
 // WireGuard or through `tailscale serve` on a Mac, Linux or Windows; 400 for its missing answer; no one else), and
 // its GET, which isn't a route, as PUT /grants/answer does.
+// FXMEMKEEP adds two lines at the end, and moves no cell: GET /memory/waiting, the count for the office window's
+// badge, answers as GET /talk/asking does (the window only), and its POST, which isn't a route, as GET /grants/setup.
+// FXTALKFIX moves one column, window-device, on the window's 12 routes (accessWindow: /conversation, /session/info,
+// /desk/git, both /desk/preview, /desk/pr/open, /talk, /talk/asking, /talk/say, /talk/pick, /talk/listen, /talk/photo),
+// and only to what the window answers there: Windows' own office window holds that device's key, which the core made
+// this run and keeps in memory (request.windowsOwnWindow). The window's own switch routes (settings, /hire/window,
+// /t3code, takeover and handback), every phone column and window-device-proxied don't move.
+// Stacked with FXMEMKEEP (FXSTACKG), GET /memory/waiting is the window's 13th route of that class and moves with them:
+// window-device gets its count, 200, as at GET /talk/asking. Its POST, not a route, doesn't move.
 func TestEveryRouteKeepsItsAccessThroughTheMove(t *testing.T) {
+	// Each row's class, as it is with the features this version leaves off turned on (dormant.go): off, they're
+	// unknown to everyone (dormant_test.go).
+	turnOn(t, &photoOn, &spendAsksOn, &peersOn)
 	after := dumpPhoneRoutes(t)
 	if after != phoneRouteAccess {
 		t.Fatalf("a route's access changed in the move.\nbefore:\n%s\nafter:\n%s", phoneRouteAccess, after)
@@ -298,7 +329,7 @@ func TestEveryRouteKeepsItsAccessThroughTheMove(t *testing.T) {
 // here (SN1), the Wi-Fi, or from Tailscale's own address to a name, are no one's but the plain Wi-Fi phone's
 // (spoof-proto-wifi, which is a phone, and not secure) or refused before the table.
 var classLetsIn = map[access][]string{
-	accessWindow:      {"window"},
+	accessWindow:      {"window", "window-device"},
 	accessPhone:       {"phone-wifi", "phone-wireguard", "phone-serve-mac", "phone-serve-linux", "phone-serve-windows", "spoof-proto-wifi", "phone-here", "window-device"},
 	accessPhoneSecure: {"phone-wireguard", "phone-serve-mac", "phone-serve-linux", "phone-serve-windows"},
 	accessOwnerTap:    {"phone-wireguard", "phone-serve-mac", "phone-serve-linux", "phone-serve-windows"},
@@ -311,14 +342,17 @@ var reachTheTable = []string{"phone-wifi", "phone-wireguard", "phone-serve-mac",
 // Each row of the table lets in exactly the callers its class names, tells the others its own refusal, and is in the
 // dump of every route.
 func TestEachRowLetsInItsClassOnly(t *testing.T) {
+	// Each row's class, as it is with the features this version leaves off turned on (dormant.go): off, they're
+	// unknown to everyone (dormant_test.go).
+	turnOn(t, &photoOn, &spendAsksOn, &peersOn)
 	d, phoneKey := probeDeck(t)
 	// FR1 moved 7; the talk bubble adds GET /talk, GET /talk/asking, POST /talk/say and POST /talk/pick (1.26), and
 	// the dictation service (FD1) POST /talk/listen, and the pull request badge's click POST /desk/pr/open (R2);
 	// floors from other Macs, GET /peer/hello (M1); FS2 adds GET /grants and POST /grants/answer; the TV's preview
 	// GET and POST /desk/preview (V1); PH1 POST /photo and POST /talk/photo; PUSH1 GET and POST /push, POST /push/off;
-	// another Mac's feed, GET /peer/events (FL1); OLD-TAP1 POST /grants/setup.
-	if len(phoneRouteTable) != 26 {
-		t.Errorf("%d rows; want 26", len(phoneRouteTable))
+	// another Mac's feed, GET /peer/events (FL1); OLD-TAP1 POST /grants/setup; FXMEMKEEP GET /memory/waiting.
+	if len(phoneRouteTable) != 27 {
+		t.Errorf("%d rows; want 27", len(phoneRouteTable))
 	}
 	for key, row := range phoneRouteTable {
 		if !slices.ContainsFunc(everyPhoneRoute, func(route [2]string) bool {
@@ -370,6 +404,9 @@ func TestEachRowLetsInItsClassOnly(t *testing.T) {
 // one of the three, as Windows was until OLD-SERVE2), the same callers are refused as 1.25 refused them, on every
 // route but the open icons, even with Tailscale's own process at the other end.
 func TestTheServeHandOnStaysTheMacsUntilSN1(t *testing.T) {
+	// Each row's class, as it is with the features this version leaves off turned on (dormant.go): off, they're
+	// unknown to everyone (dormant_test.go).
+	turnOn(t, &photoOn, &spendAsksOn, &peersOn)
 	if serveHandOnHere() != slices.Contains([]string{"darwin", "linux", "windows"}, runtime.GOOS) {
 		t.Fatalf("the hand-on is let in = %v on %s: it is a Mac's, Linux's and Windows' only", serveHandOnHere(), runtime.GOOS)
 	}
@@ -522,20 +559,20 @@ POST /peek: 401 403 404 404 403 404 403 403 404 403 403 403 403 403 403 403 403 
 POST /choose?option=other: 401 400 400 400 403 400 403 403 400 403 403 400 403 403 403 400 403 403 401 400 403; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows, spoof-proto-wifi, phone-here, window-device
 GET /choice: 401 403 404 404 403 404 403 403 404 403 403 403 403 403 403 403 403 403 401 403 403; let in: phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows
 GET /approvals: 401 403 200 200 403 200 403 403 200 403 403 403 403 403 403 403 403 403 401 403 403; let in: phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows
-GET /conversation: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 403 403; let in: window
-GET /session/info: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 403 403; let in: window
-GET /desk/git: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 403 403; let in: window
-GET /desk/preview: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 403 403; let in: window
-POST /desk/preview: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 403 403; let in: window
+GET /conversation: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 404 403; let in: window, window-device
+GET /session/info: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 404 403; let in: window, window-device
+GET /desk/git: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 404 403; let in: window, window-device
+GET /desk/preview: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 404 403; let in: window, window-device
+POST /desk/preview: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 404 403; let in: window, window-device
 POST /summary: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 401 403 403; let in: nobody
-POST /desk/pr/open: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 403 403; let in: window
-GET /talk: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 403 403; let in: window
-GET /talk/asking: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 200 403 401 403 403; let in: window
-POST /talk/say: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 400 403 401 403 403; let in: window
-POST /talk/pick: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 400 403 401 403 403; let in: window
-POST /talk/listen: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 400 403 401 403 403; let in: window
+POST /desk/pr/open: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 404 403; let in: window, window-device
+GET /talk: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 404 403; let in: window, window-device
+GET /talk/asking: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 200 403 401 200 403; let in: window, window-device
+POST /talk/say: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 400 403 401 400 403; let in: window, window-device
+POST /talk/pick: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 400 403 401 400 403; let in: window, window-device
+POST /talk/listen: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 400 403 401 400 403; let in: window, window-device
 POST /photo: 401 403 404 404 403 404 403 403 404 403 403 403 403 403 403 403 403 403 401 403 403; let in: phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows
-POST /talk/photo: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 403 403; let in: window
+POST /talk/photo: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 404 403 401 404 403; let in: window, window-device
 GET /dictate: 401 404 404 404 403 404 403 403 404 403 403 404 403 403 403 404 404 403 401 404 403; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows, spoof-proto-wifi, phone-here, window, window-device
 GET /peek: 401 404 404 404 403 404 403 403 404 403 403 404 403 403 403 404 404 403 401 404 403; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows, spoof-proto-wifi, phone-here, window, window-device
 POST /choice: 401 404 404 404 403 404 403 403 404 403 403 404 403 403 403 404 404 403 401 404 403; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows, spoof-proto-wifi, phone-here, window, window-device
@@ -568,6 +605,8 @@ GET /peer/events: 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 40
 POST /peer/events: 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404 404; let in: stranger, phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-mac-text-off, phone-serve-linux, phone-serve-linux-text-off, phone-serve-linux-proto, phone-serve-windows, phone-serve-windows-text-off, phone-serve-windows-proto, spoof-proto-wifi, spoof-tsnet-wifi, spoof-tsnet-wireguard, phone-proxied-localhost-other, phone-here, window, window-proxied, window-key-on-wifi, window-device, window-device-proxied
 POST /grants/setup: 401 403 400 400 403 400 403 403 400 403 403 403 403 403 403 403 403 403 401 403 403; let in: phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows
 GET /grants/setup: 401 404 404 404 403 404 403 403 404 403 403 404 403 403 403 404 404 403 401 404 403; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows, spoof-proto-wifi, phone-here, window, window-device
+GET /memory/waiting: 401 403 403 403 403 403 403 403 403 403 403 403 403 403 403 403 200 403 401 200 403; let in: window, window-device
+POST /memory/waiting: 401 404 404 404 403 404 403 403 404 403 403 404 403 403 403 404 404 403 401 404 403; let in: phone-wifi, phone-wireguard, phone-serve-mac, phone-serve-linux, phone-serve-windows, spoof-proto-wifi, phone-here, window, window-device
 `
 
 // MARK: The switch's route set (FR1's review, N1)

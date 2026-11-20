@@ -643,6 +643,7 @@ type standInOffice struct {
 	noDemo    bool              // a Smolcorp that doesn't serve the demo's page (404)
 	onWait    func()            // runs at each look for the GM before it's hired
 	told      map[string]string // the demo folders registered, with their roles, as the app keeps them
+	window    bool              // Smolcorp has a Settings window of its own here: the demo's page opens there
 }
 
 func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -674,7 +675,7 @@ func (s *standInOffice) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					open = append(open, name)
 				}
 			}
-			json.NewEncoder(w).Encode(map[string]any{"gmHired": false, "open": open})
+			json.NewEncoder(w).Encode(map[string]any{"gmHired": false, "open": open, "window": s.window})
 			return
 		}
 		if _, told := s.told[root]; !told {
@@ -775,11 +776,12 @@ func realDemoWith(t *testing.T, ctx context.Context, office *standInOffice, answ
 }
 
 func TestTheRealDemoAsksBeforeItSpendsAndHasYouHireTheGMOnItsPage(t *testing.T) {
-	// No OK: nothing made, nothing opened.
-	office := &standInOffice{state: strings.Replace(demoTestState, "%s", "false", 1)}
+	// No OK: nothing made, nothing opened. The question says where the page opens: Smolcorp's own Settings window
+	// where it has one (the Mac app, Windows with its window), else the browser.
+	office := &standInOffice{state: strings.Replace(demoTestState, "%s", "false", 1), window: true}
 	code, out, in := realDemo(t, office, "n\n")
 	if entries, _ := os.ReadDir(in); code != 1 || len(entries) != 0 || len(office.posts()) != 0 || !strings.Contains(out, "your default Claude account") ||
-		!strings.Contains(out, "Setup opens in your browser at\nthe demo: check it there, and click Hire") {
+		!strings.Contains(out, "Smolcorp's Settings window\nopens at the demo: check it there, and click Hire") || strings.Contains(out, "browser") {
 		t.Errorf("without an OK: %d %v %v\n%s", code, entries, office.calls, out)
 	}
 
@@ -1071,5 +1073,33 @@ func TestTheSampleHasNoPrivateNames(t *testing.T) {
 	}
 	if license, _ := demoSample.ReadFile("demosample/LICENSE"); !strings.HasPrefix(string(license), "MIT License") {
 		t.Error("the sample isn't MIT")
+	}
+}
+
+// RT126SWEEP3FIXP2: the demo's fence blocks the call when it fails (times out, is killed, crashes), as the hire's
+// and the GM's guard hooks do (smolcorpHook): onFailure "block", beside its 10 seconds.
+func TestTheDemosFenceBlocksWhenItFails(t *testing.T) {
+	data, err := demoSettings(t.TempDir(), []string{"reviewer", "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings struct {
+		Hooks map[string][]struct {
+			Matcher string           `json:"matcher"`
+			Hooks   []map[string]any `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatal(err)
+	}
+	pre := settings.Hooks["PreToolUse"]
+	if len(settings.Hooks) != 1 || len(pre) != 1 || pre[0].Matcher != "*" || len(pre[0].Hooks) != 1 {
+		t.Fatalf("the demo's hooks: %s", data)
+	}
+	hook := pre[0].Hooks[0]
+	command, _ := hook["command"].(string)
+	if hook["onFailure"] != "block" || hook["timeout"] != float64(10) || hook["type"] != "command" ||
+		!strings.Contains(command, " demo fence --root ") {
+		t.Errorf("the demo's fence: %v", hook)
 	}
 }

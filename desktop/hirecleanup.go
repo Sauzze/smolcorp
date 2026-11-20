@@ -116,9 +116,11 @@ func openHireViewer(hire Hire, terminal hireOpener) error {
 	if alive, _ := server.alive(); !alive {
 		return errUnsupported
 	}
-	folder := hire.Worktree
-	if folder == "" {
-		folder = hire.Folder
+	// Its window opens where it works only while that still resolves to itself (checkedPlace, FXCOREWORKTREES126): your
+	// shell, and a prompt that runs git, never start where a link put there since leads (FXGMHIRENOGIT126R8's found 3).
+	folder, err := hire.checkedPlace()
+	if err != nil {
+		return err
 	}
 	window, err := showWindow(terminal, folder, attachLine(commandLineProgram(), hire.ID))
 	recordHireWindow(hire.ID, window)

@@ -68,6 +68,10 @@ type Access struct {
 	// windowDeviceKey is the key of the Windows office window's own paired
 	// device (window.go's ensureWindowKey): in memory only, new at each start.
 	windowDeviceKey string
+	// windowSetupTokens are the tokens Smolcorp's own Settings window off the
+	// Mac is handed in this process (settingswindow.go), each good once for a
+	// window session: never in a link.
+	windowSetupTokens map[string]time.Time
 	// BrowserKey is the key the office in a browser on this computer reads
 	// the office with: the tray's Show Office carries a token of officeTokens,
 	// which the deck swaps for it. It reads the office as the window does, but

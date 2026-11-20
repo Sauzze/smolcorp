@@ -41,10 +41,10 @@ const ownWindowKept = "Its window wasn't closed, so it may still be at work in i
 // ownWindowTab is the tab of h's session: the one session working in its worktree, else "". Only the office's fire,
 // where the owner points at the tab, goes by it.
 func (d *Deck) ownWindowTab(h Hire) (tab string, agent Agent) {
-	if h.Worktree == "" {
+	if h.Worktree.none() {
 		return "", ""
 	}
-	tree := physical(h.Worktree)
+	tree := physical(h.Worktree.storedOnly()) // compared with the sessions' folders only
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	var found *Session
@@ -91,7 +91,8 @@ func (d *Deck) fireOwnWindowHire(h Hire, tab string, agent Agent, force, keep bo
 	o.Worktrees = d.worktreesFolder(o.Worktrees)
 	d.mu.Unlock()
 	o = o.withDefaults()
-	if h.Worktree != "" && !force {
+	hasTree := !h.Worktree.none()
+	if hasTree && !force {
 		if message := uncommittedRefusal(h, o.Git); message != "" {
 			return refuse(http.StatusConflict, message)
 		}
@@ -140,29 +141,29 @@ func (d *Deck) fireOwnWindowHire(h Hire, tab string, agent Agent, force, keep bo
 	if !closed {
 		// It may still be at work in a window nobody closed: its worktree stays, whatever was asked.
 		note = ownWindowNotClosed(h)
-		if h.Worktree != "" && !keep {
+		if hasTree && !keep {
 			kept = ownWindowKept
 		}
 		keep = true
 	}
 	// The repo's stored objects are hashed again before the merged look (firefsck.go).
 	storeKept := ""
-	if h.Worktree != "" && !keep {
+	if hasTree && !keep {
 		if _, _, own := hiresOwnWorktree(o.Git, o.Worktrees, h); own {
 			storeKept = fireStoreKept(h, o.StoreLook)
 		}
 	}
-	removed := storeKept == "" && h.Worktree != "" && !keep && removeOwnWorktree(o.Git, o.Worktrees, h)
-	writeRecap(h, "", removed, o.Now())
+	removed := storeKept == "" && hasTree && !keep && removeOwnWorktree(o.Git, o.Worktrees, h)
+	writeRecapMoved(h, "", removed, hasTree && !removed && hireTreeMoved(h), o.Now())
 	switch {
 	case note != "":
 		markFired(h.ID, note)
 	case storeKept != "":
 		markFired(h.ID, storeKept)
 		kept = storeKept
-	case h.Worktree != "" && !removed && !keep:
+	case hasTree && !removed && !keep:
 		kept = firedKept(o.Git, h)
-		markFired(h.ID, firedKeptNote(h.Worktree, kept))
+		markFired(h.ID, firedKeptNote(h.Worktree.storedOnly(), kept))
 	default:
 		markFired(h.ID, "")
 	}

@@ -61,7 +61,7 @@ func TestAScopedGMsHireInAProjectWithRelativePathsIsMadeAndHeld(t *testing.T) {
 	var tree string
 	for _, h := range registered(t) {
 		if h.Role != gmRole {
-			tree = h.Worktree
+			tree = h.Worktree.storedOnly()
 		}
 	}
 	if tree == "" || !(gmScope{root: project, git: scopeGit}).holds(tree) {

@@ -170,6 +170,11 @@ type escapeDesk struct {
 	pl                                                                Places
 	checks                                                            Checks
 	port                                                              int
+	// noTerminal has work start its program in a session of its own, with no controlling terminal, as Claude Code's
+	// Bash tool starts a desk's shell (FXZSHROW126). An interactive shell whose stdin isn't a terminal reads its
+	// commands from /dev/tty when it has one: under a runner with a terminal of its own, a desk's `zsh -i` would wait
+	// there instead of reading /dev/null and ending. With no terminal, a row runs the same on any runner.
+	noTerminal bool
 }
 
 func newEscapeDesk(t *testing.T) *escapeDesk {
@@ -680,8 +685,9 @@ func TestOnAMacAHireInALinkedWorktreeCantChangeWhatTheOwnersGitRuns(t *testing.T
 	mustWrite(t, filepath.Join(d.checkout, "README"), "the owner's checkout")
 	outside(d.checkout, "add", "README")
 	outside(d.checkout, "commit", "-q", "-m", "first")
-	outside(d.checkout, "worktree", "add", "-q", "-b", "h1", d.root)
-	outside(d.checkout, "worktree", "add", "-q", "-b", "h2", filepath.Join(d.home, "app-hires", "h2"))
+	// Its branch is hire/h1/…, the only one a desk writes since FXGITROWS2R4 (this row's stand-in moved in FXGITROWS2R5).
+	outside(d.checkout, "worktree", "add", "-q", "-b", "hire/h1/work", d.root)
+	outside(d.checkout, "worktree", "add", "-q", "-b", "hire/h2/work", filepath.Join(d.home, "app-hires", "h2"))
 	mustWrite(t, filepath.Join(d.root, ".claude", "settings.json"), "{}")
 	d.prepare(t)
 	configBefore := outside(d.checkout, "config", "--local", "--list")
@@ -717,7 +723,7 @@ func TestOnAMacAHireInALinkedWorktreeCantChangeWhatTheOwnersGitRuns(t *testing.T
 	if got := outside(d.checkout, "rev-parse", "main"); got != mainBefore {
 		t.Errorf("main moved: %s, was %s", got, mainBefore)
 	}
-	if got := outside(d.checkout, "log", "-1", "--format=%s", "h1"); got != "the hire's work\n" {
+	if got := outside(d.checkout, "log", "-1", "--format=%s", "hire/h1/work"); got != "the hire's work\n" {
 		t.Errorf("the hire's branch: %q", got)
 	}
 	if entries, _ := os.ReadDir(filepath.Join(d.git, "hooks")); slices.ContainsFunc(entries, func(e os.DirEntry) bool {

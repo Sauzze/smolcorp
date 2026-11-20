@@ -199,6 +199,10 @@ func (d *Deck) decideRoute(a actor, r routeAsk) verdict {
 	if r.path != "/setup" && !routeAllows(a.routeCaller(), r.method, r.path) {
 		return refuse(http.StatusForbidden, routeRefusal(r.method, r.path))
 	}
+	// A feature this version leaves off (dormant.go): unknown to every caller the table lets in.
+	if dormantRoute(r.path) {
+		return refuse(http.StatusNotFound, notInThisVersion)
+	}
 	// The night shift's jobs are the owner's, and proposed by the GM itself (answer 9): an MCP key or a night job,
 	// held as the GM elsewhere, can't list, propose or change one.
 	if isNightRoute(r.path) && (a.kind() == "mcp" || a.kind() == "night") {
@@ -208,6 +212,11 @@ func (d *Deck) decideRoute(a actor, r routeAsk) verdict {
 	// GM elsewhere, can't read it or propose to it (PL126M, MEM4).
 	if isMemoryRoute(r.path) && (a.kind() == "mcp" || a.kind() == "night") {
 		return refuse(http.StatusForbidden, memoryRouteRefusal)
+	}
+	// A new project folder is the GM's own ask (gmproject.go): an MCP key or a night job, held as the GM elsewhere,
+	// makes none.
+	if r.path == gmProjectPath && (a.kind() == "mcp" || a.kind() == "night") {
+		return refuse(http.StatusForbidden, gmProjectRefusal)
 	}
 	d.mu.Lock()
 	managerOn := d.config.ManagerEnabled
@@ -270,7 +279,8 @@ func decideShell(a actor, s shellAsk) verdict {
 	}
 	groups = guard.At(groups, guard.PlaceOf(s.cwd))
 	if r := guard.Check(s.line, groups); r != nil {
-		if r.Group != guard.SpendGroup {
+		// While spend asks are off (dormant.go), a spend line is refused as the hook refuses it.
+		if r.Group != guard.SpendGroup || !spendAsksOn {
 			return refuse(0, r.Error())
 		}
 		// Spend's real gate is the owner's OK (Q10), when nothing else in the line is refused: a grant is for that

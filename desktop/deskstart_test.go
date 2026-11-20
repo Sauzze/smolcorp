@@ -113,10 +113,104 @@ func noLoginShell(t *testing.T) {
 	})
 }
 
+// RT126SWEEP3 F3: any desk can read another's ticket from its pane's command line. Given by a process that isn't
+// the one tmux started for it, the ticket is refused and kept: the desk's own start still works afterwards, so
+// another desk that tries it first can't stop that desk from starting. Both before tmux has said its pane's pid
+// (the try waits for it) and after.
+func TestATicketGivenByAnotherProcessIsRefusedAndTheDesksOwnStartStillWorks(t *testing.T) {
+	shortSupport(t)
+	noLoginShell(t)
+	standInDeskProgram(t, "/opt/stand-in/claude")
+	standInPeer(t)
+	me, other := os.Getpid(), os.Getppid()
+	plan := deskPlan{Agent: "claude", Words: []string{"go"}}
+	for _, early := range []bool{false, true} {
+		hireID := "f3-after"
+		if early {
+			hireID = "f3-early"
+		}
+		pane := me
+		command, err := deskStarts.issue(standInHelper, hireID, paneTmux(&pane), plan, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ticket := command[4]
+		var stolen deskLaunch
+		if early {
+			// The other process asks while tmux hasn't said the pane's pid yet.
+			done := make(chan deskLaunch, 1)
+			go func() { done <- deskStarts.redeem(ticket, other) }()
+			time.Sleep(50 * time.Millisecond)
+			deskStarts.pin(hireID, me)
+			stolen = <-done
+		} else {
+			deskStarts.pin(hireID, me)
+			stolen = deskStarts.redeem(ticket, other)
+		}
+		if stolen.Error != deskTicketNotTheWindow || stolen.Program != "" || len(stolen.Env) != 0 {
+			t.Errorf("%s: another process's try: %+v", hireID, stolen)
+		}
+		if _, kept := issuedPlan(hireID); !kept {
+			t.Errorf("%s: another process's try spent the ticket", hireID)
+		}
+		// The desk's own process, the one tmux started: its whole start, once.
+		launch, err := takeDeskStart(command[2:])
+		if err != nil || launch.Error != "" || launch.Program != "/opt/stand-in/claude" || !slices.Equal(launch.Args, plan.Words) {
+			t.Errorf("%s: the desk's own start after another's try: %+v %v", hireID, launch, err)
+		}
+		if again, _ := takeDeskStart(command[2:]); again.Error != deskTicketUnknown {
+			t.Errorf("%s: taken twice: %+v", hireID, again)
+		}
+		if why := deskStarts.forget(hireID); why != "" {
+			t.Errorf("%s: a desk that started is told %q", hireID, why)
+		}
+	}
+}
+
+// RT126SWEEP3FIXP2 O2: another process's try that waited on the ticket, and ends once the desk has a new ticket in
+// its place, tells the desk's watch nothing: the watch is the new ticket's, and whatever stops that one is what it
+// says. (The try waits for tmux to say the pane's pid, deskPinWait, and the old ticket's never is.)
+func TestAnOldTicketsTryTellsTheNewTicketsWatchNothing(t *testing.T) {
+	shortSupport(t)
+	noLoginShell(t)
+	standInDeskProgram(t, "/opt/stand-in/claude")
+	standInPeer(t)
+	me, other := os.Getpid(), os.Getppid()
+	plan := deskPlan{Agent: "claude", Words: []string{"go"}}
+	pane := me
+	old, err := deskStarts.issue(standInHelper, "o2-again", paneTmux(&pane), plan, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan deskLaunch, 1)
+	go func() { done <- deskStarts.redeem(old[4], other) }()
+	time.Sleep(200 * time.Millisecond) // the try has the ticket, and waits for its pid
+	command, err := deskStarts.issue(standInHelper, "o2-again", paneTmux(&pane), plan, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stolen := <-done
+	if stolen.Error != deskTicketNotTheWindow || stolen.Program != "" {
+		t.Fatalf("the old ticket's try: %+v", stolen) // it had the ticket before the new one took its place
+	}
+	deskStarts.mu.Lock()
+	why := deskStarts.refused["o2-again"]
+	deskStarts.mu.Unlock()
+	if why != "" {
+		t.Errorf("the new ticket's watch is told %q", why)
+	}
+	// The new ticket still opens for its own process.
+	deskStarts.pin("o2-again", me)
+	if launch, err := takeDeskStart(command[2:]); err != nil || launch.Error != "" || launch.Program != "/opt/stand-in/claude" {
+		t.Errorf("the new ticket: %+v %v", launch, err)
+	}
+	deskStarts.forget("o2-again")
+}
+
 // SG2: a desk's start ticket opens its start only for the process that is its pane's own. Given by any other
-// process (one that read it from ps), it's refused and spent, so the pane's own try afterwards is refused too,
-// and the desk's watch says why. A ticket taken late, or one that isn't Smolcorp's, opens nothing.
-func TestATicketRedeemedByAnotherPidIsRefusedAndSpent(t *testing.T) {
+// process (one that read it from ps), it's refused (RT126SWEEP3 F3: and kept, the row above), and the desk's
+// watch says why if it never starts. A ticket taken late, or one that isn't Smolcorp's, opens nothing.
+func TestATicketRedeemedByAnotherPidIsRefused(t *testing.T) {
 	shortSupport(t)
 	noLoginShell(t)
 	standInDeskProgram(t, "/opt/stand-in/claude")
@@ -133,19 +227,16 @@ func TestATicketRedeemedByAnotherPidIsRefusedAndSpent(t *testing.T) {
 	}
 	// This test's process isn't the pane's: refused, over the real socket, by its pid.
 	launch, err := takeDeskStart(command[2:])
-	if err != nil || launch.Error != deskTicketNotPane || launch.Program != "" || len(launch.Env) != 0 {
+	if err != nil || launch.Error != deskTicketNotTheWindow || launch.Program != "" || len(launch.Env) != 0 {
 		t.Fatalf("another pid: %+v %v", launch, err)
 	}
-	// Spent: the pane itself can't use it now.
-	pane = os.Getpid()
-	if launch, _ := takeDeskStart(command[2:]); launch.Error != deskTicketUnknown {
-		t.Fatalf("a spent ticket: %+v", launch)
-	}
-	if why := deskStarts.forget("sg2-other"); why != deskTicketNotPane {
+	// The desk never started: its watch says why.
+	if why := deskStarts.forget("sg2-other"); why != deskTicketNotTheWindow {
 		t.Errorf("the watch is told %q", why)
 	}
 
 	// The pane's own process, with a new ticket: its whole start, once.
+	pane = os.Getpid()
 	command, _ = deskStarts.issue(standInHelper, "sg2-own", paneTmux(&pane), plan, nil)
 	deskStarts.pin("sg2-own", pane)
 	launch, err = takeDeskStart(command[2:])
@@ -179,7 +270,9 @@ func TestATicketOpensOnlyForTheProcessTmuxStartedForIt(t *testing.T) {
 	standInDeskProgram(t, "/opt/stand-in/claude")
 	standInPeer(t)
 	plan := deskPlan{Agent: "claude", Words: []string{"go"}}
-	try := func(hireID string, started, pane int, cli string) deskLaunch {
+	// try gives a ticket from this process; spent is whether that try spends it (RT126SWEEP3 F3: only the process
+	// tmux started for it does, or a ticket tmux said no process for).
+	try := func(hireID string, started, pane int, cli string, spent bool) deskLaunch {
 		t.Helper()
 		command, err := deskStarts.issue(cli, hireID, paneTmux(&pane), plan, nil)
 		if err != nil {
@@ -190,28 +283,38 @@ func TestATicketOpensOnlyForTheProcessTmuxStartedForIt(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if again, _ := takeDeskStart(command[2:]); again.Error != deskTicketUnknown {
+		if _, kept := issuedPlan(hireID); kept == spent {
+			t.Errorf("%s: spent %v, want %v", hireID, !kept, spent)
+		}
+		again, _ := takeDeskStart(command[2:])
+		if spent && again.Error != deskTicketUnknown {
 			t.Errorf("%s: not spent: %+v", hireID, again)
+		}
+		// A kept ticket, tried again by the same process: refused again, and still nothing started
+		// (RT126SWEEP3FIXP2 O4).
+		if !spent && (again.Error != deskTicketNotTheWindow || again.Program != "") {
+			t.Errorf("%s: tried again: %+v", hireID, again)
 		}
 		return launch
 	}
 	me, helper := os.Getpid(), os.Getpid()+1
 	// The helper tmux started was swapped out (respawned): the process the pane runs now is this one, and it gives
-	// the ticket it read. It's the pane's own, but not the one the ticket is for.
-	if got := try("sg2-swapped-in", helper, me, standInHelper); got.Error != deskTicketNotPane || got.Program != "" {
+	// the ticket it read. It's the pane's own, but not the one the ticket is for: refused, and kept for that one.
+	if got := try("sg2-swapped-in", helper, me, standInHelper, false); got.Error != deskTicketNotTheWindow || got.Program != "" {
 		t.Errorf("a process that became the pane: %+v", got)
 	}
+	deskStarts.forget("sg2-swapped-in")
 	// The process the ticket is for, after the pane was given to another.
-	if got := try("sg2-swapped-out", me, helper, standInHelper); got.Error != deskTicketNotPane || got.Program != "" {
+	if got := try("sg2-swapped-out", me, helper, standInHelper, true); got.Error != deskTicketNotPane || got.Program != "" {
 		t.Errorf("a pane that runs another process now: %+v", got)
 	}
 	// tmux said no pid it could have started.
-	if got := try("sg2-no-pid", 0, me, standInHelper); got.Error != deskTicketNotPane {
+	if got := try("sg2-no-pid", 0, me, standInHelper, true); got.Error != deskTicketNotPane {
 		t.Errorf("no pid: %+v", got)
 	}
 	// The right process, in the pane, running a program that isn't Smolcorp's own (the system's check, below).
 	deskPeerRuns = peerRunsProgram
-	if got := try("sg2-not-ours", me, me, "/bin/sh"); got.Error != deskTicketNotOurs || got.Program != "" {
+	if got := try("sg2-not-ours", me, me, "/bin/sh", true); got.Error != deskTicketNotOurs || got.Program != "" {
 		t.Errorf("a program not Smolcorp's: %+v", got)
 	}
 	if why := deskStarts.forget("sg2-not-ours"); why != deskTicketNotOurs {

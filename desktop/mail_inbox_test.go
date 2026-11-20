@@ -84,7 +84,7 @@ func inboxHire(t *testing.T, on bool, version, socket string) (*Deck, Hire) {
 	t.Helper()
 	d := newTestDeck(t)
 	folder := t.TempDir()
-	h := Hire{ID: "rex-1234", Name: "Janitor", Nickname: "Rex", Folder: folder, State: "working"}
+	h := Hire{ID: "rex-1234", Name: "Janitor", Nickname: "Rex", Folder: keptPath(folder), State: "working"}
 	writeRegistry(t, h)
 	d.mu.Lock()
 	d.config.MailInboxSocket = on
@@ -147,13 +147,13 @@ func TestTheInboxIsNeverASessionInTheHiresFolderButNotItsWorktreeNorTheGMs(t *te
 	t.Run("worktree", func(t *testing.T) {
 		path, got := inboxSocket(t)
 		d, h := inboxHire(t, true, "2.1.309", path)
-		h.Worktree = t.TempDir()
+		h.Worktree = keptPath(t.TempDir())
 		writeRegistry(t, h)
 		if result := d.mailTypeIntoHire(h, "hello", func() bool { t.Error("counted a try"); return true }); result.Outcome != mailCannot || result.Note != cannot {
 			t.Fatalf("the owner's session in the hire's folder was taken for its own: %+v", result)
 		}
 		d.sessions.Apply(map[string]any{"hook_event_name": "SessionEnd", "session_id": "s-rex"}, Claude, "tty:/dev/ttys009", "", nowMillis())
-		d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s-rex", "cwd": h.Worktree},
+		d.sessions.Apply(map[string]any{"hook_event_name": "SessionStart", "source": "startup", "session_id": "s-rex", "cwd": h.Worktree.storedOnly()},
 			Claude, "tty:/dev/ttys010", "", nowMillis()+1)
 		d.sessions.Get("s-rex").PID = os.Getpid()
 		if result := d.mailTypeIntoHire(h, "hello", func() bool { return true }); result.Outcome != mailSent {

@@ -341,6 +341,26 @@ func TestABranchTheGuardCantReadIsABaseBranch(t *testing.T) {
 	}
 }
 
+// Past 32 remotes the refusal says why, in its own words, not the guard's general "can't tell" (RT126FIXREVIEW-
+// GITROWS2R1's O3). A line that runs elsewhere (cd, -C) still gets those: the place read isn't where it lands.
+func TestPast32RemotesTheGuardSaysSo(t *testing.T) {
+	var remotes []string
+	for i := range 33 {
+		remotes = append(remotes, "refs/remotes/r"+strings.Repeat("x", i)+"/HEAD", "ref: refs/remotes/r/trunk\n")
+	}
+	many := testRepo(t, "feature", "", remotes...)
+	for _, line := range []string{"git merge x", "git rebase x", "git merge --ff-only x", "git -C . merge x"} {
+		if got := mergeRefusal(line, many, false); !strings.HasPrefix(got, MergeGroup+": This repository has more than 32 remotes") {
+			t.Errorf("%q: %q", line, got)
+		}
+	}
+	for _, line := range []string{"git -C ../other merge x", "cd . && git merge x"} {
+		if got := mergeRefusal(line, many, false); got != MergeGroup+": "+cantTellBranch {
+			t.Errorf("%q: %q, want the general words", line, got)
+		}
+	}
+}
+
 // The hook reads the call's folder (Claude Code's cwd), and a desk whose environment names another git folder
 // can't be placed.
 func TestTheHookPlacesTheCallInItsFolder(t *testing.T) {

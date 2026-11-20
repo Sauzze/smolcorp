@@ -29,8 +29,8 @@ import (
 //     MEM6). A fact about the work
 //     (project) or where to find something (reference) may instead say what the GM saw (seen);
 //   - the GM withdraws a note still waiting, never a kept one. No route here keeps a note, changes one or takes a
-//     kept one away: that is the owner's tap and Setup's (MEM5, MEM6), and memoryRouteRows' catch-all keeps every
-//     other path under /setup/gm/memory/ the page's alone;
+//     kept one away: that is the owner's, in Setup (memoryowner.go, FXMEMKEEP), and the route table's catch-all keeps
+//     every other path under /setup/gm/memory/ the page's alone;
 //   - the route table's columns are the GM's and the page's. A hire, a tool, an MCP key and a night job are refused
 //     (routes.go, gates.go's memoryRouteRefusal), and no gate reads memory (TestNoGateReachesMemory).
 
@@ -134,6 +134,8 @@ func (d *Deck) memoryRoute(w http.ResponseWriter, r *request) bool {
 		writeAnswer(w)(d.proposeMemory(p, time.Now()))
 	case r.Method == http.MethodPost && path == "/setup/gm/memory/withdraw":
 		writeAnswer(w)(d.withdrawMemory(r.URL.Query().Get("id")))
+	// The owner's routes (memoryowner.go): the page's alone, which the route table has already said.
+	case d.memoryOwnerRoute(w, r):
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -230,7 +232,7 @@ func (d *Deck) proposeMemory(p memoryProposal, now time.Time) (int, any) {
 		return http.StatusInternalServerError, "The note couldn't be written: " + err.Error()
 	}
 	answer := map[string]any{"id": note.ID, "name": note.Name, "state": note.State, "from": note.Source.Tag,
-		"said": "It waits for the owner's tap, in Setup or on the phone. Until then it isn't memory."}
+		"said": "It waits for the owner's tap, in Setup. Until then it isn't memory."}
 	if _, hold := memoryRefusal(entry, source.Quote); hold.Kind != "" {
 		answer["held"] = hold.English
 	}

@@ -74,6 +74,7 @@ var officeWindow struct {
 // windowRun is everything a window needs, so a test can open one on a server of
 // its own, without the app's files.
 type windowRun struct {
+	title    string // "Smolcorp" when empty: the office's; settingswindow_windows.go's says Settings
 	url      string // the office's page, never its key (window.go's officeAddress)
 	script   string // gives that page the window's key, in this process (windowKeyScript)
 	fallback string // the office as the browser opens it: no key on a command line
@@ -82,7 +83,8 @@ type windowRun struct {
 	icon     []byte // PNG
 	dataDir  string // where WebView2 keeps the page's storage
 	save     func(WindowState)
-	created  func(hwnd uintptr)
+	created  func(hwnd uintptr, view webview2.WebView)
+	missing  func(why string) // no window after all: missingWebView2's office words when nil
 }
 
 // openOffice is the tray's Show Office: the window, or the one that is
@@ -153,7 +155,7 @@ func (d *Deck) windowRun() windowRun {
 			d.config.save()
 			d.mu.Unlock()
 		},
-		created: func(hwnd uintptr) {
+		created: func(hwnd uintptr, _ webview2.WebView) {
 			officeWindow.mu.Lock()
 			officeWindow.hwnd = hwnd
 			officeWindow.mu.Unlock()
@@ -170,7 +172,7 @@ func runOfficeWindow(r windowRun) {
 	})
 	// Test hook: pretend WebView2 isn't installed, to see the fallback.
 	if os.Getenv("SMOLCORP_TEST_NO_WEBVIEW2") != "" || !webview2Installed() {
-		missingWebView2(r, "WebView2 est introuvable sur cet ordinateur.")
+		r.noWindow("WebView2 isn't installed on this computer.")
 		return
 	}
 
@@ -180,17 +182,21 @@ func runOfficeWindow(r windowRun) {
 		state = centred(defaultWindowWidth, defaultWindowHeight, screens[0])
 	}
 
+	title := r.title
+	if title == "" {
+		title = "Smolcorp"
+	}
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		DataPath:  r.dataDir,
 		AutoFocus: true,
 		WindowOptions: webview2.WindowOptions{
-			Title:  "Smolcorp",
+			Title:  title,
 			Width:  uint(state.Width),
 			Height: uint(state.Height),
 		},
 	})
 	if w == nil {
-		missingWebView2(r, "WebView2 didn't respond.")
+		r.noWindow("WebView2 didn't respond.")
 		return
 	}
 	hwnd := uintptr(w.Window())
@@ -208,7 +214,7 @@ func runOfficeWindow(r windowRun) {
 		_, _, _ = procShowWindow.Call(hwnd, swMaximize)
 	}
 	if r.created != nil {
-		r.created(hwnd)
+		r.created(hwnd, w)
 	}
 	// The key goes to the page in this process, never in its address, which the profile keeps (window.go).
 	// Added before the first page: if it didn't take, the page has no key and opens locked, never the other way.
@@ -254,6 +260,15 @@ func runOfficeWindow(r windowRun) {
 	if last != nil && r.save != nil {
 		r.save(*last)
 	}
+}
+
+// noWindow is what a run does with no window: its own missing, or the office's words.
+func (r windowRun) noWindow(why string) {
+	if r.missing != nil {
+		r.missing(why)
+		return
+	}
+	missingWebView2(r, why)
 }
 
 // missingWebView2 tells why there's no window, then opens the office in the

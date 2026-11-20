@@ -32,12 +32,12 @@ const deskLine = "[stand-in]\n\tdesk = 1\n"
 // .git file, and gives them.
 func keptHire(t *testing.T, h Hire) sandbox.Places {
 	t.Helper()
-	link, err := os.ReadFile(filepath.Join(h.Worktree, ".git"))
+	link, err := os.ReadFile(filepath.Join(h.Worktree.storedOnly(), ".git"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	reg := strings.TrimSpace(strings.TrimPrefix(string(link), "gitdir:"))
-	pl := sandbox.Places{GOOS: "linux", Home: homeDir, Support: supportDir, OwnID: h.ID, Root: h.Worktree,
+	pl := sandbox.Places{GOOS: "linux", Home: homeDir, Support: supportDir, OwnID: h.ID, Root: h.Worktree.storedOnly(),
 		GitDir: filepath.Dir(filepath.Dir(reg)), OwnWorktree: filepath.Base(reg)}
 	if err := sandbox.SaveKept(pl); err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestAFirePutsBackOnlyWhatTheDeskWasStoppedForBeforeGitAndTellsYou(t *testin
 	cw := configWorktree(pl)
 	writeKept(t, cw, deskLine)
 	deskStoppedByItsGuard(t, hire)
-	owners := filepath.Join(hire.Worktree, ".claude", "settings.local.json")
+	owners := filepath.Join(hire.Worktree.storedOnly(), ".claude", "settings.local.json")
 	writeKept(t, owners, `{"permissions":{"allow":["your own"]}}`+"\n")
 	r.o.KeepWorktree = true // its worktree stays, to show your edit in it is as you left it
 	gitSaw := fireRig(t, d, r, cw)
@@ -150,7 +150,7 @@ func TestAFirePutsBackOnlyWhatTheDeskWasStoppedForBeforeGitAndTellsYou(t *testin
 		t.Errorf("your own edit was put back: %q", got)
 	}
 	for _, want := range []string{cw, "seen at", `+ "[stand-in]"`, "set aside whole in " + `"` + aside + `"`,
-		filepath.Join(hire.Worktree, ".claude"), "left as it is", "Smolcorp checked what Rex may not change."} {
+		filepath.Join(hire.Worktree.storedOnly(), ".claude"), "left as it is", "Smolcorp checked what Rex may not change."} {
 		if !strings.Contains(said, want) {
 			t.Errorf("your card isn't told %q:\n%s", want, said)
 		}
@@ -347,7 +347,7 @@ func TestYourGcOrRepackNeverStopsATakeOverAHandBackOrAFire(t *testing.T) {
 // keptPlaces is keptHire, with made done to the places first.
 func keptPlaces(t *testing.T, h Hire, made func(sandbox.Places)) sandbox.Places {
 	t.Helper()
-	link, err := os.ReadFile(filepath.Join(h.Worktree, ".git"))
+	link, err := os.ReadFile(filepath.Join(h.Worktree.storedOnly(), ".git"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,8 +393,8 @@ func TestT3TakeOversRouteSaysWhatWasPutBack(t *testing.T) {
 	d.config.T3CodeEnabled = true
 	d.mu.Unlock()
 	t3Registered(t, k.hire)
-	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree,
-		"transcript_path": k.session.Transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree, nowMillis())
+	d.Ingest(map[string]any{"hook_event_name": "SessionStart", "session_id": t3TakeOverSession, "cwd": k.hire.Worktree.storedOnly(),
+		"transcript_path": k.session.Transcript}, "claude", "tmux:%1@"+k.hire.TmuxSocket, k.hire.Worktree.storedOnly(), nowMillis())
 	pl := keptHire(t, k.hire)
 	cw := configWorktree(pl)
 	writeKept(t, cw, deskLine)
@@ -416,14 +416,14 @@ func TestT3HandBackPutsBackOnlyWhatTheDeskWasStoppedForAndSaysWhatChangedInT3Cod
 	writeKept(t, cw, deskLine)
 	deskStoppedByItsGuard(t, k.hire)
 	h := k.takenOver()
-	yours := filepath.Join(k.hire.Worktree, ".claude", "commands", "yours.md")
+	yours := filepath.Join(k.hire.Worktree.storedOnly(), ".claude", "commands", "yours.md")
 	writeKept(t, yours, "Your own command.\n")
 	note, err := t3HandBack(h, k.ways())
 	if err != nil || !slices.Contains(k.log, "resume "+t3TakeOverSession) {
 		t.Fatalf("%q %v, log %q", note, err, k.log)
 	}
 	aside := setAsideAt(t, k.hire, cw)
-	for _, want := range []string{cw, "set aside whole in " + `"` + aside + `"`, filepath.Join(k.hire.Worktree, ".claude"), "commands/yours.md", "left as it is"} {
+	for _, want := range []string{cw, "set aside whole in " + `"` + aside + `"`, filepath.Join(k.hire.Worktree.storedOnly(), ".claude"), "commands/yours.md", "left as it is"} {
 		if aside == "" || !strings.Contains(note, want) {
 			t.Errorf("Hand back's note doesn't say %q:\n%s", want, note)
 		}
@@ -453,7 +453,7 @@ func TestAFireRefusedAfterItsFirstLookStillSaysWhatItPutBack(t *testing.T) {
 	cw := configWorktree(pl)
 	writeKept(t, cw, deskLine)
 	deskStoppedByItsGuard(t, hire)
-	writeKept(t, filepath.Join(hire.Worktree, "unsaved.txt"), "not committed yet\n")
+	writeKept(t, filepath.Join(hire.Worktree.storedOnly(), "unsaved.txt"), "not committed yet\n")
 	fireRig(t, d, r, cw)
 	status, said, _ := d.fireTab("tmux:%1@"+hire.TmuxSocket, false)
 	aside := setAsideAt(t, hire, cw)
@@ -752,7 +752,7 @@ func TestTakeOverPutsBackAStoppedForClaudeFolderBeforeItsListingHoldsIt(t *testi
 	freshClaudeHeld(t)
 	k := newT3TakeOverRig(t)
 	keptHire(t, k.hire)
-	plant := filepath.Join(k.hire.Worktree, ".claude", "hooks", "pre.sh")
+	plant := filepath.Join(k.hire.Worktree.storedOnly(), ".claude", "hooks", "pre.sh")
 	writeKept(t, plant, "#!/bin/sh\n# stand-in\n")
 	deskStoppedByItsGuard(t, k.hire)
 	thread, said, err := t3TakeOverSaid(k.hire, k.session, k.ways())
@@ -762,10 +762,10 @@ func TestTakeOverPutsBackAStoppedForClaudeFolderBeforeItsListingHoldsIt(t *testi
 	if _, err := os.Lstat(plant); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the desk's .claude wasn't put back: %v", err)
 	}
-	if why := claudeHeldRefusal(k.hire.Worktree); why != "" {
+	if why := claudeHeldRefusal(k.hire.Worktree.storedOnly()); why != "" {
 		t.Errorf("held for you: %s", why)
 	}
-	if !strings.Contains(said, filepath.Join(k.hire.Worktree, ".claude")) || !strings.Contains(said, "set aside whole in") {
+	if !strings.Contains(said, filepath.Join(k.hire.Worktree.storedOnly(), ".claude")) || !strings.Contains(said, "set aside whole in") {
 		t.Errorf("Take over doesn't say what it put back:\n%s", said)
 	}
 }

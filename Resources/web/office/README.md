@@ -61,7 +61,7 @@ The first three are at the top of the IIFE, the rest inside `drawOffice`.
 The first files here that are code, not data tables. Each is one `const` (an
 object of functions), built in exactly as a table is, and parses on its own
 (`node --check`). A feature that shows in the bubble or the Pixel Terminal
-(a diff, a preview, a photo, the mic) goes in a `talk/<name>.js` of its own,
+(a diff, a preview, the mic) goes in a `talk/<name>.js` of its own,
 included after `talk/terminal.js`, and registers itself as its const is made
 (`added: PIXEL_TERMINAL.addPanel(name, draw)` or `TALK_BUBBLE.addKey(name,
 key)`): see the comment at the top of `talk/terminal.js`.

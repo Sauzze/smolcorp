@@ -204,6 +204,22 @@ func TestNicknameBuildsTheRequest(t *testing.T) {
 	}
 }
 
+// RT126FIXREVIEW-GMNICKR1 O2: where a hire there keeps its own nickname from the registry, the app's note comes after
+// the usual line, so the GM reads where a hire is renamed; an answer with no note prints the line alone.
+func TestNicknameSaysWhatTheAppNotes(t *testing.T) {
+	const note = "Only the office's name for the desk changed: Rev keeps its own nickname from the registry."
+	var body string
+	app := placeApp(t, 200, `{"project":"/work/app","nickname":"Revvy","note":"`+note+`"}`, &body)
+	code, out, errOut := runGM(app.env(t, withToken()), "nickname", "Revvy", "--folder", "/work/app")
+	if want := "Named whoever works in " + workApp(t) + ": Revvy.\n" + note + "\n"; code != 0 || errOut != "" || out != want {
+		t.Errorf("exit %d %q %q\nwant %q", code, out, errOut, want)
+	}
+	app = placeApp(t, 200, `{"project":"/work/app","nickname":"Ada"}`, &body)
+	if _, out, _ := runGM(app.env(t, withToken()), "nickname", "Ada", "--folder", "/work/app"); out != "Named whoever works in "+workApp(t)+": Ada.\n" {
+		t.Errorf("no note: %q", out)
+	}
+}
+
 func TestNicknameDefaultsToTheCurrentFolder(t *testing.T) {
 	wd, _ := os.Getwd()
 	var body string

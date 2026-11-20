@@ -6,7 +6,7 @@ import CoreImage
 enum Permissions {
     static var hasAccessibility: Bool { AXIsProcessTrusted() }
 
-    /// Adds AgentDeck to the Accessibility list and opens it, so the switch is
+    /// Adds Smolcorp to the Accessibility list and opens it, so the switch is
     /// the only thing left to do.
     static func requestAccessibility() {
         let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
@@ -27,7 +27,7 @@ enum Scrolling {
     }
 }
 
-/// Opening AgentDeck at login, through a LaunchAgent that runs `open` on the
+/// Opening Smolcorp at login, through a LaunchAgent that runs `open` on the
 /// app — the same as launching it by hand, so it can still be quit normally.
 enum LoginItem {
     static let label = "io.github.sauzze.agentdeck"

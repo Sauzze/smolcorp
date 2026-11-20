@@ -83,6 +83,7 @@ func TestAMergeOntoABaseBranchIsRefusedForEveryoneButTheOwner(t *testing.T) {
 // Spend's real gate is the owner's OK: a line only the spend group refuses waits for the owner's tap, and the
 // grant is for that line, once. A line that is refused for something else as well is refused.
 func TestASpendLineAsksTheOwner(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	d := newTestDeck(t)
 	rules, line := guardFile(t), "stripe --live refunds create --charge ch_1"
 	for _, a := range []actor{actorHire, actorGM, mcpActor("k"), nightActor("j")} {

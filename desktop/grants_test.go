@@ -74,6 +74,7 @@ func askingGate(t *testing.T, amount string) {
 
 // An ask is written, with what, who, when and its expiry (12 h), and the verdict stays a no that says what waits.
 func TestAnAskIsWrittenWithWhatWhoWhenAndItsExpiry(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	v := g.settle(actorGM, askOwnerFor("merge feat/x into main", "0"))
 	if v.allowed() || v.kind != verdictAskOwner || v.status != http.StatusForbidden || !strings.Contains(v.why, "merge feat/x into main") {
@@ -97,6 +98,7 @@ func TestAnAskIsWrittenWithWhatWhoWhenAndItsExpiry(t *testing.T) {
 
 // Only a held actor asks: the owner's own page and an unknown caller leave no ask, so a stranger can't fill the file.
 func TestOnlyAHeldActorLeavesAnAsk(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	for _, a := range []actor{actorPage, actorTool, actorNobody, "mcp:", "night:", "gm:x", ""} {
 		if v := g.ask(a, "spend"); v.allowed() {
@@ -113,6 +115,7 @@ func TestOnlyAHeldActorLeavesAnAsk(t *testing.T) {
 
 // The owner's page, a paired phone and the window each grant, and each refuse.
 func TestTheOwnersEachChannelGrantsAndRefuses(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	for _, by := range []actor{actorPage, actorPhone, actorWindow} {
 		for _, yes := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s-%v", by, yes), func(t *testing.T) {
@@ -147,6 +150,7 @@ func TestTheOwnersEachChannelGrantsAndRefuses(t *testing.T) {
 
 // Nothing but the owner's tap answers: not the GM, an MCP key, a hire, a night job, a tool, nobody, nor a made-up channel.
 func TestNoOneButTheOwnerAnswers(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	g.ask(actorGM, "pay 5")
 	id := g.onlyAsk(t).ID
@@ -168,6 +172,7 @@ func TestNoOneButTheOwnerAnswers(t *testing.T) {
 
 // A grant covers exactly one ask: used once, then asked again; and it is only for the actor and the ask it was for.
 func TestOneGrantIsUsedOnce(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	g.ask(actorGM, "pay 5")
 	if _, err := g.answer(actorPage, g.onlyAsk(t).ID, true); err != nil {
@@ -206,6 +211,7 @@ func TestOneGrantIsUsedOnce(t *testing.T) {
 // A refusal is a no, told once; it stands for grantCoolDown, with no new ask for the owner (RT126FS2 nit 5); then
 // the next time asks again.
 func TestARefusalIsToldOnceAsANo(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	g.ask(actorHire, "git merge main")
 	if _, err := g.answer(actorPhone, g.onlyAsk(t).ID, false); err != nil {
@@ -239,6 +245,7 @@ func TestARefusalIsToldOnceAsANo(t *testing.T) {
 // RT126FS2 nit 1: each hire is an actor of its own: one hire's grant is never another's, and the owner sees which
 // hire asks.
 func TestEachHireAsksForItself(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	g.ask(hireActor("abc123"), "git merge main")
 	r := g.onlyAsk(t)
@@ -266,6 +273,7 @@ func TestEachHireAsksForItself(t *testing.T) {
 
 // Silence is a no: an ask nobody answers runs out at 12 h; a grant not used by then is no grant either.
 func TestAnExpiredAskIsANo(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	g.ask(actorGM, "pay 5")
 	id := g.onlyAsk(t).ID
@@ -325,6 +333,7 @@ func someRecord(g *grantRig, id, what string) grantRecord {
 // A line that is cut, unsigned, signed by another folder's key, edited to say granted, with a field it shouldn't
 // have, or an id twice is skipped with a word and never a grant; a good line beside them still reads.
 func TestATamperedOrMalformedLineIsSkippedNeverAGrant(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	g.ask(actorGM, "seed") // makes the key
 	open := signedLine(t, g, someRecord(g, "g0000000000000001", "pay 5"))
@@ -400,6 +409,7 @@ func TestATamperedOrMalformedLineIsSkippedNeverAGrant(t *testing.T) {
 
 // A file bigger than the cap is not read at all, and an ask that can't be written is a no.
 func TestAnOversizeFileIsNotRead(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	g.ask(actorGM, "seed")
 	big := signedLine(t, g, someRecord(g, "g0000000000000001", "pay 5"))
@@ -419,6 +429,7 @@ func TestAnOversizeFileIsNotRead(t *testing.T) {
 
 // The file is mode 0600, whole, with no temp file left, and nothing beside it: its key is in memory alone.
 func TestTheFileIsPrivateAndWhole(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	g.ask(actorGM, "pay 5")
 	g.ask(actorHire, "pay 6")
@@ -452,6 +463,7 @@ func TestTheFileIsPrivateAndWhole(t *testing.T) {
 // is skipped; and a restart (a new store, a new key) leaves every ask and grant from before it void, a no, with one
 // word, never one per line.
 func TestNoLineTheAskerWritesIsAGrantAndARestartVoidsAll(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	g.ask(actorGM, "pay 5")
 	r := g.onlyAsk(t)
@@ -493,6 +505,7 @@ func TestNoLineTheAskerWritesIsAGrantAndARestartVoidsAll(t *testing.T) {
 // RT126FS2 B1c: a copy of the file taken while a grant waits, put back once it is used, doesn't make it good twice;
 // nor does a copy from before a refusal was told make it new.
 func TestAnOldCopyOfTheFileRevivesNothing(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	g.ask(actorGM, "pay 5")
 	if _, err := g.answer(actorPage, g.onlyAsk(t).ID, true); err != nil {
@@ -532,6 +545,7 @@ func TestAnOldCopyOfTheFileRevivesNothing(t *testing.T) {
 // RT126FS2b nit 3: the cool-down is this run's own record of the no it told, so a copy of the file from before the
 // ask was made, put back, doesn't put the same ask to the owner again at once.
 func TestAnOldCopyDoesntCutTheCoolDownShort(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	g.ask(actorGM, "something else")
 	copied, _ := os.ReadFile(g.file)
@@ -568,6 +582,7 @@ func TestAnOldCopyDoesntCutTheCoolDownShort(t *testing.T) {
 
 // The file has a cap on its count: one actor's open asks, and all of them; finished asks make room, live ones never go.
 func TestTheFileIsCappedInCountAndPerActor(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	for i := 0; i < grantMaxOpenEach+5; i++ {
 		g.ask(actorGM, fmt.Sprintf("pay %d", i))
@@ -613,6 +628,7 @@ func TestTheFileIsCappedInCountAndPerActor(t *testing.T) {
 // RT126FS2 B3: an ask is shown whole or is no ask. Past its limits, or with a character that hides or moves text, it
 // is a plain no that says why, and nothing waits for the owner; up to the limit it is shown whole.
 func TestAnAskIsShownWholeOrIsNoAsk(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	long := strings.Repeat("x", grantWhatMost)
 	for name, c := range map[string]struct {
 		a            actor
@@ -716,6 +732,7 @@ func TestAnAskIsShownWholeOrIsNoAsk(t *testing.T) {
 // RT126FS2 B3: a grant covers no more than the list showed. What each list shows (by, what, amount) is all the ask is
 // keyed on, so the ask the grant is for is the one the owner read, and nothing else.
 func TestAGrantCoversNoMoreThanTheListShowed(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	what := strings.Repeat("merge feat/x into main; ", grantWhatMost/30) + "and nothing else"
 	g.settle(actorGM, askOwnerFor(what, "12 dollars"))
@@ -754,6 +771,7 @@ func TestAGrantCoversNoMoreThanTheListShowed(t *testing.T) {
 // RT126FS2 nit 4: the file holds grantMaxCount asks of the longest text, each answered, under grantMaxBytes; so an
 // answer never fails for room (and answerGrant would say so with a 507, never a 500).
 func TestAFullFileOfTheLongestAsksIsAnswered(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	worst := func(n int) string { return strings.Repeat(`"`, n) } // two bytes each in JSON, the most a showable letter takes
 	what, amount := worst(grantWhatMost), worst(grantAmountMost)
@@ -794,6 +812,7 @@ func TestAFullFileOfTheLongestAsksIsAnswered(t *testing.T) {
 
 // Many at once: one ask, one grant, one use.
 func TestManyAtOnceMakeOneAskAndUseOneGrant(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	const n = 40
 	run := func(f func(i int)) {
@@ -852,6 +871,7 @@ func TestManyAtOnceMakeOneAskAndUseOneGrant(t *testing.T) {
 // An MCP key is a secret: the record, and what the approvals list shows, carry a fingerprint, never the key; and the
 // ask is still that key's alone.
 func TestAnMCPKeyIsNeverWrittenDown(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	g := newGrantRig(t)
 	g.ask(mcpActor("SECRET-KEY-1"), "pay 5")
 	g.ask(mcpActor("SECRET-KEY-2"), "pay 5")
@@ -889,6 +909,7 @@ func TestAnMCPKeyIsNeverWrittenDown(t *testing.T) {
 // decide's askOwner → the ask → the owner's grant → allowed once → asked again, for each actor that asks, through
 // the real decide.
 func TestDecideAsksThenAllowsOnceThenAsksAgain(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	for name, a := range askers {
 		t.Run(name, func(t *testing.T) {
 			d := newTestDeck(t)
@@ -930,6 +951,7 @@ func TestDecideAsksThenAllowsOnceThenAsksAgain(t *testing.T) {
 
 // decide may be asked with the deck's lock held (hire.go): the record never takes it.
 func TestDecideAsksWithTheDecksLockHeld(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	d := newTestDeck(t)
 	askingGate(t, "")
 	done := make(chan verdict, 1)
@@ -948,6 +970,7 @@ func TestDecideAsksWithTheDecksLockHeld(t *testing.T) {
 
 // A deck with no record (built bare) still says no to an ask.
 func TestAnAskWithoutARecordIsANo(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	var d Deck
 	askingGate(t, "")
 	if v := d.decide(actorGM, action{shell: &shellAsk{line: "echo hi"}}); v.allowed() || v.kind != verdictAskOwner {
@@ -1012,6 +1035,7 @@ func grantState(t *testing.T, d *Deck, id string) string {
 // The setup page's cookie answers; a tool's setup key, the GM's token and a hire's key don't (403), nor a caller who is
 // nobody (401), and none of them changes the ask.
 func TestTheSetupPageAnswersAndNoOtherSetupCaller(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	d, _, id := deckWithAnAsk(t)
 	if err := writeRegistryFile(registryPath(), []byte(`{"version":1,"hires":[{"id":"aaa111","name":"Rev","folder":"/w","role":"reviewer","state":"working"}]}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -1075,6 +1099,7 @@ func TestTheSetupPageAnswersAndNoOtherSetupCaller(t *testing.T) {
 // A paired phone over Tailscale and the Mac app's office window answer with their keys; a phone on the Wi-Fi, a
 // stranger, the office in a browser, any window off a Mac, and the GM's token alone don't.
 func TestAPhoneOverTailscaleAndTheWindowAnswer(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	for _, c := range []struct {
 		caller string
 		want   int
@@ -1102,9 +1127,10 @@ func TestAPhoneOverTailscaleAndTheWindowAnswer(t *testing.T) {
 		// own-address door).
 		{"phone-own-tailnet", http.StatusUnauthorized, grantOpen},
 		{"phone-own-tailnet-mac", http.StatusUnauthorized, grantOpen},
-		// RT126FS2 B2: the paired device the Windows window holds, its key in a file here, is never the owner's tap,
-		// with a proxy's header made up or without; nor a phone's key from the loopback with one (no Tailscale peer:
-		// refused at the door since OLD-SERVE2 on Windows, as on a Mac).
+		// RT126FS2 B2: the paired device the Windows window holds (its key in this run's memory alone since
+		// ensureWindowKey, but a window off a Mac) is never the owner's tap, with a proxy's header made up or without;
+		// nor a phone's key from the loopback with one (no Tailscale peer: refused at the door since OLD-SERVE2 on
+		// Windows, as on a Mac).
 		{"window-device", http.StatusForbidden, grantOpen},
 		{"window-device-proxied", http.StatusForbidden, grantOpen},
 		{"phone-proxied-localhost-other", http.StatusForbidden, grantOpen},
@@ -1194,6 +1220,7 @@ func probeWithHeaders(d *Deck, method, target string, headers map[string]string)
 // The asks show where the owner looks: the phone's approvals, setup's approvals (for the GM, the page and a tool, with
 // no key in it), and the window's own list.
 func TestTheAsksShowInTheApprovalsLists(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	d, phoneKey, id := deckWithAnAsk(t)
 	d.grants.settle(mcpActor("SECRET-KEY"), askOwnerFor("pay", "9 dollars"))
 	type reply struct {
@@ -1259,6 +1286,7 @@ func TestTheAsksShowInTheApprovalsLists(t *testing.T) {
 // a browser's command line, and the address it leads to in the browser's history). It gets the office in a browser,
 // which reads the office, but its key is never the owner's tap: off a Mac, and under the Mac app alike.
 func TestTheTraysLinkRedeemedByALocalProgramAnswersNothing(t *testing.T) {
+	turnOn(t, &spendAsksOn)
 	for _, underMacApp := range []bool{false, true} {
 		stopDecksOf(t)
 		d, _, id := deckWithAnAsk(t)

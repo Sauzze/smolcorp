@@ -293,7 +293,7 @@ func TestEveryEngineDeskStartsInItsSandboxAndItsServerIsRecorded(t *testing.T) {
 		t.Fatalf("%d sandboxes", len(r.desks))
 	}
 	pl := r.desks[0].places
-	if pl.Subject != sandbox.Hire || pl.OwnID != hire.ID || pl.Root != physical(hire.Worktree) || pl.Checkout != physical(r.repo) ||
+	if pl.Subject != sandbox.Hire || pl.OwnID != hire.ID || pl.Root != physical(hire.Worktree.storedOnly()) || pl.Checkout != physical(r.repo) ||
 		pl.OwnSockets != physical(filepath.Dir(row.TmuxSocket)) || pl.SocketParent != physical(deskSocketParent()) ||
 		pl.GitDir != physical(filepath.Join(r.repo, ".git")) || pl.OwnWorktree == "" || pl.Support != physical(supportDir) ||
 		pl.HiresFolder != physical(hiresFolder(r.repo, r.o.Worktrees)) || pl.Home != physical(homeDir) || pl.DeskStart == "" || len(pl.InstallRoots) == 0 {

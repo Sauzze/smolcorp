@@ -134,6 +134,7 @@ func lookAtLine(t *testing.T, f *fakeLauncher) string {
 
 // A JPEG's EXIF (GPS included) and a PNG's text and eXIf chunks are gone: what's kept is the pixels, encoded again.
 func TestAPhotosMetadataIsStripped(t *testing.T) {
+	turnOn(t, &photoOn)
 	secret := "GPSLatitude 48.8584 SECRET-MARKER"
 	original := testJPEG(t)
 	app1 := append([]byte("Exif\x00\x00MM\x00\x2a"), secret...)
@@ -174,6 +175,7 @@ func TestAPhotosMetadataIsStripped(t *testing.T) {
 // A picture whose header says it is too big is refused before it's unpacked; any other format, a type that isn't
 // the bytes', and a picture that can't be read are refused too.
 func TestABombAndOtherFormatsAreRefused(t *testing.T) {
+	turnOn(t, &photoOn)
 	jpegData, pngData := testJPEG(t), testPNG(t)
 	var gifData bytes.Buffer
 	if err := gif.Encode(&gifData, testPicture(), nil); err != nil {
@@ -217,6 +219,7 @@ func TestABombAndOtherFormatsAreRefused(t *testing.T) {
 
 // Both rows are 8 MB and 30 seconds; a body over 8 MB is refused, and one that takes too long to arrive too.
 func TestAPhotosSizeAndTimeLimits(t *testing.T) {
+	turnOn(t, &photoOn)
 	for _, path := range []string{"/photo", "/talk/photo"} {
 		if most, wait := requestLimits(http.MethodPost, path); most != 8<<20 || wait != 30*time.Second {
 			t.Errorf("%s: %d bytes in %s", path, most, wait)
@@ -263,6 +266,7 @@ func TestAPhotosSizeAndTimeLimits(t *testing.T) {
 // POST /photo is a paired phone's over Tailscale only: the Wi-Fi's plain http and the window are refused. POST
 // /talk/photo is the window's alone.
 func TestAPhotoComesOverTailscaleOrFromTheWindowOnly(t *testing.T) {
+	turnOn(t, &photoOn)
 	saved := tailscaleAddresses
 	tailscaleAddresses = func() []string { return []string{"100.64.1.2"} }
 	t.Cleanup(func() { tailscaleAddresses = saved })
@@ -331,6 +335,7 @@ func TestAPhotoComesOverTailscaleOrFromTheWindowOnly(t *testing.T) {
 // The photo is a file of its own, 0600, in a 0700 folder of the desk's in the support folder, outside the desk's
 // repo and told to git to be left out; the agent is told its path with typeText, and Return.
 func TestAPhotoIsAPrivateFileOutsideTheRepo(t *testing.T) {
+	turnOn(t, &photoOn)
 	d, f := windowDeck(t)
 	repo := t.TempDir()
 	if status, says := sendTestPhoto(d, textFromWindow, "image/jpeg", bytes.NewReader(testJPEG(t))); status != http.StatusNoContent {
@@ -394,6 +399,7 @@ func TestAPhotoIsAPrivateFileOutsideTheRepo(t *testing.T) {
 // A desk's photos go when it ends, and every photo after half an hour (well inside answer 6's 24 hours), whichever
 // comes first; the folders of desks no longer here go at the next look.
 func TestAPhotoIsDeletedWhenTheDeskEndsAndAfterHalfAnHour(t *testing.T) {
+	turnOn(t, &photoOn)
 	if photoWait != 30*time.Minute || photoWait > 24*time.Hour {
 		t.Fatalf("photoWait is %v: photoNote says 30 minutes", photoWait)
 	}
@@ -460,6 +466,7 @@ func TestAPhotoIsDeletedWhenTheDeskEndsAndAfterHalfAnHour(t *testing.T) {
 // Never typed into a desk that asks: refused before the body is read, nothing kept; and if it begins asking while
 // the path waits for the key worker, nothing is typed and the photo goes.
 func TestAPhotoIsNeverTypedWhileTheDeskAsks(t *testing.T) {
+	turnOn(t, &photoOn)
 	d, f := windowDeck(t)
 	asksAt(d, "launcher:L1", 30)
 	read := false
@@ -507,6 +514,7 @@ func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
 
 // An agent that can't take pictures is told so, on the card and by the route, and its desk gets nothing.
 func TestAnAgentThatCantTakePicturesIsSaidSo(t *testing.T) {
+	turnOn(t, &photoOn)
 	d, f := windowDeck(t)
 	if photo := photoTaking(deskTyping{OK: true, Lines: true}, Claude); photo != (deskPhoto{OK: true, Note: photoNote(Claude)}) {
 		t.Errorf("Claude Code: %+v", photo)
@@ -552,6 +560,7 @@ func TestAnAgentThatCantTakePicturesIsSaidSo(t *testing.T) {
 // The photo's path never goes into the events log, the phone's or the viewer's snapshot, a prompt's label, a desk's
 // activity, a summary or the conversation, though the agent reads it, asks to and says it.
 func TestAPhotoIsInNoEventsOrSummaries(t *testing.T) {
+	turnOn(t, &photoOn)
 	d, f := windowDeck(t)
 	if status, says := sendTestPhoto(d, textFromWindow, "image/png", bytes.NewReader(testPNG(t))); status != http.StatusNoContent {
 		t.Fatalf("%d %q", status, says)
@@ -626,6 +635,7 @@ func TestAPhotoIsInNoEventsOrSummaries(t *testing.T) {
 // guessed from what a hire can see opens nothing, and only the exact path the desk was given opens the photo. Nothing
 // in the photos folder can be changed by a hire.
 func TestAHiresFenceKeepsOtherDesksPhotos(t *testing.T) {
+	turnOn(t, &photoOn)
 	d, f := windowDeck(t)
 	photos := filepath.Join(supportDir, photosFolder)
 	root := absoluteRulePath(supportDir) + "/" + photosFolder
@@ -688,6 +698,7 @@ func TestAHiresFenceKeepsOtherDesksPhotos(t *testing.T) {
 // A picture that would take too much memory once unpacked is refused from its header: a progressive JPEG keeps its
 // coefficients as it decodes, 16 bytes a pixel more for CMYK.
 func TestAPictureTooHeavyToUnpackIsRefused(t *testing.T) {
+	turnOn(t, &photoOn)
 	baseline := withJPEGSize(t, testJPEG(t), 5000, 5000)
 	progressive := bytes.Clone(baseline)
 	progressive[bytes.Index(progressive, []byte{0xFF, 0xC0})+1] = 0xC2
@@ -718,6 +729,7 @@ func TestAPictureTooHeavyToUnpackIsRefused(t *testing.T) {
 // A desk's photo goes once the desk itself has read it, the hook's PostToolUse saying so: not when it only asks to,
 // not when another desk reads the path, and not for a command that merely names it. Its folder stays unlisted.
 func TestAPhotoGoesOnceItsDeskHasReadIt(t *testing.T) {
+	turnOn(t, &photoOn)
 	d, f := windowDeck(t)
 	if status, says := sendTestPhoto(d, textFromWindow, "image/png", bytes.NewReader(testPNG(t))); status != http.StatusNoContent {
 		t.Fatalf("%d %q", status, says)
@@ -850,6 +862,7 @@ func readDenied(rules []string, home, file string) bool {
 // stores: the profile its start script names, or ~/.claude. A path found where nothing denies it (the desk's own
 // plan) opens nothing once the desk has read its photo.
 func TestAHireCantFindAPhotosPathInAnyPromptStore(t *testing.T) {
+	turnOn(t, &photoOn)
 	if runtime.GOOS == "windows" {
 		t.Skip("the stand-in home and claude are POSIX: the rules are the same, written //c/… (absoluteRulePath)")
 	}
@@ -1015,6 +1028,7 @@ func TestAHireCantFindAPhotosPathInAnyPromptStore(t *testing.T) {
 // folder, by its last two folders outside it. Every account's stores are still denied to Read and Edit; its plans and
 // pictures, and a project's own folders of the same names, are not.
 func TestPromptStoreRulesCoverEveryAccountAtOnce(t *testing.T) {
+	turnOn(t, &photoOn)
 	saved := homeDir
 	homeDir = t.TempDir()
 	t.Cleanup(func() { homeDir = saved })
