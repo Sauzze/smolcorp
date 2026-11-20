@@ -27,15 +27,17 @@ func DefaultGroups() []Group {
 			// npm takes any unambiguous start of a command's name (checked in npm's own cmd-list.js, abbrev): pu, pub, …
 			"npm publish|publis|publi|publ|pub|pu", "pnpm publish", "yarn publish", "bun publish", "cargo publish", "twine upload", "gem push", "fastlane",
 			"xcrun altool|notarytool",
-			"gh pr create|merge|close|edit|comment|review|ready|reopen|update-branch|revert|lock|unlock",
-			"gh issue create|close|edit|comment|delete|reopen|transfer|lock|unlock|pin|unpin|develop",
+			// gh's own aliases of a refused command are refused with it (FXGUARDALIAS126; each command's --help, ALIASES):
+			// pr, issue, repo and gist create are also new, codespace is also cs, and extension is also extensions and ext.
+			"gh pr create|new|merge|close|edit|comment|review|ready|reopen|update-branch|revert|lock|unlock",
+			"gh issue create|new|close|edit|comment|delete|reopen|transfer|lock|unlock|pin|unpin|develop",
 			// gh release's commands that write to GitHub (create's alias is new); list, view and verify only read
 			// (FXGUARDWIN126 #7). download writes files here, as other downloads do (gh run download, curl -o, wget): a
 			// kept name it is told is refused, and what a pattern or an asset's own name fills in isn't seen.
-			"gh release create|new|delete|delete-asset|edit|upload", "gh repo create|delete|edit|fork|rename|archive|unarchive|sync|deploy-key|autolink", "gh gist create|edit|delete",
-			"gh label create|delete|edit|clone", "gh ssh-key add|delete", "gh gpg-key add|delete", "gh codespace create|delete|ssh", "gh extension install", "gh cache delete",
-			// gh's token goes to curl, and with it to everything above
-			"gh auth token|refresh|login|logout|setup-git", "gh auth status -t|--show-token",
+			"gh release create|new|delete|delete-asset|edit|upload", "gh repo create|new|delete|edit|fork|rename|archive|unarchive|sync|deploy-key|autolink", "gh gist create|new|edit|delete",
+			"gh label create|delete|edit|clone", "gh ssh-key add|delete", "gh gpg-key add|delete", "gh codespace|cs create|delete|ssh", "gh extension|extensions|ext install", "gh cache delete",
+			// gh's token goes to curl, and with it to everything above; git-credential prints it too, as git's helper reads it
+			"gh auth token|refresh|login|logout|setup-git|git-credential", "gh auth status -t|--show-token",
 			"npm unpublish|deprecate|dist-tag|access|owner|token|login|adduser|team|org",
 			"gh workflow run|enable|disable", "gh run rerun|cancel|delete", "gh secret", "gh variable",
 			"gh api -X|--method|-f|-F|--field|--raw-field|--input",
