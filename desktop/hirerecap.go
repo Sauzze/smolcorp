@@ -88,8 +88,9 @@ func writeRecap(h Hire, capture string, worktreeRemoved bool, now time.Time) str
 	if h.Worktree != "" && !worktreeRemoved {
 		place = h.Worktree
 	}
+	// Its own folder first, where an engine hire's brief and status are with or without a worktree (hireBrief).
 	own := place
-	if h.Worktree != "" {
+	if plainHireID(h.ID) {
 		own = hireFolder(supportDir, h.ID)
 	}
 	var status []string

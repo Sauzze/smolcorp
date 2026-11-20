@@ -182,10 +182,11 @@ func TestTheGMHireFolder(t *testing.T) {
 	}
 }
 
-// What the Go path can't honour is refused naming the field; what's already so is honoured; a floor is the hire's, on its first free desk.
+// What the Go path can't honour is refused naming the field, and a model or nickname that isn't one is refused in
+// setup's words, naming it; what's already so is honoured; a floor is the hire's, on its first free desk.
 func TestTheGMHireFieldsAndFloor(t *testing.T) {
 	d, r, h, token := gmHireDeck(t)
-	for field, value := range map[string]string{"model": `"opus"`, "nickname": `"Ada"`, "apiKey": `true`,
+	for field, value := range map[string]string{"model": `"op us"`, "nickname": `"Ada\nLovelace"`, "apiKey": `true`,
 		"worktree": `false`, "answers": `["a"]`, "floor": `6`, "floor ": `"2"`} {
 		code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","`+strings.TrimSpace(field)+`":`+value+`}`)
 		if code != http.StatusBadRequest || !strings.Contains(text, field) && field != "floor" || strings.Contains(text, "\n") {
@@ -193,8 +194,8 @@ func TestTheGMHireFieldsAndFloor(t *testing.T) {
 		}
 	}
 	for range 20 { // several at once: the field named is always the first in the order the route checks them
-		if _, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","answers":["a"],"worktree":false,"nickname":"Ada","model":"opus"}`); !strings.Contains(text, `"model"`) {
-			t.Fatalf("with several refused, the 400 names %q, want model", text)
+		if _, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","answers":["a"],"worktree":false,"nickname":"Ada","model":"opus"}`); !strings.Contains(text, `"worktree"`) {
+			t.Fatalf("with several refused, the 400 names %q, want worktree", text)
 		}
 	}
 	// The account is honoured as the Mac's route honours it: one that isn't saved is said, in the Mac's words.

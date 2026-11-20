@@ -313,7 +313,16 @@ func launch(run *launcherRun) int {
 		if run.role == gmRole && launcherSandboxes && run.hire != "" && run.hireID == "" && !sandboxed {
 			told = append(told, gmSandboxOffLine) // told it starts outside its sandbox, as the engine's GM is (§A5.2, AQ1)
 		}
-		found, err := run.roleStartArguments(folder, message, told...)
+		model := ""
+		if startEnv != nil {
+			// The model it was hired on, which the role read from the config may not have; checked again here as the
+			// core checked it, so nothing else rides on the agent's command line.
+			if model = startEnv.Model; !hireModelAllowed(model) {
+				fmt.Fprintln(os.Stderr, "smolcorp: Smolcorp named a model for this hire that isn't one, so nothing was started. Hire again")
+				return 2
+			}
+		}
+		found, err := run.roleStartArguments(folder, message, model, told...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 			return 2
@@ -646,14 +655,14 @@ func sameAgentAsHired(run *launcherRun, agent string) error {
 
 // roleStartArguments are the agent and its arguments for run's role, started in folder as its hire came to start
 // there: from a terminal, at a pinned desk, into the folder for hires, or into the project the office picked for it.
-// message, unless it's empty, is its first message instead of the role's own (roleArguments). told are lines added at
-// its end.
-func (run *launcherRun) roleStartArguments(folder, message string, told ...string) ([]string, error) {
+// message, unless it's empty, is its first message instead of the role's own (roleArguments), and model, unless it's
+// empty, its model instead of the role's (roleArgumentsOn). told are lines added at its end.
+func (run *launcherRun) roleStartArguments(folder, message, model string, told ...string) ([]string, error) {
 	how := startedHere
 	if run.hire != "" {
 		how = map[bool]roleStart{true: hiredAtPinnedDesk, false: hiredIntoGeneralFolder}[run.pinned]
 	}
-	return roleArgumentsIn(run.role, folder, how, pickedStart{project: run.project, branch: run.branch}, message, told...)
+	return roleArgumentsIn(run.role, folder, how, pickedStart{project: run.project, branch: run.branch}, message, model, told...)
 }
 
 // roleArguments are the agent and its arguments for the role with the id
@@ -661,15 +670,24 @@ func (run *launcherRun) roleStartArguments(folder, message string, told ...strin
 // unless it's empty, is its first message instead of the role's own: the one
 // the app made with the hire's brief. told are lines added at its end.
 func roleArguments(id, folder string, how roleStart, message string, told ...string) ([]string, error) {
-	return roleArgumentsIn(id, folder, how, pickedStart{}, message, told...)
+	return roleArgumentsOn(id, folder, how, message, "", told...)
 }
 
-// roleArgumentsIn is roleArguments for a hire whose project the office picked, when picked names one: the role's own
-// first message tells it so (Role.firstMessageIn).
-func roleArgumentsIn(id, folder string, how roleStart, picked pickedStart, message string, told ...string) ([]string, error) {
+// roleArgumentsOn is roleArguments on model, an engine hire's own (hireStartEnv.Model), in place of the role's; ""
+// keeps the role's.
+func roleArgumentsOn(id, folder string, how roleStart, message, model string, told ...string) ([]string, error) {
+	return roleArgumentsIn(id, folder, how, pickedStart{}, message, model, told...)
+}
+
+// roleArgumentsIn is roleArgumentsOn for a hire whose project the office picked, when picked names one: the role's
+// own first message tells it so (Role.firstMessageIn).
+func roleArgumentsIn(id, folder string, how roleStart, picked pickedStart, message, model string, told ...string) ([]string, error) {
 	roles := loadConfig().Roles
 	for _, role := range roles {
 		if role.ID == id {
+			if model != "" {
+				role.Model = model
+			}
 			// An ACP role's agent is "acp:<id>", not a program: hiring it is A5's, and until then a launcher
 			// started by hand never looks that name up on PATH.
 			if Agent(role.Agent).IsACP() {

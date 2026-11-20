@@ -125,7 +125,7 @@ func (d *Deck) t3ResumeInTmux(h Hire, session string, profiles []claudeProfile) 
 	own, ownClaude := deskOwnClaude(h.ID)
 	settings, err := writeHireSettings(hireSettingsOptions{HireID: h.ID, Auto: engineAutoMode, Profile: guardHire, CLI: o.CLI,
 		Support: supportDir, ReportPort: testPort, Profiles: profiles, Run: o.Guard, IsExec: o.IsExec, OwnClaude: ownClaude,
-		Kept: deskKeptFolder(runtime.GOOS, tmux.sandboxed, h.ID)})
+		Kept: deskKeptFolder(runtime.GOOS, tmux.sandboxed, h.ID), ReadsOwnFolder: !engineAutoMode})
 	if err != nil {
 		return t3Resumed{}, errors.New("its settings, its fence, couldn't be made: " + err.Error())
 	}

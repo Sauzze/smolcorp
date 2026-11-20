@@ -226,7 +226,7 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 		return hirePlace{}, &hireRefusal{Status: 409, Message: "No free ports for a hire: fire someone, or free ports " +
 			strconv.Itoa(firstHirePort) + " to " + strconv.Itoa(lastHirePort) + "."}
 	}
-	place := hirePlace{Folder: r.Folder, Ports: ports}
+	place := hirePlace{Folder: startFolder(r.Folder, given, runtime.GOOS), Ports: ports}
 	if repo != "" && r.Worktree {
 		name := hireWorktreeName(r.Name, r.HireID)
 		parent := hiresFolder(repo, o.Worktrees)
@@ -315,6 +315,20 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 		initHireSubmodules(place.Repo, place.Worktree, git)
 	}
 	return place, nil
+}
+
+// startFolder is the folder a hire with no worktree starts in, asked as it was asked for and resolved as physical
+// resolves it: on Windows the resolved one, the very spelling it is trusted under in .claude.json (preTrust). A
+// working folder keeps the spelling it was given there (a drive letter in lower case, a folder's 8.3 short name), and
+// Claude Code looks its trust up by it, so a folder for hires saved as c:\users\ada\projects would never match the
+// C:\Users\Ada\Projects that was trusted. A junction isn't resolved: since Go 1.23, EvalSymlinks doesn't follow a
+// mount point, so a folder reached through one keeps that spelling, in its start and its trust alike (RT126GMHIRE126
+// N2). Elsewhere the kernel gives the resolved folder itself, and the one asked for is kept.
+func startFolder(asked, resolved, goos string) string {
+	if goos == "windows" && resolved != "" {
+		return resolved
+	}
+	return asked
 }
 
 // hireBranch is the branch a hire works on in its worktree, hire/<its id>/<name>: in a folder of its own, the one a

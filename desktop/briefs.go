@@ -863,10 +863,11 @@ func (r Role) firstMessageAnswered(folder string, answers []string) string {
 // rest, then BRIEF-<role>-2.md and on. Anywhere else, so a shared folder such
 // as ~/Projects stays clean, into Smolcorp's own briefs folder:
 // <desk>-<role>-<yyyyMMdd-HHmm>.md, with <…>-STATUS.md beside it, then
-// <…>-2.md and on. A managed hire's (one with a worktree of its own) never
-// goes in its worktree, which is shared git state: BRIEF.md and STATUS.md go
-// in <support>/hires/<id>/, a folder of its own, and the first message names
-// where. A file that's there is never written over, nor named to the agent as its own.
+// <…>-2.md and on. A managed hire's (every engine hire's, with a worktree of
+// its own or not: hireBrief) never goes in its worktree, which is shared git
+// state, nor in the briefs folder, which its fence keeps it from changing:
+// BRIEF.md and STATUS.md go in <support>/hires/<id>/, a folder of its own, and
+// the first message names where. A file that's there is never written over, nor named to the agent as its own.
 type briefPlace struct {
 	kind   string // "project", "kept" or "managed"
 	folder string

@@ -28,7 +28,10 @@ func DefaultGroups() []Group {
 			"xcrun altool|notarytool",
 			"gh pr create|merge|close|edit|comment|review|ready|reopen|update-branch|revert|lock|unlock",
 			"gh issue create|close|edit|comment|delete|reopen|transfer|lock|unlock|pin|unpin|develop",
-			"gh release", "gh repo create|delete|edit|fork|rename|archive|unarchive|sync|deploy-key|autolink", "gh gist create|edit|delete",
+			// gh release's commands that write to GitHub (create's alias is new); list, view and verify only read
+			// (FXGUARDWIN126 #7). download writes files here, as other downloads do (gh run download, curl -o, wget): a
+			// kept name it is told is refused, and what a pattern or an asset's own name fills in isn't seen.
+			"gh release create|new|delete|delete-asset|edit|upload", "gh repo create|delete|edit|fork|rename|archive|unarchive|sync|deploy-key|autolink", "gh gist create|edit|delete",
 			"gh label create|delete|edit|clone", "gh ssh-key add|delete", "gh gpg-key add|delete", "gh codespace create|delete|ssh", "gh extension install", "gh cache delete",
 			// gh's token goes to curl, and with it to everything above
 			"gh auth token|refresh|login|logout|setup-git", "gh auth status -t|--show-token",
@@ -358,7 +361,39 @@ func wrapped(name string, args []string) []inner {
 				return []inner{{line: strings.TrimSpace(value + " " + strings.Join(args[i+1:], " ")), ps: true}}
 			}
 		}
+		if name == "powershell" {
+			// Windows PowerShell takes its first word that isn't an option, or an option's value, as -Command (powershell
+			// claude). Which options take a value isn't read here, so each of the first few plain words is tried as
+			// that line's start (-WindowStyle Hidden claude), until -File, whose script isn't seen (pwsh's first word is
+			// its -File: a script too).
+			var out []inner
+			for i, a := range args {
+				if opt := strings.ToLower(strings.TrimPrefix(a, "-")); a != opt && opt != "" && strings.HasPrefix("file", opt) {
+					break
+				}
+				if !strings.HasPrefix(a, "-") {
+					if out = append(out, inner{line: strings.Join(args[i:], " "), ps: true}); len(out) == 8 {
+						break
+					}
+				}
+			}
+			return out
+		}
 		return nil
+	case name == "" || name == "@" || name == "call":
+		// PowerShell's dot-sourcing (. claude.exe) and the shells' (. ./env.sh), cmd's @ (@ claude) and call (call
+		// claude): each runs the word after it, with the words after that (RT126GUARDWIN126 N1). A word of dots alone
+		// names no command (commandName), so "" is the dot.
+		return []inner{{words: args}}
+	case strings.HasPrefix(name, "@"):
+		// cmd's @ written onto the command (@claude) runs the command.
+		return []inner{{words: append(simple{name[1:]}, args...)}}
+	case name == "if":
+		// The shells' if runs the words after it (if noglob git push; then …), as then and the rest below; cmd's runs
+		// the words after its condition.
+		return append(rest(nil, 0), cmdIf(args)...)
+	case name == "ii" || name == "invoke-item":
+		return invokedItems(args)
 	case name == "cmd":
 		return cmdLines(args)
 	case name == "invoke-expression" || name == "iex":
@@ -542,7 +577,7 @@ func wrapped(name string, args []string) []inner {
 	case name == "arch":
 		return rest([]string{"-arch"}, 0)
 	case name == "nohup" || name == "builtin" || name == "unbuffer" ||
-		name == "then" || name == "do" || name == "else" || name == "elif" || name == "if" || name == "while" || name == "until":
+		name == "then" || name == "do" || name == "else" || name == "elif" || name == "while" || name == "until":
 		return rest(nil, 0)
 	case name == "setsid" || name == "chronic" || name == "busybox" || name == "coproc":
 		return rest(nil, 0)
@@ -761,6 +796,87 @@ func cmdLines(args []string) []inner {
 		}
 		if switches >= 8 {
 			break
+		}
+	}
+	return out
+}
+
+// cmdIf is what cmd's if runs (if [/i] [not] <condition> <command>, RT126GUARDWIN126 N1): the words after its
+// condition, which is errorlevel, cmdextversion, exist or defined and one word, or two strings compared (a==b, a == b,
+// a equ b). cmd takes no other condition (it stops at the line), so one read no other way runs nothing here: zsh's if
+// [[ … ]] git push is the lexer's to refuse, in its own words.
+func cmdIf(args []string) []inner {
+	i := 0
+	for i < len(args) && (strings.EqualFold(args[i], "/i") || strings.EqualFold(args[i], "not")) {
+		i++
+	}
+	if i >= len(args) {
+		return nil
+	}
+	next := func(k int) string {
+		if i+k < len(args) {
+			return strings.ToLower(args[i+k])
+		}
+		return ""
+	}
+	w := strings.ToLower(args[i])
+	switch {
+	case w == "errorlevel" || w == "cmdextversion" || w == "exist" || w == "defined":
+		i += 2
+	case strings.Contains(w, "==") && !strings.HasSuffix(w, "=="):
+		i++
+	case strings.HasSuffix(w, "=="):
+		i += 2
+	case next(1) == "==":
+		i += 3
+	case strings.HasPrefix(next(1), "=="):
+		i += 2
+	case strings.Contains(" equ neq lss leq gtr geq ", " "+next(1)+" ") && next(1) != "":
+		i += 3
+	default:
+		return nil
+	}
+	if i >= len(args) {
+		return nil
+	}
+	return []inner{{words: args[i:]}}
+}
+
+// invokedItems are what PowerShell's Invoke-Item (ii) opens, each as a command with no words after it: an .exe it
+// names runs (RT126GUARDWIN126 N1). The items are its plain words and -Path's or -LiteralPath's value (any start of
+// their names, -p, -lit), each split at its commas as PowerShell makes an array; -Filter's, -Include's, -Exclude's
+// and -Credential's values aren't items.
+func invokedItems(args []string) []inner {
+	var out []inner
+	item := func(value string) {
+		for _, f := range strings.Split(value, ",") {
+			if f = strings.Trim(strings.TrimSpace(f), `'"`); f != "" && len(out) < 64 {
+				out = append(out, inner{words: simple{f}})
+			}
+		}
+	}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
+			item(a)
+			continue
+		}
+		opt, value, glued := strings.Cut(strings.ToLower(a[1:]), ":")
+		if glued {
+			value = a[len(a)-len(value):]
+		}
+		switch {
+		case opt == "":
+		case strings.HasPrefix("path", opt) || strings.HasPrefix("literalpath", opt) || opt == "lp" || opt == "pspath":
+			if glued {
+				item(value)
+			} else if i+1 < len(args) {
+				i++
+				item(args[i])
+			}
+		case !glued && (strings.HasPrefix("filter", opt) || strings.HasPrefix("include", opt) || strings.HasPrefix("exclude", opt) ||
+			strings.HasPrefix("credential", opt)):
+			i++ // its value
 		}
 	}
 	return out

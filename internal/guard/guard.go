@@ -401,10 +401,15 @@ func namesSetupKey(words simple) bool {
 	for _, w := range words {
 		low := Fold(strings.ReplaceAll(strings.TrimPrefix(w, unreadable), `\`, "/"))
 		// After a /, and after an @ or = (curl's @file, dd's if=file, --file=…); and as a short option's
-		// value in the same word (grep -fsetup-key, -rf~/…/setup-key).
-		last := low[strings.LastIndexAny(low, "/@=")+1:]
-		if setupKeyName(last, strings.HasPrefix(low, "-") && !strings.HasPrefix(low, "--")) {
-			return true
+		// value in the same word (grep -fsetup-key, -rf~/…/setup-key). Before an = too: cmd splits a word there, so
+		// del %APPDATA%\smolcorp\setup-key=x deletes the key (RT126GUARDWIN126 N5).
+		option := strings.HasPrefix(low, "-") && !strings.HasPrefix(low, "--")
+		parts := strings.Split(low, "=")
+		for i, part := range parts {
+			last := part[strings.LastIndexAny(part, "/@")+1:]
+			if setupKeyName(last, option && (i == 0 || i == len(parts)-1)) {
+				return true
+			}
 		}
 	}
 	return false

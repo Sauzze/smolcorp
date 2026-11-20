@@ -114,7 +114,8 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 		return Hire{}, "", &hireRefusal{Status: http.StatusInternalServerError, Message: "The hire's window can't be opened here."}
 	}
 	id := strings.ToLower(newID())[:12]
-	place, err := prepareHire(hireRequest{HireID: id, Name: r.Role.Name, Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir, Held: r.Held,
+	// Its nickname names its worktree and branch, as the tmux engine's (runEngineHire).
+	place, err := prepareHire(hireRequest{HireID: id, Name: cmpOr(r.Nickname, r.Role.Name), Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir, Held: r.Held,
 		APIKey: r.APIKey, Worktree: true},
 		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: o.Git, PortFree: o.PortFree, Key: o.Key})
 	if err != nil {
@@ -134,7 +135,9 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	if r.Role.ID == gmRole {
 		profile = guardGM
 	}
-	settings, err := writeHireSettings(hireSettingsOptions{HireID: id, Profile: profile, CLI: o.CLI, Support: supportDir, ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec})
+	// It starts in Claude Code's default mode: its own folder is readable without a question, so its brief is.
+	settings, err := writeHireSettings(hireSettingsOptions{HireID: id, Profile: profile, CLI: o.CLI, Support: supportDir, ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec,
+		ReadsOwnFolder: true})
 	if err != nil {
 		undo()
 		return Hire{}, "", err
@@ -197,7 +200,10 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 		return fail(http.StatusInternalServerError, "A hire never holds a send key with the General Manager's token.")
 	}
 	// What the launcher sets on the agent's process, and only there.
-	env := hireStartEnv{Set: map[string]string{}, PathFirst: filepath.Dir(o.CLI), Settings: settings.Path, SettingsSum: settings.Sum}
+	// Its model too: the launcher reads the role again from the config, which knows nothing of a model this hire was
+	// given (setup's sheet, the GM's hire).
+	env := hireStartEnv{Set: map[string]string{}, PathFirst: filepath.Dir(o.CLI), Settings: settings.Path, SettingsSum: settings.Sum,
+		Model: r.Role.Model}
 	for _, change := range deskToolEnvironment { // as a tmux desk has them
 		env.Set[change.Name] = change.Value
 	}

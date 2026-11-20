@@ -44,6 +44,9 @@ type hireStartEnv struct {
 	// seal: the launcher checks the file against it and names it in the agent's command line (--settings <file>).
 	Settings    string `json:"settings,omitempty"`
 	SettingsSum string `json:"settingsSum,omitempty"`
+	// Model is the model the hire starts on: its role's, or the one it was hired with (setup's sheet, the GM's
+	// hire), which the role the launcher reads from the config doesn't have. "" for the role's own.
+	Model string `json:"model,omitempty"`
 }
 
 // startEnvironment is base with env applied: unset names removed, set names

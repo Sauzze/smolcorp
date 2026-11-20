@@ -307,6 +307,12 @@ func absoluteRulePath(path string) string {
 	return "//" + strings.TrimPrefix(path, "/")
 }
 
+// ownFolderReadRule is the one allow rule the settings of a hire in default mode hold: Read of everything in its own
+// folder, hires/<hireID>/, as the deny rules write the support folder.
+func ownFolderReadRule(support, hireID string) string {
+	return "Read(" + absoluteRulePath(support) + "/hires/" + hireID + "/**)"
+}
+
 // hireDenyRules is every deny rule for hire hireID. others are the names of the other
 // hires' folders under <support>/hires, entries what sits in the support folder now (a
 // folder named here is denied whole, except hires, which is denied hire by hire so this
@@ -381,8 +387,9 @@ func hireDenyRules(hireID string, groups []guardGroup, support string, profiles 
 	}
 	both(root + "/hires/*.sh")
 	// Every hire's folder, by file type and not by name: a hire started after this file
-	// was written is covered too. STATUS.md is .md, so it stays writable.
-	for _, pattern := range []string{"*.json", "*.sh", "*.jsonl", "*.log", "settings*"} {
+	// was written is covered too. STATUS.md is .md, so it stays writable; a brief is never a
+	// hire's to change, its own included (the core appends to it), so BRIEF*.md isn't.
+	for _, pattern := range []string{"*.json", "*.sh", "*.jsonl", "*.log", "settings*", "BRIEF*.md"} {
 		both(root + "/hires/*/" + pattern)
 	}
 	// Every desk's own Claude folder (deskclaude.go), by pattern too, this hire's own included: its transcripts, prompt
@@ -540,6 +547,10 @@ type hireSettingsOptions struct {
 	// Workspace is a GM's workspace when it works in one (gmWorkspace, FXGMROOT), "" for none: a working folder of
 	// its own for Claude Code besides the folder it starts in, which it only reads.
 	Workspace string
+	// ReadsOwnFolder is set for a hire that starts in Claude Code's default mode, a launcher hire (hirelauncher.go)
+	// and an engine hire off a Mac (engineAutoMode): it may read its own folder, hires/<its id>/ (its brief, and what
+	// the brief has it read there), without being asked.
+	ReadsOwnFolder bool
 }
 
 // hireSettingsText is hire HireID's settings as their file holds them (writeHireSettings): refused if the guard
@@ -634,6 +645,12 @@ func hireSettingsObject(o hireSettingsOptions) (map[string]any, error) {
 	// than a hire's in its worktree. The fence's denies still hold there.
 	if o.Workspace != "" {
 		value["permissions"].(map[string]any)["additionalDirectories"] = []any{o.Workspace}
+	}
+	// A hire in default mode reads its own brief without a question at each Read: its own folder alone, never another
+	// hire's, and never to write (no Edit rule is allowed). The denies still beat it there (its settings, its Claude
+	// folder's transcripts).
+	if o.ReadsOwnFolder {
+		value["permissions"].(map[string]any)["allow"] = []any{ownFolderReadRule(o.Support, o.HireID)}
 	}
 	return value, nil
 }

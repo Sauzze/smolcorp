@@ -97,7 +97,7 @@ func TestAGMHeldToADemoKeepsTheDemosRoles(t *testing.T) {
 	}
 }
 
-// WIN125d (RWIN3 B1): on a real deck, the demo's GM reads its brief (kept in the app's briefs folder) and a hire
+// WIN125d (RWIN3 B1): on a real deck, the demo's GM reads its brief (in its own hires/<id>, FXGMHIRE126) and a hire
 // it made reads its own (in hires/<id>), each by Read and by cat, and writes its STATUS.md beside it, with the
 // fence built as runDemoFence builds it. The rest of the app's folder stays refused by every route: the setup
 // key, the GM's token, the app's state, a hire's settings, another project's hire, a pattern or a link into it.
@@ -115,7 +115,7 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 			tester = h
 		}
 	}
-	if !strings.HasPrefix(gm.Brief, filepath.Join(supportDir, "briefs")+string(filepath.Separator)) ||
+	if gm.Brief != filepath.Join(supportDir, "hires", gm.ID, "BRIEF.md") ||
 		tester.Worktree == "" || tester.Brief != filepath.Join(supportDir, "hires", tester.ID, "BRIEF.md") {
 		t.Fatalf("not the briefs RWIN3 probed: the GM's %q, the tester's %q in %q", gm.Brief, tester.Brief, tester.Worktree)
 	}
@@ -124,7 +124,7 @@ func TestTheDemosFenceLetsItsHiresReadTheirBriefs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	gmStatus := strings.TrimSuffix(gm.Brief, ".md") + "-STATUS.md"
+	gmStatus := filepath.Join(filepath.Dir(gm.Brief), "STATUS.md")
 	testerFolder := filepath.Dir(tester.Brief)
 	// Another project's hire, its brief in the app's folder too.
 	other := Hire{ID: "outsider-1", Name: "Outsider", Role: "tester", Folder: filepath.Join(homeDir, "elsewhere"), Brief: filepath.Join(supportDir, "hires", "outsider-1", "BRIEF.md"), State: "working"}

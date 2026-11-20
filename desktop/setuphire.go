@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -84,6 +85,29 @@ func (h *setupHire) apply(r *engineRequest, managerOn bool) {
 
 const setupHireModelLongest = 60
 
+// The words a hire's model or nickname is refused in, by every route that takes one (setup's sheet, the GM's).
+const (
+	hireModelRefusal    = "A model is a name such as claude-sonnet-5-5."
+	hireNicknameRefusal = "A nickname is one line of at most 40 characters."
+)
+
+// hireModelAllowed is whether model, trimmed already, is one a hire may be given, as the Mac's
+// BriefRoutes.hireRequest allows it: at most 60 ASCII letters, digits and - _ . : [ ]. "" is the role's own.
+func hireModelAllowed(model string) bool {
+	return utf8.RuneCountInString(model) <= setupHireModelLongest && strings.IndexFunc(model, func(r rune) bool {
+		return r > 127 || !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_.:[]", r))
+	}) < 0
+}
+
+// hireNicknameAllowed is whether nickname, trimmed already, is one a hire may be given: one line of at most 40
+// characters, with no control character in it (ESC, NUL, TAB, the C1 ones: words that name a hire print it, and an
+// escape there would be the terminal's, RT126GMHIRE126 O1). "" is none.
+func hireNicknameAllowed(nickname string) bool {
+	return utf8.RuneCountInString(nickname) <= longestNickname && strings.IndexFunc(nickname, func(r rune) bool {
+		return unicode.IsControl(r) || r == '\u2028' || r == '\u2029'
+	}) < 0
+}
+
 // setupHireRequest checks a request's body as the Mac's BriefRoutes.hireRequest:
 // the request, or a status and why not.
 func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home string) (setupHire, int, string) {
@@ -102,15 +126,13 @@ func setupHireRequest(body []byte, roles []Role, accounts []claudeProfile, home 
 	role := roles[i]
 	model, _ := given["model"].(string)
 	model = strings.Trim(model, " \t")
-	if utf8.RuneCountInString(model) > setupHireModelLongest || strings.IndexFunc(model, func(r rune) bool {
-		return r > 127 || !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_.:[]", r))
-	}) >= 0 {
-		return setupHire{}, http.StatusBadRequest, "A model is a name such as claude-sonnet-5-5."
+	if !hireModelAllowed(model) {
+		return setupHire{}, http.StatusBadRequest, hireModelRefusal
 	}
 	nickname, _ := given["nickname"].(string)
 	nickname = trimSwiftSpace(nickname)
-	if utf8.RuneCountInString(nickname) > longestNickname || strings.ContainsAny(nickname, "\r\n  \u0085") {
-		return setupHire{}, http.StatusBadRequest, "A nickname is one line of at most 40 characters."
+	if !hireNicknameAllowed(nickname) {
+		return setupHire{}, http.StatusBadRequest, hireNicknameRefusal
 	}
 	t3, known := checkedHireEngine(given["engine"])
 	if !known {

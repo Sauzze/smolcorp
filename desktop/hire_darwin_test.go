@@ -445,12 +445,12 @@ func TestUnderTheMacAppTheGMRoutesHireIsRefusedInTheEnginesWords(t *testing.T) {
 // Linux and Windows; on its own, the words name those.
 func TestUnderTheMacAppTheGMRoutesFieldRefusalSpeaksOfThisEngine(t *testing.T) {
 	d, r, h, token := gmHireDeck(t)
-	want := "The General Manager's hire can't honour \"model\" yet: leave it out."
-	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","model":"opus"}`); code != http.StatusBadRequest || !strings.HasPrefix(text, "Smolcorp on Linux and Windows") {
+	want := "The General Manager's hire can't honour \"apiKey\" yet: leave it out."
+	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","apiKey":true}`); code != http.StatusBadRequest || !strings.HasPrefix(text, "Smolcorp on Linux and Windows") {
 		t.Errorf("on its own: %d %q", code, text)
 	}
 	ran := macApp(t, d)
-	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","model":"opus"}`); code != http.StatusBadRequest || text != want {
+	if code, text := postGMHire(t, d, asGMCaller, token, `{"role":"janitor","apiKey":true}`); code != http.StatusBadRequest || text != want {
 		t.Errorf("under the Mac app: %d %q, want 400 %q", code, text, want)
 	}
 	if len(*ran) != 0 {

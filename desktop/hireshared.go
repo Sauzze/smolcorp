@@ -96,18 +96,15 @@ const engineAutoMode = runtime.GOOS == "darwin"
 // for every system: Take over (t3takeover.go) refuses a hire without one, on Windows too.
 const hireSocketPrefix = "smolcorp-"
 
-// hireBrief writes a hire's brief where the Mac's HireDesk writes it: a
-// managed hire's (one with a worktree) in its own folder in Smolcorp's, any
-// other's in Smolcorp's briefs folder. Nil for a role on its own
-// instructions, or an agent that takes no first message (Grok).
+// hireBrief writes an engine hire's brief in its own folder in Smolcorp's, hires/<id>/, with or without a worktree:
+// its status files go beside it, where it may write (a GM in a folder that isn't a repo keeps its TEAM-BOARD there).
+// Never in Smolcorp's briefs folder, which holds other desks' briefs and which every desk's fence keeps it from
+// changing. Nil for a role on its own instructions, or an agent that takes no first message (Grok).
 func hireBrief(r engineRequest, place hirePlace, hireID string, now time.Time) (*briefMade, error) {
 	if Agent(r.Role.Agent) == Grok {
 		return nil, nil
 	}
-	managed := ""
-	if place.Worktree != "" {
-		managed = hireFolder(supportDir, hireID)
-	}
+	managed := hireFolder(supportDir, hireID)
 	return makeBrief(briefRequest{role: r.Role, library: editableBriefs(bundledBriefs(), briefTemplatesDir()), folder: place.Folder,
 		pinned: r.How == hiredAtPinnedDesk, picked: r.pickedIn(place), desk: r.Desk, answers: r.Answers, task: r.Task, managed: managed, date: now,
 		kept: briefsKeptDir(), write: true})

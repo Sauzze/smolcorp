@@ -734,9 +734,10 @@ func TestAnEngineHireIsToldToReadTheBriefWrittenForIt(t *testing.T) {
 	}
 }
 
-// Outside git there's no worktree: the brief goes in Smolcorp's briefs folder, named for the desk, and is taken
-// away again if the hire doesn't go ahead.
-func TestAnEngineHireOutsideGitKeepsItsBriefInSmolcorpsFolder(t *testing.T) {
+// Outside git there's no worktree: the brief still goes in the hire's own folder, hires/<id>/ (FXGMHIRE126), never
+// in Smolcorp's briefs folder, which its fence keeps it from changing; and it is taken away again, with that folder,
+// if the hire doesn't go ahead.
+func TestAnEngineHireOutsideGitKeepsItsBriefInItsOwnFolder(t *testing.T) {
 	r := newEngineRig(t)
 	request := r.request("tester")
 	request.Role.Brief = &RoleBrief{Kind: "library", ID: "tester"}
@@ -747,15 +748,21 @@ func TestAnEngineHireOutsideGitKeepsItsBriefInSmolcorpsFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hire.Worktree != "" || filepath.Dir(hire.Brief) != briefsKeptDir() || !strings.HasPrefix(filepath.Base(hire.Brief), "2-tester-") {
+	if hire.Worktree != "" || hire.Brief != filepath.Join(hireFolder(supportDir, hire.ID), "BRIEF.md") {
 		t.Fatalf("the hire: %+v", hire)
+	}
+	if _, err := os.Stat(hire.Brief); err != nil {
+		t.Fatal(err)
 	}
 	r.tmux.starts = false
 	if _, err := runManagedHire(request, r.o); err == nil {
 		t.Fatal("a hire tmux didn't start went ahead")
 	}
-	if kept, _ := filepath.Glob(filepath.Join(briefsKeptDir(), "*.md")); len(kept) != 1 || kept[0] != hire.Brief {
-		t.Errorf("briefs kept: %v", kept)
+	if kept, _ := filepath.Glob(filepath.Join(supportDir, "hires", "*", "BRIEF*.md")); len(kept) != 1 || kept[0] != hire.Brief {
+		t.Errorf("briefs left: %v", kept)
+	}
+	if kept, _ := filepath.Glob(filepath.Join(briefsKeptDir(), "*.md")); len(kept) != 0 {
+		t.Errorf("briefs in Smolcorp's briefs folder: %v", kept)
 	}
 }
 

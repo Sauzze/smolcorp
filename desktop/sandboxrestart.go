@@ -66,7 +66,7 @@ func restartDesk(h Hire, role Role, account string, profiles []claudeProfile, o 
 	// Linux, once desks start in their sandbox there (RT126SAL2 S1).
 	settings, err := writeHireSettings(hireSettingsOptions{HireID: h.ID, Auto: engineAutoMode, Profile: guardHire, CLI: o.CLI,
 		Support: supportDir, ReportPort: testPort, Profiles: profiles, Run: o.Guard, IsExec: o.IsExec, OwnClaude: true,
-		Kept: deskKeptFolder(runtime.GOOS, tmux.sandboxed, h.ID)})
+		Kept: deskKeptFolder(runtime.GOOS, tmux.sandboxed, h.ID), ReadsOwnFolder: !engineAutoMode})
 	if err != nil {
 		return stopped("its settings, its fence, couldn't be made.")
 	}

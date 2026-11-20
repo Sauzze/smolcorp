@@ -47,7 +47,7 @@ func TestAnEngineHireIntoAPickedProjectIsToldItAndNotAskedWhich(t *testing.T) {
 		t.Fatalf("its brief: %v", err)
 	}
 	brief := string(data)
-	if want := pickedWords(startFolder(h), "lib", h.Branch); !strings.Contains(brief, want) {
+	if want := pickedWords(hiresStartFolder(h), "lib", h.Branch); !strings.Contains(brief, want) {
 		t.Errorf("its brief doesn't say %q:\n%s", want, brief)
 	}
 	if want := "\n\n1. Which project or area should you tidy up?\n2. "; !strings.Contains(brief, want) {
@@ -68,7 +68,7 @@ func TestAnEngineHireIntoAPickedProjectIsToldItAndNotAskedWhich(t *testing.T) {
 		t.Fatalf("a role on its own instructions got a brief: %s", own.Brief)
 	}
 	words := startWords(t, own.ID)
-	want := pickedWords(startFolder(own), "lib", own.Branch) + " Your first reply must only ask me the questions below"
+	want := pickedWords(hiresStartFolder(own), "lib", own.Branch) + " Your first reply must only ask me the questions below"
 	if !strings.Contains(words, want) || !strings.Contains(words, "\n\n1. Which project or area should you tidy up?\n") ||
 		!strings.Contains(words, "Once I've answered, as my Janitor: Tidy what you're asked to.") {
 		t.Errorf("its first message doesn't say %q, then the janitor's questions and instructions:\n%s", want, words)
@@ -78,8 +78,8 @@ func TestAnEngineHireIntoAPickedProjectIsToldItAndNotAskedWhich(t *testing.T) {
 	}
 }
 
-// startFolder is where hire h's agent starts: its own worktree, or the folder it was hired into.
-func startFolder(h Hire) string {
+// hiresStartFolder is where hire h's agent starts: its own worktree, or the folder it was hired into.
+func hiresStartFolder(h Hire) string {
 	if h.Worktree != "" {
 		return h.Worktree
 	}
@@ -125,7 +125,7 @@ func TestAPlainHireIntoAPickedProjectIsToldItAndNotAskedWhich(t *testing.T) {
 	if i := slices.Index(window, "--project"); i < 0 || window[i+1] != "lib" || branch == "" || run.role != "janitor" {
 		t.Fatalf("its launcher wasn't told the project lib and its branch: %q", window)
 	}
-	args, err := run.roleStartArguments(folder, "")
+	args, err := run.roleStartArguments(folder, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func plainHireAsksWhich(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	args, err := run.roleStartArguments(h.dirs[0], "")
+	args, err := run.roleStartArguments(h.dirs[0], "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestAPinnedDesksHireIsToldItsProjectAsBefore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	args, err := run.roleStartArguments(api, "")
+	args, err := run.roleStartArguments(api, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func TestAPlainHiresLauncherIsToldOnlyAProjectInTheFolderAndItsDesksBranch(t *te
 		t.Fatal(err)
 	}
 	notes := filepath.Join(homeDir, "Projects", "notes")
-	args, err := run.roleStartArguments(notes, "")
+	args, err := run.roleStartArguments(notes, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestAPlainHiresLauncherIsToldOnlyAProjectInTheFolderAndItsDesksBranch(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if args, err = run.roleStartArguments(notes, ""); err != nil {
+	if args, err = run.roleStartArguments(notes, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if want := ", your own worktree of li\\nb, the project you were hired for, on your own branch hire/" + desk + "/janitor-0a1b2c. Your first reply"; !strings.Contains(args[len(args)-1], want) {
