@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"errors"
+	"net/http"
 	"os/exec"
 	"runtime"
 	"testing"
@@ -50,6 +51,54 @@ func TestSetupChoosesTheHiresFolderWithThePicker(t *testing.T) {
 	hasFolderPicker = func() bool { return false }
 	if code := choose(); code != 404 {
 		t.Errorf("with no picker: %d", code)
+	}
+}
+
+// The folder picker is the page's alone: a GM, a tool and a hire are refused the way every closed route refuses, and
+// the stand-in picker is never asked, with pick=1 or for=floor as well. The page's call reaches the picker.
+func TestTheFolderPickerIsOpenedByThePageAlone(t *testing.T) {
+	d := newTestDeck(t)
+	gm, hireKey := withGMAndAHire(t, d)
+	opened := 0
+	fakePicker(t, func(string) (string, bool, error) {
+		opened++
+		return "", false, nil
+	})
+	for _, query := range []string{"", "?pick=1", "?pick=1&for=floor"} {
+		for _, who := range []caller{callerGM, callerTool, callerHire, callerNobody} {
+			c := asCaller(who, gm, hireKey)
+			c.method, c.target, c.host, c.from = "POST", "/setup/hiring/choose"+query, "localhost:7710", thisComputer
+			if c.headers == nil {
+				c.headers = map[string]string{}
+			}
+			c.headers[setupHeader] = "1"
+			code := serve(t, d, c).Code
+			if who == callerNobody {
+				if code != http.StatusUnauthorized {
+					t.Errorf("nobody on %q: %d, want 401", query, code)
+				}
+			} else if code != http.StatusForbidden {
+				t.Errorf("caller %s on %q: %d, want 403", who.name(), query, code)
+			}
+		}
+	}
+	if opened != 0 {
+		t.Fatalf("a refused caller opened the picker %d times", opened)
+	}
+	page := call{method: "POST", target: "/setup/hiring/choose", host: "localhost:7710", from: thisComputer, headers: map[string]string{setupHeader: "1"}}
+	if code := serve(t, d, page).Code; code != http.StatusOK || opened != 1 {
+		t.Errorf("the page: %d, the picker opened %d times", code, opened)
+	}
+	// The GM still changes how hires start through the hiring settings, but never the folder for hires: every hire's
+	// sandbox holds it, so it's the page's alone (RT126SWEEP3 P4 B1).
+	for target, want := range map[string]bool{"/setup/hiring": true, "/setup/hiring?folder=" + homeDir: false, "/setup/hire-folder": false} {
+		c := asCaller(callerGM, gm, hireKey)
+		c.method, c.target, c.host, c.from = "POST", target, "localhost:7710", thisComputer
+		c.headers[setupHeader] = "1"
+		code := serve(t, d, c).Code
+		if refused := code == http.StatusForbidden || code == http.StatusUnauthorized; refused == want {
+			t.Errorf("the GM on %s: %d, let in %v", target, code, want)
+		}
 	}
 }
 

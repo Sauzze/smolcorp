@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -50,6 +51,9 @@ type launcherEngineOptions struct {
 	Grace time.Duration
 	Now   func() time.Time
 	Pause func(time.Duration)
+	// As engineOptions'.
+	KeepWorktree bool
+	StoreLook    storeLook
 }
 
 func (o launcherEngineOptions) withDefaults() launcherEngineOptions {
@@ -99,6 +103,10 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	if err := testCopyRefusal(r.TestPort, string(Claude), r.ConfigDir); err != nil {
 		return Hire{}, "", err
 	}
+	// A Claude Code that can't make a stopped guard refuse gets no desk (SANDBOX-PLAN §3.4).
+	if refusal := claudeVersionRefusal(); refusal != nil {
+		return Hire{}, "", refusal
+	}
 	if r.APIKey {
 		return Hire{}, "", &hireRefusal{Status: http.StatusConflict, Message: "A hire on the API key isn't set up through the launcher yet, so none is started."}
 	}
@@ -106,15 +114,21 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 		return Hire{}, "", &hireRefusal{Status: http.StatusInternalServerError, Message: "The hire's window can't be opened here."}
 	}
 	id := strings.ToLower(newID())[:12]
-	place, err := prepareHire(hireRequest{HireID: id, Name: r.Role.Name, Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir,
-		APIKey: r.APIKey, Worktree: true},
-		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: o.Git, PortFree: o.PortFree, Key: o.Key})
+	// Its nickname names its worktree and branch, as the tmux engine's (runEngineHire).
+	place, err := prepareHire(hireRequest{HireID: id, Name: cmpOr(r.Nickname, r.Role.Name), Folder: r.Folder, Claude: true, ConfigDir: r.ConfigDir, Held: r.Held,
+		APIKey: r.APIKey, Worktree: true, KeepCarried: true, GM: r.Role.ID == gmRole},
+		hirePlaceOptions{Worktrees: o.Worktrees, Taken: takenPorts(), Git: gitUntil(o.Git, time.Now().Add(hirePlaceDeadline)),
+			PortFree: o.PortFree, Key: o.Key, Hold: true}) // one deadline for its place (hirePlaceDeadline, RT126SWEEP4 part 3's B1)
+	defer releaseHirePorts(place.Ports) // its row holds them by then, or it was refused
 	if err != nil {
 		return Hire{}, "", err
 	}
+	// Its undos take the tree back through the roots the carry kept, on record until this hire ends, never by its path
+	// (FXGMHIRENOGIT126R5, R14, as the tmux engine's): nothing of its agent runs before its window opens.
+	defer forgetCarried(place.Branch)
 	undo := func() {
 		if place.Worktree != "" {
-			removeWorkspace(place.Repo, place.Worktree, place.Branch, o.Git)
+			takeBackTree(place.Repo, place.Worktree, place.Branch, o.Git)
 		}
 		_ = os.RemoveAll(hireFolder(supportDir, id))
 	}
@@ -126,15 +140,37 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	if r.Role.ID == gmRole {
 		profile = guardGM
 	}
-	settings, err := writeHireSettings(hireSettingsOptions{HireID: id, Profile: profile, CLI: o.CLI, Support: supportDir, ReportPort: r.TestPort, Run: o.Guard, IsExec: o.IsExec})
+	// It starts in Claude Code's default mode: its own folder is readable without a question, so its brief is.
+	settings, err := writeHireSettings(hireSettingsOptions{HireID: id, Profile: profile, CLI: o.CLI, Support: supportDir, ReportPort: r.TestPort, Profiles: r.Profiles, Run: o.Guard, IsExec: o.IsExec,
+		ReadsOwnFolder: true})
 	if err != nil {
 		undo()
 		return Hire{}, "", err
 	}
+	// Its brief, as the Mac writes it. The launcher is handed the first message
+	// with the hire's environment, so it says to read the brief.
+	message, brief, err := engineBrief(r, place, id, o.Now())
+	if err != nil {
+		return fail(http.StatusInternalServerError, err.Error())
+	}
+	// The branch words, on the rule every engine's hire on its own branch is told by (FXGITROWS2R6, O1): only an agent
+	// its sandbox holds. The launcher of an engine hire (--hire-id) never starts its agent in one (launcher.go), so
+	// nothing is said here, which is true: no row holds its git.
+	message += deskStartWords(deskBranchWords(runtime.GOOS, false, r.Role.ID == gmRole, place.Branch))
+	if brief != "" && place.Worktree == "" {
+		undoSettings := undo
+		undo = func() {
+			_ = os.Remove(brief) // written for this hire a moment ago, and read by no one
+			undoSettings()
+		}
+	}
 	// The hire is written down before its key is made (a key's hash is kept against
 	// its row). It has no tmux socket: its launcher is known by its id.
-	hire = Hire{ID: id, Name: r.Role.Name, Role: r.Role.ID, Folder: place.Folder, Branch: place.Branch, Worktree: place.Worktree, Repo: place.Repo,
-		ViaLauncher: true, Model: r.Role.Model, Ports: place.Ports, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note}
+	hire = Hire{ID: id, Name: r.Role.Name, Nickname: r.Nickname, Account: r.AccountName, Role: r.Role.ID, Folder: keptPath(r.Folder), Branch: place.Branch, Worktree: keptPath(place.Worktree), Repo: place.Repo,
+		ViaLauncher: true, Model: r.Role.Model, Ports: place.Ports, Brief: brief, Started: float64(o.Now().UnixMilli()), State: "starting", Notes: place.Note}
+	// Its start is under way from its row until its token waits for its window (launcherWaitsFor): the edit never
+	// marks it gone meanwhile (gonedesk.go).
+	defer deskStarting(id)()
 	if err := updateRegistry(func(f *registryFile) { f.hires = append(f.hires, hire) }); err != nil {
 		return fail(http.StatusInternalServerError, "Couldn't save the hire in the registry.")
 	}
@@ -147,10 +183,18 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	if err != nil {
 		return fail(http.StatusInternalServerError, "Couldn't make the hire's send key.")
 	}
+	hookKey, err := newHookKey(registryPath(), id)
+	if err != nil {
+		return fail(http.StatusInternalServerError, "Couldn't make the hire's hook key.")
+	}
 	gmToken := ""
 	if r.Role.ID == gmRole {
 		if r.GMToken != nil {
 			gmToken = r.GMToken()
+		}
+		if gmToken == "" && recordsHeldOnly() {
+			// Its token can't be kept while the records' key can't be read (gmTokenKeeper.writeNow).
+			return fail(http.StatusConflict, recordsHeldAnswer)
 		}
 		if gmToken == "" {
 			return fail(http.StatusInternalServerError, "Couldn't make the General Manager's token.")
@@ -161,13 +205,26 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 		return fail(http.StatusInternalServerError, "A hire never holds a send key with the General Manager's token.")
 	}
 	// What the launcher sets on the agent's process, and only there.
-	env := hireStartEnv{Set: map[string]string{}, PathFirst: filepath.Dir(o.CLI)}
+	// Its model too: the launcher reads the role again from the config, which knows nothing of a model this hire was
+	// given (setup's sheet, the GM's hire).
+	env := hireStartEnv{Set: map[string]string{}, PathFirst: filepath.Dir(o.CLI), Settings: settings.Path, SettingsSum: settings.Sum,
+		Model: r.Role.Model}
+	for _, change := range deskToolEnvironment { // as a tmux desk has them
+		env.Set[change.Name] = change.Value
+	}
+	if brief != "" {
+		env.Message = message
+		if r.StartTyped != nil {
+			r.StartTyped(message)
+		}
+	}
 	if place.Ports != "" {
 		env.Set["SMOLCORP_HIRE_PORTS"] = place.Ports
 	}
 	if sendKey != "" {
 		env.Set[hireKeyEnvironment] = sendKey
 	}
+	env.Set[hookKeyEnvironment] = hookKey
 	if gmToken != "" {
 		env.Set["SMOLCORP_GM_TOKEN"] = gmToken
 	} else {
@@ -178,14 +235,23 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	} else if r.DefaultAccount {
 		env.Unset = append(env.Unset, "CLAUDE_CONFIG_DIR")
 	}
+	if r.Role.ID == gmRole { // as a tmux GM has them (claudeMemoryStart)
+		for _, change := range claudeMemoryStart {
+			if change.Unset {
+				env.Unset = append(env.Unset, change.Name)
+			} else {
+				env.Set[change.Name] = change.Value
+			}
+		}
+	}
 	token = newID()
 	o.Expect(token, id, env)
-	// Only ids, names and the settings file's path are on the command line.
-	command := []string{o.CLI, "run", "--hire", token, "--hire-id", id, "--agent", string(Claude), "--role", r.Role.ID, "--settings=" + settings}
+	// Only ids and names are on the command line: the settings come with the environment.
+	command := []string{o.CLI, "run", "--hire", token, "--hire-id", id, "--agent", string(Claude), "--role", r.Role.ID}
 	if err := o.Open(command, place.Folder); err != nil {
 		// It was written down, so its row stays, marked failed (its key with it: a failed hire's key works no more).
 		o.Forget(token)
-		setHire(id, "failed", "Its window didn't open.")
+		failHire(id, "Its window didn't open.")
 		undoMade()
 		return Hire{}, "", &hireRefusal{Status: http.StatusInternalServerError, Message: "The terminal didn't open."}
 	}
@@ -280,19 +346,10 @@ func (d *Deck) cleanUpLauncherHire(hire Hire, token, reason string, o launcherEn
 		return
 	}
 	left := ""
-	if hire.Worktree != "" && !removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(hire) {
-		left = " Its worktree " + hire.Worktree + " was kept: it has changes, or git wouldn't remove it."
+	if !hire.Worktree.none() && !removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(hire) {
+		left = " Its worktree " + hire.Worktree.storedOnly() + " was kept: " + treeKeptWhy(hire, "it has changes, or git wouldn't remove it.")
 	}
 	setHire(hire.ID, "failed", firstRunes("Didn't start: "+reason+"."+left, longestNotes))
-}
-
-// hireDir is where hire h runs: its worktree, or its folder when it has none
-// (a folder that isn't a git repo).
-func hireDir(h Hire) string {
-	if h.Worktree != "" {
-		return h.Worktree
-	}
-	return h.Folder
 }
 
 // launcherHolds is whether a connected launcher is hire h's window: the one its
@@ -302,7 +359,7 @@ func (d *Deck) launcherHolds(h Hire) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	tree := ""
-	if dir := hireDir(h); dir != "" {
+	if dir := h.storedPlace(); dir != "" { // compared only
 		tree = physical(dir)
 	}
 	for _, tab := range d.launchers {
@@ -328,7 +385,7 @@ func hiresWorkingIn(hires []Hire, folder string) []Hire {
 	}
 	where := physical(folder)
 	for _, h := range hires {
-		if dir := hireDir(h); h.ViaLauncher && dir != "" && (h.State == "starting" || h.State == "working") && within(physical(dir), where) {
+		if dir := h.storedPlace(); h.ViaLauncher && dir != "" && (h.State == "starting" || h.State == "working") && within(physical(dir), where) {
 			rows = append(rows, h)
 		}
 	}
@@ -401,35 +458,60 @@ func (d *Deck) forgetLauncher(token string) {
 // it hires role roleID through the launcher engine and says what to answer,
 // or handled false: the switch is off, no terminal, or no such role, so it
 // opens as it did. The lock is let go while the engine works.
-func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int) (status int, message string, handled bool) {
+// account, when not nil, says the Claude account it works on (its name and folder): the launcher starts it there.
+// extra, when not nil, is what the GM route asks besides (its task, its account), applied whole.
+//
+// gitBy, when given and not zero, is the deadline of a hire the General Manager asked for (gmHireDeadline): no git of
+// the hire starts after it (gitUntil).
+func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int, account, extra *setupHire, gitBy ...time.Time) (status int, message string, handled bool) {
 	i := slices.IndexFunc(d.config.Roles, func(r Role) bool { return r.ID == roleID })
 	if i < 0 || !d.config.HireManagedWindows || !hasTerminal {
 		return 0, "", false
 	}
 	role := d.config.Roles[i]
 	options, testPort := d.launcherEngine, testCopyPort()
+	if len(gitBy) > 0 && !gitBy[0].IsZero() {
+		options.Git = gitUntil(options.Git, gitBy[0])
+	}
 	if options.HeardFrom == nil {
 		options.HeardFrom = d.hireHeardFrom
 	}
 	if options.Open == nil {
-		options.Open = func(command []string, where string) error { return openWindow(terminal, where, inLoginShell(command)) }
+		// The launcher as it is, never through a login shell of Smolcorp's (openHire).
+		options.Open = func(command []string, where string) error { return openWindow(terminal, where, command) }
 	}
 	// The desk chosen (held, on floor) comes with the launcher's token, as it does for any hire.
 	options.Expect = func(token, hireID string, env hireStartEnv) { d.expectLauncherAt(token, hireID, env, held, floor) }
 	options.Forget = d.forgetLauncher
-	request := engineRequest{Role: role, How: hiredIntoGeneralFolder, Folder: folder, DefaultAccount: true, TestPort: testPort}
+	request := engineRequest{Role: role, How: hiredIntoGeneralFolder, Folder: folder, DefaultAccount: true, TestPort: testPort, Desk: briefDesk(held, floor)}
+	if account != nil {
+		request.AccountName = account.Account
+		if account.configDir != "" {
+			request.ConfigDir, request.DefaultAccount = account.configDir, false
+		}
+	}
+	// The accounts' settings and transcripts are denied to the hire, as in tmux (managedHireWith): the saved list is
+	// copied here, and its folders are looked in once the lock is let go.
+	savedAccounts := slices.Clone(d.config.ClaudeProfiles)
+	// What the GM route asks besides (its task, its account), or nil.
+	if extra != nil {
+		extra.apply(&request, d.config.ManagerEnabled)
+	}
 	// The GM gets a new token at its hire, handed to its launcher alone; the one it
 	// was given is taken away again if the hire doesn't go ahead or never starts.
 	gmToken := ""
 	if role.ID == gmRole {
 		request.GMToken = func() string { gmToken = d.newGMToken(); return gmToken }
+		request.StartTyped = d.owner.notOwners
 	}
 	d.mu.Unlock()
+	request.Profiles = claudeDenyProfiles(savedAccounts)
 	hire, token, err := runLauncherHire(request, options)
 	d.mu.Lock()
 	if err != nil {
 		if gmToken != "" && constantTimeEqual(d.gmToken, gmToken) {
 			d.gmToken = "" // d.mu is held: clearGMToken would take it again
+			d.gmTokenChanged()
 		}
 		d.lastHire = time.Time{} // nobody was hired, so the next try needn't wait
 		if refused, ok := err.(*hireRefusal); ok {
@@ -437,6 +519,7 @@ func (d *Deck) managedLauncherHire(roleID, folder string, terminal hireOpener, h
 		}
 		return http.StatusInternalServerError, err.Error(), true
 	}
+	d.hiredInto(hire)
 	d.watching.Add(1)
 	go func() {
 		defer d.watching.Done()
@@ -462,23 +545,32 @@ func (d *Deck) fireLauncherHire(h Hire, o launcherEngineOptions, force bool) (ke
 	}
 	firing.Lock()
 	if firing.ids[h.ID] {
-		firing.Unlock()
-		return refuse(calledHire(h) + " is being fired already.")
+		defer firing.Unlock()
+		return refuse(beingFiredAlready(h))
 	}
 	firing.ids[h.ID] = true
 	firing.Unlock()
 	defer func() { firing.Lock(); delete(firing.ids, h.ID); firing.Unlock() }()
 
+	// A hire whose row already says gone is only stopped, if its window is still connected (gonedesk.go): its
+	// worktree, recap and row are left as they are.
+	gone := false
 	for _, now := range readRegistry(registryPath(), false).hires {
 		if now.ID == h.ID && (now.State == "fired" || now.State == "failed") {
-			return refuse(calledHire(h) + " is already gone.")
+			h.State, gone = now.State, true
 		}
 	}
 	launcher, tab := d.launcherOf(h.ID)
+	if gone && h.ViaLauncher && tab == nil && d.idlessWindowIn(h) {
+		return refuse(calledHire(h) + " is already marked " + h.State + ", but a window connected again in its worktree without its id, and Smolcorp can't end that: close it there.")
+	}
+	if gone && (tab == nil || !h.ViaLauncher) {
+		return refuse(alreadyGone(h))
+	}
 	if tab == nil || !h.ViaLauncher {
 		return refuse("Couldn't reach " + calledHire(h) + "'s window, so nothing was changed.")
 	}
-	if h.Worktree != "" && !force {
+	if !h.Worktree.none() && !force && !gone {
 		if message := uncommittedRefusal(h, o.Git); message != "" {
 			return refuse(message)
 		}
@@ -501,14 +593,37 @@ func (d *Deck) fireLauncherHire(h Hire, o launcherEngineOptions, force bool) (ke
 	if !d.stopLauncherOf(h.ID, o.StopWait) {
 		return refuse("Couldn't end " + calledHire(h) + "'s window, so nothing was changed.")
 	}
-	removed := h.Worktree != "" && removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(h)
-	writeRecap(h, "", removed, o.Now())
-	if h.Worktree != "" && !removed {
-		kept = "it has changes, or git wouldn't remove it"
-		markFired(h.ID, "Its worktree "+h.Worktree+" was kept: "+kept+".")
+	if gone {
+		return "", stoppedGone(h, "window")
+	}
+	if refused := heldFire(h, "window"); refused != nil {
+		d.failHeldMail(h, refused)
+		return "", refused
+	}
+	// The repo's stored objects are hashed again before the merged look (firefsck.go).
+	storeKept := ""
+	hasTree := !h.Worktree.none()
+	if hasTree && !o.KeepWorktree {
+		if _, _, own := hiresOwnWorktree(o.Git, o.Worktrees, h); own {
+			storeKept = fireStoreKept(h, o.StoreLook)
+		}
+	}
+	removed := storeKept == "" && hasTree && !o.KeepWorktree && removeLauncherHireWorktree(o.Git, o.Worktrees, d.launcherGoneFor)(h)
+	writeRecapMoved(h, "", removed, hasTree && !removed && hireTreeMoved(h), o.Now())
+	// Its launcher is seen gone: what's in its place is listed once more, and it's on record (CLAUDEPLANT1).
+	if storeKept != "" {
+		markFired(h.ID, storeKept)
+		claudeHireEnded(h.ID)
+		return storeKept, nil
+	}
+	if hasTree && !removed && !o.KeepWorktree {
+		kept := firedKept(o.Git, h)
+		markFired(h.ID, firedKeptNote(h.Worktree.storedOnly(), kept))
+		claudeHireEnded(h.ID)
 		return kept, nil
 	}
 	markFired(h.ID, "")
+	claudeHireEnded(h.ID)
 	return "", nil
 }
 
@@ -545,12 +660,17 @@ func (d *Deck) fireLauncherTab(tab string, force bool) (status int, message stri
 	if !found {
 		return 0, "", false
 	}
-	if _, err := d.fireLauncherHire(h, options, force); err != nil {
+	stopped := "" // its row already said gone and only its window was ended (gonedesk.go): cleaned up as a fire
+	kept, err := d.fireLauncherHire(h, options, force)
+	if err != nil {
 		var refused *hireRefusal
-		if errors.As(err, &refused) {
+		if errors.As(err, &refused) && refused.Status == http.StatusOK {
+			stopped = refused.Message
+		} else if errors.As(err, &refused) {
 			return refused.Status, refused.Message, true
+		} else {
+			return http.StatusInternalServerError, err.Error(), true
 		}
-		return http.StatusInternalServerError, err.Error(), true
 	}
 	// A fired GM's token stops working unless another GM is open by now
 	// (clearFiredGMToken), and mail still waiting for the hire fails now rather than on the pump's next round.
@@ -570,5 +690,16 @@ func (d *Deck) fireLauncherTab(tab string, force bool) (status int, message stri
 		d.changed()
 	}
 	d.mu.Unlock()
+	if stopped != "" {
+		return http.StatusOK, stopped, true
+	}
+	note := heldFireNote(h)
+	if kept != firedWorktreeKept {
+		// A worktree kept for changed stored objects is said now (firefsck.go); one kept for its changes, on its card.
+		note = joinNote(note, kept)
+	}
+	if note != "" {
+		return http.StatusOK, note, true
+	}
 	return http.StatusNoContent, "", true
 }

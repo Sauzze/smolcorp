@@ -9,9 +9,16 @@ import (
 // ptyOutput is a capture as the launcher's pty would send it: CRLF line ends.
 func ptyOutput(capture string) string { return strings.ReplaceAll(capture, "\n", "\r\n") }
 
+// The console's code page, an input of the screen (screenCodePage): a Western one, on which Ambiguous characters
+// are one cell, and a Japanese one, on which they may be two.
+var (
+	westernCP = screenCodePage{output: 1252, locale: localeNotCJK}
+	cjkCP     = screenCodePage{output: 932, locale: localeCJK}
+)
+
 func drawn(t *testing.T, rows, cols int, out string) *textScreen {
 	t.Helper()
-	s := newTextScreen(rows, cols)
+	s := newTextScreen(rows, cols, westernCP)
 	if n, err := s.Write([]byte(out)); err != nil || n != len(out) {
 		t.Fatalf("Write: %d, %v", n, err)
 	}
@@ -33,7 +40,7 @@ func TestScreenGivesTheStatesReadPaneStateGivesOnTheFixtures(t *testing.T) {
 		decorated := "\x1b[?25l\x1b[?2004h\x1b]0;claude\x07\x1b[38;5;174m" +
 			strings.ReplaceAll(ptyOutput(capture), "❯", "\x1b[1m❯\x1b[0m") + "\x1b[?25h"
 		whole := drawn(t, 60, 200, ptyOutput(capture))
-		bytewise := newTextScreen(60, 200)
+		bytewise := newTextScreen(60, 200, westernCP)
 		for _, b := range []byte(decorated) {
 			bytewise.Write([]byte{b})
 		}
@@ -103,16 +110,22 @@ func TestScreenScrollsAtTheBottomWrapsAndTabs(t *testing.T) {
 	if got := s.Text(); got != "a       b               c\n" {
 		t.Errorf("tabs: %q", got)
 	}
-	s = drawn(t, 2, 10, "\x1b]0;a title\x1b\\\x1b]8;;http://x\x07hi")
+	s = drawn(t, 2, 10, "\x1b]0;a title\x1b\\\x1b]2;another\x07hi")
 	if got := s.Text(); got != "hi\n" || s.Unknown() {
-		t.Errorf("osc skipped: %q, unknown %v", got, s.Unknown())
+		t.Errorf("titles skipped: %q, unknown %v", got, s.Unknown())
+	}
+	// Any other OSC is off the allow-list (FXWINSCREENR3): of unknown effect. (A link, OSC 8, joined the titles on
+	// it in FXSCREENSTART126.)
+	if s = drawn(t, 2, 10, "\x1b]52;c;aGk=\x07hi"); s.Text() != "hi\n" || !s.Unknown() {
+		t.Errorf("the clipboard set: %q, unknown %v", s.Text(), s.Unknown())
 	}
 }
 
 func TestScreenResizes(t *testing.T) {
+	// Terminals differ on which lines a resized window shows (FXWINSCREENR2): unknown until a full redraw.
 	s := drawn(t, 4, 10, "a\r\nb\r\nc\r\nd")
 	s.Resize(2, 10)
-	if got := s.Text(); got != "c\nd" || s.Unknown() {
+	if got := s.Text(); got != "c\nd" || !s.Unknown() {
 		t.Errorf("fewer rows: %q, unknown %v", got, s.Unknown())
 	}
 	s.Resize(3, 20)
@@ -120,15 +133,15 @@ func TestScreenResizes(t *testing.T) {
 	if got := s.Text(); got != "c\nde\n" {
 		t.Errorf("larger: %q", got)
 	}
-	if s.Unknown() {
-		t.Error("larger window is unknown")
+	if !s.Unknown() {
+		t.Error("larger window is known")
 	}
 	// A narrower window may rewrap: unknown until the screen is erased.
 	s.Resize(3, 5)
 	if !s.Unknown() {
 		t.Error("narrower window is known")
 	}
-	s.Write([]byte("\x1b[2J"))
+	s.Write([]byte("\x1b[2J\x1b[H")) // the cursor too may have moved with the rewrap: put at a known place
 	if s.Unknown() {
 		t.Error("full erase didn't clear the narrower window")
 	}
@@ -142,29 +155,22 @@ func TestScreenNeverReadsIdleWhenItCannotDrawFaithfully(t *testing.T) {
 		t.Fatalf("control: %v", got)
 	}
 	for _, c := range []struct{ name, seq string }{
-		{"alternate screen", "\x1b[?1049h"},
-		{"alternate screen, old form", "\x1b[?47h"},
-		{"alternate screen left again", "\x1b[?1049h\x1b[?1049l"},
-		{"scroll region", "\x1b[3;20r"},
-		{"unknown CSI (insert lines)", "\x1b[2L"},
-		{"unknown CSI (next line)", "\x1b[1E"},
+		// (FXWINSCREEN: the alternate screen 1049, scroll regions, insert lines, next line, index up, save
+		// cursor, unknown erase modes, wide characters, emoji and combining marks are drawn now:
+		// launcherscreen_claude_test.go.)
+		{"alternate screen kept from before (old form)", "\x1b[?47h"},
 		{"unknown private mode (no autowrap)", "\x1b[?7l"},
-		{"unknown escape (index up)", "\x1bM"},
-		{"save cursor", "\x1b7"},
+		{"origin mode", "\x1b[?6h"},
+		{"insert mode", "\x1b[4h"},
+		{"unknown CSI that may move cells (repeat)", "\x1b[3b"},
+		{"tab stop set", "\x1bH"},
 		{"colon parameter", "\x1b[4:3H"},
 		{"unknown control byte", "\x0e"},
 		{"bad UTF-8", "\xff"},
-		{"wide character", "漢"},
-		{"emoji", "🙂"},
-		{"check mark emoji", "✅"}, {"cross mark emoji", "❌"}, {"high voltage", "⚡"},
-		{"star", "⭐"}, {"watch", "⌚"}, {"rocket", "🚀"}, {"magic wand", "🪄"},
 		{"CSI longer than the parameter limit", "\x1b[" + strings.Repeat("1", 100) + "H"},
-		{"combining accent", "é"},
-		{"line separator", "\u2028"}, {"angle bracket", "〈"}, {"Hangul Jamo vowel", "\u1160"},
-		{"Hangul Jamo extended-A", "\ua960"}, {"vertical form", "\ufe10"}, {"Tangut", "\U00017000"},
-		{"Kana extended", "\U0001b000"},
+		{"line separator", "\u2028"}, {"Hangul Jamo vowel", "\u1160"},
+		{"zero width joiner", "\u200d"}, {"flag letter", "\U0001f1eb"}, {"skin tone", "\U0001f3fd"},
 		{"endless OSC", "\x1b]0;" + strings.Repeat("x", 5000)},
-		{"erase mode we don't know", "\x1b[7J"},
 	} {
 		s := drawn(t, 60, 200, c.seq+idle)
 		if !s.Unknown() || s.PaneState() != PaneUnknown {
@@ -187,10 +193,12 @@ func TestScreenNeverReadsIdleWhenItCannotDrawFaithfully(t *testing.T) {
 	if s := drawn(t, 60, 200, "\x1b[?1049h\x1b[?1049l\x1b[2J"+idle); s.Unknown() || s.PaneState() != PaneIdle {
 		t.Error("alternate screen left and erased stays unknown")
 	}
-	if s := drawn(t, 60, 200, "\x1b[?1049h\x1b[2J"+idle); !s.Unknown() {
-		t.Error("alternate screen on is known after an erase")
+	// The alternate screen is drawn (FXWINSCREEN): an erase on it is known.
+	if s := drawn(t, 60, 200, "\x1b[?1049h\x1b[2J"+idle); s.Unknown() || s.PaneState() != PaneIdle {
+		t.Error("alternate screen on is unknown after an erase")
 	}
-	s := drawn(t, 60, 200, "\x1bM"+idle)
+	// An erase alone doesn't clear an unknown sequence: the cursor's place isn't known until it is put somewhere.
+	s := drawn(t, 60, 200, "\x0e"+idle)
 	s.Write([]byte("\x1b[2J"))
 	if !s.Unknown() {
 		t.Error("an unknown sequence was cleared by an erase")
@@ -210,22 +218,26 @@ func TestScreenAnAbortedOSCDoesNotHideWhatFollows(t *testing.T) {
 	busy := ptyOutput(paneBox("  ⏵⏵ auto mode on · esc to interrupt", "❯"))
 	s := drawn(t, 60, 200, idle)
 	s.Write([]byte("\x1b]0;t\x1b[H\x1b[2J" + busy))
-	if got := s.PaneState(); got != PaneBusy {
+	// A title cut off is off the allow-list (FXWINSCREENR3): unknown, never idle, until the next full redraw.
+	if got := s.PaneState(); got != PaneUnknown || s.Text() == "" {
 		t.Errorf("busy after an aborted OSC: %v", got)
+	}
+	if s.Write([]byte("\x1b[2J\x1b[H" + busy)); s.PaneState() != PaneBusy {
+		t.Errorf("busy after an aborted OSC and a full redraw: %v, why %q", s.PaneState(), s.Why())
 	}
 }
 
 func TestScreenTooBigASizeIsUnknownNotMemory(t *testing.T) {
-	s := newTextScreen(100000, 100000)
+	s := newTextScreen(100000, 100000, westernCP)
 	if !s.Unknown() || s.PaneState() != PaneUnknown {
 		t.Error("a huge size is known")
 	}
-	s = newTextScreen(10, 10)
+	s = newTextScreen(10, 10, westernCP)
 	s.Resize(1<<30, 1<<30)
 	if !s.Unknown() {
 		t.Error("a huge resize is known")
 	}
-	if s := newTextScreen(1000, 1000); s.Unknown() {
+	if s := newTextScreen(1000, 1000, westernCP); s.Unknown() {
 		t.Error("the largest size is unknown")
 	}
 }
@@ -290,7 +302,7 @@ func TestScreenAStreamOfClearsIsBounded(t *testing.T) {
 		{"erase display", "\x1b[2J"}, {"erase below", "\x1b[J"}, {"erase above", "\x1b[1J"},
 		{"one row dirtied, then cleared", "\x1b[Hx\x1b[2J"},
 	} {
-		s := newTextScreen(1000, 1000)
+		s := newTextScreen(1000, 1000, westernCP)
 		in := []byte(strings.Repeat(c.unit, 64<<10/len(c.unit)))
 		start := time.Now()
 		s.Write(in)

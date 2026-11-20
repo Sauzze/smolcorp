@@ -19,8 +19,13 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# Every check a release must pass, run again on the files being published,
+# before anything is checked or sent (scripts/release-gate.sh, which stops here
+# if one fails), --check included.
+. scripts/release-gate.sh
 
-VERSION="1.24.0"
+# Set both for the release being published; the checks below stop on a mismatch.
+VERSION="1.26.0"
 BRANCH="release-next"
 TAG="v$VERSION"
 RELEASE_BRANCH="release/$VERSION"
@@ -53,13 +58,11 @@ echo "Smolcorp $VERSION, from $BRANCH"
 
 # --- What's published: the branch's files, as committed, and nothing personal
 
-check "the files have changes that aren't committed: a release is published from what's committed." \
-  test -z "$(git status --porcelain --untracked-files=no)"
+# What's committed and nothing else, untracked files included: the gate checked it at the top.
 check "$BRANCH isn't here." git rev-parse --verify --quiet "$BRANCH^{commit}"
 TREE="$(git rev-parse "$BRANCH^{tree}")"
 check "$BRANCH isn't what's checked out, so the builds may not be its." test "$(git rev-parse HEAD^{tree})" = "$TREE"
-# The names that must never be published are in check-public.sh, as hashes only.
-check "the public check found something personal (scripts/check-public.sh says what)." scripts/check-public.sh
+# Nothing personal in them: the gate ran scripts/check-public.sh on HEAD's files at the top, and they're the branch's.
 check "the release notes' title doesn't say $VERSION." grep -q "^# Smolcorp $VERSION" RELEASE-NOTES.md
 TITLE="$(head -1 RELEASE-NOTES.md | sed 's/^# //')"
 

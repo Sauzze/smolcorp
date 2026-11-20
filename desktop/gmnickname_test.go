@@ -109,7 +109,7 @@ func TestTheOfficeRemembersAtMostFiftyPeopleToTheGM(t *testing.T) {
 	for i := 0; i < teamLimit; i++ {
 		layout.Room.Team[string(rune('a'+i%26))+strings.Repeat("z", i/26)] = TeamMember{}.checked()
 	}
-	_, _, refused := setNickname(&layout, []byte(`{"folder":"/work/app","name":"Ada"}`), []namePlace{{project: "/work/app", folder: "/work/app"}}, nil)
+	_, _, refused := setNickname(&layout, []byte(`{"folder":"/work/app","name":"Ada"}`), []namePlace{{project: "/work/app", folder: "/work/app"}}, nil, nil)
 	if refused == nil || refused.status != http.StatusConflict {
 		t.Errorf("the 51st person: %+v", refused)
 	}

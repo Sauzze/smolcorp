@@ -208,8 +208,13 @@ func TestSetupPageOfficeButtonReadsTheAnswer(t *testing.T) {
 			t.Errorf("the office button's handler makes a dead /office link (%q): %s", bad, handler)
 		}
 	}
-	if strings.Contains(handler, "in your browser") {
-		t.Errorf("the office button's handler says the browser, which isn't so on Windows: %s", handler)
+	// The browser alone isn't so on Windows (a window of its own), but Windows without WebView2 falls back
+	// to the browser, which the page can't tell: off the Mac, the words name both.
+	if strings.Contains(strings.ReplaceAll(handler, "in its own window, or in your browser", ""), "in your browser") {
+		t.Errorf("the office button's handler says only the browser, which isn't so on Windows: %s", handler)
+	}
+	if !strings.Contains(handler, "'The office is open: in its own window, or in your browser.'") {
+		t.Errorf("off the Mac, the office button's handler doesn't say the window or the browser: %s", handler)
 	}
 	for _, want := range []string{"res.ok", "startSaid(", "Show Office", "or open ${location.origin}/office in a browser on this computer and enter the code from Pair a phone."} {
 		if !strings.Contains(handler, want) {
@@ -225,7 +230,7 @@ func TestTheSetupLinkWordingSaysHowToGetANewLink(t *testing.T) {
 	d := newTestDeck(t)
 	var out bytes.Buffer
 	printSetupLink(&out, d)
-	if want := "It works once, for five minutes. For a new one, choose Open Setup… from the tray icon; with no tray, run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again.\n"; !strings.Contains(out.String(), want) {
+	if want := "It works once, for " + demoWaitWords(setupTokenLifetime) + ". For a new one, choose Open Setup… from the tray icon; with no tray, run smolcorp quit (or press Ctrl+C in its terminal), then start Smolcorp again.\n"; !strings.Contains(out.String(), want) {
 		t.Errorf("printed %q, want it to contain %q", out.String(), want)
 	}
 	lines := strings.Split(noTrayMessage, "\n")

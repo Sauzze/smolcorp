@@ -278,23 +278,23 @@ func reply(model string) string {
 }
 
 func TestTheModelIsReadFromATranscript(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "s1.jsonl")
+	path := filepath.Join(projectsFolder(t), "s1.jsonl")
 	writeFile(t, path, strings.Join([]string{
 		`{"type": "user", "message": {"role": "user", "content": "hi"}}`,
 		reply("claude-haiku-5-5"), reply("claude-opus-5-5"), reply("<synthetic>"), `not json`, "",
 	}, "\n"))
-	if got := firstModel(path); got != "claude-haiku-5-5" {
+	if got := firstModel(transcriptPlace(path), path); got != "claude-haiku-5-5" {
 		t.Errorf("first model %q, want claude-haiku-5-5", got)
 	}
 	if got := lastModel(path); got != "claude-opus-5-5" {
 		t.Errorf("last model %q, want claude-opus-5-5: an API error's notice isn't a model's", got)
 	}
-	if lastModel(filepath.Join(t.TempDir(), "none.jsonl")) != "" || firstModel("") != "" {
+	if lastModel(filepath.Join(projectsFolder(t), "none.jsonl")) != "" || firstModel("", "") != "" {
 		t.Error("a transcript that isn't there named a model")
 	}
 
 	// A long tool output: only the end is read, from the first whole line.
-	long := filepath.Join(t.TempDir(), "long.jsonl")
+	long := filepath.Join(projectsFolder(t), "long.jsonl")
 	writeFile(t, long, reply("claude-haiku-5-5")+"\n"+`{"output": "`+strings.Repeat("x", transcriptReach)+`"}`+"\n"+reply("claude-sonnet-5-5")+"\n")
 	if got := lastModel(long); got != "claude-sonnet-5-5" {
 		t.Errorf("last model of a long transcript %q, want claude-sonnet-5-5", got)
@@ -302,7 +302,7 @@ func TestTheModelIsReadFromATranscript(t *testing.T) {
 }
 
 func TestASubagentsTranscriptIsReadAtMostOnceASecond(t *testing.T) {
-	folder := t.TempDir()
+	folder := projectsFolder(t)
 	s := NewSessions()
 	s.Apply(event("UserPromptSubmit", "transcript_path", filepath.Join(folder, "s1.jsonl")), Claude, tab, "", 100)
 	s.Apply(event("SubagentStart", "agent_id", "a1", "agent_type", "Explore"), Claude, tab, "", 200)
@@ -531,5 +531,55 @@ func TestAPrunedSessionKeepsItsDeskForWhenItComesBack(t *testing.T) {
 	keys, _ := d.layout()
 	if len(keys) != 3 || keys[1].session == nil || keys[1].session.ID != "s1" {
 		t.Errorf("the session back from a drop isn't at its desk: %+v", keys)
+	}
+}
+
+// A session that lives for days has many turns, and none starts counting
+// from an earlier one: a prompt queued behind a turn, or work picked up with
+// no prompt at all, begins its own, and a turn's end clears it.
+func TestALongLivedSessionsTurnsEachStartTheirOwnTime(t *testing.T) {
+	const hour = 3_600_000.0
+	s := NewSessions()
+	s.Apply(event("SessionStart", "source", "startup"), Claude, tab, "", 0)
+	turnAt := func() float64 { return s.Get("s1").TurnStartedAt }
+
+	// Day one: a turn with tools and a message from another session in the middle of it.
+	s.Apply(event("UserPromptSubmit"), Claude, tab, "", 1*hour)
+	s.Apply(event("PreToolUse", "tool_name", "Bash"), Claude, tab, "", 1*hour+1_000)
+	s.Apply(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "other", "cwd": "/work/web"}, Claude, "tab-2", "", 1*hour+2_000)
+	s.Apply(event("PostToolUse", "tool_name", "Bash"), Claude, tab, "", 1*hour+3_000)
+	if turnAt() != 1*hour {
+		t.Fatalf("a turn begun at %v reads %v after tools and another session's prompt", 1*hour, turnAt())
+	}
+	s.Apply(event("Stop"), Claude, tab, "", 2*hour)
+	if turnAt() != 0 {
+		t.Fatalf("after Stop the turn still reads %v", turnAt())
+	}
+
+	// Four days on: a queued message picked up with no prompt event, and a Stop that never came.
+	later := 96 * hour
+	s.Apply(event("PreToolUse", "tool_name", "Read"), Claude, tab, "", later)
+	if got := turnAt(); got != later {
+		t.Fatalf("a turn picked up at %v reads %v", later, got)
+	}
+	s.Apply(event("PostToolUse", "tool_name", "Read"), Claude, tab, "", later+5_000)
+	if got := turnAt(); got != later {
+		t.Fatalf("a turn moved on to %v after a tool", got)
+	}
+
+	// The next prompt is a new turn, even with the last one never ended.
+	s.Apply(event("UserPromptSubmit"), Claude, tab, "", later+hour)
+	if got := turnAt(); got != later+hour {
+		t.Fatalf("a new prompt at %v reads %v", later+hour, got)
+	}
+	// Idle after Esc ends it too.
+	s.Apply(event("Notification", "notification_type", "idle_prompt"), Claude, tab, "", later+2*hour)
+	if got := turnAt(); got != 0 || stateAfter(t, s) != Idle {
+		t.Fatalf("after idle: turn %v, state %s", got, stateAfter(t, s))
+	}
+	// And a session that asks is at work all the same.
+	s.Apply(event("PermissionRequest", "tool_name", "Bash"), Claude, tab, "", later+3*hour)
+	if got := turnAt(); got != later+3*hour {
+		t.Fatalf("a turn begun asking reads %v", got)
 	}
 }

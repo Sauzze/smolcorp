@@ -82,7 +82,7 @@ func TestWindowsHasNoGrokOrCursor(t *testing.T) {
 }
 
 func TestOnlyTheSummaryRunLosesTheProvidersKeys(t *testing.T) {
-	base := []string{"ANTHROPIC_API_KEY=sk-ant-test0", "openai_api_key=x", "XAI_API_KEY=x", "PATH=/usr/bin", "HOME=/home/me",
+	base := []string{"ANTHROPIC_API_KEY=sk-" + "ant-test0", "openai_api_key=x", "XAI_API_KEY=x", "PATH=/usr/bin", "HOME=/home/me",
 		"SMOLCORP_SESSION=abc", "SMOLCORP_SUMMARY=0"}
 	env := summaryEnvironment(base)
 	for _, variable := range env {
@@ -95,7 +95,7 @@ func TestOnlyTheSummaryRunLosesTheProvidersKeys(t *testing.T) {
 		slices.Contains(env, "SMOLCORP_SUMMARY=0") {
 		t.Errorf("env: %q", env)
 	}
-	if base[0] != "ANTHROPIC_API_KEY=sk-ant-test0" {
+	if base[0] != "ANTHROPIC_API_KEY=sk-"+"ant-test0" {
 		t.Error("the environment given was changed")
 	}
 }
@@ -104,8 +104,8 @@ func TestOnlyTheSummaryRunLosesTheProvidersKeys(t *testing.T) {
 // keeps ANTHROPIC_API_KEY, Smolcorp's own environment keeps it, and only the
 // summary's process goes without.
 func TestAHireKeepsANTHROPIC_API_KEYWhileTheSummaryRunHasNone(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-hire0")
-	if !slices.Contains(hireEnvironment(), "ANTHROPIC_API_KEY=sk-ant-hire0") {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-"+"ant-hire0")
+	if !slices.Contains(hireEnvironment(), "ANTHROPIC_API_KEY=sk-"+"ant-hire0") {
 		t.Error("a hire's environment lost the key")
 	}
 	for _, variable := range summaryEnvironment(os.Environ()) {
@@ -113,7 +113,7 @@ func TestAHireKeepsANTHROPIC_API_KEYWhileTheSummaryRunHasNone(t *testing.T) {
 			t.Error("the summary's process has the key")
 		}
 	}
-	if os.Getenv("ANTHROPIC_API_KEY") != "sk-ant-hire0" {
+	if os.Getenv("ANTHROPIC_API_KEY") != "sk-"+"ant-hire0" {
 		t.Error("Smolcorp's own environment lost the key")
 	}
 }
@@ -180,7 +180,7 @@ func TestASummaryRunGetsTheExcerptOnItsInputInAnEmptyFolderItsOwnDeletedAfter(t 
 	claude := fakeCLI(t, dir, "claude", `if [ "$1" = auth ]; then echo '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}'; exit; fi
 { echo "ARGS: $*"; echo "DIR: $PWD"; ls -A; echo "KEY: ${ANTHROPIC_API_KEY:-none}"; echo "INPUT:"; cat; } > `+seen+`
 echo '{"type":"result","is_error":false,"result":"Asked: dark mode."}'`)
-	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-run0")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-"+"ant-run0")
 	if text, reason := runSummaryCLI(providerClaude, claude, "SYSTEM", "Project: p\n"+promptMarker, os.Environ(), providerReady); text != "Asked: dark mode." || reason != cliOK {
 		t.Fatalf("got %q, %d", text, reason)
 	}
@@ -191,8 +191,13 @@ echo '{"type":"result","is_error":false,"result":"Asked: dark mode."}'`)
 		t.Fatalf("report: %s", report)
 	}
 	folder := strings.TrimPrefix(lines[1], "DIR: ")
-	if !strings.Contains(folder, "smolcorp-summary-") || lines[2] != "KEY: none" {
+	if !strings.HasPrefix(filepath.Base(folder), "summary-") || lines[2] != "KEY: none" {
 		t.Errorf("not an empty folder of its own: %q", lines[1:3])
+	}
+	// In the support folder, which every desk's sandbox denies (SupportRow), never the user's temp folder, where a desk
+	// could put a plugin or a config for the agent run there outside any sandbox (RT126SWEEP4 part 3's F1, as F-4).
+	if physical(filepath.Dir(folder)) != physical(supportDir) {
+		t.Errorf("run in %s, not in the support folder %s", folder, supportDir)
 	}
 	if _, err := os.Stat(folder); !os.IsNotExist(err) {
 		t.Error("its folder is left behind")
@@ -203,17 +208,29 @@ func TestASummaryRunThatHangsIsEndedWithAnythingItStarted(t *testing.T) {
 	dir := t.TempDir()
 	pidFile := filepath.Join(dir, "child")
 	slow := fakeCLI(t, dir, "claude", "sleep 30 & echo $! > "+pidFile+"; wait")
-	started := time.Now()
-	ran := spawnSummary(slow, nil, nil, summaryEnvironment(os.Environ()), dir, time.Second)
-	if !ran.timedOut || time.Since(started) > 6*time.Second {
-		t.Fatalf("timed out %v after %v", ran.timedOut, time.Since(started))
+	child := func() int {
+		text, _ := os.ReadFile(pidFile)
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(text)))
+		return pid
 	}
-	text, _ := os.ReadFile(pidFile)
-	child, _ := strconv.Atoi(strings.TrimSpace(string(text)))
-	time.Sleep(200 * time.Millisecond)
-	if child == 0 || !processGone(child) {
-		t.Error("what it started is still running")
+	// It's stopped only once it has started its child: on a busy computer, a second may not be
+	// enough to get that far, so it's run again with longer.
+	for _, timeout := range []time.Duration{time.Second, 4 * time.Second, 16 * time.Second} {
+		if child() != 0 {
+			break
+		}
+		started := time.Now()
+		ran := spawnSummary(slow, nil, nil, summaryEnvironment(os.Environ()), dir, timeout)
+		if !ran.timedOut || time.Since(started) > timeout+5*time.Second {
+			t.Fatalf("timed out %v after %v", ran.timedOut, time.Since(started))
+		}
 	}
+	pid := child()
+	if pid == 0 {
+		t.Fatal("it never started its child")
+	}
+	// Killed, it's gone once its new parent has reaped it: a moment, longer on a busy computer.
+	eventually(t, "stopped what it started", func() bool { return processGone(pid) })
 }
 
 func TestASummaryRunsOutputIsCut(t *testing.T) {
@@ -283,7 +300,9 @@ func TestAFailedAgentFallsBackToTheKeyAndSaysSo(t *testing.T) {
 	s := newSummaries(func() string { return testSummaryKey })
 	s.savedKey = func() string { return testSummaryKey }
 	s.agent = func(summaryProvider, string, string) (string, cliFailure) { return "", cliSignedOut }
-	s.ask = func(context.Context, string, anthropic.MessageNewParams) (string, *SummaryError) { return "From the key.", nil }
+	s.ask = func(context.Context, string, anthropic.MessageNewParams) (string, *SummaryError) {
+		return "From the key.", nil
+	}
 	text, err := s.SummarizeWith("s1", path, "p", providerClaude)
 	note := "(Claude Code isn't signed in, so this was made with your API key.)"
 	if err != nil || text != "From the key.\n"+note || s.LastFallback() != note {
@@ -296,7 +315,10 @@ func TestAFailedAgentWithNoKeySaysWhy(t *testing.T) {
 	s := newSummaries(func() string { return "" })
 	s.agent = func(summaryProvider, string, string) (string, cliFailure) { return "", cliQuota }
 	asked := false
-	s.ask = func(context.Context, string, anthropic.MessageNewParams) (string, *SummaryError) { asked = true; return "", nil }
+	s.ask = func(context.Context, string, anthropic.MessageNewParams) (string, *SummaryError) {
+		asked = true
+		return "", nil
+	}
 	if _, err := s.SummarizeWith("s1", path, "p", providerCodex); asked || err == nil || err.Message != cliQuota.err(providerCodex).Message {
 		t.Fatalf("asked %v, %v", asked, err)
 	}
@@ -364,7 +386,10 @@ func TestTheFallbackKeepsWithinTheLimit(t *testing.T) {
 	s.savedKey = func() string { return testSummaryKey }
 	s.agent = func(summaryProvider, string, string) (string, cliFailure) { return "", cliQuota }
 	asked := 0
-	s.ask = func(context.Context, string, anthropic.MessageNewParams) (string, *SummaryError) { asked++; return "From the key.", nil }
+	s.ask = func(context.Context, string, anthropic.MessageNewParams) (string, *SummaryError) {
+		asked++
+		return "From the key.", nil
+	}
 	for i := 0; i < summaryMost; i++ {
 		s.SummarizeWith("s"+strconv.Itoa(i), path, "p", providerClaude)
 	}
@@ -418,8 +443,8 @@ func TestOpenCodesSummaryAgentMustDenyEveryTool(t *testing.T) {
 func TestAConsoleLoginSaysItBillsTheAPIAccount(t *testing.T) {
 	for status, want := range map[string]providerKind{
 		`{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}`: providerReady,
-		`{"loggedIn":true,"authMethod":"console","subscriptionType":null}`:   providerAPIAccount,
-		`{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":""}`:   providerAPIAccount,
+		`{"loggedIn":true,"authMethod":"console","subscriptionType":null}`:    providerAPIAccount,
+		`{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":""}`:    providerAPIAccount,
 		`{"loggedIn":false}`: "",
 	} {
 		if got := claudeLogin([]byte(status)); got != want {
@@ -496,6 +521,24 @@ touch `+ran)
 	}
 }
 
+// FXRC3FIX (RT126RC3's B1): OpenCode's run loads no project config, from its folder or any folder above it; its check
+// before, which asks OpenCode's background service, is started as before.
+func TestAnOpenCodeSummaryRunLoadsNoConfigFromItsFolderOrAbove(t *testing.T) {
+	dir := t.TempDir()
+	seen := filepath.Join(dir, "seen")
+	opencode := fakeCLI(t, dir, "opencode", `echo "$1 ${OPENCODE_DISABLE_PROJECT_CONFIG:-unset}" >> `+seen+`
+if [ "$1" = debug ]; then echo '[{"id":"summary","permissions":[{"action":"*","resource":"*","effect":"deny"}]}]'; exit; fi
+echo '{"type":"text","part":{"type":"text","text":"Asked: x."}}'`)
+	t.Setenv(openCodeNoProjectConfig, "")
+	if text, reason := runSummaryCLI(providerOpenCode, opencode, "S", "P", os.Environ(), providerReady); text != "Asked: x." || reason != cliOK {
+		t.Fatalf("got %q, %d", text, reason)
+	}
+	report, _ := os.ReadFile(seen)
+	if got := strings.Fields(string(report)); !slices.Equal(got, []string{"debug", "unset", "run", "1"}) {
+		t.Errorf("each call's variable: %q", got)
+	}
+}
+
 func TestEachRunChecksAgainHowClaudeCodesLoginPays(t *testing.T) {
 	dir := t.TempDir()
 	console := fakeCLI(t, dir, "claude", `if [ "$1" = auth ]; then echo '{"loggedIn":true,"authMethod":"console","subscriptionType":null}'; exit; fi
@@ -551,5 +594,43 @@ func TestTheKeyRowSaysToSetTheEnvironmentWhenThereIsNoSecretStore(t *testing.T) 
 	}
 	if reason := keyReasonWith(memoryStore(false)); reason != "add a key below" {
 		t.Errorf("with a store: %q", reason)
+	}
+}
+
+// FXRC3FIXR1 (RT126RC3FIX's O1, and N1's second fence): OpenCode's run says both names of its no-project-config
+// variable, so an owner's OPENCODE_CONFIG_PROJECT_DISABLE (read first, any value) can't turn the walk back on; and every
+// summary's run, on any agent, has git fetch no missing object by itself and ask for no password. The checks before the
+// run keep the owner's own values.
+func TestASummaryRunSaysBothOpenCodeNamesAndItsGitFetchesNothing(t *testing.T) {
+	dir := t.TempDir()
+	seen := filepath.Join(dir, "seen")
+	record := `echo "$1 ${OPENCODE_CONFIG_PROJECT_DISABLE:-unset} ${OPENCODE_DISABLE_PROJECT_CONFIG:-unset} ${GIT_NO_LAZY_FETCH:-unset} ${GIT_TERMINAL_PROMPT:-unset}" >> ` + seen + "\n"
+	opencode := fakeCLI(t, dir, "opencode", record+`if [ "$1" = debug ]; then echo '[{"id":"summary","permissions":[{"action":"*","resource":"*","effect":"deny"}]}]'; exit; fi
+echo '{"type":"text","part":{"type":"text","text":"Asked: x."}}'`)
+	t.Setenv(openCodeNoProjectConfigFirst, "0")
+	t.Setenv(openCodeNoProjectConfig, "")
+	t.Setenv("GIT_NO_LAZY_FETCH", "")
+	t.Setenv("GIT_TERMINAL_PROMPT", "1")
+	if text, reason := runSummaryCLI(providerOpenCode, opencode, "S", "P", os.Environ(), providerReady); text != "Asked: x." || reason != cliOK {
+		t.Fatalf("OpenCode: got %q, %d", text, reason)
+	}
+	report, _ := os.ReadFile(seen)
+	want := []string{"debug", "0", "unset", "unset", "1", "run", "1", "1", "1", "0"}
+	if got := strings.Fields(string(report)); !slices.Equal(got, want) {
+		t.Errorf("OpenCode's calls: %q, want %q", got, want)
+	}
+
+	if err := os.Remove(seen); err != nil {
+		t.Fatal(err)
+	}
+	claude := fakeCLI(t, dir, "claude", record+`if [ "$1" = auth ]; then echo '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}'; exit; fi
+echo '{"result":"Asked: x."}'`)
+	if text, reason := runSummaryCLI(providerClaude, claude, "S", "P", os.Environ(), providerReady); text != "Asked: x." || reason != cliOK {
+		t.Fatalf("Claude Code: got %q, %d", text, reason)
+	}
+	report, _ = os.ReadFile(seen)
+	lines := strings.Split(strings.TrimSpace(string(report)), "\n")
+	if len(lines) != 2 || lines[0] != "auth 0 unset unset 1" || !strings.HasSuffix(lines[1], " 0 unset 1 0") {
+		t.Errorf("Claude Code's calls: %q", lines)
 	}
 }

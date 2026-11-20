@@ -269,7 +269,7 @@ func eventFor(event map[string]any, agent, folder string, at float64) (eventEntr
 		return eventEntry{}, false
 	}
 	session, _ := event["session_id"].(string)
-	return eventEntry{Agent: agent, At: int64(math.Round(at)), Detail: eventDetail(event, kind), Folder: folder,
+	return eventEntry{Agent: agent, At: int64(math.Round(at)), Detail: hidePhotos(eventDetail(event, kind)), Folder: folder,
 		Kind: kind, Session: session}, true
 }
 

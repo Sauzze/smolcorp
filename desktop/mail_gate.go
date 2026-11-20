@@ -39,13 +39,15 @@ type mailTarget struct {
 	Name string
 }
 
-// mailGate decides from one pane capture. Only an idle, empty input box is
-// typed into (ReadPaneState reads the window's structure, not its words);
+// mailGate decides from one pane capture, taken with its escapes when it has
+// them. Only an idle, empty input box (or one showing only Claude Code's faint
+// suggestion) is typed into (ReadStyledPaneState reads the window's structure,
+// not its words);
 // anything else, an unreadable or empty capture included, waits. deckAsking
 // is whether the app itself knows the session is at a question, read just
 // then: it keeps the message waiting even over an idle-looking box.
 func mailGate(t mailTarget, capture string, deckAsking bool) (mailVerdict, string) {
-	return mailGateState(t, ReadPaneState(capture), deckAsking)
+	return mailGateState(t, ReadStyledPaneState(capture), deckAsking)
 }
 
 // mailGateState is mailGate for a window already read: the Windows launcher
@@ -76,7 +78,8 @@ func mailGateState(t mailTarget, state PaneState, deckAsking bool) (mailVerdict,
 // keys. Copy mode and the one-line fallback (when a multi-line paste isn't
 // safe) are the engine's job, not the gate's.
 type mailTyper interface {
-	// Capture is the window's screen as it is now.
+	// Capture is the window's screen as it is now, with its escapes
+	// (`tmux capture-pane -e`), so a faint suggestion isn't taken for a draft.
 	Capture() (string, error)
 	// Paste puts text into the input box, without sending it.
 	Paste(text string) error
@@ -203,7 +206,7 @@ func mailType(t mailTarget, text string, w mailTyper, deckAsking func() bool, co
 	} else {
 		var capture string
 		if capture, err = w.Capture(); err == nil {
-			after = ReadPaneState(capture)
+			after = ReadStyledPaneState(capture)
 		}
 	}
 	if err != nil {

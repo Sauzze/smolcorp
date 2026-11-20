@@ -14,6 +14,9 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/Sauzze/smolcorp/internal/claudeenv"
+	"github.com/Sauzze/smolcorp/internal/disclaim"
 )
 
 // ✨ Summary made by a coding agent you already have, on your own plan,
@@ -205,6 +208,8 @@ type summaryInvocation struct {
 	input      []byte
 	files      map[string][]byte
 	outputFile string
+	// env is added to the run's environment, for the run only.
+	env []string
 }
 
 const (
@@ -232,9 +237,10 @@ var summaryRemoved = []string{
 	"TMUX", "TMUX_PANE", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_LISTEN_ON",
 }
 
-// summaryEnvironment is a summary's process's environment, from base (Smolcorp's).
+// summaryEnvironment is a summary's process's environment, from base (Smolcorp's), without a Claude Code session's
+// markers (claudeenv, ENVSCRUB1): a sign-in and the sign-in checks start from it too.
 func summaryEnvironment(base []string) []string {
-	env := slices.DeleteFunc(slices.Clone(base), func(variable string) bool {
+	env := slices.DeleteFunc(claudeenv.Scrub(base), func(variable string) bool {
 		name, _, _ := strings.Cut(variable, "=")
 		name = strings.ToUpper(name)
 		return slices.Contains(summaryRemoved, name) || strings.HasPrefix(name, "ANTHROPIC_DEFAULT_") || name == summaryRunVariable
@@ -297,8 +303,13 @@ func summaryInvocationFor(goos string, p summaryProvider, system, prompt, folder
 			"--print", "--mode", "ask", "--sandbox", "enabled", "--trust", "--workspace", folder, "--output-format", "json",
 		}, input: both}
 	case providerOpenCode:
-		// OpenCode 2 ignores a config given for one run, so its own summary agent, which every tool is denied.
-		return summaryInvocation{args: []string{"run", "--standalone", "--agent", "summary", "--format", "json"}, input: both}
+		// OpenCode 2 ignores a config given for one run, so its own summary agent, which every tool is denied. Its
+		// server, its own (--standalone), loads no config from the folder it runs in nor from any folder above it
+		// (FXRC3FIX, RT126RC3's B1): OpenCode 2.0.32 skips that walk with either variable set (its server-process.ts
+		// and config/discovery.ts). It reads the first name first, and any value there wins over the second, so both
+		// are said (FXRC3FIXR1, RT126RC3FIX's O1). The desks' Policy holds those names above the support folder as well.
+		return summaryInvocation{args: []string{"run", "--standalone", "--agent", "summary", "--format", "json"}, input: both,
+			env: []string{openCodeNoProjectConfigFirst + "=1", openCodeNoProjectConfig + "=1"}}
 	}
 	return summaryInvocation{}
 }
@@ -598,15 +609,36 @@ func cleanSummary(text string) string {
 
 // MARK: Running it
 
+// openCodeNoProjectConfig is OpenCode's variable that turns off its project config: the opencode.json, .opencode and
+// .agents it would otherwise load from the folder it runs in and from each folder above it (FXRC3FIX).
+const openCodeNoProjectConfig = "OPENCODE_DISABLE_PROJECT_CONFIG"
+
+// openCodeNoProjectConfigFirst is the same variable's other name, which OpenCode 2.0.32 reads first
+// (OPENCODE_CONFIG_PROJECT_DISABLE ?? OPENCODE_DISABLE_PROJECT_CONFIG): set at all, even to 0, it alone decides.
+const openCodeNoProjectConfigFirst = "OPENCODE_CONFIG_PROJECT_DISABLE"
+
+// summaryRunGit is what every summary's run gets for the git its agent runs, the run only (FXRC3FIXR1, RT126RC3FIX's
+// N1): OpenCode runs git in the repo it finds in or above the summary's folder, and a repo's own config can have a
+// fetch run a program of its own. git then fetches no missing object by itself (a partial clone's lazy fetch) and asks
+// for no password at a terminal. A second fence: the desks' Policy holds a repo made in those folders.
+var summaryRunGit = []string{"GIT_NO_LAZY_FETCH=1", "GIT_TERMINAL_PROMPT=0"}
+
+// summaryFolderPrefix begins the name of the folder a summary runs in, in the support folder.
+const summaryFolderPrefix = "summary-"
+
 // runSummaryCLI runs p for a summary, in a folder made for it and deleted
 // after. Its login and its summary agent are checked again just before:
 // either may have changed since setup looked. expected is how setup showed a
 // Claude Code login paying.
+//
+// The folder is made in Smolcorp's support folder, which every desk's sandbox denies, as the sign-in folder is
+// (hiresSignInWith): never in the user's temp folder, where a desk could put a plugin or a config of its own for the
+// agent run there, outside any sandbox, to load (RT126SWEEP4 part 3's F1, FXSWEEP3P3 F-4's sibling).
 func runSummaryCLI(p summaryProvider, program, system, prompt string, base []string, expected providerKind) (string, cliFailure) {
 	if !p.supported() {
 		return "", cliUnsupported
 	}
-	folder, err := os.MkdirTemp("", "smolcorp-summary-")
+	folder, err := os.MkdirTemp(supportDir, summaryFolderPrefix)
 	if err != nil {
 		return "", cliFailed
 	}
@@ -632,7 +664,9 @@ func runSummaryCLI(p summaryProvider, program, system, prompt string, base []str
 			return "", cliUnsupported
 		}
 	}
-	ran := spawnSummary(program, call.args, call.input, env, folder, summaryCLITimeoutOf(p))
+	// The run's own variables, never the checks' before it: `opencode debug agents` asks OpenCode's background
+	// service, which may be started by that call and then kept for the owner's own sessions. Last, so they win.
+	ran := spawnSummary(program, call.args, call.input, slices.Concat(env, summaryRunGit, call.env), folder, summaryCLITimeoutOf(p))
 	if call.outputFile != "" {
 		ran.file, _ = os.ReadFile(filepath.Join(folder, call.outputFile))
 	}
@@ -665,13 +699,19 @@ func (c *cappedBuffer) Bytes() []byte { return c.kept.Bytes() }
 // ends it and anything it started, gives it input, and reads at most
 // summaryOutputMost of its output and summaryErrorMost of its errors.
 func spawnSummary(program string, args []string, input []byte, env []string, folder string, timeout time.Duration) summaryRan {
+	return spawnCapped(program, args, input, env, folder, timeout, summaryOutputMost, summaryErrorMost)
+}
+
+// spawnCapped is spawnSummary with the caps given: at most outputMost bytes of
+// output and errorMost of errors are kept.
+func spawnCapped(program string, args []string, input []byte, env []string, folder string, timeout time.Duration, outputMost, errorMost int) summaryRan {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := summaryCommand(ctx, program, args)
 	cmd.Dir = folder
 	cmd.Env = env
 	cmd.Stdin = bytes.NewReader(input)
-	output, errors := &cappedBuffer{most: summaryOutputMost}, &cappedBuffer{most: summaryErrorMost}
+	output, errors := &cappedBuffer{most: outputMost}, &cappedBuffer{most: errorMost}
 	cmd.Stdout, cmd.Stderr = output, errors
 	ownGroup(cmd)
 	// Ended, with all it started, only while it's still running: Cancel is
@@ -719,12 +759,12 @@ func summaryCommand(ctx context.Context, program string, args []string) *exec.Cm
 			if shell == "" {
 				shell = `C:\Windows\System32\cmd.exe`
 			}
-			cmd := exec.CommandContext(ctx, shell)
+			cmd := disclaim.Cmd(exec.CommandContext(ctx, shell))
 			useCommandLine(cmd, cmdLine(shell, program, args))
 			return cmd
 		}
 	}
-	return exec.CommandContext(ctx, program, args...)
+	return disclaim.Cmd(exec.CommandContext(ctx, program, args...))
 }
 
 // MARK: Which are here
@@ -838,6 +878,10 @@ func (p *summaryProviders) checkProvider(provider summaryProvider) providerState
 	program := summaryProgram(provider)
 	if program == "" {
 		return providerState{kind: providerMissing, reason: "not installed"}
+	}
+	// A Claude Code that isn't Anthropic's is never run, not even for its help (agentcheck.go).
+	if err := checkAgentProgram(string(provider), program); err != nil {
+		return providerState{kind: providerMissing, reason: err.Error()}
 	}
 	env := summaryEnvironment(os.Environ())
 	help := p.helpText(provider, program, env)

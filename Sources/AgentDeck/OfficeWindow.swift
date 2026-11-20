@@ -5,10 +5,11 @@ import WebKit
 /// The office in a window of its own on this Mac: no title bar and no frame,
 /// only the room, rounded, with the window's shadow under it. The menu bar's
 /// Show Office, or ⌥⌘O from anywhere, shows and hides it, and Esc hides it
-/// once you've clicked it. It's moved by the bar along the middle of its top
-/// edge, which shows while the pointer is over the office, or held with ⌘ and
-/// dragged anywhere, onto any screen; and resized from its edges and corners,
-/// as any window is, keeping the office's shape: drawn taller than wide, it
+/// once you've clicked it, unless the page has something open for Esc to
+/// close first (see `pageTakesEscape`). It's moved by the bar along the middle
+/// of its top edge, which shows while the pointer is over the office, or held
+/// with ⌘ and dragged anywhere, onto any screen; and resized from its edges and
+/// corners, as any window is, keeping the office's shape: drawn taller than wide, it
 /// turns upright, and wider than tall, sideways. Each screen remembers where
 /// it was.
 ///
@@ -40,6 +41,36 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
 
     var isShown: Bool { panel?.isVisible == true }
 
+    // MARK: Esc
+
+    /// The page's message saying whether Esc is its own (office.js's `tellEscape`).
+    static let escapeMessage = "officeEscape"
+
+    /// Whether the page, as it last said, has something open for Esc to close: a talk bubble, the Pixel Terminal,
+    /// the floor list, any of its own overlays, or a field with the focus. Esc is the page's meanwhile. Off until the
+    /// page says otherwise, and again with each new page: a page that never says (an older one, one that failed to
+    /// load) leaves Esc hiding the window, as it always did.
+    private(set) var pageTakesEscape = false
+
+    /// Whether Esc on the window hides it, rather than going to the page.
+    var escapeHides: Bool { !pageTakesEscape }
+
+    /// The page's word on Esc, taken only as a boolean, and only from the window's own page in its main frame
+    /// (never a desk's page in the TV's frame): anything else is ignored.
+    func hear(_ body: Any, mainFrame: Bool, from origin: URL?) {
+        guard let takes = OfficeWindow.escapeWord(body, mainFrame: mainFrame, from: origin, of: address) else { return }
+        pageTakesEscape = takes
+    }
+
+    static func escapeWord(_ body: Any, mainFrame: Bool, from origin: URL?, of address: URL) -> Bool? {
+        guard mainFrame, isOwnPage(origin, of: address), let number = body as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+        return number.boolValue
+    }
+
+    /// A new page, or none (its process gone): it hasn't said anything yet.
+    func pageStarted() { pageTakesEscape = false }
+
     // MARK: Options, kept between launches
 
     private func option(_ name: String, standard: Bool) -> Bool {
@@ -48,23 +79,32 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
 
     /// On top of other windows, on every Space and beside apps in full
     /// screen: setup's switch, and the menu's Always on Top. Off unless you
-    /// turn it on (see `settle`).
+    /// turn it on (see `settleForCore`).
     var alwaysOnTop: Bool {
         get { config.officeOnTop ?? false }
-        set {
-            config.officeOnTop = newValue
-            config.save()
-            applyOptions()
-        }
     }
 
     /// Kept on top once in the menu, and on by default there: a Mac that had
     /// the office window before keeps what it had, its choice or that
-    /// default, and a new one starts with it off. Once, as the app starts.
-    static func settle(_ config: Config, defaults: UserDefaults = .standard, file: URL = Paths.config) {
-        guard config.officeOnTop == nil else { return }
-        config.officeOnTop = defaults.object(forKey: "officeWindow.alwaysOnTop") as? Bool ?? config.hasCompletedSetup
-        config.save(to: file)
+    /// default, and a new one starts with it off. Once, as the app starts
+    /// (`settleForCore`).
+    /// What `settleForCore` keeps on top, or nil once it's kept.
+    static func settled(_ config: Config, defaults: UserDefaults = .standard) -> Bool? {
+        guard config.officeOnTop == nil else { return nil }
+        return defaults.object(forKey: "officeWindow.alwaysOnTop") as? Bool ?? config.hasCompletedSetup
+    }
+
+    /// `settled` under the Go core (`GoShellDelegate`), before it starts: the core keeps the config file,
+    /// so only this one setting is put in it, as `settled` decides, and the rest is left exactly as it is,
+    /// never this app's whole config. No file yet: the core's default, off, as `settled` would keep for a
+    /// Mac that hasn't been set up.
+    static func settleForCore(_ config: Config, defaults: UserDefaults = .standard, file: URL = Paths.config) {
+        guard let onTop = settled(config, defaults: defaults), let data = try? Data(contentsOf: file),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+        object["alwaysOnTop"] = onTop // Config.officeOnTop's key in the file
+        guard let settled = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else { return }
+        Paths.writePrivately(settled, to: file)
+        config.officeOnTop = onTop
     }
 
     /// On every Space, and beside apps in full screen, on its own: kept on
@@ -106,6 +146,8 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     func toggle() { isShown ? hide() : show() }
 
     func show() {
+        // The second layer for a test copy: no path (the shortcut, the menu, a page, the Dock) puts its office in front.
+        guard TestCopy.mayComeForward("the office window") else { return }
         let panel = self.panel ?? makePanel()
         let screen = screenUnderPointer()
         panel.setFrame(savedFrame(on: screen) ?? firstFrame(on: screen), display: false)
@@ -161,6 +203,7 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         // Behind other windows, minimised or on another Space, the page is hidden, and WebKit would slow or stop its
         // timers: the office's sound plays on there (see soundWhen in office.js), and the page draws nothing meanwhile.
         if #available(macOS 14.0, *) { configuration.preferences.inactiveSchedulingPolicy = .none }
+        configuration.userContentController.add(EscapeWord(office: self), name: OfficeWindow.escapeMessage)
         let web = OfficeWebView(frame: content.bounds, configuration: configuration)
         web.setValue(false, forKey: "drawsBackground")
         web.autoresizingMask = [.width, .height]
@@ -174,7 +217,8 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         web.load(URLRequest(url: address))
 
         // A click brings it forward, as only the window clicked takes it (⌘
-        // held, it's a move: see OfficePanel); Esc hides it once it has the keyboard.
+        // held, it's a move: see OfficePanel); Esc hides it once it has the keyboard,
+        // unless the page has something open for it to close (see `pageTakesEscape`).
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak panel] event in
             guard let panel, event.window === panel, !event.modifierFlags.contains(.command) else { return event }
             panel.firstClickOnlyRaises = !panel.isKeyWindow && panel.isPartlyCovered
@@ -182,8 +226,9 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
             return event
         } as Any)
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak panel] event in
-            guard let panel, panel.isKeyWindow, event.window === panel, event.keyCode == UInt16(kVK_Escape) else { return event }
-            self?.hide()
+            guard let panel, panel.isKeyWindow, event.window === panel, event.keyCode == UInt16(kVK_Escape),
+                  let self, self.escapeHides else { return event }
+            self.hide()
             return nil
         } as Any)
         self.panel = panel
@@ -279,16 +324,45 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { refreshShadow() }
 
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) { pageStarted() }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { pageStarted() }
+
     /// Only the office's own pages, from this Mac's Smolcorp: the window's
-    /// address carries its key.
+    /// address carries its key. A frame inside the page may also show a
+    /// desk's own dev server, for the TV's big preview (see `decide`).
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(OfficeWindow.isOwnPage(action.request.url, of: address) ? .allow : .cancel)
+        let allowed = OfficeWindow.decide(action.request.url, of: address, mainFrame: action.targetFrame?.isMainFrame ?? true)
+        decisionHandler(allowed ? .allow : .cancel)
+    }
+
+    /// Whether a page may load in the window. The window itself (the main
+    /// frame) shows only the office's own pages. A frame inside it (the TV's
+    /// big preview, talk/tv.js) may also show a desk's page at
+    /// http://localhost:<port>, as the page's CSP lets it, but never at
+    /// Smolcorp's own ports: the window's, 7710, 7720 or 7730, whose offices
+    /// hold their window's key. It may start out blank, too. Anything else in
+    /// a frame, 127.0.0.1 included, is refused.
+    static func decide(_ url: URL?, of address: URL, mainFrame: Bool) -> Bool {
+        if isOwnPage(url, of: address) { return true }
+        guard !mainFrame, let url else { return false }
+        if url.absoluteString == "about:blank" { return true }
+        return isDesksPage(url, of: address)
     }
 
     static func isOwnPage(_ url: URL?, of address: URL) -> Bool {
         guard let url else { return false }
         return url.scheme == "http" && url.host == "127.0.0.1" && url.port == address.port
+    }
+
+    /// A desk's dev server, as the TV's preview frames it: http://localhost
+    /// at a port of its own, with no name or password in the address.
+    static func isDesksPage(_ url: URL, of address: URL) -> Bool {
+        guard url.scheme == "http", url.host == "localhost", url.user == nil, url.password == nil,
+              let port = url.port, (1...65535).contains(port), port != address.port,
+              !TestCopy.livePorts.contains(UInt16(port)) else { return false }
+        return true
     }
 
     func windowDidMove(_ notification: Notification) { saveFrame() }
@@ -326,6 +400,20 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     private func saveFrame() {
         guard let panel, panel.isVisible, let id = OfficeWindow.id(of: panel.screen) else { return }
         savedFrames[id] = NSStringFromRect(panel.frame)
+    }
+}
+
+/// The page's word on Esc, to the office's window: held weakly, as the page's
+/// configuration keeps its handlers for as long as it lives.
+private final class EscapeWord: NSObject, WKScriptMessageHandler {
+    private weak var office: OfficeWindow?
+
+    init(office: OfficeWindow) { self.office = office }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        let origin = message.frameInfo.securityOrigin
+        office?.hear(message.body, mainFrame: message.frameInfo.isMainFrame,
+                     from: URL(string: "\(origin.protocol)://\(origin.host):\(origin.port)"))
     }
 }
 
@@ -456,7 +544,8 @@ final class HotKey {
 }
 
 extension OfficeWindow {
-    /// Puts the office's window at `rect` (AppleScript's coordinates) while it's shown.
+    /// Puts the office's window at `rect` (AppleScript's coordinates) while it's shown: the GM's tiling puts it
+    /// under the team (HostBridge's `office-place`).
     func place(atTile rect: CGRect, mainHeight: CGFloat) {
         guard let panel, panel.isVisible else { return }
         panel.setFrame(Tiler.flipped(rect, mainHeight: mainHeight), display: true)

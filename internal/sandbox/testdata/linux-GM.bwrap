@@ -1,0 +1,101 @@
+--unshare-pid
+--unshare-net
+--unsetenv AT_SPI_BUS_ADDRESS
+--unsetenv DBUS_FATAL_WARNINGS
+--unsetenv DBUS_SESSION_BUS_ADDRESS
+--unsetenv DBUS_STARTER_ADDRESS
+--unsetenv DBUS_STARTER_BUS_TYPE
+--unsetenv DBUS_SYSTEM_BUS_ADDRESS
+--unsetenv NOTIFY_SOCKET
+--bind / /
+--dev /dev
+--bind /etc /etc
+--bind /home /home
+--bind /opt /opt
+--proc /proc
+--tmpfs /run
+--tmpfs /tmp
+--ro-bind /run/systemd/journal/dev-log /dev/log
+--ro-bind /etc/gitconfig /etc/gitconfig
+--tmpfs /home/ada
+--ro-bind /opt/smolcorp /opt/smolcorp
+--bind-try /run/avahi-daemon /run/avahi-daemon
+--tmpfs /run/dbus
+--tmpfs /run/screen
+--bind-try /run/systemd /run/systemd
+--bind /run/user /run/user
+--bind-try /home/ada/.1password /home/ada/.1password
+--ro-bind /home/ada/.bashrc /home/ada/.bashrc
+--tmpfs /home/ada/.claude
+--tmpfs /home/ada/.claude-work
+--tmpfs /home/ada/.codex
+--tmpfs /home/ada/.config
+--tmpfs /home/ada/.gemini
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1/git-copy-241a891aca19f95c /home/ada/.gitconfig
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1/git-copy-28717818503f9925 /home/ada/.gitconfig-work
+--ro-bind /home/ada/.githooks /home/ada/.githooks
+--bind /home/ada/.local /home/ada/.local
+--ro-bind /home/ada/.profile /home/ada/.profile
+--tmpfs /home/ada/.ssh
+--ro-bind /home/ada/.tmux.conf /home/ada/.tmux.conf
+--ro-bind /home/ada/Library /home/ada/Library
+--ro-bind /home/ada/Projects /home/ada/Projects
+--bind-try /home/ada/notes /home/ada/notes
+--ro-bind /dev/null /run/avahi-daemon/socket
+--bind-try /run/dbus/pid /run/dbus/pid
+--tmpfs /run/user/1000
+--tmpfs /run/user/1001
+--bind /tmp/tmux-1000/smolcorp-gm1.d /tmp/tmux-1000/smolcorp-gm1.d
+--bind-try /home/ada/.codex/config.toml /home/ada/.codex/config.toml
+--ro-bind /home/ada/.config/fish /home/ada/.config/fish
+--ro-bind /home/ada/.config/git /home/ada/.config/git
+--tmpfs /home/ada/.config/sauzzedeck-pro
+--ro-bind /home/ada/.config/systemd /home/ada/.config/systemd
+--ro-bind /home/ada/.local/share /home/ada/.local/share
+--ro-bind /home/ada/.ssh/config /home/ada/.ssh/config
+--bind /home/ada/.ssh/id_ed25519.pub /home/ada/.ssh/id_ed25519.pub
+--bind /home/ada/.ssh/known_hosts /home/ada/.ssh/known_hosts
+--bind /home/ada/Projects/app-gm /home/ada/Projects/app-gm
+--bind /home/ada/Projects/smolcorp /home/ada/Projects/smolcorp
+--ro-bind /home/ada/.config/sauzzedeck-pro/desk-start /home/ada/.config/sauzzedeck-pro/desk-start
+--ro-bind /home/ada/.config/sauzzedeck-pro/hire-guard.json /home/ada/.config/sauzzedeck-pro/hire-guard.json
+--ro-bind /home/ada/.config/sauzzedeck-pro/nightshift.json /home/ada/.config/sauzzedeck-pro/nightshift.json
+--ro-bind /home/ada/Projects/app-gm/.claude /home/ada/Projects/app-gm/.claude
+--ro-bind /home/ada/Projects/app-gm/.git /home/ada/Projects/app-gm/.git
+--ro-bind /run/user/1000/gnupg/S.gpg-agent /run/user/1000/gnupg/S.gpg-agent
+--ro-bind /run/user/1000/keyring/ssh /run/user/1000/keyring/ssh
+--tmpfs /home/ada/.config/sauzzedeck-pro/hires/gm1
+--ro-bind /dev/null /home/ada/.local/state/app/ipc.sock
+--bind /home/ada/Projects/app/.git/logs /home/ada/Projects/app/.git/logs
+--bind /home/ada/Projects/app/.git/objects /home/ada/Projects/app/.git/objects
+--bind /home/ada/Projects/app/.git/refs /home/ada/Projects/app/.git/refs
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1/BRIEF.md /home/ada/.config/sauzzedeck-pro/hires/gm1/BRIEF.md
+--bind /home/ada/.config/sauzzedeck-pro/hires/gm1/STATUS.md /home/ada/.config/sauzzedeck-pro/hires/gm1/STATUS.md
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1/claude /home/ada/.config/sauzzedeck-pro/hires/gm1/claude
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1/held /home/ada/.config/sauzzedeck-pro/hires/gm1/held
+--bind /home/ada/.config/sauzzedeck-pro/hires/gm1/kept-stop.json /home/ada/.config/sauzzedeck-pro/hires/gm1/kept-stop.json
+--ro-bind /home/ada/.config/sauzzedeck-pro/hires/gm1/proxy.sock /home/ada/.config/sauzzedeck-pro/hires/gm1/proxy.sock
+--bind /home/ada/Projects/app/.git/logs/refs /home/ada/Projects/app/.git/logs/refs
+--ro-bind /home/ada/Projects/app/.git/objects/info /home/ada/Projects/app/.git/objects/info
+--ro-bind /home/ada/Projects/app/.git/refs/heads /home/ada/Projects/app/.git/refs/heads
+--bind /home/ada/Projects/app/.git/worktrees/gm /home/ada/Projects/app/.git/worktrees/gm
+--ro-bind /dev/null /home/ada/Projects/smolcorp/.dev/support/desk-start
+--ro-bind /home/ada/Projects/app/.git/logs/refs/heads /home/ada/Projects/app/.git/logs/refs/heads
+--ro-bind /home/ada/Projects/app/.git/worktrees/gm/branches /home/ada/Projects/app/.git/worktrees/gm/branches
+--ro-bind /home/ada/Projects/app/.git/worktrees/gm/commondir /home/ada/Projects/app/.git/worktrees/gm/commondir
+--ro-bind /home/ada/Projects/app/.git/worktrees/gm/config.worktree /home/ada/Projects/app/.git/worktrees/gm/config.worktree
+--ro-bind /home/ada/Projects/app/.git/worktrees/gm/gitdir /home/ada/Projects/app/.git/worktrees/gm/gitdir
+--ro-bind /home/ada/Projects/app/.git/worktrees/gm/remotes /home/ada/Projects/app/.git/worktrees/gm/remotes
+--bind /home/ada/Projects/app/.git/refs/heads/hire/gm1 /home/ada/Projects/app/.git/refs/heads/hire/gm1
+--ro-bind /dev/null /home/ada/Projects/smolcorp/.dev/support/hires/h1/proxy.sock
+--bind /home/ada/Projects/app/.git/logs/refs/heads/hire/gm1 /home/ada/Projects/app/.git/logs/refs/heads/hire/gm1
+--remount-ro /run
+--remount-ro /home/ada
+--remount-ro /run/dbus
+--remount-ro /home/ada/.codex
+--remount-ro /home/ada/.config
+--remount-ro /home/ada/.gemini
+--remount-ro /home/ada/.ssh
+--remount-ro /home/ada/.config/sauzzedeck-pro/hires/gm1
+--chdir /home/ada/Projects/app-gm
+--

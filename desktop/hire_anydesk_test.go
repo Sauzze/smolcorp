@@ -13,7 +13,7 @@ import (
 // since desks left setup, and seats the new session as its launcher would.
 func hireAt(t *testing.T, d *Deck, h *hiring, folder, desk, id string, window int) {
 	t.Helper()
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	query := url.Values{}
 	if desk != "" {
 		query.Set("desk", desk)
@@ -61,7 +61,7 @@ func TestAutoHireSitsAtAFreeDeskChosenBeforeTheFirstFreeOne(t *testing.T) {
 		t.Errorf("the others went to %d and %d, want the first free desks 1 and 2", seatOfSession(keys, "s1"), seatOfSession(keys, "s2"))
 	}
 	// A desk someone's at is refused, with the existing text.
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	status, message := d.Perform("hire", "", url.Values{"desk": {"4"}})
 	if status != http.StatusConflict || message != "Someone's at that desk already." {
 		t.Errorf("hire at a taken desk: %d %q", status, message)
@@ -79,7 +79,7 @@ func TestAutoHireWithNoDeskTakesTheNextFreeOne(t *testing.T) {
 	if keys, _ := d.layout(); seatOfSession(keys, "hired") != 2 {
 		t.Errorf("a hire at no desk is at %d, want 2", seatOfSession(keys, "hired"))
 	}
-	d.lastHire = time.Time{}
+	d.lastHire, d.gmLastHire = time.Time{}, time.Time{}
 	if status, _ := d.Perform("hire", "", url.Values{"desk": {"3"}}); status != http.StatusNoContent {
 		t.Fatalf("hire at the desk after the last: %d", status)
 	}
@@ -104,8 +104,12 @@ func TestAChosenDeskIsKeptAcrossARestartAndForgottenWithItsSession(t *testing.T)
 	if json.Unmarshal(data, &saved) != nil || len(saved.Chosen) != 1 || saved.Chosen[0] != "hired" || saved.Keys["hired"] != 6 {
 		t.Fatalf("saved %s", data)
 	}
-	// An app that starts again: the same sessions come back on their saved places.
+	// An app that starts again: the same sessions come back on their saved places. With the lock held, as
+	// the app holds it: the restore asks for a save, which reads the sessions and desks a moment later.
+	stopDecksOf(t)
 	again := newTestDeck(t)
+	again.mu.Lock()
+	defer again.mu.Unlock()
 	again.restore([]savedSession{{ID: "s0", Tab: "tmux:%0@/tmp/tmux", Agent: string(Claude)}, {ID: "hired", Tab: "tmux:%7@/tmp/tmux", Agent: string(Claude)}},
 		savedDeck{Keys: saved.Keys, Chosen: saved.Chosen}, false)
 	for _, id := range []string{"s0", "hired"} {

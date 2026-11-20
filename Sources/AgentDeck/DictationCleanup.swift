@@ -37,10 +37,24 @@ enum DictationCleanup {
     /// Your key, as ✨ Summary has it (see `SummaryKey`), read each time, kept in memory only.
     static var readKey: () -> String? = { SummaryKey.read() }
     /// Sends the request and gives the body and HTTP status (0 when it never answered).
-    static var send: (URLRequest, @escaping (Data?, Int) -> Void) -> Void = { request, done in
-        URLSession.shared.dataTask(with: request) { data, response, _ in
+    static var send: (URLRequest, @escaping (Data?, Int) -> Void) -> Void = sendToAnthropic
+
+    /// Your key goes to `endpoint` and nowhere else: a request for any other address isn't sent, and a redirect
+    /// isn't followed, as it would carry the key's header wherever it points. Nothing is cached or kept.
+    static func sendToAnthropic(_ request: URLRequest, done: @escaping (Data?, Int) -> Void) {
+        guard request.url == endpoint else { return done(nil, 0) }
+        session.dataTask(with: request) { data, response, _ in
             done(data, (response as? HTTPURLResponse)?.statusCode ?? 0)
         }.resume()
+    }
+
+    private static let session = URLSession(configuration: .ephemeral, delegate: NoRedirects(), delegateQueue: nil)
+
+    final class NoRedirects: NSObject, URLSessionTaskDelegate {
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(nil)
+        }
     }
 
     /// The clock the timing note reads.
@@ -99,12 +113,10 @@ enum DictationCleanup {
         text.split(whereSeparator: { $0.isWhitespace }).count
     }
 
-    /// Whether `text` is worth sending: on, long enough, not too long.
-    static func shouldClean(_ text: String) -> Bool { skipped(text) == nil }
-
-    /// Why `text` goes in as heard without a call, or nil when it's sent.
-    static func skipped(_ text: String) -> Outcome? {
-        if !isEnabled() { return .off }
+    /// Why `text` goes in as heard without a call, or nil when it's sent. `enabled`: as the Go core's config
+    /// says it (desktop/hostdictation.go), or the setting here.
+    static func skipped(_ text: String, enabled: Bool? = nil) -> Outcome? {
+        if !(enabled ?? isEnabled()) { return .off }
         if wordCount(text) < fewestWords { return .short }
         if text.count > longest { return .long }
         return nil
@@ -196,13 +208,15 @@ enum DictationCleanup {
 
     /// Gives `text` cleaned, or as it was, and how that went: always, once,
     /// on the main thread, within `deadline` seconds. `desks` are the
-    /// session's project folders.
-    static func clean(_ text: String, desks: [String], done: @escaping (String, Outcome) -> Void) {
-        if let skip = skipped(text) { return done(text, skip) }
+    /// session's project folders. `enabled` and `configured`, the setting
+    /// and the glossary, as the Go core's config has them, or this app's.
+    static func clean(_ text: String, desks: [String], enabled: Bool? = nil, configured: [String]? = nil,
+                      done: @escaping (String, Outcome) -> Void) {
+        if let skip = skipped(text, enabled: enabled) { return done(text, skip) }
         let once = Once(done)
         let started = now()
         DispatchQueue.main.asyncAfter(deadline: .now() + deadline) { once.give(text, .tooSlow) }
-        let names = glossary(configured: configuredGlossary(), desks: desks)
+        let names = glossary(configured: configured ?? configuredGlossary(), desks: desks)
         queue.async {
             guard let key = readKey(), !key.isEmpty else {
                 DispatchQueue.main.async { problem = noKey; once.give(text, .noKey) }

@@ -73,9 +73,7 @@ func TestWhatsInFrontOfAPane(t *testing.T) {
 // tmuxPane is a pane running sh in a tmux server of the test's own.
 func tmuxPane(t *testing.T) commandTab {
 	t.Helper()
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("no tmux here")
-	}
+	needTmux(t)
 	// Short: a socket's path has a length limit.
 	dir, err := os.MkdirTemp("/tmp", "smt")
 	if err != nil {

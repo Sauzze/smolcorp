@@ -331,8 +331,10 @@ func TestSetupAdviceMatchesThePlatform(t *testing.T) {
 			t.Errorf("%s advice is %q, want it to contain %q", goos, got, want)
 		}
 	}
-	if got := setupAdvice("darwin"); !strings.Contains(got, "AgentDeck --setup --open") || strings.Contains(got, "smolcorp setup") {
-		t.Errorf("the Mac advice %q should name the app binary's --setup --open, not the smolcorp command", got)
+	// The app's program is Smolcorp since 1.26 (Resources/Info.plist's CFBundleExecutable), no longer AgentDeck.
+	if got := setupAdvice("darwin"); !strings.Contains(got, "/Applications/Smolcorp.app/Contents/MacOS/Smolcorp --setup --open") ||
+		strings.Contains(got, "AgentDeck") || strings.Contains(got, "smolcorp setup") {
+		t.Errorf("the Mac advice %q should name the app's program, Smolcorp, with --setup --open, not the smolcorp command", got)
 	}
 }
 

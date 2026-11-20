@@ -1,0 +1,68 @@
+{
+  "about": "The phone's text on both engines, one table (IGL): POST /dictate with send on, to desk s1 in Terminal's tab tty:/dev/ttys003 (several lines through the clipboard, with ⌘V: Accessibility given, the Mac unlocked). Each case says the desk as both engines have it (desk), what reads the tab (front), what the stand-in terminal does once its last check lets the paste go (terminal), the states the Mac app hears when it asks (asked: the Swift engine's own sessions, or the Go core's over the bridge), the request the Go core sends and the Mac app's answer, and what the phone is told by each engine. PhoneMicTests.swift runs every case through the Mac app's bridge, its phone-text action (Deck.typePhoneWords); desktop/phonetext_test.go runs it through the Go core with a stand-in Mac app giving the fixture's answer. What the Swift engine told the phone until 1.25.0 (swift) stays as the Go core's reference: they differ only where the words may have typed, the Swift engine's 503 with its sentence, the Go core's 502 pasteUnsaid. Something is typed only where typed says so, and a Return goes only after it (returns).",
+  "cases": [
+    {
+      "name": "Codex in Terminal, several lines: refused before anything waits",
+      "agent": "codex", "desk": "unread", "front": {"place": "front", "readers": []}, "terminal": "pasted", "asked": [],
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "codex", "text": "une ligne\n  et une autre"},
+      "answer": {"ok": false, "error": "Codex isn't known to take several lines as one paste here, so nothing was typed: send it as one line."},
+      "swift": {"status": 409, "says": "Codex isn't known to take several lines as one paste here, so nothing was typed: send it as one line."},
+      "go": {"status": 409, "says": "Codex isn't known to take several lines as one paste here, so nothing was typed: send it as one line."},
+      "typed": false, "returns": false
+    },
+    {
+      "name": "Claude Code with vim in front of it in its tab",
+      "agent": "claude", "desk": "unread", "front": {"place": "front", "readers": ["vim"]}, "terminal": "pasted", "asked": ["unread"],
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude", "text": "une ligne\n  et une autre"},
+      "answer": {"ok": false, "error": "An editor is open in this desk's tab, so nothing was typed: close it, then send again."},
+      "swift": {"status": 409, "says": "An editor is open in this desk's tab, so nothing was typed: close it, then send again."},
+      "go": {"status": 409, "says": "An editor is open in this desk's tab, so nothing was typed: close it, then send again."},
+      "typed": false, "returns": false
+    },
+    {
+      "name": "a working desk, several lines",
+      "agent": "claude", "desk": "thinking", "front": {"place": "front", "readers": []}, "terminal": "pasted", "asked": ["thinking"],
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude", "text": "une ligne\n  et une autre"},
+      "answer": {"ok": false, "error": "It's working, and several lines go only while it waits at its prompt, so nothing was typed: send them once it's finished."},
+      "swift": {"status": 409, "says": "It's working, and several lines go only while it waits at its prompt, so nothing was typed: send them once it's finished."},
+      "go": {"status": 409, "says": "It's working, and several lines go only while it waits at its prompt, so nothing was typed: send them once it's finished."},
+      "typed": false, "returns": false
+    },
+    {
+      "name": "the Mac in use",
+      "agent": "claude", "desk": "unread", "front": {"place": "front", "readers": []}, "terminal": "macInUse", "asked": ["unread"],
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude", "text": "une ligne\n  et une autre"},
+      "answer": {"ok": false, "error": "The Mac is in use, and pasting would bring this desk's terminal to the front, so nothing was typed: try again once it's been left alone for 10 seconds, or send it as one line."},
+      "swift": {"status": 409, "says": "The Mac is in use, and pasting would bring this desk's terminal to the front, so nothing was typed: try again once it's been left alone for 10 seconds, or send it as one line."},
+      "go": {"status": 409, "says": "The Mac is in use, and pasting would bring this desk's terminal to the front, so nothing was typed: try again once it's been left alone for 10 seconds, or send it as one line."},
+      "typed": false, "returns": false
+    },
+    {
+      "name": "Claude Code waiting at its prompt, nothing else reading its tab: one paste",
+      "agent": "claude", "desk": "unread", "front": {"place": "front", "readers": []}, "terminal": "pasted", "asked": ["unread"],
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude", "text": "une ligne\n  et une autre"},
+      "answer": {"ok": true, "pasted": "pasted"},
+      "swift": {"status": 204, "says": ""},
+      "go": {"status": 204, "says": ""},
+      "typed": true, "returns": true
+    },
+    {
+      "name": "⌘V the terminal hadn't read in time: it may still paste",
+      "agent": "claude", "desk": "unread", "front": {"place": "front", "readers": []}, "terminal": "notRead", "asked": ["unread"],
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude", "text": "une ligne\n  et une autre"},
+      "answer": {"ok": false, "error": "The terminal hadn't taken the paste in time, so no Return was sent: look at the Mac before trying again, as the text may still appear.", "mayHaveTyped": true},
+      "swift": {"status": 503, "says": "The terminal hadn't taken the paste in time, so no Return was sent: look at the Mac before trying again, as the text may still appear."},
+      "go": {"status": 502, "says": "The terminal didn't say it took the text, so nothing more went. Look at the desk before you try again."},
+      "typed": false, "returns": false
+    },
+    {
+      "name": "one line to a working desk: typed, as the deck's keys go",
+      "agent": "claude", "desk": "thinking", "front": {"place": "front", "readers": []}, "terminal": "pasted", "asked": ["thinking"],
+      "request": {"action": "phone-text", "tab": "tty:/dev/ttys003", "agent": "claude", "text": "une ligne"},
+      "answer": {"ok": true, "pasted": "pasted"},
+      "swift": {"status": 204, "says": ""},
+      "go": {"status": 204, "says": ""},
+      "typed": true, "returns": true
+    }
+  ]
+}

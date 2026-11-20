@@ -2,12 +2,28 @@
 # Smolcorp's hook, run by every coding agent it follows. Forwards each
 # hook event to the app.
 #
-#   report.sh [agent]   claude (the default), codex, gemini or opencode
+#   report.sh [--port N] [--support FOLDER] [agent]
 #
-# The event JSON arrives on stdin and is passed on as it is. The hook's key
-# comes from hook-header, which the app writes next to this script: curl
-# reads it from the file, so it never appears on a command line, where any
-# process on the Mac could see it with `ps`. Five more things, and two more for a
+# agent is claude (the default), codex, gemini or opencode. It runs from the
+# app, where it is shipped (Contents/Resources), signed with it and as no desk
+# can change it (SA-X11): nothing copies it out. An earlier version copied it
+# into the support folder, with its port filled in, and those copies go on
+# working as they were.
+#
+# The port is the one --port names, else the one filled in when it was copied,
+# else SMOLCORP_PORT, else 7710: as `smolcorp hook`, but stricter: a --port
+# outside 1024-65535 sends nothing, where `smolcorp hook` uses its own port.
+#
+# The event JSON arrives on stdin and is passed on as it is. The hook's key:
+#   - in a desk Smolcorp started, the desk's own (SMOLCORP_HOOK_KEY, from its
+#     start), and then hook-header is never read: the owner's sessions' key
+#     reaches no such desk, and a desk under the sandbox can't read it;
+#   - else hook-header, which the app keeps in its support folder: the one
+#     --support names, else a test copy's (SMOLCORP_TEST_SUPPORT_DIR), else the
+#     one beside a copy of this script, else the app's.
+# Either way curl reads it from a file (a pipe, for the desk's key), so it never
+# appears on a command line, where any process on the Mac could see it with
+# `ps`. Five more things, and two more for a
 # headless run, are added as headers:
 #   - the agent, so the app reads the event in that agent's terms.
 #   - the time the event was raised. Hooks run in the background, so two events
@@ -43,9 +59,52 @@ PATH=/usr/bin:/bin:/usr/sbin:/sbin
 # A coding agent Smolcorp runs for a ✨ summary is no session of a desk's.
 if [ "$SMOLCORP_SUMMARY" = "1" ]; then cat >/dev/null; exit 0; fi
 
+# A port to send to, 1024 to 65535.
+valid_port() { [[ "$1" =~ ^[1-9][0-9]{3,4}$ ]] && [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]; }
+
+# Filled in only in a copy an earlier version made; as shipped, not a port.
+PORT='{{PORT}}'
+valid_port "$PORT" || PORT=""
+SUPPORT=""
+while [ "$1" = "--port" ] || [ "$1" = "--support" ]; do
+  [ $# -ge 2 ] || exit 0
+  if [ "$1" = "--port" ]; then
+    valid_port "$2" || exit 0
+    PORT="$2"
+  else
+    [[ "$2" == /* ]] || exit 0
+    SUPPORT="$2"
+  fi
+  shift 2
+done
+if [ -z "$PORT" ]; then
+  PORT=7710
+  valid_port "$SMOLCORP_PORT" && PORT="$SMOLCORP_PORT"
+fi
+
 AGENT="${1:-claude}"
 AT="$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')"
 DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# The hook's key, as a header line in a file curl reads (see the top). The
+# desk's own comes through a pipe, never a file on disk or an argument; one
+# that isn't a key's shape sends nothing, rather than the owner's.
+if [ -n "$SMOLCORP_HOOK_KEY" ]; then
+  [[ "$SMOLCORP_HOOK_KEY" =~ ^[A-Za-z0-9_-]+$ ]] || exit 0
+  exec 3< <(printf 'X-AgentDeck-Token: %s\n' "$SMOLCORP_HOOK_KEY")
+  KEY_FILE=/dev/fd/3
+else
+  if [ -z "$SUPPORT" ]; then
+    if [[ "$SMOLCORP_TEST_SUPPORT_DIR" == /* ]]; then
+      SUPPORT="$SMOLCORP_TEST_SUPPORT_DIR"
+    elif [ -f "$DIR/hook-header" ]; then
+      SUPPORT="$DIR"
+    else
+      SUPPORT="$HOME/Library/Application Support/AgentDeck"
+    fi
+  fi
+  KEY_FILE="$SUPPORT/hook-header"
+fi
 
 tty=""
 tab=""
@@ -180,7 +239,7 @@ clean "$project" || project=""
 
 perl -e "$TRIM" | curl -s -m 2 -o /dev/null \
   -H 'Content-Type: application/json' \
-  -H @"$DIR/hook-header" \
+  -H @"$KEY_FILE" \
   -H "X-AgentDeck-Agent: $AGENT" \
   -H "X-AgentDeck-TTY: $tty" \
   -H "X-AgentDeck-Tab: $tab" \
@@ -190,6 +249,6 @@ perl -e "$TRIM" | curl -s -m 2 -o /dev/null \
   ${parent:+-H "X-AgentDeck-Parent: $parent"} \
   ${billing:+-H "X-AgentDeck-Billing: $billing"} \
   --data-binary @- \
-  "http://127.0.0.1:{{PORT}}/hook"
+  "http://127.0.0.1:$PORT/hook"
 
 exit 0
