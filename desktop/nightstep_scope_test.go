@@ -11,6 +11,7 @@ import (
 // B1: the night job's one step carries its scope, kept with the run; a night run a restart finds is let go, never
 // hired (unscoped or not).
 func TestANightJobsStepKeepsItsScopeAndAKeptNightRunIsNeverHired(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	j := NightJob{ID: "n1", Role: "janitor", Folder: "/p", Scope: "/p", ScopeRoles: "janitor"}
 	step := j.nightStep()
 	if step.Scope != "/p" || step.ScopeRoles != "janitor" {

@@ -3,6 +3,7 @@ package desktop
 import (
 	"net/http"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -42,6 +43,11 @@ func sandboxTag(h Hire) string {
 // desksSandboxedHere is deskSandboxed, as the switch and the tags read it: a test plays a system without the
 // sandbox with it.
 var desksSandboxedHere = deskSandboxed
+
+// deskSandboxInForce is whether a hire made now starts in its sandbox: on a system whose desks have one, with the
+// owner's switch on (AQ1). With the lock held. What refuses a hire that can't start in its sandbox yet (notonamac.go)
+// asks this, so a hire the switch lets start without one isn't refused for it.
+func (d *Deck) deskSandboxInForce() bool { return desksSandboxedHere && !d.config.SandboxOff }
 
 // noSandboxOnThisComputer is the tag of every desk on a system whose desks start in no sandbox: Linux until SA-L4,
 // and Windows, which has none in 1.26 (the owner, 15 Nov). The same plain words on both (SA-X14, SA-W4's wording):
@@ -206,8 +212,56 @@ func (d *Deck) sandboxState() map[string]any {
 		}
 	}
 	d.mu.Lock()
+	desks = append(desks, d.plainDesksUnsandboxed()...)
 	state := map[string]any{"on": desksSandboxedHere && !d.config.SandboxOff, "here": desksSandboxedHere, "gmByHand": d.startedByHand(), "desks": desks}
 	d.mu.Unlock()
 	d.sandboxRow(state, hires)
 	return state
+}
+
+// The plain hires without their sandbox (FXSWITCHPLAIN, the owner's Q8): on a Mac the switch covers a plain hire too
+// (plainHireSandboxed), so one made while it was off runs outside a sandbox, as the engine's desks started then do,
+// and is listed with them. Its desk is its launcher's tab, not a registry row: Setup can't restart it in its sandbox,
+// but the office's fire stops it, and a hire made again with the sandbox on starts in one.
+
+// plainHireTag is the tag of a plain hire started while the sandbox was off.
+const plainHireTag = "No sandbox: it started while the sandbox was off."
+
+// plainHireDeskPrefix starts the id of a plain hire's row in Setup's list (its launcher's tab), never a hire's id.
+const plainHireDeskPrefix = "launcher:"
+
+// noteNoSandbox marks launcher tab as a plain hire running without its sandbox, as its launcher says at each
+// connection (launcher.go's serveDeck): with its token spent after a restart of the core, it keeps its tag. Only the
+// office's plain hires on a Mac: a word that can only add a No sandbox tag, never take one away.
+func (d *Deck) noteNoSandbox(tab *launcherTab) {
+	if !launcherSandboxes || !tab.office || tab.hireID != "" {
+		return
+	}
+	d.mu.Lock()
+	tab.sandboxOff = true
+	d.mu.Unlock()
+}
+
+// plainDesksUnsandboxed are the rows of Setup's list for the plain hires running without their sandbox, by their
+// launcher's id. With d.mu held.
+func (d *Deck) plainDesksUnsandboxed() []map[string]any {
+	ids := []string{}
+	for id, tab := range d.launchers {
+		if tab.sandboxOff {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	rows := []map[string]any{}
+	for _, id := range ids {
+		tab := d.launchers[id]
+		name := tab.agent.Name()
+		if name == "" {
+			name = "A hire"
+		}
+		name += " in " + lastPart(tab.folder)
+		rows = append(rows, map[string]any{"id": plainHireDeskPrefix + id, "name": name, "sandboxed": false, "tag": plainHireTag,
+			"restartWhy": "Setup can't restart " + name + " in its sandbox. To have it in one, fire it and hire it again."})
+	}
+	return rows
 }

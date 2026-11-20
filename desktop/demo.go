@@ -35,11 +35,12 @@ import (
 //	smolcorp demo                 the real thing, after your OK
 //	smolcorp demo --dry-run       the same steps with stand-ins: no office, no Claude Code, nothing spent
 //	smolcorp demo --in FOLDER     make the demo folder in FOLDER (default: your home folder)
-//	smolcorp demo --no-open       print the link to the demo's page instead of opening it
+//	smolcorp demo --no-open       print the link to the demo's page instead of opening it (where it opens in a browser)
 //
 // The demo never hires: the tool's key it holds can't (the route table). It gets that key by asking the app, once you
 // click Allow in Smolcorp's window (demooffice.go); no file holds it. After your yes it makes the folder,
-// and Smolcorp opens Setup in your browser at the demo (demopage.go): you check it there and click Hire, which
+// and Smolcorp opens Setup at the demo (demopage.go: in its own Settings window where it has one, else in your
+// browser): you check it there and click Hire, which
 // hires the General Manager held to the project. The demo then follows the team.
 
 //go:embed demosample
@@ -72,6 +73,17 @@ type demoTeam interface {
 	off() []demoSwitch
 	// leftOn is the switches the demo turned on and left on, for the last word of the run.
 	leftOn() []demoSwitch
+	// inWindow is whether the demo's page opens in Smolcorp's own Settings window, read by ready: the question says where.
+	inWindow() bool
+}
+
+// demoPageOpens is the question's sentence on where Setup opens at the demo: Smolcorp's Settings window under the Mac
+// app and on Windows with its window, else the browser (Linux, a Windows without WebView2).
+func demoPageOpens(window bool) string {
+	if window {
+		return "After your yes, the demo makes its folder, and Smolcorp's Settings window\nopens at the demo: check it there, and click Hire to hire the General Manager."
+	}
+	return "After your yes, the demo makes its folder, and Setup opens in your browser at\nthe demo: check it there, and click Hire to hire the General Manager."
 }
 
 // demoSwitch is one of Smolcorp's switches the real demo turns on when it's off.
@@ -128,7 +140,7 @@ func RunDemo(args []string) int {
 	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
 	dry := fs.Bool("dry-run", false, "stand-ins for the office and Claude Code: nothing is spent")
 	in := fs.String("in", homeDir, "where to make the demo folder")
-	noOpen := fs.Bool("no-open", false, "print the link to the demo's page instead of opening it in your browser")
+	noOpen := fs.Bool("no-open", false, "print the link to the demo's page instead of opening it in your browser (refused where it opens in Smolcorp's own Settings window)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -181,10 +193,9 @@ plan's usage, as any Claude Code session does, never an API key.
 Nothing is pushed, merged or published: the project has no remote, and the
 team stops before anything ships.
 
-After your yes, the demo makes its folder, and Setup opens in your browser at
-the demo: check it there, and click Hire to hire the General Manager.
+%s
 
-Go on? [y/N] `, demoSwitchesOff(r.team.off()))
+Go on? [y/N] `, demoSwitchesOff(r.team.off()), demoPageOpens(r.team.inWindow()))
 		answer, _ := bufio.NewReader(r.stdin).ReadString('\n')
 		if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
 			fmt.Fprintln(out, "Nothing was made or started.")

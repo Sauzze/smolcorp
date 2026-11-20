@@ -343,6 +343,9 @@ func TestTheGMHireNeverOpensAPlainTerminal(t *testing.T) {
 			t.Errorf("%s: %d %q, want 409 with %q", c.name, code, text, c.want)
 		}
 		nothingMade(t, r, h)
+		if role == "scribe" {
+			hiresOfEveryAgentHere(d)
+		}
 		if status, message := d.Perform("hire", "", url.Values{"role": {role}}); status != http.StatusNoContent || len(h.windows) != 1 && c.name != "another agent" {
 			t.Errorf("%s, from the office: %d %q, %d windows, want what it did before", c.name, status, message, len(h.windows))
 		}

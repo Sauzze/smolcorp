@@ -118,6 +118,7 @@ func seatSecrets(d *Deck) {
 // The feed is the phone's state cut down to a short list, never more: the version, the clock, and each desk
 // downstairs with its folder's name and, of its session, peerDeskFields alone, each value the phone's own.
 func TestAPeersFeedIsNoMoreThanAPhoneSees(t *testing.T) {
+	turnOn(t, &peersOn)
 	d := newTestDeck(t)
 	d.config.PhoneMicEnabled, d.config.MusicEnabled = true, true
 	seatSecrets(d)
@@ -195,6 +196,7 @@ func TestAPeersFeedIsNoMoreThanAPhoneSees(t *testing.T) {
 
 // A paired Mac reads the feed over Tailscale with its key: the desks at once, then each change as it's made.
 func TestAPeerReadsTheFeedAndHearsEachChange(t *testing.T) {
+	turnOn(t, &peersOn)
 	m := newTwoMacs(t, otherMac, tailHome+":0")
 	key := pairedPeer(t, m)
 	feed := openFeed(t, m, key)
@@ -227,6 +229,7 @@ func TestAPeerReadsTheFeedAndHearsEachChange(t *testing.T) {
 // Removing a Mac, turning the setting off, or resetting the records cuts its feed there and then, not at its next
 // request nor the next check (RT126M1 N2): the check here is an hour away.
 func TestAPeersFeedIsCutTheMomentItsRemoved(t *testing.T) {
+	turnOn(t, &peersOn)
 	saved := peerStreamCheck
 	t.Cleanup(func() { peerStreamCheck = saved })
 	peerStreamCheck = time.Hour
@@ -267,6 +270,7 @@ func TestAPeersFeedIsCutTheMomentItsRemoved(t *testing.T) {
 // The records reset (only under the Mac app, which keeps their key): every Mac paired goes, and its feed with it, as
 // a phone's stream does.
 func TestAPeersFeedIsCutWhenTheRecordsReset(t *testing.T) {
+	turnOn(t, &peersOn)
 	d, _, _, _ := macDeck(t)
 	d.mu.Lock()
 	d.config.FloorsFromOtherMacs = true
@@ -297,6 +301,7 @@ func TestAPeersFeedIsCutWhenTheRecordsReset(t *testing.T) {
 // While it streams, the key is asked again every peerStreamCheck, whatever cut it or didn't: a Mac no longer on the
 // list, its key changed, or the setting off, is hung up on at the next check; till then, each check pings it.
 func TestAPeersKeyIsAskedAgainWhileItStreams(t *testing.T) {
+	turnOn(t, &peersOn)
 	saved := peerStreamCheck
 	t.Cleanup(func() { peerStreamCheck = saved })
 	peerStreamCheck = 20 * time.Millisecond
@@ -339,6 +344,7 @@ func TestAPeersKeyIsAskedAgainWhileItStreams(t *testing.T) {
 
 // Removed between servePeer letting it in and the stream opening: no stream, 401.
 func TestAFeedOpensOnlyForTheMacItsKeyIs(t *testing.T) {
+	turnOn(t, &peersOn)
 	m := newTwoMacs(t, otherMac, tailHome+":0")
 	key := pairedPeer(t, m)
 	id := m.home.macPeers.All[0].ID

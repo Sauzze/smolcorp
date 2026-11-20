@@ -647,16 +647,34 @@ func (s *grantStore) asksAnswer(now float64) []map[string]any {
 // grantStore.answer refuses all of them again.
 func init() {
 	refusal := func(d *Deck) string {
+		// While spend asks are off (dormant.go), GET /grants carries only a setup page's asks, and says nothing of
+		// the owner's OK for a command.
+		if !spendAsksOn {
+			return "Only your paired phone, over Tailscale's HTTPS address, reads this."
+		}
 		if d.macHost() != nil {
 			return "Your asks show in the office's window on your Mac, on the setup page, and on your paired phone over Tailscale's HTTPS address."
 		}
 		return "Your asks show on the setup page and on your paired phone over Tailscale's HTTPS address. The office on this computer can't answer them: other programs here can read its key."
 	}
-	registerPhoneRoute(phoneRoute{method: http.MethodGet, path: "/grants", access: accessOwnerTap, refusal: refusal,
+	// Where the phone can't list the asks while a setup page asks to be opened, it's told so, and why (setupask.go).
+	listRefusal := func(d *Deck) string {
+		if why := d.setupAskNotHere(); why != "" {
+			return why
+		}
+		return refusal(d)
+	}
+	registerPhoneRoute(phoneRoute{method: http.MethodGet, path: "/grants", access: accessOwnerTap, refusal: listRefusal,
 		serve: func(d *Deck, w http.ResponseWriter, _ *request, _ string) {
 			now := nowMillis()
-			// setupAsks: a setup page's asks to be opened, off a Mac, for the phone to answer (setupask.go).
-			writeJSON(w, http.StatusOK, map[string]any{"at": int64(now), "asks": d.grants.asksAnswer(now), "setupAsks": d.setupAsks.shown()})
+			// setupAsks: a setup page's asks to be opened, off a Mac, for the phone to answer (setupask.go). On a Mac
+			// there's never one (POST /setup/tap is refused there), so the list leaves the key out, and the phone's
+			// page stops asking for them (deck.html's setupAsksHere).
+			answer := map[string]any{"at": int64(now), "asks": d.grants.asksAnswer(now)}
+			if d.macHost() == nil {
+				answer["setupAsks"] = d.setupAsks.shown()
+			}
+			writeJSON(w, http.StatusOK, answer)
 		}})
 	registerPhoneRoute(phoneRoute{method: http.MethodPost, path: "/grants/answer", access: accessOwnerTap, refusal: refusal,
 		serve: func(d *Deck, w http.ResponseWriter, r *request, _ string) {

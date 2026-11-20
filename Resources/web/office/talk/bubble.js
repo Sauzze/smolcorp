@@ -29,9 +29,13 @@ const TALK_BUBBLE = {
   SIDE_LEAST: 220,
   /** Each state as a word: the status is never colour alone. */
   STATES: { thinking: 'working', asking: 'waiting for you', idle: 'idle', unread: 'done', error: 'stopped on an error' },
-  /** The four keys, where a prompt's choices can't be offered by label: ✕ says No, as a permission's No does. */
+  /**
+   * The four keys, where a prompt's choices can't be offered by label, pressed as they are. ✕ is the Escape key and
+   * is named for it, not "No": the Pixel Terminal shows the keys under a question's choices too, and the only No there
+   * is the choice, which looks at the screen first. (Not "Esc" alone: that's the open bubble's close button.)
+   */
   KEYS: [{ act: 'up', label: '▲', name: 'Up' }, { act: 'down', label: '▼', name: 'Down' },
-    { act: 'accept', label: '✓', name: 'Pick' }, { act: 'reject', label: '✕', name: 'No', no: true }],
+    { act: 'accept', label: '✓', name: 'Pick' }, { act: 'reject', label: '✕', name: 'Esc key', no: true }],
   /** Words sent wait this long for the computer, in ms, as the deck's own (INPUT_WAIT): past it, Send works again. */
   SAY_WAIT: 20000,
   NO_ANSWER: 'Your computer didn\'t answer in time. Look at the desk before you try again.',
@@ -172,19 +176,23 @@ const TALK_BUBBLE = {
 
   /**
    * A prompt's buttons, when its choices can be offered by label (`pickable`): a question's options by their numbers
-   * and No (Escape, as ✕), or a permission's Yes and No (1 and 2, D4). Null where they can't: the four keys answer it.
+   * and No (Escape, as ✕, with no number), or a permission's Yes and No (1 and 2, D4). Null where they can't: the four
+   * keys answer it.
    */
   choicesOf(asking) {
     if (!asking || !asking.pickable) return null;
     if (asking.kind === 'permission') return [{ n: 1, label: 'Yes' }, { n: 2, label: 'No', no: true }];
     const options = asking.questions[0].options.map((o) => ({ n: o.n, label: o.label, description: o.description }));
-    return [...options, { act: 'reject', label: 'No', no: true }];
+    return [...options, { label: 'No', no: true }];
   },
 
-  /** What a choice sends: a numbered one, POST /talk/pick with the prompt's `since`; a key, POST /act. */
+  /**
+   * What a choice sends: POST /talk/pick with the prompt's `since`, its number or, for a question's No, `no`, so the
+   * computer reads the desk's screen first and presses only while that prompt's menu is there; a key, POST /act.
+   */
   sendOf(id, asking, choice) {
     if (choice.act) return { path: '/act', params: { session: id, action: choice.act } };
-    return { path: '/talk/pick', params: { session: id, n: String(choice.n), since: String(asking.since) } };
+    return { path: '/talk/pick', params: { session: id, n: choice.n ? String(choice.n) : 'no', since: String(asking.since) } };
   },
 
   /** A desk's card once a choice went: after a No it no longer asks, so its input wakes for what to do instead. */

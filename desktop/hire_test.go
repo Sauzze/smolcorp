@@ -34,6 +34,11 @@ func fakeHiring(t *testing.T, tmux string) *hiring {
 	t.Helper()
 	h := &hiring{}
 	saved := []any{installedOpeners, tmuxPath, canOpenWindows, startHire, agentMissing, hooksNotConnected}
+	// The hires' windows are stand-ins: no launcher starts, so none starts its agent in a sandbox, and a plain hire is
+	// neither asked which project nor its place checked (FXHIREPROJECTSR5); a row that wants those says so.
+	savedSandboxed := plainHiresSandboxed
+	plainHiresSandboxed = false
+	t.Cleanup(func() { plainHiresSandboxed = savedSandboxed })
 	t.Cleanup(func() {
 		installedOpeners = saved[0].(func() []hireOpener)
 		tmuxPath = saved[1].(func() string)
@@ -97,6 +102,7 @@ func hiredWith(t *testing.T, window []string) (command []string, token string) {
 func TestAHireOpensATerminalRunningTheLauncher(t *testing.T) {
 	d, h, folder := hiringDeck(t, "")
 	d.config.HireAgent = "codex"
+	hiresOfEveryAgentHere(d)
 	if status, message := d.Perform("hire", "", url.Values{}); status != http.StatusNoContent {
 		t.Fatalf("hire: %d %s", status, message)
 	}
@@ -441,6 +447,7 @@ func TestAnAgentNotFoundWhereHiresStartIsExplained(t *testing.T) {
 func TestNoSecondHireWhileTheFirstsAgentIsLookedFor(t *testing.T) {
 	d, h, _ := hiringDeck(t, "")
 	d.config.HireAgent = "codex"
+	hiresOfEveryAgentHere(d)
 	var second int
 	agentMissing = func(program string) string {
 		// The check takes longer than the cooldown: a second hire, and a change in setup, come meanwhile.
@@ -632,6 +639,7 @@ func TestAClaudeHireGoesAheadWhileAnotherAgentIsntHooked(t *testing.T) {
 func TestAHireOfAnUnhookedAgentIsRefusedThoughAnotherIsHooked(t *testing.T) {
 	d, h, _ := hiringDeckAfter(t, "", func() { hooksOn(t) })
 	d.config.HireAgent = string(Codex)
+	hiresOfEveryAgentHere(d)
 	status, message := d.hireFromSetup("")
 	if status != http.StatusConflict || !strings.HasPrefix(message, "Connect your agents first") || !strings.Contains(message, "Codex") {
 		t.Errorf("Codex hire with Codex unhooked: %d %q, want %d and Connect your agents first naming Codex", status, message, http.StatusConflict)
@@ -740,6 +748,7 @@ func TestATestCopyRefusesAClaudeHireOnEveryRouteBeforeAnythingIsMade(t *testing.
 func TestTheOfficeSaysWhichHiresGetNoFence(t *testing.T) {
 	d, _, _ := hiringDeck(t, "/usr/bin/tmux")
 	d.config.Roles = []Role{{ID: "dev", Name: "Dev", Agent: "claude"}, {ID: "rev", Name: "Rev", Agent: "codex"}}
+	hiresOfEveryAgentHere(d) // the switch-on lines: TestOnAMacSetupAndTheOfficeSayOnlyClaudeCodeIsHiredYet
 	state := func() (dev, rev, anyone any) {
 		d.mu.Lock()
 		defer d.mu.Unlock()

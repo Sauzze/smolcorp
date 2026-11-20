@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -144,6 +145,10 @@ func runLauncherHire(r engineRequest, o launcherEngineOptions) (hire Hire, token
 	if err != nil {
 		return fail(http.StatusInternalServerError, err.Error())
 	}
+	// The branch words, on the rule every engine's hire on its own branch is told by (FXGITROWS2R6, O1): only an agent
+	// its sandbox holds. The launcher of an engine hire (--hire-id) never starts its agent in one (launcher.go), so
+	// nothing is said here, which is true: no row holds its git.
+	message += deskStartWords(deskBranchWords(runtime.GOOS, false, r.Role.ID == gmRole, place.Branch))
 	if brief != "" && place.Worktree == "" {
 		undoSettings := undo
 		undo = func() {

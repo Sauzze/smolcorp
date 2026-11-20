@@ -508,6 +508,8 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 		if text("session") != "" || refused != nil || !s.hasHire(h) {
 			return refuse("sets the preview only of its own hires" + where + ", named as \"hire\".")
 		}
+	case post && path == gmProjectPath:
+		return refuse("works only" + where + ": it doesn't start new project folders.")
 	case post && (path == "/setup/gm/tile" || path == "/setup/gm/screen"):
 		return refuse("works only" + where + ": it doesn't move the office's windows.")
 	default:

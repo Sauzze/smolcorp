@@ -41,6 +41,10 @@ func restartRefusal(h Hire, roles []Role, saved []claudeProfile, sandboxOff, toA
 	name := calledHire(h)
 	fireAndHire := " To have it in its sandbox, fire it and hire it again."
 	refuse := func(why string) (Role, string, string) { return Role{}, "", why }
+	role := Role{ID: h.Role, Name: h.Name, Agent: string(Claude)}
+	if i := slices.IndexFunc(roles, func(r Role) bool { return r.ID == h.Role }); i >= 0 {
+		role = roles[i]
+	}
 	switch {
 	case !desksSandboxedHere:
 		return refuse(noSandboxToRestart)
@@ -48,6 +52,10 @@ func restartRefusal(h Hire, roles []Role, saved []claudeProfile, sandboxOff, toA
 		return refuse(sandboxOffToRestart)
 	case inSandbox(h) && !toApply:
 		return refuse(name + " runs in its sandbox already.")
+	// A Codex, Gemini CLI, OpenCode or Grok desk, hired while the switch was off: a hire of it again is refused now, so
+	// the row says so rather than "fire it and hire it again" (FXPLANTSTERMR4, the R3 review's N2).
+	case notOnAMacYet(agentOrClaude(role.Agent), true) != "":
+		return refuse(notOnAMacYet(agentOrClaude(role.Agent), true))
 	case h.T3Session != "":
 		return refuse("Hand " + name + " back from T3 Code: it comes back in its sandbox.")
 	case h.Engine == t3Engine:
@@ -59,10 +67,6 @@ func restartRefusal(h Hire, roles []Role, saved []claudeProfile, sandboxOff, toA
 		return refuse(name + " wasn't started in a tmux of Smolcorp's own, so it can't be restarted here." + fireAndHire)
 	case h.Account == apiKeyAccountName:
 		return refuse(name + " works on the API key, which Smolcorp can't hand it again here." + fireAndHire)
-	}
-	role := Role{ID: h.Role, Name: h.Name, Agent: string(Claude)}
-	if i := slices.IndexFunc(roles, func(r Role) bool { return r.ID == h.Role }); i >= 0 {
-		role = roles[i]
 	}
 	if agentOrClaude(role.Agent) != Claude {
 		return refuse(name + " isn't a Claude Code desk, and only those start in the sandbox." + fireAndHire)
@@ -238,6 +242,10 @@ func (d *Deck) sandboxRow(state map[string]any, hires []Hire) {
 	for _, desk := range desks {
 		i := slices.IndexFunc(hires, func(h Hire) bool { return h.ID == desk["id"] })
 		if i < 0 {
+			// A plain hire started while the sandbox was off (plainDesksUnsandboxed): its row says all it can.
+			if id, _ := desk["id"].(string); strings.HasPrefix(id, plainHireDeskPrefix) {
+				unsandboxed++
+			}
 			continue
 		}
 		h := hires[i]
@@ -308,8 +316,8 @@ func (rt *router) sandboxRestartRoute(w http.ResponseWriter, r *request) {
 // and Windows, that there's none, and what Smolcorp does instead.
 //
 // At the Linux chain's merge (L1APPARMOR1's own `sandbox` line, RT126SAX14): one line per system. On Linux until
-// SA-L4 starts desks there, these words, but L1's fix status and its one command whenever its bwrap check fails
-// (its fail-closed gate stays); L1's "Hires start in their own sandbox" only once L4 does.
+// SA-L4 starts desks there, these words alone (FXLINUXCLAIMS); once it does, L1's fix status and its one command
+// whenever its bwrap check fails, and L1's "Hires start in their own sandbox" (selftest.go's sandboxLine).
 func (d *Deck) sandboxCheck(hires []Hire) check {
 	if !desksSandboxedHere {
 		return check{ID: "sandbox", Status: checkInfo, Title: "No sandbox on this computer yet", Detail: noSandboxHere}
@@ -322,6 +330,10 @@ func (d *Deck) sandboxCheck(hires []Hire) check {
 	if byHand {
 		unsandboxed++
 	}
+	d.mu.Lock()
+	plain := len(d.plainDesksUnsandboxed()) // plain hires started while it was off (FXSWITCHPLAIN)
+	d.mu.Unlock()
+	unsandboxed += plain
 	for _, h := range hires {
 		if isOpen(h) && !inSandbox(h) {
 			unsandboxed++
@@ -338,8 +350,21 @@ func (d *Deck) sandboxCheck(hires []Hire) check {
 		c.Detail = "Off: the desks you start now run without their sandbox, and can read Smolcorp's keys. Turn it on in " +
 			"Hires and roles, under Sandbox."
 	case unsandboxed > 0:
-		c.Detail = "The sandbox doesn't protect Smolcorp's keys while " + desks(unsandboxed) + " run without it. See " +
-			"which in Hires and roles, under Sandbox, and restart them there, or let them finish."
+		run := map[bool]string{true: " runs", false: " run"}[unsandboxed == 1]
+		c.Detail = "The sandbox doesn't protect Smolcorp's keys while " + desks(unsandboxed) + run + " without it. See " +
+			"which in Hires and roles, under Sandbox"
+		// A plain hire can't be restarted there (its row says so): it's fired and hired again, or left to finish.
+		them, their := map[bool]string{true: "it", false: "them"}[plain == 1], map[bool]string{true: "its", false: "their"}[plain == 1]
+		switch {
+		case plain == 0:
+			c.Detail += ", and restart them there, or let them finish."
+		case plain == unsandboxed:
+			c.Detail += ". Setup can't restart " + them + " in " + their + " sandbox: fire " + them + " and hire " + them +
+				" again, or let " + them + " finish."
+		default:
+			c.Detail += ", and restart them there, or let them finish. Setup can't restart " + strconv.Itoa(plain) +
+				" of them: fire " + them + " and hire " + them + " again."
+		}
 	case apply > 0:
 		c.Detail = desks(apply) + " started before a change on this Mac, and keep what their sandbox allowed then. " +
 			"Restart them in Hires and roles, under Sandbox."

@@ -26,6 +26,39 @@ const raisePath = "/raise"
 // if the browser could not be started, and the second instance is told.
 var showOffice = func(d *Deck) error { return d.openOffice() }
 
+// showSettings is /raise?show=settings, `smolcorp setup --open` on Windows: Smolcorp's own Settings window, or the
+// one open brought forward ("" said), as the tray's Open Setup… does. Under the Mac app, its own Settings window, as
+// the office's ⚙︎ opens it (act.go), never the browser: Setup in a browser only looks on a Mac
+// (RT126FIXREVIEW-OWNSETTINGS N2). With no window of its own here, Setup opens in the browser as the tray's would,
+// and what it says is how. A variable, for the tests.
+var showSettings = func(d *Deck) (instead string, err error) {
+	if h := d.macHost(); h != nil {
+		return "", hostShowSettings(h)
+	}
+	if settingsWebView() {
+		return "", d.showSettingsWindow("")
+	}
+	instead = settingsInBrowserWords(runtime.GOOS, settingsWindowApp.Load(), d.setupLinkGone())
+	return instead, d.openSetupInBrowser("")
+}
+
+// settingsInBrowserWords says Setup opened in the browser, not in a window of Smolcorp's own, and why, and how it lets
+// you in: a link that works once, or, once a phone is paired, a yes on the phone. app is whether this is the app, with
+// its tray (settingsWindowApp), or `smolcorp serve`, which has no window to open on any computer.
+func settingsInBrowserWords(goos string, app, tap bool) string {
+	words := "Smolcorp has no Settings window of its own on this computer, so Setup opened in your browser instead"
+	switch {
+	case goos == "windows" && !app:
+		words = "Smolcorp is running as smolcorp serve, with no tray and no windows, so Setup opened in your browser instead"
+	case goos == "windows":
+		words = "Smolcorp's own Settings window needs the Microsoft Edge WebView2 Runtime, which this computer doesn't have, so Setup opened in your browser instead"
+	}
+	if tap {
+		return words + ". Your phone is paired, so say yes on it when Setup asks."
+	}
+	return words + ", with a link that works once."
+}
+
 // instanceRunning is the message the second instance prints (and, with no
 // console to print on, shows).
 const instanceRunning = "Smolcorp is already running: look for its icon by the clock, or among the hidden icons. This second copy is closing."

@@ -1015,7 +1015,7 @@ func TestTheGoEngineUnderTheMacSaysWhatItLacksInItsOwnWords(t *testing.T) {
 func TestHelpAndBadTokenNameTheirApp(t *testing.T) {
 	app := newFakeApp(t, serve(teamAnswer(t), 200))
 	_, out, _ := runGM(app.env(t, withToken()), "help")
-	for _, want := range []string{"On Linux and Windows, tile, screens, screen and accounts\naren't served yet.", "on the Mac, ask the owner to rotate it", "hire the GM again from Setup"} {
+	for _, want := range []string{"On Linux and Windows, tile, screens, screen and accounts\naren't served yet.", "on the Mac, and Windows with WebView2,\nask the owner to rotate it", "start a General Manager by hand (Mac, and\n                                Windows with WebView2)", "on Linux, and Windows without WebView2, ask the owner to\nhire the GM again from Setup."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help lacks %q", want)
 		}

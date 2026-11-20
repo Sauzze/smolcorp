@@ -19,7 +19,9 @@ import (
 type access int
 
 const (
-	// The office's own window on this computer, with its key: never a phone.
+	// The office's own window on this computer, with its key: never a phone. On Windows that's the WebView2 window,
+	// whose key is the one paired device this run made for it, held in memory (request.windowsOwnWindow): there's no
+	// sandbox there, and the office in a browser, whose key a history file keeps, is let in already.
 	accessWindow access = iota + 1
 	// A paired phone, over the Wi-Fi or Tailscale: never the office's window.
 	accessPhone
@@ -28,8 +30,9 @@ const (
 	// The owner's own device: the Mac app's own office window, under the Mac app, with its key, or a paired phone
 	// over Tailscale (never the Wi-Fi's plain http). Never the office in a browser, whose key the browser keeps in
 	// its history, so never a window off a Mac (RT126FS2b N1); never the paired device the Windows window holds,
-	// whose key is in a file any program here can read; never a request from this computer's own Tailscale address,
-	// nor, off a Mac, from its loopback with a proxy's headers. The routes that take the owner's tap (grants.go).
+	// whose key is in this run's memory alone (ensureWindowKey) but which is a window off a Mac; never a request from
+	// this computer's own Tailscale address, nor, off a Mac, from its loopback with a proxy's headers. The routes that
+	// take the owner's tap (grants.go).
 	accessOwnerTap
 	// Another Mac paired for floors (peers_mac.go), with its peer key, over Tailscale, with the setting on: let in by
 	// servePeer alone, before the router's other checks, never as a phone or the window. Its rows are under /peer/.
@@ -108,7 +111,9 @@ func (r *request) ownerTapOverTailnet() bool {
 func (a access) lets(r *request, phoneID string) bool {
 	switch a {
 	case accessWindow:
-		return phoneID == officeWindowID
+		// The office's own window: the Mac's (or Linux's browser) as officeWindowID, and Windows' WebView2 window,
+		// whose key is its paired device's (request.windowsOwnWindow). Every other paired device, a phone, stays out.
+		return phoneID == officeWindowID || r.windowsOwnWindow
 	case accessPhone:
 		return phoneID != officeWindowID
 	case accessPhoneSecure:
@@ -133,6 +138,11 @@ func (d *Deck) servePhoneRoute(w http.ResponseWriter, r *request, phoneID string
 	row := phoneRouteFor(r.Method, r.URL.Path)
 	if row == nil {
 		return false
+	}
+	// A feature this version leaves off (dormant.go), before its class's refusal, which would name it.
+	if dormantRoute(r.URL.Path) {
+		answerDormant(w)
+		return true
 	}
 	if !row.access.lets(r, phoneID) {
 		writeStatus(w)(http.StatusForbidden, row.refusal(d))

@@ -85,7 +85,7 @@ func (sb *acpSandbox) command(program string, args, env []string) (*exec.Cmd, *s
 		return nil, nil, errors.New(words)
 	}
 	profile := filepath.Join(hireFolder(supportDir, desk.at.ID), "sandbox.sb")
-	if err := sandbox.PrepareProfile(desk.policy, profile, deskServices(desk.places, "")); err != nil {
+	if err := desk.prepareProfile(profile, deskServices(desk.places, "")); err != nil {
 		return refuse(sandbox.SandboxExecRefusal, "its profile: "+err.Error())
 	}
 	// The stand-in other server listens in the socket folder, as for a desk with a tmux server: made, or checked,
@@ -374,8 +374,10 @@ func (sb *acpSandbox) ReleaseTerminal(_ context.Context, req acp.TerminalRequest
 	return nil
 }
 
-// close ends every terminal and takes no more: when the desk ends.
-func (sb *acpSandbox) close() {
+// close ends every terminal and takes no more: when the desk ends. Then every program still running in the desk's
+// sandbox is ended, and seen ended (FXFIREREAPR1): a terminal's group kill doesn't reach what it started under setsid.
+// "", or why the desk's sandbox couldn't be shown empty, for the owner.
+func (sb *acpSandbox) close() string {
 	sb.mu.Lock()
 	sb.closed = true
 	terms := sb.terms
@@ -385,6 +387,11 @@ func (sb *acpSandbox) close() {
 		t.kill()
 		<-t.done
 	}
+	if left, sure := reapSandboxAt(hireFolder(supportDir, sb.desk.at.ID), true); len(left) != 0 || !sure {
+		log.Printf("sandbox: ACP desk %s at its stop: its processes %v left, every process answered: %t", sb.desk.at.ID, left, sure)
+		return reapLeftWords(Hire{Name: "the agent"}, left)
+	}
+	return ""
 }
 
 // acpOutput is a terminal's output: its last most bytes, cut at a character's start.

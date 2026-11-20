@@ -370,6 +370,7 @@ func TestSetupsHireSaysWhenItsTaskWasntPassedOn(t *testing.T) {
 	d.watching.Wait()
 	i := slices.IndexFunc(d.config.Roles, func(r Role) bool { return r.ID == "accountant" })
 	d.config.Roles[i].Agent = "codex"
+	hiresOfEveryAgentHere(d)
 	d.lastHire = time.Time{}
 	status, answer, why = d.hireFromSetupSheet(setupHire{Role: "accountant", Folder: repo, Answers: []string{"x"}, Task: "Count."})
 	if status != http.StatusOK || answer.(map[string]any)["note"] != setupHireNotPassedOn || len(h.windows)+len(h.tmux) == 0 {

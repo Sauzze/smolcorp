@@ -18,7 +18,9 @@ import (
 // it named (X-Smolcorp-Session) has the GM's role, kept in <support>/gm-session (the id alone, which opens nothing)
 // until the GM is fired or the token changes.
 //
-// Linux and Windows have neither yet: their page and `smolcorp gm` say a GM gets its token at its hire.
+// On Windows with WebView2 the same, answered in Smolcorp's own Settings window there (settingswindow.go,
+// FXWINTOOLASK): a GM started by hand needs a window of Smolcorp's own to say yes in. Linux, and a Windows without
+// WebView2, have neither: their page and `smolcorp gm` say a GM gets its token at its hire.
 
 // gmTokenFileName and gmSessionFileName are the files in the support folder, named as the Swift engine names them.
 const (
@@ -40,8 +42,11 @@ type gmByHandState struct {
 func gmTokenPath() string   { return filepath.Join(supportDir, gmTokenFileName) }
 func gmSessionPath() string { return filepath.Join(supportDir, gmSessionFileName) }
 
-// byHandAllowed is whether a GM started by hand is allowed: under the Mac app, with the setting on. The caller holds d.mu.
-func (d *Deck) byHandAllowed() bool { return d.mac.host != nil && d.config.GMByHand }
+// byHandAllowed is whether a GM started by hand is allowed: with the setting on, where Smolcorp has its own Settings
+// window (under the Mac app, or on Windows with WebView2). The setting goes first: it's free, while the window's check
+// can read the registry on Windows, and it's asked per session and on every GM request (RT126FIXREVIEW-WINTOOLASKR1
+// O3). The caller holds d.mu.
+func (d *Deck) byHandAllowed() bool { return d.config.GMByHand && d.ownSettingsWindowHeld() }
 
 // validGMToken is a token as it's kept: 43 base64url characters (32 random bytes), else "".
 func validGMToken(text string) string {
@@ -60,11 +65,12 @@ func validGMSession(text string) string {
 	return text
 }
 
-// loadByHandGM is the core's start, under the Mac app: with the setting on, the session kept in its file, and a
-// token made if there is none; with it off, the session's file taken away. The token file an earlier version kept is
-// taken away either way, unread: a token anything could read opens nothing now. The caller holds d.mu.
+// loadByHandGM is the core's start, where Smolcorp has its own Settings window: with the setting on, the session kept
+// in its file, and a token made if there is none; with it off, the session's file taken away. The token file an
+// earlier version kept is taken away either way, unread: a token anything could read opens nothing now. The caller
+// holds d.mu.
 func (d *Deck) loadByHandGM() {
-	if d.mac.host == nil {
+	if !d.ownSettingsWindowHeld() {
 		return
 	}
 	if d.config.GMByHand {
@@ -179,11 +185,12 @@ func (d *Deck) movedByHandGM(old, replacement string) {
 	}
 }
 
-// managerState is the setup state's manager, in the Mac's shape (DeckRouter.managerState): under the Mac app, the
-// setting and whether a GM was started by hand (never the token). No file holds the token any more, so the file's
-// fields are empty everywhere; the page says to start the GM with smolcorp gm login. The caller holds d.mu.
+// managerState is the setup state's manager, in the Mac's shape (DeckRouter.managerState): where Smolcorp has its own
+// Settings window, the setting and whether a GM was started by hand (never the token). No file holds the token any
+// more, so the file's fields are empty everywhere; the page says to start the GM with smolcorp gm login. The caller
+// holds d.mu.
 func (d *Deck) managerState() map[string]any {
-	if d.mac.host == nil {
+	if !d.ownSettingsWindowHeld() {
 		return map[string]any{"enabled": d.config.ManagerEnabled, "gmByHand": false, "gmStartedByHand": false,
 			"gmTokenFile": "", "gmTokenFileShown": ""}
 	}
@@ -194,11 +201,12 @@ func (d *Deck) managerState() map[string]any {
 // gmRotated is what POST /setup/gm/token/rotate answers: that it was made, never the token, and what to do next.
 var gmRotated = map[string]any{"rotated": true, "message": "The old token no longer works. Fire the General Manager and hire it again to give it the new one, or start it again with smolcorp gm login."}
 
-// byHandRoutes answers POST /setup/gm/by-hand and POST /setup/gm/token/rotate under the Mac app, and says whether
-// the request was one of them. Elsewhere they aren't served (404).
+// byHandRoutes answers POST /setup/gm/by-hand and POST /setup/gm/token/rotate where Smolcorp has its own Settings
+// window (under the Mac app, or on Windows with WebView2, where a browser's Setup can't use them: routes.go's
+// Strict), and says whether the request was one of them. Elsewhere they aren't served (404).
 func (rt *router) byHandRoutes(w http.ResponseWriter, r *request) bool {
 	d := rt.deck
-	if r.Method != http.MethodPost || r.URL.Path != "/setup/gm/by-hand" && r.URL.Path != "/setup/gm/token/rotate" || d.macHost() == nil {
+	if r.Method != http.MethodPost || r.URL.Path != "/setup/gm/by-hand" && r.URL.Path != "/setup/gm/token/rotate" || !d.ownSettingsWindow() {
 		return false
 	}
 	if r.URL.Path == "/setup/gm/by-hand" {

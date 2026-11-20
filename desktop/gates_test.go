@@ -21,6 +21,10 @@ func oldSetupGate(who caller, method, path string, managerOn bool) (int, string)
 	if path != "/setup" && !routeAllows(who, method, path) {
 		return http.StatusForbidden, routeRefusal(method, path)
 	}
+	// Since FXDORMANTOFF, a feature this version leaves off is unknown to every caller the table lets in (dormant.go).
+	if dormantRoute(path) {
+		return http.StatusNotFound, notInThisVersion
+	}
 	if managerRefuses(method, path, managerOn) {
 		return http.StatusConflict, managerOffAnswer
 	}
@@ -68,6 +72,10 @@ func TestEveryRouteIsDecidedAsTheGatesItWrapsDecideIt(t *testing.T) {
 				// They are refused before the manager's switch, as the night shift's are.
 				if isMemoryRoute(path) && (gm.allowed() || gm.why == managerOffAnswer) {
 					gm = refuse(http.StatusForbidden, memoryRouteRefusal)
+				}
+				// Nor a new project folder, the GM's own ask (gmproject.go), refused before the manager's switch too.
+				if path == gmProjectPath && (gm.allowed() || gm.why == managerOffAnswer) {
+					gm = refuse(http.StatusForbidden, gmProjectRefusal)
 				}
 				for _, a := range []actor{mcpActor("claude-desktop"), nightActor("nightly-tests")} {
 					if got := d.decide(a, action{route: &routeAsk{method: method, path: path}}); got != gm {

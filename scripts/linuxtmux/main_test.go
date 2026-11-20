@@ -400,13 +400,15 @@ func TestTheInstallerPutsTheTmuxWhereTheCoreLooks(t *testing.T) {
 // runs exactly the text `smolcorp sandbox command` prints (here a harmless marker writer, no sudo), and only when
 // `sandbox check` says so (exit 1, its words printed); it checks again after; a command that fails, or a check that
 // still fails, says hires won't start; a missing bubblewrap package (exit 3) gets its words and no command; and the
-// install goes on to exit 0 in every case.
+// install goes on to exit 0 in every case. All of it only when `sandbox used` says desks start in a sandbox here
+// (exit 0); when it says no (1, as in 1.26.0 on Linux: FXLINUXCLAIMS), nothing is checked, run or said.
 func TestTheInstallerRunsSmolcorpsSandboxCommandOnlyWhenTheCheckSays(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("install.sh is Linux's")
 	}
 	for _, row := range []struct {
 		name   string
+		used   string // `sandbox used`'s exit code
 		checks string // the check's exit codes, one per call, the last repeated
 		fails  bool   // the command fails
 		calls  string
@@ -414,16 +416,18 @@ func TestTheInstallerRunsSmolcorpsSandboxCommandOnlyWhenTheCheckSays(t *testing.
 		say    []string
 		unsaid []string
 	}{
-		{"set up by the command", "1 0", false, "sandbox check|sandbox command|sandbox check|setup --open", true,
+		{"set up by the command", "0", "1 0", false, "sandbox used|sandbox check|sandbox command|sandbox check|setup --open", true,
 			[]string{"STAND-IN WHY AND COMMAND", "The installer runs it for you now."}, []string{"hires won't start"}},
-		{"the command declined", "1", true, "sandbox check|sandbox command|setup --open", true,
+		{"the command declined", "0", "1", true, "sandbox used|sandbox check|sandbox command|setup --open", true,
 			[]string{"STAND-IN WHY AND COMMAND", "hires won't start until it does: run the line above"}, nil},
-		{"still refused after", "1", false, "sandbox check|sandbox command|sandbox check|setup --open", true,
+		{"still refused after", "0", "1", false, "sandbox used|sandbox check|sandbox command|sandbox check|setup --open", true,
 			[]string{"hires won't start until it does"}, nil},
-		{"no bubblewrap package", "3", false, "sandbox check|setup --open", false,
+		{"no bubblewrap package", "0", "3", false, "sandbox used|sandbox check|setup --open", false,
 			[]string{"STAND-IN INSTALL BUBBLEWRAP Then run ./install.sh again."}, []string{"runs it for you", "hires won't start"}},
-		{"already in place", "0", false, "sandbox check|setup --open", false, nil,
+		{"already in place", "0", "0", false, "sandbox used|sandbox check|setup --open", false, nil,
 			[]string{"STAND-IN", "runs it for you", "hires won't start"}},
+		{"no desk starts in a sandbox here", "1", "1", false, "sandbox used|setup --open", false, nil,
+			[]string{"STAND-IN", "runs it for you", "hires won't start", "bubblewrap", "password", "sudo"}},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			home, folder, state := t.TempDir(), t.TempDir(), t.TempDir()
@@ -442,6 +446,8 @@ func TestTheInstallerRunsSmolcorpsSandboxCommandOnlyWhenTheCheckSays(t *testing.
 state='`+state+`'
 echo "$*" >> "$state/calls"
 case "$1 $2" in
+"sandbox used")
+  exit '`+row.used+`' ;;
 "sandbox check")
   n=$(grep -c '^sandbox check' "$state/calls")
   code=$(echo '`+row.checks+`' | tr ' ' '\n' | sed -n "${n}p")

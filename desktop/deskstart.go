@@ -18,6 +18,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 // A desk's start ticket (SANDBOX-PLAN §3.4, SG2; §4 g5). A desk used to start from a script in the support
@@ -298,7 +300,11 @@ func deskBaseEnvironment() []string {
 			folders = append(folders, folder)
 		}
 	}
-	return append(env, "PATH="+strings.Join(folders, string(os.PathListSeparator)))
+	env = append(env, "PATH="+strings.Join(folders, string(os.PathListSeparator)))
+	if deskSandboxed {
+		env = sandbox.DeskGitConfig(env) // its MERGE_RR, origin/HEAD and tags are denied (FXGITROWS2, B3; FXGITROWS2R1, O1; FXGITROWS2R4)
+	}
+	return env
 }
 
 // deskEnvironment is base with plan's changes made, in order, and the API key read when the plan says so. On a Mac the

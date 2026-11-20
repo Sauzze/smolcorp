@@ -64,6 +64,9 @@ type bridgeRequest struct {
 	Session  string `json:"session,omitempty"`
 	// t3-link: T3 Code's own link to a hire's thread (t3DeepLink).
 	Link string `json:"link,omitempty"`
+	// settings: what Smolcorp's own Settings window opens Setup at, after # ("" for Setup as it is): only the demo's
+	// page, demo= and its folder escaped (demopage.go's demoPageThen).
+	Then string `json:"then,omitempty"`
 	// window-look, window-close: a window the app opened for this engine, by the record its open answered;
 	// window-close: the tty it showed, as window-look said.
 	Window string `json:"window,omitempty"`
@@ -571,6 +574,19 @@ func hostCloseFolderPanel(h hostBridge) error {
 // hostShowOffice shows the office's window on the Mac, as the menu's Show Office does.
 func hostShowOffice(h hostBridge) error {
 	_, err := ask(h, bridgeRequest{Action: "office"})
+	return err
+}
+
+// hostShowSettings shows Smolcorp's own Settings window on the Mac, as the menu's Settings… does: Setup in a browser
+// only looks there (routes.go's windowOnlyRefusal).
+func hostShowSettings(h hostBridge) error {
+	return hostShowSettingsAt(h, "")
+}
+
+// hostShowSettingsAt is hostShowSettings with Setup opened at then, as the menu's Pair a Phone… opens it at #pair: the
+// demo's page (demopage.go). An open window loads Setup again at then.
+func hostShowSettingsAt(h hostBridge, then string) error {
+	_, err := ask(h, bridgeRequest{Action: "settings", Then: then})
 	return err
 }
 

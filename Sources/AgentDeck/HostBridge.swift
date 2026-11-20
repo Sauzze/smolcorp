@@ -425,7 +425,7 @@ final class HostBridge {
                 item.set(on)
             }
             return ["ok": true, "on": item.get()]
-        case "office", "office-ontop", "office-key", "choose-folder", "folder-panel-close":
+        case "office", "office-ontop", "office-key", "choose-folder", "folder-panel-close", "settings":
             return shell(action, request, actions, until: deadline)
         case "facts", "install-check", "install", "dock", "accessibility", "keystrokes-on", "keystroke-apps", "glossary", "dictation", "terminal-command":
             if action == "accessibility", let why = TestCopy.refusal(for: .accessibility, testCopy: actions.testCopy) { return refused(why) }
@@ -651,6 +651,12 @@ final class HostBridge {
         switch action {
         case "office":
             return onMain(actions, until: deadline) { actions.showOffice() }
+        case "settings":
+            // The office's ⚙︎ in its window, and the demo's page at `then`: Smolcorp's own Settings window, as the menu's
+            // Settings… shows it, since Setup in a browser only looks on a Mac (desktop/routes.go's windowOnlyRefusal).
+            let then = request["then"] as? String
+            if let then, !settingsThen(then) { return refused("Not a page Settings opens at.") }
+            return onMain(actions, until: deadline) { actions.showSettings(then) }
         case "office-ontop":
             guard let on = request["on"] as? Bool else { return refused("Say on or off.") }
             return onMain(actions, until: deadline) { actions.officeOnTop(on) }
@@ -938,6 +944,28 @@ final class HostBridge {
     }
 
     private static func refused(_ why: String) -> [String: Any] { ["ok": false, "error": why] }
+
+    /// What the core may have Settings open at, after #: the demo's page alone, `demo=` and its folder as the core
+    /// escapes it for a query (desktop/demopage.go's demoPageThen), so the address made of it is always one. A `%` is
+    /// taken only with two hex digits after it, as an escape is: macOS 13 may make no address of `%` or `%zz`, and
+    /// `SettingsWindow.address` would stop the app.
+    static func settingsThen(_ then: String) -> Bool {
+        guard then.hasPrefix("demo="), then.count > "demo=".count else { return false }
+        let plain = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~+")
+        let hex = CharacterSet(charactersIn: "0123456789ABCDEFabcdef")
+        var rest = then.dropFirst("demo=".count).unicodeScalars
+        while let first = rest.first {
+            if first == "%" {
+                let digits = rest.dropFirst().prefix(2)
+                guard digits.count == 2, digits.allSatisfy(hex.contains) else { return false }
+                rest = rest.dropFirst(3)
+            } else {
+                guard plain.contains(first) else { return false }
+                rest = rest.dropFirst()
+            }
+        }
+        return true
+    }
 
     /// A terminal the app can't do this in: the core tells it apart from a tab that's gone.
     private static let unsupported: [String: Any] = ["ok": false, "error": "This terminal can't do that.", "unsupported": true]
@@ -1453,6 +1481,9 @@ final class HostBridge {
         var roster: () -> [GrokBotApp.Row]? = { nil }
         /// The office's window shown, and kept on top or not: the Go shell's own (GoShellDelegate), nothing elsewhere.
         var showOffice: () -> Void = {}
+        /// Smolcorp's own Settings window shown, as the menu's Settings… shows it, at what follows # if given (the
+        /// demo's page): the Go shell's own (GoShellDelegate).
+        var showSettings: (_ then: String?) -> Void = { _ in }
         var officeOnTop: (Bool) -> Void = { _ in }
         /// The office's keys held instead, or none (nil): why not, or nil once they're held (`OfficeKeyHolder`).
         var officeKey: (OfficeKey?) -> String? = { _ in nil }

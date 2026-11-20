@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,6 +41,12 @@ const (
 	gitOutputCap    = 4 << 20 // bytes of one answer from git; more and that part is skipped
 	gitFilesShown   = 200
 	gitStatesKept   = 64
+)
+
+// A listing that grows with the repo is read as it comes (gitRecords), past gitOutputCap, with bounds of its own.
+const (
+	gitRecordMost = 64 << 10 // bytes of one record of such a listing
+	gitRefsMost   = 64 << 20 // bytes of a listing of the repo's branches (gitstatefolder.go, gitBranchesIn)
 )
 
 var errGitTooBig = errors.New("git's answer is over the size cap")
@@ -84,28 +91,101 @@ type GitState struct {
 //
 // env is more of git's environment, after gitReadEnv's: the git folder a read's status and diff go through
 // (gitstatefolder.go).
+//
+// stdout, when not nil, takes git's standard output as it comes, past no cap of gitOutput's, and the answer's out is
+// then empty: for a listing that grows with the repo, read as gitRecords (FXWINWORKTREER4). Whether the copy went
+// whole is stdout's to say: the caller asks it first, before git's exit.
 type gitCall struct {
 	global []string
 	config [][2]string
 	env    []string
+	stdout io.Writer
 }
 
 // gitReader runs one read-only git command in dir and returns its standard output, its exit code, and an error
 // when it could not run, took too long (ctx) or answered more than the cap.
 type gitReader func(ctx context.Context, dir string, call gitCall, args ...string) (out []byte, status int, err error)
 
-// gitOutput takes git's output and stops the copy, so git ends on a broken pipe, past the cap.
+// gitOutput takes git's output and stops the copy, so git ends on a broken pipe, past the cap. The buffer is a field,
+// not embedded: an embedded bytes.Buffer's ReadFrom would be gitOutput's too, and exec's copy of a command's stream
+// takes a ReadFrom over Write, so the cap never ran (FXWINWORKTREER3, the R2 review's O1).
 type gitOutput struct {
-	bytes.Buffer
+	buf  bytes.Buffer
 	over bool
 }
 
 func (b *gitOutput) Write(p []byte) (int, error) {
-	if b.Len()+len(p) > gitOutputCap {
+	if b.buf.Len()+len(p) > gitOutputCap {
 		b.over = true
 		return 0, errGitTooBig
 	}
-	return b.Buffer.Write(p)
+	return b.buf.Write(p)
+}
+
+func (b *gitOutput) Len() int { return b.buf.Len() }
+
+func (b *gitOutput) Bytes() []byte { return b.buf.Bytes() }
+
+func (b *gitOutput) String() string { return b.buf.String() }
+
+// gitRecords takes a listing from git that grows with the repo (its index, its branches) record by record as it comes
+// (FXWINWORKTREER4): each whole record, up to sep, goes to each, and nothing is held but the record under way, so
+// gitOutput's cap, which a clean tree's index passes at some 40,000 files, doesn't refuse it. each keeps what it needs
+// of a record (a copy: the bytes are reused). A record longer than gitRecordMost, a listing past most bytes (0 for no
+// bound), or an error from each stops the copy as gitOutput's cap does, so git ends on a broken pipe.
+type gitRecords struct {
+	sep  byte
+	most int64
+	each func(record []byte) error
+	seen int64
+	part []byte
+	err  error
+}
+
+func (r *gitRecords) Write(p []byte) (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	if r.seen += int64(len(p)); r.most > 0 && r.seen > r.most {
+		r.err = errGitTooBig
+		return 0, r.err
+	}
+	n := len(p)
+	for {
+		i := bytes.IndexByte(p, r.sep)
+		if i < 0 {
+			break
+		}
+		record := p[:i]
+		if len(r.part) > 0 {
+			r.part = append(r.part, record...)
+			record = r.part
+		}
+		if len(record) > gitRecordMost {
+			r.err = errGitTooBig
+			return 0, r.err
+		}
+		if err := r.each(record); err != nil {
+			r.err = err
+			return 0, err
+		}
+		r.part, p = r.part[:0], p[i+1:]
+	}
+	if len(r.part)+len(p) > gitRecordMost {
+		r.err = errGitTooBig
+		return 0, r.err
+	}
+	r.part = append(r.part, p...)
+	return n, nil
+}
+
+// end is why the listing wasn't taken whole, nil once it was: what stopped the copy, or a last record git didn't end
+// with sep (an answer cut short).
+func (r *gitRecords) end() error {
+	if r.err == nil && len(r.part) > 0 {
+		r.err = errors.New("git's listing ends in the middle of a record")
+	}
+	return r.err
 }
 
 // gitReadArgs go before every command: nothing paged, no lock taken for a refresh, no transport (so no fetch, not
@@ -140,6 +220,25 @@ var gitConfigNames = map[string]bool{
 // the Mac's rows), and either one bends what a base branch reads as: its ancestry, or a file's bytes.
 var gitReadAround = [][2]string{{"core.commitGraph", "false"}, {"core.multiPackIndex", "false"}}
 
+// gitNoGraftFile is the grafts file a read names (GIT_GRAFT_FILE), so that it reads none, and gitNoGraftHint what goes
+// with it (gitNoGrafts).
+var gitNoGraftFile, gitNoGraftHint = gitNoGrafts(runtime.GOOS == "windows")
+
+// gitNoGrafts is a grafts file that holds none, and any setting it needs so git says nothing about it. Git opens the
+// file at its first look at a commit (a status, a log), and says nothing when there's no such file; any other failure
+// to open it is a warning on standard error, with exit 0. An empty name is no file on a Mac and on Linux, and nothing
+// is printed. Windows can't open an empty name at all, so Git for Windows printed "warning: unable to access", the
+// empty name and "Invalid argument" beside each such look, and the fire kept every clean tree for it
+// (FXWINWORKTREER3, git 2.56.0.windows.4 on windows-latest). There it's the null device, read as no grafts; git then
+// prints its hint that a grafts file is deprecated, which advice.graftFileDeprecated turns off (handed over with the
+// read's config, which git reads before that first look).
+func gitNoGrafts(windows bool) (file string, hint [][2]string) {
+	if windows {
+		return os.DevNull, [][2]string{{"advice.graftFileDeprecated", "false"}}
+	}
+	return "", nil
+}
+
 // gitReadEnv is the environment of a read: the app's, without what would point git at another repo or hand it
 // config, a program or a transport, with nothing to ask the owner, and with config, if any, handed over (gitCall).
 // No transport: GIT_ALLOW_PROTOCOL empty allows none and, unlike protocol.allow, beats a repo's own
@@ -149,10 +248,16 @@ var gitReadAround = [][2]string{{"core.commitGraph", "false"}, {"core.multiPackI
 // (gitOwnerLineEnds, makeGitReadFolder; and deskGit's, gitLineEndsAround); nothing else of theirs applies here.
 //
 // Nor does anything that substitutes what a ref reads as (FXREPLACEREFS): no replace ref (GIT_NO_REPLACE_OBJECTS),
-// no grafts (GIT_GRAFT_FILE empty names no file, so none is read, and git's hint about grafts isn't printed either),
-// and gitReadAround last. The shallow list is still read: a shallow clone's history really ends there.
+// no grafts (gitNoGraftFile), and gitReadAround last. The shallow list is still read: a shallow clone's history
+// really ends there.
 func gitReadEnv(env []string, config [][2]string) []string {
-	config = append(slices.Clip(config), gitReadAround...)
+	return gitReadEnvGrafts(env, config, gitNoGraftFile, gitNoGraftHint)
+}
+
+// gitReadEnvGrafts is gitReadEnv with graftFile named as the grafts file, and graftHint after the read's config (the
+// two gitNoGrafts gives).
+func gitReadEnvGrafts(env []string, config [][2]string, graftFile string, graftHint [][2]string) []string {
+	config = append(append(slices.Clip(config), gitReadAround...), graftHint...)
 	out := make([]string, 0, len(env)+10+2*len(config))
 	for _, kv := range env {
 		name, _, _ := strings.Cut(kv, "=")
@@ -163,7 +268,7 @@ func gitReadEnv(env []string, config [][2]string) []string {
 		out = append(out, kv)
 	}
 	out = append(out, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_PAGER=cat", "GIT_ALLOW_PROTOCOL=", "GIT_NO_LAZY_FETCH=1",
-		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_NO_REPLACE_OBJECTS=1", "GIT_GRAFT_FILE=")
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_NO_REPLACE_OBJECTS=1", "GIT_GRAFT_FILE="+graftFile)
 	out = append(out, "GIT_CONFIG_COUNT="+strconv.Itoa(len(config)))
 	for i, kv := range config {
 		n := strconv.Itoa(i)
@@ -172,9 +277,11 @@ func gitReadEnv(env []string, config [][2]string) []string {
 	return out
 }
 
-// readGitOut is the real gitReader: `git -C dir …` with no shell, in ctx, with only its standard output kept.
+// readGitOut is the real gitReader: `git -C dir …` with no shell, in ctx, with only its standard output kept (or
+// handed to call.stdout as it comes).
 func readGitOut(ctx context.Context, dir string, call gitCall, args ...string) ([]byte, int, error) {
-	return execGit(ctx, append(gitReadEnv(os.Environ(), call.config), call.env...), append(append([]string{"-C", dir}, call.global...), args...)...)
+	return execGitTo(ctx, append(gitReadEnv(os.Environ(), call.config), call.env...), nil, call.stdout,
+		append(append([]string{"-C", dir}, call.global...), args...)...)
 }
 
 // execGit runs git with args in env, keeping its standard output up to the cap.
@@ -184,6 +291,12 @@ func execGit(ctx context.Context, env []string, args ...string) ([]byte, int, er
 
 // execGitIn is execGit with in as git's standard input (nil: the null device).
 func execGitIn(ctx context.Context, env []string, in io.Reader, args ...string) ([]byte, int, error) {
+	return execGitTo(ctx, env, in, nil, args...)
+}
+
+// execGitTo is execGitIn with git's standard output handed to stdout as it comes, when not nil (gitCall's stdout):
+// out is then empty.
+func execGitTo(ctx context.Context, env []string, in io.Reader, stdout io.Writer, args ...string) ([]byte, int, error) {
 	cmd := disclaim.Cmd(exec.CommandContext(ctx, "git", args...))
 	cmd.Env = env
 	cmd.Stdin = in
@@ -192,6 +305,9 @@ func execGitIn(ctx context.Context, env []string, in io.Reader, args ...string) 
 	hideGitWindow(cmd)
 	var out gitOutput
 	cmd.Stdout = &out // standard error goes to the null device, and standard input too without in
+	if stdout != nil {
+		cmd.Stdout = stdout
+	}
 	err := cmd.Run()
 	switch {
 	case out.over:

@@ -108,6 +108,7 @@ func TestOnAMacTheProfileHoldsForAStandInHire(t *testing.T) {
 		filepath.Join(home, ".ssh", "id_x.pub"): "ssh-ed25519 standin", filepath.Join(home, ".claude", "CLAUDE.md"): "notes",
 		filepath.Join(home, ".claude", ".credentials.json"): "FAKEKEY", filepath.Join(home, ".claude.json"): "{}",
 		filepath.Join(sockets, "h2", "s"): "", filepath.Join(sockets, "h1", "f"): "", filepath.Join(base, "elsewhere", "codex", "auth.json"): "standin",
+		filepath.Join(home, ".gemini", "settings.json"): "{}",
 	}
 	for at, text := range files {
 		if err := os.MkdirAll(filepath.Dir(at), 0o700); err != nil {
@@ -156,9 +157,9 @@ func TestOnAMacTheProfileHoldsForAStandInHire(t *testing.T) {
 	if names, _ := os.ReadDir(own); len(names) != 4 {
 		t.Errorf("a temporary file was left beside the profile: %v", names)
 	}
-	gemini := filepath.Join(home, ".gemini")
-	if info, err := os.Lstat(gemini); err != nil || !info.IsDir() {
-		t.Fatalf("the Hold folder %s wasn't made: %v", gemini, err)
+	gemini, held := filepath.Join(home, ".gemini"), filepath.Join(home, ".config", "systemd")
+	if info, err := os.Lstat(held); err != nil || !info.IsDir() {
+		t.Fatalf("the Hold folder %s wasn't made: %v", held, err)
 	}
 
 	type step struct {
@@ -185,7 +186,7 @@ func TestOnAMacTheProfileHoldsForAStandInHire(t *testing.T) {
 		{"symlink", own + "/NOTES.md", own + "/settings.json", ok}, {"write", own + "/NOTES.md", "", no}, {"write", root + "/fence-link", "", no},
 		// The rename guards: the support folder, its worktree, the project, the folders above them, a Hold folder.
 		{"rename", support, base + "/elsewhere/AD", no}, {"rename", root, hires + "/h1-moved", no}, {"rename", hires, base + "/elsewhere/h", no},
-		{"rename", repo, base + "/elsewhere/app", no}, {"rename", home + "/L", base + "/elsewhere/L", no}, {"rmdir", gemini, "", no},
+		{"rename", repo, base + "/elsewhere/app", no}, {"rename", home + "/L", base + "/elsewhere/L", no}, {"rmdir", held, "", no},
 		{"rename", nfd(home) + "/P", base + "/elsewhere/P", no}, {"rename", root + "/pkg", root + "/pkg2", ok},
 		// No new .claude, in any case; its fences.
 		{"mkdir", root + "/sub/.claude", "", no}, {"mkdir", root + "/sub/.CLAUDE", "", no}, {"mkdir", root + "/sub/.claudex", "", ok},
@@ -205,7 +206,9 @@ func TestOnAMacTheProfileHoldsForAStandInHire(t *testing.T) {
 		// rest of the shared .git; other desks' places.
 		{"write", git + "/config", "", no}, {"write", git + "/refs/heads/main", "", no}, {"write", git + "/refs/heads/" + nfd("dé"), "", no},
 		{"write", git + "/refs/heads/DÉ", "", no}, {"chmod", git + "/refs", "", no}, {"write", git + "/objects/info/alternates", "", no},
-		{"write", git + "/refs/heads/feature", "", ok}, {"write", git + "/worktrees/h1/HEAD", "", ok},
+		// A branch of its own, hire/h1, as every real hire has, since a desk writes no other from FXGITROWS2R4 (this
+		// stand-in moved in FXGITROWS2R6).
+		{"write", git + "/refs/heads/hire/h1", "", ok}, {"write", git + "/worktrees/h1/HEAD", "", ok},
 		{"write", other + "/main.go", "", no}, {"write", repo + "/main.go", "", no}, {"write", root + "/main.go", "", ok},
 	}
 	var args [][]string

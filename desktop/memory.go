@@ -154,6 +154,8 @@ var (
 	errMemoryWaitingFull = errors.New("50 notes are already waiting for the owner: memory takes no more until some are kept or dropped")
 	errMemoryKeptFull    = errors.New("memory already keeps 200 notes: delete or merge some first")
 	errMemoryIndexFull   = errors.New("the index the GM reads would be longer than 8 KB: delete or merge some notes first")
+	errMemoryNameTaken   = errors.New("another note already has this name")
+	errMemoryUnchanged   = errors.New("the edit changes nothing in the note")
 )
 
 // memoryIDShape is a note's id, as newID makes it: its file's name, so nothing else is ever opened.
@@ -381,6 +383,72 @@ func (m *gmMemory) keep(id, shown string) error {
 	}
 	m.notes = notes
 	return nil
+}
+
+// keepEdited is the owner's Edit on a waiting note (MEM5, FXMEMKEEP): on the hash of the note as it was shown, its
+// words replaced with the owner's own, checked again as a new note is, and kept in the same step. The note gets a new
+// id and file; the GM's words go as a removal takes a note away, under a new record key, so a manifest copied from
+// before never brings them back. A name another note already has is refused (errMemoryNameTaken), and so is an edit
+// that changes nothing (errMemoryUnchanged, FXMEMKEEPR1): it would only make the GM's words the owner's.
+func (m *gmMemory) keepEdited(id, shown string, entry memoryEntry, now time.Time) (gmNote, error) {
+	if refusal := recordsRefusal(); refusal != "" {
+		return gmNote{}, errors.New(refusal)
+	}
+	source := memorySource{Tag: memoryFromOwner}
+	if refusal := memorySourceRefusal(entry.Type, source); refusal != "" {
+		return gmNote{}, &memoryRefused{refusal}
+	}
+	if refusal, _ := memoryRefusal(entry); refusal != "" {
+		return gmNote{}, &memoryRefused{refusal}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i := slices.IndexFunc(m.notes, func(n gmNote) bool { return n.ID == id && n.State == memoryWaiting })
+	switch {
+	case i < 0:
+		return gmNote{}, errMemoryNotFound
+	case !constantTimeEqual(m.notes[i].SHA256, shown):
+		return gmNote{}, errMemoryChanged
+	case m.notes[i].entry() == entry:
+		return gmNote{}, errMemoryUnchanged
+	case m.count(memoryKept) >= memoryKeptMost:
+		return gmNote{}, errMemoryKeptFull
+	}
+	for j, other := range m.notes {
+		if j != i && other.Name == entry.Name {
+			return gmNote{}, errMemoryNameTaken
+		}
+	}
+	note := gmNote{ID: newID(), Name: entry.Name, Description: entry.Description, Type: entry.Type, State: memoryKept,
+		Source: source, At: now.UTC().Truncate(time.Second), Body: entry.Body, Rule: entry.Rule, Why: entry.Why, How: entry.How}
+	data := memoryFile(note)
+	note.SHA256 = memoryHash(data)
+	notes := slices.Clone(m.notes)
+	old := notes[i].ID
+	notes[i] = note
+	if len(memoryIndex(notes)) > memoryIndexMost {
+		return gmNote{}, errMemoryIndexFull
+	}
+	path := filepath.Join(m.dir, note.ID+".md")
+	if err := memoryMakeDir(m.dir); err != nil {
+		return gmNote{}, err
+	}
+	if err := writePrivate(path, data); err != nil {
+		return gmNote{}, err
+	}
+	if err := keepRecord(memoryManifestName, m.writerOf(notes), true); err != nil {
+		_ = os.Remove(path)
+		m.writeFailed()
+		return gmNote{}, err
+	}
+	m.notes = notes
+	_ = os.Remove(filepath.Join(m.dir, old+".md"))
+	return note, nil
+}
+
+// removeKept takes the kept note id away, as remove does, never a waiting one: the owner's Forget (MEM6, FXMEMKEEP).
+func (m *gmMemory) removeKept(id string) error {
+	return m.removeWhere(func(n gmNote) bool { return n.ID == id && n.State == memoryKept }, false)
 }
 
 // writeFailed puts back, after a write that failed, the writer of the manifest as the store still holds it:

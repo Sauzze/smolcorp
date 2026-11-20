@@ -62,6 +62,7 @@ func sealedNightDeck(t *testing.T) (*Deck, string) {
 }
 
 func TestANightJobsApprovalIsSealedAndOneWrittenByAnotherProgramWaitsForTheOwner(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	_, id := sealedNightDeck(t)
 	file := filepath.Join(supportDir, nightFileName)
 	data, _ := os.ReadFile(file)
@@ -104,6 +105,7 @@ func TestANightJobsApprovalIsSealedAndOneWrittenByAnotherProgramWaitsForTheOwner
 // A pause or a delete takes an approval away: the file is written under a new key, so a copy from before it, put
 // back, no longer fits.
 func TestACopyOfTheJobsFromBeforeAPauseOrADeleteNeverApprovesAgain(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	for _, take := range []string{nightPaused, "deleted"} {
 		t.Run(take, func(t *testing.T) {
 			d, id := sealedNightDeck(t)
@@ -130,6 +132,7 @@ func TestACopyOfTheJobsFromBeforeAPauseOrADeleteNeverApprovesAgain(t *testing.T)
 // The records rotate when anything else takes authority away (a phone unpaired, say): the jobs are sealed again
 // under the new key even in a run that never changed one, so the owner's approvals still fit at the next start.
 func TestARotationInARunThatChangedNoJobKeepsTheApprovals(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	_, id := sealedNightDeck(t)
 	restart(t)
 	rotateRecords()
@@ -139,6 +142,7 @@ func TestARotationInARunThatChangedNoJobKeepsTheApprovals(t *testing.T) {
 }
 
 func TestTheOwnerApprovesANightJobAsThePageShowedIt(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	m, project, _ := nightDeck(t)
 	id := decoded(t, m.call(t, asGM, "POST", nightProposePath, nightBody(project, "")))["id"].(string)
 	shown := shownOf(t, m, id)
@@ -185,6 +189,7 @@ func TestTheOwnerApprovesANightJobAsThePageShowedIt(t *testing.T) {
 }
 
 func TestOnlyAnApprovedNightJobsOwnHirePassesTheQueuesApproval(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	m, project, _ := nightDeck(t)
 	d := m.d
 	ok := keepNightJob(t, d, NightJob{ID: "ok", Role: "tester", Folder: physical(project), Status: nightApproved, ProposedBy: "page"})
@@ -237,6 +242,7 @@ func TestOnlyAnApprovedNightJobsOwnHirePassesTheQueuesApproval(t *testing.T) {
 }
 
 func TestANightJobsRunEndsAtARefusalAndARestartLetsItGo(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	r := newQueueRig(t)
 	r.q.nightApproves = func(actor, []hireStep) bool { return true }
 	refusal := "Smolcorp's own files changed since it was installed, so no desk starts."
@@ -267,6 +273,7 @@ func TestANightJobsRunEndsAtARefusalAndARestartLetsItGo(t *testing.T) {
 }
 
 func TestTheRunnerStartsAnApprovedJobsHireAndKeepsHowItWent(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	m, project, clock := nightDeck(t)
 	d := m.d
 	answer := struct {
@@ -307,6 +314,7 @@ func TestTheRunnerStartsAnApprovedJobsHireAndKeepsHowItWent(t *testing.T) {
 
 // A long sentence, in letters of more than one byte too, is cut to what the job keeps, never replaced (RT126NS1 N4).
 func TestANightStartsLongSentenceIsCutToWhatTheJobKeeps(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	m, project, _ := nightDeck(t)
 	d := m.d
 	keepNightJob(t, d, NightJob{ID: "n", Role: "tester", Folder: physical(project), Status: nightApproved, ProposedBy: "page"})
@@ -321,6 +329,7 @@ func TestANightStartsLongSentenceIsCutToWhatTheJobKeeps(t *testing.T) {
 
 // Each start checks the job again as it is now, and a job that can't start never reaches the queue.
 func TestANightJobIsCheckedAgainAsItStarts(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	m, project, _ := nightDeck(t)
 	d := m.d
 	asked := standInHires(d, func(hireStep) (int, string) { return http.StatusNoContent, "" })
@@ -390,6 +399,7 @@ func TestANightJobIsCheckedAgainAsItStarts(t *testing.T) {
 // RT126N1 C3: a GM held to one project proposes a job, which keeps that scope; its runs are held to it, whoever is
 // the GM then. A job of the page's own is held to no project, though the GM of the moment is.
 func TestAScopedGMsNightJobKeepsItsScopeAndItsRunsAreHeldToIt(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	d, _, _, token, project := scopedGM(t)
 	gm := gmNow()
 	body := `{"name":"n","kind":"hire","role":"tester","brief":"b","folder":"` + project + `","when":{"every":"daily","at":"02:00"},"limits":{"wallMinutes":30}}`
@@ -435,6 +445,7 @@ func TestAScopedGMsNightJobKeepsItsScopeAndItsRunsAreHeldToIt(t *testing.T) {
 
 // The app's deck starts the scheduler: an approved job falls due without anything else asking.
 func TestADeckStartsTheNightShift(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	isolate(t)
 	nightShiftStarts = true
 	d := startDeck(t)
@@ -448,6 +459,7 @@ func TestADeckStartsTheNightShift(t *testing.T) {
 
 // While the record key can't be read, the approvals in the file wait, and nothing is changed that would vanish.
 func TestNoNightJobChangesWhileTheRecordsAreHeldOnly(t *testing.T) {
+	turnOn(t, &nightShiftOn)
 	m, project, _ := nightDeck(t)
 	id := decoded(t, m.call(t, asPage, "POST", nightSavePath, nightBody(project, "")))["id"].(string)
 	records.mu.Lock()

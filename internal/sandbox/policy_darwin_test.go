@@ -57,9 +57,17 @@ func writeProfile(t *testing.T, p *Policy, folder string) string {
 	return "(version 1)\n(allow default)\n" + strings.Join(slices.Concat(plain, wide, exceptions, final), "\n") + "\n"
 }
 
-// rowFilter is the paths r holds as a Seatbelt filter.
+// rowFilter is the paths r holds as a Seatbelt filter, but its Except.
 func rowFilter(t *testing.T, r Rule) string {
 	t.Helper()
+	if len(r.Except) > 0 {
+		filter := rowFilter(t, Rule{Path: r.Path, Tail: r.Tail, Below: r.Below})
+		for _, e := range r.Except {
+			quoted, _ := json.Marshal(e)
+			filter += fmt.Sprintf(" (require-not (subpath %s))", quoted)
+		}
+		return "(require-all " + filter + ")"
+	}
 	if r.Tail != "" {
 		return tailFilter(t, r)
 	}
@@ -185,6 +193,7 @@ func TestOnAMacAHiresPythonAndWriteToolCantMoveTheBaseBranches(t *testing.T) {
 		"refs/heads/main": old, "refs/heads/master": old, "refs/heads/develop": old, "refs/heads/release/1.26": old,
 		"refs/heads/feature": old, "packed-refs": old, "config": "[core]\n", "HEAD": "ref: refs/heads/main\n",
 		"refs/remotes/origin/HEAD": "ref: refs/remotes/origin/develop\n", "refs/tags/v1": old, "hooks/README": "hooks\n",
+		"refs/notes/commits": old, "refs/stash": old, "refs/remotes/upstream/main": old,
 	}
 	for name, text := range files {
 		at := filepath.Join(git, filepath.FromSlash(name))
@@ -206,8 +215,12 @@ func TestOnAMacAHiresPythonAndWriteToolCantMoveTheBaseBranches(t *testing.T) {
 
 	ref := func(name string) string { return filepath.Join(git, filepath.FromSlash(name)) }
 	denied := []string{ref("refs/heads/main"), ref("refs/heads/master"), ref("refs/heads/develop"), ref("refs/heads/release/1.26"),
-		ref("refs/heads/release/1.27"), ref("packed-refs"), ref("config")}
-	allowed := []string{ref("refs/heads/feature"), ref("refs/heads/hire-h1"), ref("worktrees/h1/HEAD"), filepath.Join(root, "main.go")}
+		ref("refs/heads/release/1.27"), ref("packed-refs"), ref("config"),
+		// Every other branch since FXGITROWS2R4: the owner's feature, a new one.
+		ref("refs/heads/feature"), ref("refs/heads/hire-h1"),
+		// Every other ref since FXGITROWS2R5: notes, the stash shared by every worktree, a name read before a branch's.
+		ref("refs/notes/commits"), ref("refs/stash"), ref("refs/feature")}
+	allowed := []string{ref("refs/remotes/origin/feature"), ref("worktrees/h1/HEAD"), filepath.Join(root, "main.go")}
 	for _, at := range denied {
 		if v, by := p.Decide(at, Write); v != Deny {
 			t.Errorf("the Policy lets %s be written (%q)", at, by.Row)
@@ -255,7 +268,7 @@ func TestOnAMacAHiresPythonAndWriteToolCantMoveTheBaseBranches(t *testing.T) {
 		}
 	}
 	for name, text := range files {
-		if data, _ := os.ReadFile(ref(name)); name != "refs/heads/feature" && string(data) != text {
+		if data, _ := os.ReadFile(ref(name)); string(data) != text {
 			t.Errorf("%s changed: %q", name, data)
 		}
 	}
@@ -290,26 +303,27 @@ func TestOnAMacAHiresPythonAndWriteToolCantMoveTheBaseBranches(t *testing.T) {
 				t.Fatalf("%s moved %s aside", how, at)
 			}
 		}
-		// refs/remotes: refs/tags holds since FXBASEHEADS (a base branch's tag is denied in it).
-		remotes := ref("refs/remotes")
-		if out, err := sandboxed(nil, move(remotes, remotes+"-aside")...); err != nil {
-			t.Errorf("%s refs/remotes, a folder above nothing denied: %v %q (the stand-in must still work)", how, err, out)
-		} else if out, err := sandboxed(nil, move(remotes+"-aside", remotes)...); err != nil {
-			t.Fatalf("%s didn't put refs/remotes back: %v %q", how, err, out)
+		// refs/remotes/upstream: refs/notes was this folder until FXGITROWS2R5 held every ref but a desk's own branches
+		// and the remote-tracking ones; refs/remotes/origin holds since FXGITROWS2 (origin/HEAD is), upstream doesn't.
+		upstream := ref("refs/remotes/upstream")
+		if out, err := sandboxed(nil, move(upstream, upstream+"-aside")...); err != nil {
+			t.Errorf("%s refs/remotes/upstream, a folder above nothing denied: %v %q (the stand-in must still work)", how, err, out)
+		} else if out, err := sandboxed(nil, move(upstream+"-aside", upstream)...); err != nil {
+			t.Fatalf("%s didn't put refs/remotes/upstream back: %v %q", how, err, out)
 		}
 	}
 	for name, text := range files {
-		if data, _ := os.ReadFile(ref(name)); name != "refs/heads/feature" && string(data) != text {
+		if data, _ := os.ReadFile(ref(name)); string(data) != text {
 			t.Errorf("%s changed after the moves: %q", name, data)
 		}
 	}
 }
 
 // B1′ (RT126SAX1R2), on this Mac with stand-ins only: a folder above a denied place that doesn't exist yet
-// (`~/.codex`, `~/.config`, `~/.config/systemd`, `~/.ssh`) is made by the core first (MakeHold), so a folder made
-// elsewhere with a `standin` file where a denied one would be can't be renamed onto it, by python's os.rename or perl's
-// rename, nor a symlink made there. A hold folder left missing (`~/.gemini`) still takes no link, by the profile's own
-// Link row, and a missing `.git/modules` takes neither, denied writing whole (RT126SAX1R4 B1‴). Each check is only that the denied path doesn't exist afterwards. A rename onto a missing folder above nothing
+// (`~/.config`, `~/.config/systemd`, `~/.ssh`) is made by the core first (MakeHold), so a folder made elsewhere with a
+// `standin` file where a denied one would be can't be renamed onto it, by python's os.rename or perl's rename, nor a
+// symlink made there. A missing `.git/modules` takes neither, denied writing whole (RT126SAX1R4 B1‴), and nor do a
+// missing `~/.codex` and `~/.gemini`, denied writing whole since FXPLANTSTERM. Each check is only that the denied path doesn't exist afterwards. A rename onto a missing folder above nothing
 // denied works, so the stand-ins really run.
 func TestOnAMacAMissingFolderAboveADeniedPlaceCantBeBroughtInWhole(t *testing.T) {
 	sandboxExec, python, perl := "/usr/bin/sandbox-exec", python3(t), "/usr/bin/perl"
@@ -392,21 +406,23 @@ func TestOnAMacAMissingFolderAboveADeniedPlaceCantBeBroughtInWhole(t *testing.T)
 	codex, config, systemd, ssh, modules := filepath.Join(home, ".codex"), filepath.Join(home, ".config"),
 		filepath.Join(home, ".config", "systemd"), filepath.Join(home, ".ssh"), filepath.Join(git, "modules")
 	for _, at := range []string{codex, config, systemd, ssh, modules} {
-		if inHold := slices.Contains(hold, at); inHold == (at == modules) {
+		if inHold := slices.Contains(hold, at); inHold == (at == modules || at == codex) {
 			t.Fatalf("%s: in Hold %v: %q", at, inHold, hold)
 		}
 		if _, err := os.Lstat(at); !os.IsNotExist(err) {
 			t.Fatalf("%s exists before the start: %v", at, err)
 		}
 	}
-	if v, by := p.Decide(modules, Write); v != Deny {
-		t.Fatalf("%s is writable (%q)", modules, by.Row)
+	for _, at := range []string{modules, codex} {
+		if v, by := p.Decide(at, Write); v != Deny {
+			t.Fatalf("%s is writable (%q)", at, by.Row)
+		}
 	}
 	if err := MakeHold(hold); err != nil {
 		t.Fatal(err)
 	}
 
-	// Renamed onto a hold folder the core made, or onto the missing .git/modules: nothing arrives.
+	// Renamed onto a hold folder the core made, or onto the missing .git/modules or ~/.codex: nothing arrives.
 	for how, move := range rename {
 		for at, inside := range map[string]string{codex: "auth.json", config: "git/config", systemd: "user/x.service", ssh: "rc",
 			modules: "sub/config"} {
@@ -419,7 +435,7 @@ func TestOnAMacAMissingFolderAboveADeniedPlaceCantBeBroughtInWhole(t *testing.T)
 		sandboxed(symlink(staged(inside), at)...)
 		absent("a symlink at "+at, filepath.Join(at, inside))
 	}
-	// A hold folder left missing takes no link, by the profile's Link row alone.
+	// The missing ~/.gemini takes no link either.
 	gemini := filepath.Join(home, ".gemini")
 	sandboxed(symlink(staged("oauth_creds.json"), gemini)...)
 	absent("a symlink at the missing "+gemini, gemini)
@@ -432,9 +448,9 @@ func TestOnAMacAMissingFolderAboveADeniedPlaceCantBeBroughtInWhole(t *testing.T)
 // `third_party/bar/evil`, `sub/modules` (a nested submodules' folder), `third_party/evil` and `new`; `mkdir` makes none
 // of them; and the write to `sub/HEAD` that let git take `sub/evil` for a submodule's git folder, a write in
 // `sub/objects` and one to `sub/config` are refused. The pattern rows are written as regexes. Each check is only a
-// file's existence, or that the owner's file is unchanged. The desk in a worktree still writes its own submodules' git
-// folders, in its registration, and renames a folder into one; the desk at the project its own files: so the stand-ins
-// really run.
+// file's existence, or that the owner's file is unchanged. Since FXHIREPROJECTSR9 (B2) the desk in a worktree writes
+// in its own submodules' git folders, in its registration, no more either, nor renames a folder into one; it writes its
+// own worktree's files, and the desk at the project its own: so the stand-ins really run.
 func TestOnAMacNothingInGitModulesIsWrittenNorBroughtIn(t *testing.T) {
 	sandboxExec, python, perl := "/usr/bin/sandbox-exec", python3(t), "/usr/bin/perl"
 	_, noPerl := os.Stat(perl)
@@ -559,19 +575,21 @@ func TestOnAMacNothingInGitModulesIsWrittenNorBroughtIn(t *testing.T) {
 			exists(how+" onto new", in("new"), false)
 		}
 
-		// The stand-ins run: the desk in a worktree writes its own submodule's git folder, in its registration, and
-		// renames a folder into it; the desk at the project writes its files.
+		// The stand-ins run: each desk writes its own files; the desk in a worktree neither writes in its own submodule's
+		// git folder, in its registration, nor renames a folder into it (FXHIREPROJECTSR9).
 		if desk.worktree == "" {
 			sandboxed(write(filepath.Join(repo, "main.go"))...)
 			exists(desk.name+": python write", filepath.Join(repo, "main.go"), true)
 			continue
 		}
+		sandboxed(write(filepath.Join(root, "main.go"))...)
+		exists(desk.name+": python write", filepath.Join(root, "main.go"), true)
 		sandboxed(write(filepath.Join(own, "objects", "standin"))...)
-		exists(desk.name+": python write", filepath.Join(own, "objects", "standin"), true)
+		exists(desk.name+": python write in its own submodule's objects", filepath.Join(own, "objects", "standin"), false)
 		for how, move := range rename {
 			at := filepath.Join(own, "objects", "pack-"+strings.Fields(how)[0])
 			sandboxed(move(staged("standin"), at)...)
-			exists(desk.name+": "+how+" into its own submodule's objects", filepath.Join(at, "standin"), true)
+			exists(desk.name+": "+how+" into its own submodule's objects", filepath.Join(at, "standin"), false)
 		}
 	}
 }
@@ -587,9 +605,9 @@ func TestOnAMacNothingInGitModulesIsWrittenNorBroughtIn(t *testing.T) {
 // Each is refused, and git, in the repo and in the worktree, still reads `owner`. The same write to commondir,
 // outside the sandbox, on a copy, makes git read `elsewhere`, so the check can tell. Then RT126SAX1R5's B3: with a
 // `~/.git` and a bare `~/Projects` planted, no desk's chmod or ACL makes the shared .git stop being a git folder (below).
-// Then the cost the plan names: the hire still runs `git submodule update --init`, commits and rebases in its worktree
-// (the submodule's git folder goes in its own registration, and .git/modules is left as it was), and a desk at the
-// project can't commit in a submodule.
+// Then the cost the plan names: the hire still commits and rebases in its worktree (.git/modules is left as it was),
+// and a desk at the project can't commit in a submodule. Since FXHIREPROJECTSR6 the hire can't run `git submodule
+// update --init` there either: that makes the submodule's .git file below its place, which no desk makes (rowGitBelow).
 func TestOnAMacAHireCantMoveWhereGitFindsTheSharedGit(t *testing.T) {
 	sandboxExec, python, gitPath := "/usr/bin/sandbox-exec", python3(t), gitForStandins(t)
 	if _, err := os.Stat(sandboxExec); err != nil || python == "" || gitPath == "" {
@@ -793,15 +811,19 @@ print(json.dumps(said))`
 	}
 
 	// B3 (RT126SAX1R5): git takes a folder for a git folder only while its objects and refs can be searched, and walks
-	// past one that can't to the first git folder above: `<level>/.git`, or the level itself as a bare repo. A desk may
-	// make both, a `~/.git` and a bare repo in `~/Projects` (made here outside the sandbox). Outside the sandbox, a mode
+	// past one that can't to the first git folder above: `<level>/.git`, or the level itself as a bare repo. An owner may
+	// have a `~/.git` or a bare repo in `~/Projects`, which no desk makes or writes since FXHIREPROJECTSR1 and
+	// FXHIREPROJECTSR2 (a bare repo's HEAD; both made here outside the sandbox). Outside the sandbox, a mode
 	// on refs makes git read the bare repo's config, and one on the bare repo's refs too then `~/.git`'s, so the check
 	// can tell. Under each desk's profile (a hire, a test copy's hire, a desk at the project), python's chmod and an ACL
 	// on the shared .git, its objects and its refs are refused, and git still reads owner.
 	inHome, bare := filepath.Join(home, ".git"), projects
 	for at, says := range map[string]string{inHome: "planted-in-home", bare: "planted-bare-in-projects"} {
-		if v, by := p.Decide(filepath.Join(at, "config"), Write); v != Allow {
-			t.Errorf("a desk may not make %s (%v by %q): the probe's premise has changed", at, v, by.Row)
+		if v, by := p.Decide(filepath.Join(at, "config"), Write); (v == Allow) != (at == bare) {
+			t.Errorf("write %s/config: %v by %q: the probe's premise has changed", at, v, by.Row)
+		}
+		if v, by := p.Decide(filepath.Join(at, "HEAD"), Write); v != Deny {
+			t.Errorf("write %s/HEAD: %v by %q: the probe's premise has changed", at, v, by.Row)
 		}
 		for _, sub := range []string{"objects", "refs"} {
 			if err := os.MkdirAll(filepath.Join(at, sub), 0o700); err != nil {
@@ -867,10 +889,11 @@ print(json.dumps(said))`
 		}
 	}
 
-	// The cost: none for the hire's submodules, which git keeps in its registration, its commits or its rebase...
+	// The cost: none for the hire's commits or its rebase; its submodules can't be checked out in its worktree, since a
+	// submodule's .git file below its place is one no desk makes (FXHIREPROJECTSR6)...
 	modulesBefore, _ := run([]string{"/usr/bin/find", filepath.Join(git, "modules")})
-	if out, err := sandboxed(nil, gitArgs(root, "submodule", "update", "--init")...); err != nil {
-		t.Errorf("git submodule update --init in the hire's worktree: %v %s", err, out)
+	if out, err := sandboxed(nil, gitArgs(root, "submodule", "update", "--init")...); err == nil {
+		t.Errorf("git submodule update --init in the hire's worktree: %s", out)
 	}
 	if out, err := sandboxed(nil, gitArgs(root, "commit", "-q", "--allow-empty", "-m", "standin")...); err != nil {
 		t.Errorf("git commit in the hire's worktree: %v %s", err, out)
@@ -879,8 +902,8 @@ print(json.dumps(said))`
 		t.Errorf("git rebase in the hire's worktree: %v %s", err, out)
 	}
 	exists := func(at string) bool { _, err := os.Lstat(at); return err == nil }
-	if !exists(filepath.Join(registration, "modules", "lib", "HEAD")) || !exists(filepath.Join(root, "lib", "standin.txt")) {
-		t.Errorf("the hire's submodule isn't in its registration nor checked out")
+	if exists(filepath.Join(root, "lib", ".git")) || exists(filepath.Join(root, "lib", "standin.txt")) {
+		t.Errorf("the hire's submodule is checked out in its worktree")
 	}
 	if modulesAfter, _ := run([]string{"/usr/bin/find", filepath.Join(git, "modules")}); modulesAfter != modulesBefore {
 		t.Errorf(".git/modules changed:\n%s\nwas\n%s", modulesAfter, modulesBefore)

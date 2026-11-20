@@ -65,6 +65,8 @@ func TestOnAMacTheProfileKeepsADeniedFilesWritersNamesFromADesk(t *testing.T) {
 		git + "/logs/refs/heads/hire/h1/work": old, root + "/main.go": "package main", root + "/.claude/settings.local.json": "{}",
 		own + "/BRIEF.md": "brief", own + "/claude/settings.json": "{}", home + "/.gitconfig": "[user]\n", home + "/.ssh/known_hosts": "",
 		home + "/.claude/CLAUDE.md": "the owner's", etc: "[core]\n",
+		// Gemini CLI's folder, the owner's: denied whole since FXPLANTSTERM, so no Hold makes it any more.
+		home + "/.gemini/settings.json": "{}",
 	}
 	for _, at := range held {
 		files[at] = "the owner's\n"
@@ -90,7 +92,7 @@ func TestOnAMacTheProfileKeepsADeniedFilesWritersNamesFromADesk(t *testing.T) {
 	for _, at := range []string{git + "/packed-refs.new", git + "/config.worktree.lock", git + "/gitdir.lock",
 		git + "/logs/refs/heads/develop.lock", home + "/.zshrc.tmp.4242.1763400000000", home + "/.zshenv___jb_tmp___",
 		home + "/.ssh/config.lock", root + "/.claude/settings.json.tmp.4242.1763400000000", own + "/claude/settings.local.json.lock",
-		home + "/.gemini/oauth_creds.json.tmp"} {
+		home + "/.gemini/oauth_creds.json.tmp", git + "/refs/stash.lock"} { // refs/stash: no desk's since FXGITROWS2R5
 		steps = append(steps, step{"write", at, no})
 	}
 	// A sign-in's copy isn't read either.
@@ -99,8 +101,8 @@ func TestOnAMacTheProfileKeepsADeniedFilesWritersNamesFromADesk(t *testing.T) {
 	// …and what a desk's own git and Claude Code write beside them.
 	// packed-refs' lock among them: git only holds it, and renames packed-refs.new onto packed-refs.
 	for _, at := range []string{git + "/refs/heads/hire/h1/work.lock", git + "/logs/refs/heads/hire/h1/work.lock", git + "/packed-refs.lock",
-		git + "/worktrees/h1/index.lock", git + "/worktrees/h1/HEAD.lock", git + "/refs/tags/v2.lock",
-		git + "/objects/pack/tmp_pack_x", git + "/refs/heads/mainline.lock", root + "/.claude/notes.md", root + "/main.go",
+		git + "/worktrees/h1/index.lock", git + "/worktrees/h1/HEAD.lock",
+		git + "/objects/pack/tmp_pack_x", git + "/refs/heads/hire/h1/side.lock", root + "/.claude/notes.md", root + "/main.go",
 		own + "/claude/.claude.json.tmp.4242.1763400000000", own + "/STATUS.md", home + "/.zsh_history", home + "/.zshrc-notes",
 		home + "/.gitconfig-work.bak"} {
 		steps = append(steps, step{"write", at, ok})
@@ -230,9 +232,10 @@ print("never there", flush=True)`
 }
 
 // A stand-in desk's real git round in its linked worktree, under the real profile, beside the denied locks: its own
-// commits, a rebase onto the owner's new main, a branch of its own made, merged and deleted, a tag, a fetch into a
+// commits, a rebase onto the owner's new main, a branch of its own made, merged and deleted, a fetch into a
 // remote-tracking ref, a repack and its status all still work, with nothing refused on the way (git 2.55 takes
-// packed-refs' lock to drop a commit's and a rebase's own refs), and main stays where the owner put it.
+// packed-refs' lock to drop a commit's and a rebase's own refs), and main stays where the owner put it. A tag is no
+// desk's since FXGITROWS2R4 (gitrows2r4_darwin_test.go).
 func TestOnAMacADesksGitRoundStillWorksBesideTheDeniedLocks(t *testing.T) {
 	sandboxExecOrSkip(t)
 	git := gitOrSkip(t)
@@ -265,10 +268,10 @@ func TestOnAMacADesksGitRoundStillWorksBesideTheDeniedLocks(t *testing.T) {
 	mainBefore := outside(d.checkout, "rev-parse", "main")
 	for _, args := range [][]string{
 		{"rebase", "-q", "main"},
-		{"branch", "h1-side"}, {"switch", "-q", "h1-side"},
-		{"commit", "-q", "--allow-empty", "-m", "on the side"}, {"switch", "-q", "h1"},
-		{"merge", "-q", "--no-ff", "--no-edit", "h1-side"}, {"branch", "-D", "h1-side"},
-		{"tag", "h1-v1"}, {"fetch", "-q", ".", "main:refs/remotes/o/main"}, {"repack", "-q", "-d"},
+		{"branch", "hire/h1/side"}, {"switch", "-q", "hire/h1/side"},
+		{"commit", "-q", "--allow-empty", "-m", "on the side"}, {"switch", "-q", "hire/h1/work"},
+		{"merge", "-q", "--no-ff", "--no-edit", "hire/h1/side"}, {"branch", "-D", "hire/h1/side"},
+		{"fetch", "-q", ".", "main:refs/remotes/o/main"}, {"repack", "-q", "-d"},
 		{"status", "--short"}, {"log", "--oneline", "-3"},
 	} {
 		hireGit(args...)
@@ -276,11 +279,11 @@ func TestOnAMacADesksGitRoundStillWorksBesideTheDeniedLocks(t *testing.T) {
 	if got := outside(d.checkout, "rev-parse", "main"); got != mainBefore {
 		t.Errorf("main moved: %s, was %s", got, mainBefore)
 	}
-	if got := outside(d.checkout, "log", "-1", "--format=%s", "h1^2"); got != "on the side\n" {
+	if got := outside(d.checkout, "log", "-1", "--format=%s", "hire/h1/work^2"); got != "on the side\n" {
 		t.Errorf("the desk's merge: %q", got)
 	}
-	if got := outside(d.checkout, "branch", "--list", "h1-side"); got != "" {
-		t.Errorf("the desk's branch -D: h1-side is still there: %q", got)
+	if got := outside(d.checkout, "branch", "--list", "hire/h1/side"); got != "" {
+		t.Errorf("the desk's branch -D: hire/h1/side is still there: %q", got)
 	}
 	if got := outside(d.checkout, "rev-parse", "refs/remotes/o/main"); got != mainBefore {
 		t.Errorf("the desk's fetch: %s, want %s", got, mainBefore)
@@ -318,8 +321,9 @@ func newGitDesk(t *testing.T, git string) (*escapeDesk, func(dir string, args ..
 	mustWrite(t, filepath.Join(d.checkout, "README"), "the owner's checkout")
 	owner(d.checkout, "add", "README")
 	owner(d.checkout, "commit", "-q", "-m", "first")
-	owner(d.checkout, "worktree", "add", "-q", "-b", "h1", d.root)
-	owner(d.checkout, "worktree", "add", "-q", "-b", "h2", filepath.Join(d.home, "app-hires", "h2"))
+	// Each on a branch of its own as the core names them (hireBranch): since FXGITROWS2R4 a desk writes no other.
+	owner(d.checkout, "worktree", "add", "-q", "-b", "hire/h1/work", d.root)
+	owner(d.checkout, "worktree", "add", "-q", "-b", "hire/h2/work", filepath.Join(d.home, "app-hires", "h2"))
 	mustWrite(t, filepath.Join(d.root, ".claude", "settings.json"), "{}")
 	d.prepare(t)
 	return d, owner
@@ -610,6 +614,9 @@ func TestOnAMacADesksPerlPiChangesItsOwnFilesBesideWhatGitsConfigNames(t *testin
 		t.Run(name, func(t *testing.T) {
 			d, owner := newGitDesk(t, git)
 			if atProject {
+				// Its worktree goes: left there on hire/h1/work, which a desk at the project writes, its HEAD would refuse the
+				// start (FXGITROWS2R5).
+				owner(d.checkout, "worktree", "remove", "--force", d.root)
 				d.root = d.checkout
 				d.pl.Root, d.pl.Checkout, d.pl.OwnWorktree = d.checkout, "", ""
 			}

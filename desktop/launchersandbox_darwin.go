@@ -8,10 +8,12 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
 	"github.com/aymanbagabas/go-pty"
+	"golang.org/x/sys/unix"
 
 	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
@@ -57,8 +59,20 @@ var launcherStartCommand = sandbox.MacCommand
 
 // newLauncherSandbox makes the sandbox of a plain hire working in folder, its agent being agent at program: everything
 // up to its start. launcher is the launcher's own id, its tab's (SMOLCORP_SESSION). The error is the owner's words.
-func newLauncherSandbox(folder string, gm bool, launcher string, agent Agent, program string) (_ *launcherSandbox, err error) {
+func newLauncherSandbox(folder string, gm bool, launcher string, agent Agent, program string) (*launcherSandbox, error) {
+	return newLauncherSandboxAt("", folder, gm, launcher, agent, program)
+}
+
+// newLauncherSandboxAt is newLauncherSandbox for the desk the office named, desk (`--desk`, plainDeskID's shape), or
+// a new one for "": an office's plain hire on a Mac works in its own worktree, on the branch the office made for that
+// desk, hire/<desk>/… (FXHIREPROJECTSR7, ruling (W)), so its sandbox is that desk's. Its folder in the support folder
+// is made new either way: a desk named twice doesn't start the second time.
+func newLauncherSandboxAt(desk, folder string, gm bool, launcher string, agent Agent, program string) (_ *launcherSandbox, err error) {
+	reapLaunchersGone()
 	id := plainHireIDFor()
+	if desk != "" {
+		id = desk
+	}
 	s := &launcherSandbox{}
 	refuse := func(words, why string) (*launcherSandbox, error) {
 		log.Printf("sandbox: plain hire %s didn't start: %s", id, why)
@@ -81,16 +95,17 @@ func newLauncherSandbox(folder string, gm bool, launcher string, agent Agent, pr
 		return refuse(sandboxNotMade, "its own folder: "+err.Error())
 	}
 	s.own = own
+	if err := writeLauncherRecord(own); err != nil {
+		return refuse(sandboxNotMade, "its launcher's record: "+err.Error())
+	}
 	at := deskAt{ID: id, GM: gm, Root: folder, Socket: s.socket, Accounts: claudeDenyProfiles(savedConfig().ClaudeProfiles),
 		Git: runGit, Programs: []sandbox.Program{{Name: string(agent), Path: program}}}
-	if status, top, ran := runGit(folder, "rev-parse", "--path-format=absolute", "--show-toplevel"); ran && status == 0 && filepath.IsAbs(top) {
-		at.Hires = hiresFolder(top, savedConfig().HireWorktrees)
-	}
+	at.Checkout, at.Hires = launcherRepo(folder, savedConfig().HireWorktrees)
 	if s.desk, err = makeDeskSandbox(at); err != nil {
 		return refuse(err.Error(), err.Error())
 	}
 	s.profile = filepath.Join(own, "sandbox.sb")
-	if err := sandbox.PrepareProfile(s.desk.policy, s.profile, deskServices(s.desk.places, s.socket)); err != nil {
+	if err := s.desk.prepareProfile(s.profile, deskServices(s.desk.places, s.socket)); err != nil {
 		return refuse(sandbox.SandboxExecRefusal, "its profile: "+err.Error())
 	}
 	if s.start, err = sandbox.NewStart(s.desk.checks(s.profile)); err != nil {
@@ -101,6 +116,25 @@ func newLauncherSandbox(folder string, gm bool, launcher string, agent Agent, pr
 		return refuse(sandboxNotMade, "its hook relay: "+err.Error())
 	}
 	return s, nil
+}
+
+// launcherRepo is, for a plain hire working in folder, the owner's checkout when folder is in a linked worktree of it
+// ("" otherwise), and where that repo's hires' worktrees go (hiresFolder): as the engine's hire in its worktree has
+// them (deskAtOf), so the checkout and the other hires' worktrees are held from it as from the engine's
+// (FXHIREPROJECTSR7, ruling (W): an office's plain hire on a Mac works in a worktree of its own). git is asked where
+// the shared .git is; a checkout's is its own .git. "" for both when folder is in no repo, or git can't say.
+func launcherRepo(folder, worktrees string) (checkout, hires string) {
+	status, out, ran := runGit(folder, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
+	lines := strings.Split(out, "\n")
+	if !ran || status != 0 || len(lines) != 2 || !filepath.IsAbs(lines[0]) || !filepath.IsAbs(lines[1]) {
+		return "", ""
+	}
+	top, common := physical(lines[0]), physical(lines[1])
+	if filepath.Base(common) == ".git" && filepath.Dir(common) != top {
+		checkout = filepath.Dir(common)
+		return checkout, hiresFolder(checkout, worktrees)
+	}
+	return "", hiresFolder(top, worktrees)
 }
 
 // environment is env for the agent in its sandbox: its hooks' relay, and set (its own sandbox switched off).
@@ -163,8 +197,19 @@ func (s *launcherSandbox) closeOnHangup() {
 	}()
 }
 
-// takeAway is close's work, done once whichever way the launcher ends.
+// takeAway is close's work, done once whichever way the launcher ends. First, every program still running in the
+// agent's sandbox is ended, and seen ended, while its profile is there to say which they are (FXFIREREAPR1): the
+// agent's stop (stopProcess) ends its pid alone, and what it started in the background would outlive it. One that
+// can't be keeps its own folder, and the window says so.
 func (s *launcherSandbox) takeAway() {
+	kept := false
+	if s.own != "" {
+		if left, sure := reapSandboxAt(s.own, true); len(left) != 0 || !sure {
+			log.Printf("sandbox: plain hire %s at its stop: its processes %v left, every process answered: %t", filepath.Base(s.own), left, sure)
+			fmt.Fprintln(os.Stderr, launcherKeptWords(reapLeftWords(Hire{Name: "the agent"}, left)))
+			kept = true
+		}
+	}
 	s.relay.close()
 	if s.start != nil {
 		s.start.Close()
@@ -179,8 +224,102 @@ func (s *launcherSandbox) takeAway() {
 		_ = os.Remove(s.socket) // the relay's, closed: nothing answers there
 		removeDeskSocketFolder(s.socket)
 	}
-	if s.own != "" {
+	if s.own != "" && !kept {
 		_ = os.RemoveAll(s.own)
+	}
+}
+
+// launcherKeptWords is what the window says when a plain hire's sandbox couldn't be shown empty, why being
+// reapLeftWords' words. Its folder is kept, and the next plain hire's start looks again (reapLaunchersGone).
+func launcherKeptWords(why string) string {
+	return "smolcorp: " + why + reapRestartWords(why, launcherUnsure)
+}
+
+// launcherUnsure ends launcherKeptWords' words when no program was named (RT126FIXREVIEW-FIREREAPR4 O2).
+const launcherUnsure = ". Smolcorp looks again when you next start a plain hire; if this keeps happening, restart your Mac to be sure."
+
+// A launcher that ends without its takeAway (a crash, a SIGKILL: closeOnHangup catches only SIGHUP and SIGTERM)
+// leaves what its agent started running in its sandbox, and a plain hire has no row for a fire to find
+// (FXFIREREAPR3, RT126FIXREVIEW-FIREREAPR1 O1). So each launcher writes in its own folder which process it is, and
+// each plain hire's start first ends what an earlier one whose launcher has ended left there, as that launcher's
+// takeAway would have: the same reap, with the same proof, then its folders taken away. No desk may write in the hires
+// folder, so no desk can write or change a record; and a launcher is named by its pid and its start time, so a pid
+// another process has taken since never passes for it.
+
+// launcherRecord is the file in a plain hire's own folder that says which process its launcher is: "<pid> <start
+// time, to the microsecond>".
+const launcherRecord = "launcher"
+
+// launcherStarted is process pid's start time, to the microsecond, and whether it runs (not ended, waiting for its parent
+// to read its end); known is false when macOS doesn't say. A pid no process has is known not running.
+func launcherStarted(pid int) (start uint64, running, known bool) {
+	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if errors.Is(err, unix.EIO) {
+		return 0, false, true // no process has that pid: macOS gives back nothing
+	}
+	if err != nil || int(k.Proc.P_pid) != pid {
+		return 0, false, false
+	}
+	start = uint64(k.Proc.P_starttime.Sec)*1_000_000 + uint64(k.Proc.P_starttime.Usec)
+	return start, k.Proc.P_stat != 5, true // SZOMB, <sys/proc.h>
+}
+
+// writeLauncherRecord writes this launcher's record in its own folder, own.
+func writeLauncherRecord(own string) error {
+	start, running, known := launcherStarted(os.Getpid())
+	if !running || !known || start == 0 {
+		return errors.New("macOS didn't say when it started")
+	}
+	return os.WriteFile(filepath.Join(own, launcherRecord), []byte(fmt.Sprintf("%d %d\n", os.Getpid(), start)), 0o600)
+}
+
+// launcherEnded is whether the launcher whose own folder is own has ended, as its record names it: no process has its
+// pid any more, another has it now (a start time not its own), or it ended and waits for its parent. False when there
+// is no record to read (a launcher from before records, or one that hasn't written it yet) or macOS doesn't say.
+func launcherEnded(own string) bool {
+	record := filepath.Join(own, launcherRecord)
+	if info, err := os.Lstat(record); err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	text, err := os.ReadFile(record)
+	if err != nil {
+		return false
+	}
+	var pid int
+	var start uint64
+	if n, err := fmt.Sscanf(string(text), "%d %d\n", &pid, &start); err != nil || n != 2 || pid <= 1 || start == 0 ||
+		string(text) != fmt.Sprintf("%d %d\n", pid, start) {
+		return false
+	}
+	now, running, known := launcherStarted(pid)
+	return known && (!running || now != start)
+}
+
+// reapLaunchersGone ends what the agent of each earlier plain hire whose launcher has ended left running in its
+// sandbox, and takes its folders away, as that launcher's takeAway would have. One that can't be shown empty keeps its
+// own folder, and the window says so. A plain hire whose launcher still runs, or that has no record, is left as it is.
+func reapLaunchersGone() {
+	entries, err := os.ReadDir(filepath.Join(supportDir, "hires"))
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		id := entry.Name()
+		if !entry.IsDir() || !strings.HasPrefix(id, "plain-") || !plainHireID(id) {
+			continue
+		}
+		own := hireFolder(supportDir, id)
+		if !launcherEnded(own) {
+			continue
+		}
+		if left, sure := reapSandboxAt(own, true); len(left) != 0 || !sure {
+			log.Printf("sandbox: plain hire %s, its launcher ended: its processes %v left, every process answered: %t", id, left, sure)
+			fmt.Fprintln(os.Stderr, launcherKeptWords(reapLeftWords(Hire{Name: "an earlier plain hire's agent"}, left)))
+			continue
+		}
+		log.Printf("sandbox: plain hire %s, its launcher ended: nothing of it left in its sandbox, its folders taken away", id)
+		removeDeskSocketFolder(deskSocketPath(id, testCopyPort()))
+		_ = os.RemoveAll(own)
 	}
 }
 

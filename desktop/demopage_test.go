@@ -280,7 +280,7 @@ func TestTheDemosPageParamsInNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := string(data)
-	parse := regexp.MustCompile(`(?s)\n  function demoFromAddress\(search\) \{.*?\n  \}\n`).FindString(page)
+	parse := regexp.MustCompile(`(?s)\n  function demoFromAddress\(search, hash = ''\) \{.*?\n  \}\n`).FindString(page)
 	if parse == "" {
 		t.Fatal("no demoFromAddress in setup.html")
 	}
@@ -296,6 +296,12 @@ assert(demoFromAddress('?demo=') === '', 'empty');
 assert(demoFromAddress('?demo=smolcorp-demo') === '', 'a relative path');
 assert(demoFromAddress('?demo=~%2Fsmolcorp-demo') === '', 'a home path the page would have to guess');
 assert(demoFromAddress('?pair') === '', 'another page');
+// Smolcorp's own Settings window opens Setup on what follows # (demopage.go's demoPageThen, Go's url.QueryEscape).
+assert(demoFromAddress('', '#demo=%2FUsers%2Fada%2Fmy+demo%2Fsmolcorp-demo') === '/Users/ada/my demo/smolcorp-demo', 'the window, after #');
+assert(demoFromAddress('', '#o=fake-token&demo=%2Fhome%2Fada%2Fsmolcorp-demo') === '/home/ada/smolcorp-demo', 'beside a link\'s token');
+assert(demoFromAddress('?demo=%2Fhome%2Fada%2Fa', '#demo=%2Fhome%2Fada%2Fb') === '/home/ada/a', 'the query first');
+assert(demoFromAddress('', '#pair') === '', 'the window on #pair');
+assert(demoFromAddress('', '#demo=smolcorp-demo') === '', 'a relative path after #');
 console.log('ok');
 `
 	out, err := exec.Command(node, "-e", script).CombinedOutput()
@@ -309,6 +315,8 @@ console.log('ok');
 		"fetch(`${s.route}?enabled=1`, { method: 'POST', headers: setupHeaders(false) })",
 		"keepalive: word === 'closed'",
 		"}).then(loadDemo).then(loadFirstFolder)",
+		"const demoRoot = demoFromAddress(location.search, location.hash);",
+		"if (asked && asked !== demoRoot) location.reload();",
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("setup.html has no %q", want)

@@ -74,36 +74,64 @@ func (no ownerGitNo) Error() string { return "Smolcorp didn't run git in your re
 // ownerGit is runGit's and scopeGit's git for a folder that isn't a hire's own tree by the registry: ok false when it
 // couldn't be run, or was refused (with the refusal's words as the output when the owner is to hear them).
 func ownerGit(dir string, args []string) (int, string, bool) {
+	status, out, _, ok := ownerGitAs(dir, args, false)
+	return status, out, ok
+}
+
+// ownerGitAs is ownerGit, with git's standard output apart from its standard error when split (runGitOut): a read's
+// answer is then its standard output alone, and errs its standard error. Without split, errs is "" and the output is
+// both, as ownerGit gives it.
+func ownerGitAs(dir string, args []string, split bool) (status int, out, errs string, ok bool) {
 	limit := gitTimeout
 	if len(args) >= 2 && args[0] == "worktree" && args[1] == "add" {
 		limit = worktreeTimeout // a checkout of a big repo can take a while
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
-	status, out, err := ownerGitRun(ctx, dir, args)
+	status, out, errs, err := ownerGitRunAs(ctx, dir, args, split)
 	if err != nil {
 		log.Printf("smolcorp: git %s in %s wasn't run as the owner: %v", strings.Join(args, " "), dir, err)
 		var no ownerGitNo
 		if errors.As(err, &no) {
-			return 0, no.Error(), false
+			return 0, no.Error(), "", false
 		}
-		return 0, "", false
+		return 0, "", "", false
 	}
-	return status, out, true
+	return status, out, errs, true
 }
 
 func ownerGitRun(ctx context.Context, dir string, args []string) (int, string, error) {
+	status, out, _, err := ownerGitRunAs(ctx, dir, args, false)
+	return status, out, err
+}
+
+// ownerGitRunAs is ownerGitRun, split as ownerGitAs says. Only the reads split (refs only, or the working files): every
+// other form answers as ownerGitRun does, with errs "".
+func ownerGitRunAs(ctx context.Context, dir string, args []string, split bool) (int, string, string, error) {
 	if len(args) == 0 {
-		return 0, "", errors.New("no command")
+		return 0, "", "", errors.New("no command")
 	}
 	if (gitReadsFilesThrough[args[0]] || gitWritesThrough(args)) && !gitVersionAtLeast(gitHere().version, 2, 32) {
-		return 0, "", ownerGitNo("the git on this computer is missing, or older than 2.32, which can't be told to leave your git config out.")
+		return 0, "", "", ownerGitNo("the git on this computer is missing, or older than 2.32, which can't be told to leave your git config out.")
 	}
 	switch {
 	case gitReadsRefsOnly(args), gitPresetsUpstream(args):
-		return gitRun(ctx, dir, gitCall{global: gitReadArgs, config: gitHere().owner}, args)
+		call := gitCall{global: gitReadArgs, config: gitHere().owner}
+		if split {
+			return gitRunSplit(ctx, dir, call, args)
+		}
+		status, out, err := gitRun(ctx, dir, call, args)
+		return status, out, "", err
 	case gitReadsFilesThrough[args[0]]:
-		return gitFilesThroughFolder(ctx, dir, "", "", ownerRepoJudged, args)
+		return gitFilesThroughFolderAs(ctx, dir, "", "", ownerRepoJudged, args, split)
+	}
+	status, out, err := ownerGitWrites(ctx, dir, args)
+	return status, out, "", err
+}
+
+// ownerGitWrites is ownerGitRun's every form but the reads: what writes, and the refusal of any other.
+func ownerGitWrites(ctx context.Context, dir string, args []string) (int, string, error) {
+	switch {
 	case gitWritesThrough(args) && args[0] == "branch":
 		// A branch's deletion reads and writes no file: its config isn't judged, as before SA-X7's.
 		status, out, err := gitWriteThroughFolder(ctx, dir, "", "", "", nil, args)
@@ -134,11 +162,18 @@ func ownerGitRun(ctx context.Context, dir string, args []string) (int, string, e
 
 // gitReadsRefsOnly is whether args read refs or config only: rev-parse, for-each-ref, symbolic-ref with one name (a
 // second one would write it), one config key or the keys one pattern matches (hirePushRemote's remotes), the
-// remotes' names, and whether one commit holds another (the fire's merged look, SA-X7).
+// remotes' names, and whether one commit holds another (the fire's merged look, SA-X7). And `ls-tree -r -z
+// [<gitlinkFormat>] <tree>`, which reads that tree's objects only, as rev-parse reads a path's object, never a working
+// file (the gitlinks of the owner's HEAD, gitlinkWords, and of a new worktree's, initHireSubmodules).
 func gitReadsRefsOnly(args []string) bool {
 	switch args[0] {
 	case "rev-parse", "for-each-ref":
 		return true
+	case "ls-tree":
+		if len(args) == 5 && args[3] == gitlinkFormat {
+			args = slices.Delete(slices.Clone(args), 3, 4)
+		}
+		return len(args) == 4 && args[1] == "-r" && args[2] == "-z" && args[3] != "" && !strings.HasPrefix(args[3], "-")
 	case "merge-base":
 		return len(args) == 4 && args[1] == "--is-ancestor" && !strings.HasPrefix(args[2], "-") && !strings.HasPrefix(args[3], "-")
 	case "symbolic-ref":
@@ -231,14 +266,54 @@ func gitRun(ctx context.Context, dir string, call gitCall, args []string) (int, 
 	return 0, strings.TrimSpace(out.String()), nil
 }
 
+// gitRunSplit is gitRun with git's two streams apart (FXWINWORKTREER1): out is its standard output alone and errs its
+// standard error, so an answer compared exactly (runGitOut) is what git answered, never a warning it printed beside
+// it. The exit code is git's, as gitRun's. With call.stdout, git's standard output goes there as it comes, and out is
+// empty.
+func gitRunSplit(ctx context.Context, dir string, call gitCall, args []string) (status int, out, errs string, err error) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		return 0, "", "", err
+	}
+	env := append(gitReadEnv(os.Environ(), call.config), call.env...)
+	var stdout, stderr gitOutput
+	var to io.Writer = &stdout
+	if call.stdout != nil {
+		to = call.stdout
+	}
+	err = deskRun(ctx, "", dir, env, to, &stderr, git, append(append([]string{"-C", dir}, call.global...), args...)...)
+	var exit *exec.ExitError
+	switch {
+	case stdout.over || stderr.over:
+		return 0, "", "", errGitTooBig
+	case errors.As(err, &exit) && ctx.Err() == nil:
+		return exit.ExitCode(), strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), nil
+	case err != nil:
+		return 0, "", "", err
+	}
+	return 0, strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), nil
+}
+
 // gitFilesThroughFolder runs args, which read the working files, on the repo dir is in, through a git folder of the
 // core's own: gitDir and top name the repo when the caller knows them (a desk's tree, by its registration), "" asks
 // git. A config with a key the read doesn't know refuses it (gitRepoConfig), as the git state's read; a status or a
 // diff never goes into a submodule. judge, when not nil, is asked about that same config first (ownerRepoJudged).
 func gitFilesThroughFolder(ctx context.Context, dir, gitDir, top string, judge func([]byte) error, args []string) (int, string, error) {
+	status, out, _, err := gitFilesThroughFolderAs(ctx, dir, gitDir, top, judge, args, false)
+	return status, out, err
+}
+
+// gitFilesThroughFolderAs is gitFilesThroughFolder, its last run gitRunSplit's when split (errs "" when not).
+func gitFilesThroughFolderAs(ctx context.Context, dir, gitDir, top string, judge func([]byte) error, args []string, split bool) (int, string, string, error) {
+	return gitFilesThroughFolderTo(ctx, dir, gitDir, top, judge, args, split, nil)
+}
+
+// gitFilesThroughFolderTo is gitFilesThroughFolderAs with git's standard output handed to stdout as it comes, when
+// not nil (gitCall's stdout, FXWINWORKTREER4): its last run is then gitRunSplit's, and out is empty.
+func gitFilesThroughFolderTo(ctx context.Context, dir, gitDir, top string, judge func([]byte) error, args []string, split bool, stdout io.Writer) (int, string, string, error) {
 	here := gitHere()
 	if !gitVersionAtLeast(here.version, 2, 32) {
-		return 0, "", errors.New("the git on this computer is missing, or older than 2.32")
+		return 0, "", "", errors.New("the git on this computer is missing, or older than 2.32")
 	}
 	look := gitCall{global: gitReadArgs, config: here.owner}
 	if gitDir != "" {
@@ -247,26 +322,26 @@ func gitFilesThroughFolder(ctx context.Context, dir, gitDir, top string, judge f
 		out, status, err := readGitOut(ctx, dir, look, "rev-parse", "--show-toplevel", "--absolute-git-dir")
 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 		if err != nil || status != 0 || len(lines) != 2 {
-			return 0, "", errors.Join(err, errors.New("it isn't a repo git can read here"))
+			return 0, "", "", errors.Join(err, errors.New("it isn't a repo git can read here"))
 		}
 		top, gitDir = filepath.FromSlash(lines[0]), filepath.FromSlash(lines[1])
 	}
 	list, status, err := readGitOut(ctx, dir, look, "config", "--list", "-z")
 	if err != nil || status != 0 {
-		return 0, "", errors.Join(err, errors.New("its config couldn't be read"))
+		return 0, "", "", errors.Join(err, errors.New("its config couldn't be read"))
 	}
 	if judge != nil {
 		if err := judge(list); err != nil {
-			return 0, "", err
+			return 0, "", "", err
 		}
 	}
 	blanks, refused := gitRepoConfig(list)
 	if refused != "" {
-		return 0, "", errors.New("its config has a setting a read doesn't know, or an address that runs a program (" + refused + ")")
+		return 0, "", "", errors.New("its config has a setting a read doesn't know, or an address that runs a program (" + refused + ")")
 	}
 	folder, err := makeGitReadFolder(ctx, dir, top, gitDir, readGitOut, look, list)
 	if err != nil {
-		return 0, "", err
+		return 0, "", "", err
 	}
 	defer folder.remove()
 	call := folder.call
@@ -282,7 +357,12 @@ func gitFilesThroughFolder(ctx context.Context, dir, gitDir, top string, judge f
 	case "diff":
 		args = append([]string{"diff", "--no-ext-diff", "--no-textconv", "--ignore-submodules=all"}, args[1:]...)
 	}
-	return gitRun(ctx, dir, call, args)
+	if split || stdout != nil {
+		call.stdout = stdout
+		return gitRunSplit(ctx, dir, call, args)
+	}
+	status, out, err := gitRun(ctx, dir, call, args)
+	return status, out, "", err
 }
 
 // gitWriteThroughFolder runs args, which write (gitWritesThrough), on the repo dir is in, through a git folder of the
@@ -415,17 +495,24 @@ func mergedKeys(a, b map[string]string) map[string]bool {
 	return keys
 }
 
-// gitBranchesIn is each branch the git folder call names has, and its commit.
+// gitBranchesIn is each branch the git folder call names has, and its commit. The listing grows with the repo's
+// branches, so it is read line by line as it comes (gitRecords, FXWINWORKTREER4), up to gitRefsMost bytes, where
+// gitOutput's cap would refuse a repo of some 45,000 branches every write through the core's folder.
 func gitBranchesIn(ctx context.Context, dir string, call gitCall) (map[string]string, error) {
-	out, status, err := readGitOut(ctx, dir, call, "for-each-ref", "--format=%(objectname) %(refname)", "refs/heads/")
-	if err != nil || status != 0 {
-		return nil, errors.Join(err, errors.New("git couldn't list the branches"))
-	}
 	branches := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if id, name, found := strings.Cut(line, " "); found {
+	lines := &gitRecords{sep: '\n', most: gitRefsMost, each: func(line []byte) error {
+		if id, name, found := strings.Cut(string(line), " "); found {
 			branches[name] = id
 		}
+		return nil
+	}}
+	call.stdout = lines
+	_, status, err := readGitOut(ctx, dir, call, "for-each-ref", "--format=%(objectname) %(refname)", "refs/heads/")
+	if err := lines.end(); err != nil {
+		return nil, errors.Join(err, errors.New("git couldn't list the branches"))
+	}
+	if err != nil || status != 0 {
+		return nil, errors.Join(err, errors.New("git couldn't list the branches"))
 	}
 	return branches, nil
 }

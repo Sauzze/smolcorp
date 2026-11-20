@@ -72,8 +72,11 @@ func loadMacPeers(file string) *macPeers {
 		body, counts := openBody(filepath.Base(file), data)
 		if counts {
 			_ = json.Unmarshal(body, &p.All)
-		} else {
+		} else if peersOn {
 			recordDropped(filepath.Base(file), "mac-peers.json was changed by another program, or its seal doesn't fit: no Mac it lists is let in. Pair them again.")
+		} else {
+			// While floors from other Macs are off (dormant.go), left out as well, and said nowhere.
+			recordDroppedUnsaid(filepath.Base(file))
 		}
 	}
 	return p
@@ -229,6 +232,12 @@ func (d *Deck) servePeer(w http.ResponseWriter, r *request) bool {
 	key := r.Header.Get(peerKeyHeader)
 	if key == "" && !strings.HasPrefix(r.URL.Path, "/peer/") {
 		return false
+	}
+	// While floors from other Macs are off (dormant.go), /peer/ and a peer's key are answered as unknown, whatever
+	// config.json says: no peer row is served and nothing names the feature.
+	if !peersOn {
+		answerDormant(w)
+		return true
 	}
 	answer := writeStatus(w)
 	row := phoneRouteFor(r.Method, r.URL.Path)

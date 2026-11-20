@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -645,10 +646,12 @@ func (rt *router) team(w http.ResponseWriter) {
 	live := rt.deck.frontDeskLive()
 	rt.deck.mu.Lock()
 	byHand := rt.deck.byHandGMSession()
+	names := maps.Clone(rt.deck.config.Layout.Room.Team)
 	rt.deck.mu.Unlock()
 	file := readRegistry(registryPath(), false)
 	now := float64(time.Now().UnixMilli())
 	rows := teamRows(file.hires, file.hookKeys, live, now, statusLine)
+	nameRows(rows, file.hires, live, names)
 	if byHand != "" && !file.gmIsHired() {
 		for _, row := range rows {
 			if row["registered"] == false && row["sessionId"] == byHand {

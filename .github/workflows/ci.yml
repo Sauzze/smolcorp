@@ -321,7 +321,7 @@ jobs:
           except (ConnectionResetError, socket.timeout):
               answer = b""
           if answer:
-              print("::error::the bridge answered a process that isn't the copy's core: %r" % answer)
+              print("::error::the bridge answered a process other than the copy core: %r" % answer)
               sys.exit(1)
           ' "$SUPPORT/bridge.sock"
           echo "The hardened test copy started and answered (HTTP $code), its core got the key from the app over the bridge, another process got nothing, and it was quit (pid $pid)."

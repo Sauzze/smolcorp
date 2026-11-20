@@ -16,11 +16,14 @@ import (
 // matches deciding), says what Decide says for every case of the Policy's table, in every column. Real sandbox-exec
 // runs are in sbpl_darwin_test.go.
 
-// profileSetups are the golden columns: policy_test.go's, and a desk at the project.
+// profileSetups are the golden columns: policy_test.go's, a desk at the project, and the GM hired into the projects
+// folder, in its workspace (FXGMROOT, gmroot_test.go), a hire under it, and a hire held to its own worktree in the
+// projects folder (FXHIREPROJECTS, projects_test.go).
 func profileSetups() []setup {
 	atProject := hirePlaces(realSupport)
 	atProject.Root, atProject.Checkout, atProject.OwnWorktree = repo, "", ""
-	return append(setups(), setup{"project", atProject})
+	return append(setups(), setup{"project", atProject}, setup{"GM in the projects folder", projectsGMPlaces()},
+		setup{"hire under the GM in the projects folder", projectsHirePlaces()}, setup{"hire in the projects folder", inProjectsPlaces()})
 }
 
 // goldenName is a column's file in testdata.
@@ -66,6 +69,53 @@ func TestTheMacProfileIsTheGoldenText(t *testing.T) {
 					t.Fatalf("%s: line %d differs from %s:\n got %q\nwant %q", s.name, i+1, file,
 						strings.Join(got[i:min(i+1, len(got))], ""), strings.Join(want[i:min(i+1, len(want))], ""))
 				}
+			}
+		}
+	}
+}
+
+// FXFIREREAPR5: every profile denies issuing a sandbox extension, of any class, last of all, and allows nothing by
+// extension but a desk's own terminals. A desk can't hand another process a read of its mark (a process holding one
+// would be taken for the desk's at its stop), and an extension handed to a desk opens nothing for it but a terminal.
+//
+// The one allow by extension is FXPTYOWN's (sbOwnTerminals: a /dev/ttys<n> with macOS's pty key), kept with this row
+// when the two were stacked (FXSTACKG's ruling, option (A)), and its class-filtered deny of that key's issue beside the
+// deny of every issue. It's safe for the reap: a desk's mark is read through the file rules, never by extension; no
+// desk can issue any extension (the deny of every issue, last); and a pty key opens only that /dev/ttys<n>, never the
+// mark, the hires folder or the support folder (deskreap_extension_darwin_test.go's pty row checks it on the real
+// profile). Each line is matched by its exact text, so any other `(extension …)` fails the row.
+func TestNoDeskIssuesASandboxExtensionAndNoneOpensAnythingForIt(t *testing.T) {
+	// Every kind Seatbelt names (FXFIREREAPR6): a file extension, and the generic, Mach and IOKit ones.
+	every := "(deny file-issue-extension generic-issue-extension mach-issue-extension iokit-issue-extension) ; "
+	// FXPTYOWN's two lines, by their exact text: its own terminals' allow, and its deny of that key's issue.
+	ownTerminals := `(allow file-read-data file-read-xattr file-write* file-link (require-all (regex "^/dev/ttys[0-9]+$") (extension "com.apple.sandbox.pty"))) ; the terminals it made itself: macOS's key to each`
+	keysIssue := `(deny file-issue-extension generic-issue-extension iokit-issue-extension mach-issue-extension (extension-class "com.apple.sandbox.pty")) ; a terminal's key, made by the desk itself`
+	ptyLines := map[string]bool{ownTerminals: true, keysIssue: true}
+	for _, s := range profileSetups() {
+		profile, err := mustNew(t, s.pl).Profile(goldenServices(s.pl))
+		if err != nil {
+			t.Fatalf("%s: %v", s.name, err)
+		}
+		lines := strings.Split(strings.TrimSpace(profile), "\n")
+		if last := lines[len(lines)-1]; !strings.HasPrefix(last, every) {
+			t.Errorf("%s: the last line is %q, want the deny of every sandbox extension's issue", s.name, last)
+		}
+		seen := map[string]int{}
+		for i, line := range lines {
+			if !strings.Contains(line, "issue-extension") && !strings.Contains(line, "(extension") && !strings.Contains(line, `extension "`) {
+				continue
+			}
+			switch {
+			case i == len(lines)-1 && strings.HasPrefix(line, every):
+			case ptyLines[line]:
+				seen[line]++
+			default:
+				t.Errorf("%s: line %d names an extension, and isn't the deny of every issue or FXPTYOWN's: %q", s.name, i+1, line)
+			}
+		}
+		for line := range ptyLines {
+			if seen[line] != 1 {
+				t.Errorf("%s: FXPTYOWN's line %q is there %d times, want once", s.name, line, seen[line])
 			}
 		}
 	}
@@ -203,6 +253,53 @@ func TestARowAddedToThePolicyOnlyAddsLinesToTheProfile(t *testing.T) {
 				t.Errorf("%s: tmux's own folder's row adds %s", s.name, line)
 			}
 		}
+
+		// FXPLANTSTERM: the terminals', the hired agents' and the keychains' rows add final denies and their rename
+		// guards only; nothing else changes, nothing is lost. Each place is a write deny of its own, and each agent
+		// folder has its own links row too (FXPLANTSTERMR2): a hard link and a symlink, refused below it.
+		plantsterm := func(r Rule) bool {
+			return r.Row == rowTerminals || r.Row == rowAgents || r.Row == rowAgentLinks || r.Row == rowKeychains
+		}
+		before = profileSections(profileWithout(t, p, svc, plantsterm))
+		for i := range 3 {
+			if !slices.Equal(after[i], before[i]) {
+				t.Errorf("%s: FXPLANTSTERM's rows change section %d", s.name, i)
+			}
+		}
+		added = slices.Clone(after[3])
+		for _, line := range before[3] {
+			if at := slices.Index(added, line); at < 0 {
+				t.Errorf("%s: FXPLANTSTERM's rows take out %s", s.name, line)
+			} else {
+				added = slices.Delete(added, at, at+1)
+			}
+		}
+		for _, line := range added {
+			if !strings.HasPrefix(line, "(deny ") || !(strings.HasSuffix(line, " ; "+rowAbove) || plantsterm(Rule{Row: line[strings.LastIndex(line, " ; ")+3:]})) {
+				t.Errorf("%s: FXPLANTSTERM's rows add %s", s.name, line)
+			}
+		}
+		for _, folder := range append(append(slices.Clone(terminalPlaces), agentFolders...), "Library/Keychains") {
+			row := map[bool]string{true: rowAgents, false: rowTerminals}[slices.Contains(agentFolders, folder)]
+			if folder == "Library/Keychains" {
+				row = rowKeychains
+			}
+			if want := `(deny file-write* file-link (subpath "` + s.pl.Home + "/" + folder + `")) ; ` + row; !slices.Contains(added, want) {
+				t.Errorf("%s: no %s", s.name, want)
+			}
+		}
+		for _, folder := range agentFolders {
+			at := `(subpath "` + s.pl.Home + "/" + folder + `")`
+			for _, want := range []string{"(deny file-link " + at + ") ; " + rowAgentLinks,
+				"(deny file-write-create (require-all " + at + " (vnode-type SYMLINK))) ; " + rowAgentLinks} {
+				if !slices.Contains(added, want) {
+					t.Errorf("%s: no %s", s.name, want)
+				}
+			}
+		}
+		if want := `(deny file-write* file-link (literal "` + s.pl.Home + `/.wezterm.lua")) ; ` + rowTerminals; !slices.Contains(added, want) {
+			t.Errorf("%s: no %s", s.name, want)
+		}
 	}
 }
 
@@ -226,28 +323,56 @@ func TestTheDesksOwnStatusAndReportStayWritableInEveryProfile(t *testing.T) {
 type sbCheck struct{ op, vnode string }
 
 // The Seatbelt operations a desk's Op is checked as. A Write the Policy allows is every one that changes the file; one
-// it denies is those, and its removal, renames and links too (which Move and Link check where the Write is allowed).
-// A Link is a hard link or a new symlink.
+// it denies is those, and its removal, renames, links, mode, flags, owner and ACL too (which Move and Link check where
+// the Write is allowed). A Move is a folder's removal and its mode, flags, owner and ACL (F4); a Link is a hard link
+// or a new symlink.
 var (
-	sbWriteChecks = []sbCheck{{"file-write-create", ""}, {"file-write-data", ""}, {"file-write-mode", ""}, {"file-write-flags", ""},
-		{"file-write-owner", ""}, {"file-write-times", ""}, {"file-write-xattr", ""}}
-	sbChecks = [Link + 1][]sbCheck{
+	sbWriteChecks = []sbCheck{{"file-write-create", ""}, {"file-write-data", ""}, {"file-write-times", ""}, {"file-write-xattr", ""}}
+	sbModeChecks  = []sbCheck{{"file-write-mode", ""}, {"file-write-flags", ""}, {"file-write-owner", ""}, {"file-write-acl", ""}}
+	sbChecks      = [Link + 1][]sbCheck{
 		Read:    {{"file-read-data", ""}, {"file-read-xattr", ""}},
 		Write:   sbWriteChecks,
 		Connect: {{"network-outbound", ""}},
-		Move:    {{"file-write-unlink", "DIRECTORY"}},
+		Move:    append([]sbCheck{{"file-write-unlink", "DIRECTORY"}}, sbModeChecks...),
 		Link:    {{"file-link", ""}, {"file-write-create", "SYMLINK"}},
 	}
-	sbDeniedWriteChecks = append(slices.Clone(sbWriteChecks), sbCheck{"file-write-unlink", ""}, sbCheck{"file-link", ""},
-		sbCheck{"file-write-create", "SYMLINK"})
+	sbDeniedWriteChecks = slices.Concat(sbWriteChecks, sbModeChecks, []sbCheck{{"file-write-unlink", ""}, {"file-link", ""},
+		{"file-write-create", "SYMLINK"}})
 )
 
 // seatbeltPlay is a profile's rules read as Seatbelt reads them, on the Mac's volume: case and normalization folded,
 // and for each operation the rules that name it read first, the last that matches deciding; those that name it by a
 // wildcard (file-write*) only where none of its own matches (sbpl.go). Everything else is allowed.
+//
+// The play is rules × paths × checks, so each rule's place is folded once, when the play is made, each check keeps
+// the rules that name its operation, and whether a place holds a path is worked out once for all its checks
+// (FXPLAYPERF): folding every rule again for every path and check took minutes.
+//
+// A play is used from one goroutine only. named and held are filled as it's asked, with no lock, and a copy of a play
+// shares them; a row that would ask from several goroutines makes a play for each (newPlay).
 type seatbeltPlay struct {
-	rules []sbRule
-	res   map[string]*regexp.Regexp
+	rules  []sbRule
+	places []playPlace
+	// named is, for each check, the rules that hold its kind of file and name its operation: by itself ([0]) or by a
+	// wildcard ([1]), in the profile's order. It's filled as checks come.
+	named map[sbCheck]*[2][]int
+	// held is, for the path played last, whether each rule's place holds it: 0 not asked yet, 1 it does, 2 it doesn't.
+	// A path is played for every check in turn, and a place holds it or not whatever the check.
+	held *playHeld
+}
+
+// playHeld is a play's held: the path's key and a mark for each rule.
+type playHeld struct {
+	k  string
+	at []uint8
+}
+
+// playPlace is a rule's place as the play compares it, folded: its literal's or subpath's key, its excepts' keys,
+// or its regex.
+type playPlace struct {
+	key    string
+	except []string
+	re     *regexp.Regexp
 }
 
 func playOf(t *testing.T, p *Policy) seatbeltPlay {
@@ -274,35 +399,77 @@ func playWith(t *testing.T, p *Policy, svc Services) seatbeltPlay {
 }
 
 func newPlay(rules []sbRule) seatbeltPlay {
-	play := seatbeltPlay{rules: rules, res: map[string]*regexp.Regexp{}}
-	for _, r := range play.rules {
-		if r.place.kind == "regex" {
-			play.res[r.place.text] = regexp.MustCompile(foldName("darwin", r.place.text))
+	play := seatbeltPlay{rules: rules, places: make([]playPlace, len(rules)), named: map[sbCheck]*[2][]int{},
+		held: &playHeld{at: make([]uint8, len(rules))}}
+	res := map[string]*regexp.Regexp{}
+	for i, r := range rules {
+		pl := &play.places[i]
+		for _, e := range r.place.except {
+			pl.except = append(pl.except, key("darwin", e))
+		}
+		switch r.place.kind {
+		case "literal", "subpath":
+			pl.key = key("darwin", r.place.text)
+		case "regex":
+			if res[r.place.text] == nil {
+				res[r.place.text] = regexp.MustCompile(foldName("darwin", r.place.text))
+			}
+			pl.re = res[r.place.text]
 		}
 	}
 	return play
 }
 
-// matches is whether r holds folded path k for check c, naming its operation itself (own) or by a wildcard.
-func (s seatbeltPlay) matches(r sbRule, k string, c sbCheck, own bool) bool {
-	if r.place.vnode != "" && r.place.vnode != c.vnode {
-		return false
+// naming is the rules that hold check c's kind of file and name its operation, by itself and by a wildcard.
+func (s seatbeltPlay) naming(c sbCheck) *[2][]int {
+	if n, ok := s.named[c]; ok {
+		return n
 	}
-	if !slices.ContainsFunc(r.ops, func(op string) bool {
-		if own {
-			return op == c.op
+	n := new([2][]int)
+	for i, r := range s.rules {
+		if r.place.vnode != "" && r.place.vnode != c.vnode {
+			continue
 		}
-		return strings.HasSuffix(op, "*") && strings.HasPrefix(c.op, strings.TrimSuffix(op, "*"))
-	}) {
+		if slices.Contains(r.ops, c.op) {
+			n[0] = append(n[0], i)
+		}
+		if slices.ContainsFunc(r.ops, func(op string) bool {
+			return strings.HasSuffix(op, "*") && strings.HasPrefix(c.op, strings.TrimSuffix(op, "*"))
+		}) {
+			n[1] = append(n[1], i)
+		}
+	}
+	s.named[c] = n
+	return n
+}
+
+// matches is whether rule i's place holds folded path k, the path says plays (its kind of file and its operation are
+// naming's).
+func (s seatbeltPlay) matches(i int, k string) bool {
+	if h := s.held.at[i]; h != 0 {
+		return h == 1
+	}
+	held := s.holds(i, k)
+	s.held.at[i] = 2
+	if held {
+		s.held.at[i] = 1
+	}
+	return held
+}
+
+// holds is whether rule i's place holds folded path k.
+func (s seatbeltPlay) holds(i int, k string) bool {
+	r, pl := s.rules[i], s.places[i]
+	if slices.ContainsFunc(pl.except, func(e string) bool { return under(k, e) }) {
 		return false
 	}
 	switch r.place.kind {
 	case "literal":
-		return k == key("darwin", r.place.text)
+		return k == pl.key
 	case "subpath":
-		return under(k, key("darwin", r.place.text))
+		return under(k, pl.key)
 	case "regex":
-		return s.res[r.place.text].MatchString(k)
+		return pl.re.MatchString(k)
 	case sbRaw:
 		// SA-M2's defaults: a connect to any unix socket's path; the rest name no path.
 		return r.place.text == "(remote unix-socket)"
@@ -313,12 +480,16 @@ func (s seatbeltPlay) matches(r sbRule, k string, c sbCheck, own bool) bool {
 // says is what Seatbelt does with check c at path at.
 func (s seatbeltPlay) says(at string, c sbCheck) Verdict {
 	k := key("darwin", at)
-	for _, own := range []bool{true, false} {
+	if s.held.k != k {
+		s.held.k = k
+		clear(s.held.at)
+	}
+	for _, rules := range s.naming(c) {
 		said := Unset
-		for _, r := range s.rules {
-			if s.matches(r, k, c, own) {
+		for _, i := range rules {
+			if s.matches(i, k) {
 				said = Deny
-				if r.allow {
+				if s.rules[i].allow {
 					said = Allow
 				}
 			}
@@ -402,7 +573,7 @@ func TestTheMacProfilesSectionsAreInTheDocumentedOrder(t *testing.T) {
 		t.Errorf("the header: %q", profile[:min(len(profile), 200)])
 	}
 	last := -1
-	for _, heading := range slices.Concat([]string{"Denied by default: unix sockets, Mach services, IOKit, signals", "What it may still reach"},
+	for _, heading := range slices.Concat([]string{"Denied by default: unix sockets, Mach services, IOKit, signals, terminals", "What it may still reach"},
 		fileHeadings, []string{"Denied, whatever allows it"}) {
 		at := strings.Index(profile, "\n;; "+heading+"\n")
 		if at <= last || strings.Count(profile, "\n;; "+heading+"\n") != 1 {
@@ -469,8 +640,8 @@ func TestAProfileIsRefusedForWhatItCantSpell(t *testing.T) {
 
 // SA-M2: sockets, services, signals and network, on the made-up Mac.
 
-// m2Ops are the operations SA-M2's sections name.
-var m2Ops = []string{"network-outbound", "mach-lookup", "iokit-open", "signal"}
+// m2Ops are the operations SA-M2's sections name, each default's first (a terminal's: Read's first, FXPTYOWN).
+var m2Ops = []string{"network-outbound", "mach-lookup", "iokit-open", "signal", "file-read-data"}
 
 // What the desk may reach comes after what is denied by default, every allow of an operation after its default deny,
 // and what nothing opens after every allow (SIERRA's order rule: last match wins). Each operation is named exactly,
@@ -530,7 +701,7 @@ func TestTheServicesComeAfterTheirDefaultsAndWhatNothingOpensComesLast(t *testin
 				t.Errorf("%s: the Services change the file rules' section %q", s.name, sections[i].heading)
 			}
 		}
-		if fmtRules(bare[1].rules) != "(allow signal (target same-sandbox))\n" || fmtRules(bare[6].rules) != fmtRules(sbNever) {
+		if fmtRules(bare[1].rules) != fmtRules([]sbRule{sbOwnTerminals, sbSameSandbox}) || fmtRules(bare[6].rules) != fmtRules(sbNever) {
 			t.Errorf("%s: an empty Services allows %q and denies last %q", s.name, fmtRules(bare[1].rules), fmtRules(bare[6].rules))
 		}
 	}
@@ -669,7 +840,7 @@ func TestTheLocalPortsAreDeniedLastOnLocalhostAndAnyIPv6(t *testing.T) {
 // Only SA-M2's own rules are written as they are (sbRaw); every file rule names its filter, so one made with no kind
 // can't be written unquoted (RT126SAM2 N4).
 func TestOnlySAM2sOwnRulesAreWrittenRaw(t *testing.T) {
-	own := map[string]bool{sbSameSandbox.String(): true}
+	own := map[string]bool{sbOwnTerminals.String(): true, sbSameSandbox.String(): true}
 	for _, r := range slices.Concat(sbDefaults, sbNever) {
 		own[r.String()] = true
 	}

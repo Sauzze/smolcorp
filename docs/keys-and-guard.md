@@ -35,13 +35,18 @@ last section says plainly what's still open.
 - **`smolcorp setup` only checks.** It, and `AgentDeck --setup` on a Mac, read
   the checklist with the check-only key in `selftest-key`, which opens nothing
   else. The fixes are on the setup page.
-- **A tool of yours asks, with a code** (on a Mac). `smolcorp demo`, `status`
-  and `desks` each ask at every run: Smolcorp's Settings window shows the ask
-  with a four-digit code, and you click **Allow** once you've checked that the
-  terminal shows the same code. On Windows and Linux they stop and say so: see
-  your team and set things up in Setup instead.
-- **A General Manager you start by hand** (a Mac only) gets its token the same
-  way: turn on **Allow a General Manager started by hand**, run
+- **A tool of yours asks, with a code** (on a Mac, and on Windows with
+  WebView2). `smolcorp demo`, `status` and `desks` each ask at every run:
+  Smolcorp's Settings window shows the ask with a four-digit code, and you click
+  **Allow** once you've checked that the terminal shows the same code. On
+  Windows, where nothing keeps a hire from asking too, the window also names the
+  program that asked, as Windows says it. On Linux, and on Windows without
+  WebView2, they stop and say so: see your team and set things up in Setup
+  instead. On Windows, `smolcorp demo` asks the same way, makes its folder and
+  opens its page in your browser, but hiring from that page hasn't been tried
+  there yet: the demo is still made for a Mac.
+- **A General Manager you start by hand** (on a Mac, and on Windows with
+  WebView2) gets its token the same way: turn on **Allow a General Manager started by hand**, run
   `smolcorp gm login`, check the code and click **Allow**. Smolcorp keeps no
   such token across a restart while no General Manager is hired, so after
   Smolcorp starts again (an update, say), run `smolcorp gm login` again. A
@@ -49,7 +54,7 @@ last section says plainly what's still open.
 
 ## Records nobody else can write (Mac)
 
-What lets something in (paired phones and Macs, hires' keys, the General
+What lets something in (paired phones, hires' keys, the General
 Manager, who may write to whom, your security settings and your guard) is kept
 in records that Smolcorp seals with a key in your login keychain. Only
 Smolcorp's own app reads that key, and only while it holds the lock on
@@ -58,7 +63,7 @@ in memory.
 
 - **A record another program changed doesn't count.** Setup's **Paired
   phones** says so, and none of the records is honoured until you **Reset**
-  them: every phone and paired Mac pairs again, and what the check dropped is
+  them: every phone pairs again, and what the check dropped is
   gone for good. Setup says exactly what a reset keeps beside the button.
 - **A locked keychain.** If Smolcorp can't read its key without asking you,
   nothing it saved counts, and it saves nothing until it can. Until then, it
@@ -82,7 +87,7 @@ you alone: a program of yours that reads it can do whatever that phone can.
 
 What carries over, what resets and what to do: [Updating to 1.26](upgrade-1.26.md).
 
-- **Pair each phone again, and each paired Mac.** The keys they held open
+- **Pair each phone again.** The keys they held open
   nothing any more, and a phone from before isn't offered back.
 - **Hires get new keys** when they next start, and the General Manager when
   you hire it again. Desks started before the update keep the settings they
@@ -125,9 +130,76 @@ deploys, publishing and the rest): see
   start files nor your `~/.tmux.conf` run as such a desk starts, so a variable
   you set there doesn't reach its environment (Claude Code's Bash tool still
   reads your shell's own setup).
-- **What still runs for other desks.** A plain hire in tmux (Codex, Gemini
-  CLI, OpenCode, Grok, or Claude Code with the manager off) starts on tmux's
-  usual server, which runs your `~/.tmux.conf`. A desk opened in a terminal
+- **On a Mac, a desk in its sandbox changes files only in its own worktree or
+  project folder in your projects folder** (the folder for hires you chose in
+  Setup). Your other projects there, their git settings and hooks, and any
+  project you add later are read-only to it. It's told so as it starts: "You
+  can change files only in your own worktree here; other projects are
+  read-only." No hire works in the projects folder as a whole. When you hire
+  from the office, whatever the agent, it first asks you which project (the
+  General Manager aside: it gets a workspace of its own). The list shows each
+  repository there, each repository inside a plain folder (`clients/acme`, not
+  `clients`), and any folder that holds no repository at all. Every hire gets
+  its own worktree of the repository you pick and commits there, on a branch
+  of its own: a Claude Code hire by role, and a plain hire too (one with no
+  role, or a Claude Code role with the manager off). A plain hire's worktree
+  is, by default, in the `<repository>-hires` folder beside your checkout, on
+  a branch named `hire/plain-…`. When it ends (you fire it, close its window, or its
+  agent quits), Smolcorp writes its recap. It removes the worktree once
+  nothing in it is left uncommitted, and the branch once your checkout holds
+  it; what's left stays. A worktree with a submodule checked out always
+  stays. Codex, Gemini CLI, OpenCode and Grok aren't hired on a
+  Mac with the sandbox on. Setup and the General Manager have no list: the
+  hire goes into the folder you choose or type in Setup, or the one the
+  General Manager names. It isn't made if that folder is the projects folder
+  itself, or holds it, or isn't a repository but holds one (hire it into that
+  repository itself instead), or holds a bare repository. A desk made that
+  way before doesn't start.
+- **Other repositories inside a desk's folder.** The git folder of a
+  repository that's already there when the desk starts (a clone nested in a
+  checkout, `clients/acme` when your projects folder or your home is itself a
+  repository) is read-only to it, and the folders on the way to it can't be
+  moved, so it can't change that repository's settings or hooks, though it
+  can change its files. It can't make a git folder there either: `git init`,
+  `git clone` and `git submodule update --init` inside its folder are refused.
+  Your project's own submodules are checked out in a hire's worktree when
+  Smolcorp makes it, each one your checkout has initialised, and their git
+  folders are read-only to the hire too. It can change a submodule's files,
+  but it can't commit in a submodule, move one to another commit, or
+  initialise one. To give a hire a submodule your checkout hasn't
+  initialised, initialise it in your checkout and hire again.
+  It can still make a repository somewhere else and move it in, or link to
+  it. Smolcorp looks at each start: a repository that wasn't there at the
+  desk's last start (Smolcorp can't tell whether you or the desk put it
+  there), a link to a repository a desk can change or to a folder that holds
+  one, a hire's own submodule over a repository your project doesn't have,
+  or a bare repository stops the start until you remove it. Between two
+  starts it can't look, so while a desk is working, don't run git in a
+  repository that turned up in its folder, or behind a link there. Don't run
+  git in a hire's worktree at all, while it works or after it ends: a hire
+  can make a nested repository there whose settings your git would run.
+  Look at its work from your own checkout (`git diff main...<its branch>`,
+  `git log <its branch>`), and remove a worktree that stayed with `git
+  worktree remove --force <its path>`, from your own checkout too. That
+  also deletes whatever the hire left uncommitted there, so open or copy
+  those files first, without git. A package manager's
+  own folders, such as Swift's `.build`, Bundler's
+  `vendor/bundle/…/cache/bundler/git` and a virtual environment's `src`, are
+  open to a desk, so a hire's `swift build` can fetch new dependencies. The
+  clones already there when it starts are read-only to it: it can't update a
+  dependency fetched before (delete `.build` yourself to fetch afresh), and a
+  clone it fetches is its own until its next start. To look for all this,
+  Smolcorp goes through at most 50,000 folders at each hire and start, and
+  as many again where the links in a desk's folder lead; past that, the hire
+  isn't made and the desk doesn't start, and the same goes for a folder it
+  can't read, until you make it readable or move it out. If a
+  project's git files are shared with another repository (a local `git
+  clone` links them), a desk working in it doesn't start until you run `git
+  repack -a -d && git prune` in it.
+- **What still runs for other desks.** A plain hire in tmux (Claude Code with
+  the manager off, or Codex, Gemini CLI, OpenCode or Grok, which on a Mac start
+  only with the sandbox off in 1.26.0) starts on tmux's usual server, which
+  runs your `~/.tmux.conf`. A desk opened in a terminal
   window no longer goes through a login shell of Smolcorp's, but Terminal,
   iTerm2 and Ghostty start your shell for every window, so its start files run
   first. On Windows, a desk gets a one-time token from Smolcorp's launcher
@@ -147,6 +219,20 @@ deploys, publishing and the rest): see
 - **If Smolcorp's own files change** (on a Mac), it starts no more Claude
   Code desks and says "Smolcorp's own files changed. Reinstall Smolcorp. No
   desk was started."
+- **Empty `.smolcorp-keep` folders in a repository's `.git`** (on a Mac).
+  A desk's start keeps one in some of the folders git keeps branches in, such
+  as `.git/refs/heads/hire` and `.git/refs/remotes/origin`, so git never
+  removes a folder a hire could then make again with another branch inside.
+  Git doesn't read them as branches, and they're safe to leave.
+- **An empty `.git/lfs` folder** (on a Mac). A desk's start makes git-lfs's
+  folder in a repository's `.git` when it's missing, so no desk can put a link
+  there. git-lfs keeps its files in it as usual, and it's safe to leave.
+- **A link in a repository's `.git/refs` or `.git/logs` stops every desk's
+  start there** (on a Mac), and so does a file there with a second name, a
+  branch Smolcorp keeps that points at one a desk can move, or a checkout's
+  HEAD (yours, or another worktree's) that points at a branch a desk can move.
+  The message names it and says what to do. Git makes none of these unless you
+  ask it to.
 
 ## Smolcorp's permissions stay with Smolcorp (Mac)
 
@@ -228,6 +314,11 @@ Said plainly, so you can judge for yourself:
   put there before then counts as yours.
 - **The setup link, within its minute** on Windows and Linux: you're told, and
   that session is ended.
+- **Links in your projects, on a Mac.** Each start follows the links in a
+  desk's folder to wherever they lead, so a link into a cloud folder or
+  `~/Documents` is read at every start. It looks through at most 50,000
+  folders where they lead; past that, the desk doesn't start until you
+  remove the links it doesn't need.
 - **A General Manager you started by hand** runs without the guard.
 - **The hook key** stays readable in `hook-key`. A program that reads it can
   report events as if they came from your agents, and connect as a desk's

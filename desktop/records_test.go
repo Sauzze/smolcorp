@@ -532,6 +532,9 @@ func TestOnAMacEveryFileInTheSupportFolderHasAClass(t *testing.T) {
 		// PASTEHOLD1: the paste hold's key, new at each start under the Mac app, which seals a hold (pastehold.go); the
 		// hold as `smolcorp hold on` writes it and the core's word that it holds, both sealed with it, neither a secret.
 		"hold-key": holdKeyClass, "paste-hold": notSecret, "paste-hold-seen": notSecret,
+		// FXGITROWS2: each repo's default branch as the core first read it (deskgitrows.go). It names branches, and lets
+		// no one in; only the core and the owner write it, and the owner's edit is how a pin is refreshed.
+		defaultBranchesName: notSecret,
 	}
 	d, mac, phoneKey, _ := macDeck(t)
 	sendKey := withAHire(t)

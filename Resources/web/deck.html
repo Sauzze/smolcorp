@@ -86,6 +86,11 @@
     background: #f4f1ea; color: #1f2129; border: 2px solid #1f2129; border-radius: 12px;
     box-shadow: 0 4px 0 #1f2129, 0 10px 30px rgba(0,0,0,.45); touch-action: manipulation; }
   .waiting[hidden] { display: none; }
+  /* 📝 The General Manager's notes waiting for you: a small badge in the office's own window, which opens Setup. */
+  .memory-badge { position: fixed; z-index: 7; right: 12px; top: calc(env(safe-area-inset-top) + 10px); padding: 5px 10px;
+    font: 600 12px/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; cursor: pointer;
+    color: #1f2129; background: #f4f1ea; border: 2px solid #1f2129; border-radius: 999px; box-shadow: 0 2px 0 #1f2129; }
+  .memory-badge[hidden] { display: none; }
   .waiting-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid rgba(31,33,41,.12); }
   .waiting-row:first-of-type { border-top: 0; }
   .waiting-who { flex: 1; min-width: 0; font-size: 13px; line-height: 1.3; }
@@ -96,6 +101,21 @@
     color: #1f2129; background: #fff; border: 2px solid #1f2129; box-shadow: 0 2px 0 #1f2129; }
   .waiting-row button:active { transform: translateY(2px); box-shadow: none; }
   .waiting-row .yes { color: #fff; background: #2563eb; }
+
+  /* Open Setup on <computer>?: a setup page off a Mac asks to be opened by your tap (setupask.go). Over everything. */
+  .setup-ask { position: fixed; z-index: 10; left: 50%; top: calc(env(safe-area-inset-top) + 34px); transform: translateX(-50%);
+    width: min(92vw, 420px); padding: 12px 14px 10px; font-size: 14px; line-height: 1.4;
+    background: #f4f1ea; color: #1f2129; border: 2px solid #1f2129; border-radius: 12px;
+    box-shadow: 0 4px 0 #1f2129, 0 10px 30px rgba(0,0,0,.45); touch-action: manipulation; }
+  .setup-ask[hidden], .setup-ask [hidden] { display: none; }
+  .setup-ask p { margin: 0 0 10px; }
+  .setup-ask-code { font: 700 24px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .06em; }
+  .setup-ask-keys { display: flex; gap: 8px; }
+  .setup-ask-keys button { flex: 1; min-height: 44px; border-radius: 10px; cursor: pointer;
+    font: 600 15px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    color: #1f2129; background: #fff; border: 2px solid #1f2129; box-shadow: 0 2px 0 #1f2129; }
+  .setup-ask-keys button:active { transform: translateY(2px); box-shadow: none; }
+  .setup-ask-keys .yes { color: #fff; background: #2563eb; }
 
   /* ✨ Summary: what an agent has been doing, on a card over the room until tapped away. */
   /* Just above the keys along the foot of the room, beside the key that asked, clear of the desks and their choices. */
@@ -223,6 +243,12 @@
   .t3-leave.sure { color: #fff; background: #b91c1c; }
   .t3-leave:disabled { opacity: .35; cursor: default; }
   .t3-leave[hidden], .t3-tag[hidden] { display: none; }
+  /* Which project a hire works on (FXHIREPROJECTSR4): a Mac with the sandbox on asks before the office's hire. */
+  #pick { cursor: default; }
+  .pick-project { display: block; width: 100%; min-height: 36px; margin-top: 6px; padding: 0 10px; border-radius: 10px; cursor: pointer;
+    text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font: 600 14px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: #1f2129; background: #fff; border: 2px solid #1f2129; }
+  .pick-cancel { background: #f4f1ea; text-align: center; margin-top: 10px; }
   /* Served at the Tailscale address: marked, so it's never mistaken for the Wi-Fi's deck. Where the http hint
      sits, which never shows here. */
   .tail-mark { display: none; }
@@ -247,9 +273,19 @@
   <div><b>Add Smolcorp to your Home Screen.</b><br><span id="install-how">Tap Share, then “Add to Home Screen”.</span> It opens full screen and stays paired.</div>
   <button id="install-close" aria-label="Dismiss">✕</button>
 </div>
+<button class="memory-badge" id="memory-badge" title="Your General Manager suggested notes to remember. Keep, edit or drop them in Setup." hidden></button>
 <div class="waiting" id="waiting" role="status" aria-label="Waiting for you" hidden>
   <div class="summary-head"><span>⏳</span><b>Waiting for you</b></div>
   <div id="waiting-rows"></div>
+</div>
+<div class="setup-ask" id="setup-ask" role="alertdialog" aria-labelledby="setup-ask-head" hidden>
+  <p><b id="setup-ask-head"></b></p>
+  <p class="setup-ask-code" id="setup-ask-code"></p>
+  <p id="setup-ask-why"></p>
+  <p id="setup-ask-more" hidden></p>
+  <div class="setup-ask-keys">
+    <button id="setup-ask-deny">Deny</button><button id="setup-ask-allow" class="yes">Allow</button><button id="setup-ask-close">Close</button>
+  </div>
 </div>
 <div class="summary" id="summary" role="status" aria-live="polite" hidden>
   <div class="summary-head"><span>✨</span><b id="summary-name"></b><span aria-label="Close">✕</span></div>
@@ -296,6 +332,12 @@
   <button class="t3-leave" id="t3-hand" type="button" hidden>Take over in T3 Code (EXPERIMENTAL)…</button>
   <div class="info-note" id="t3-hand-confirm" hidden></div>
   <button class="t3-leave sure" id="t3-hand-yes" type="button" hidden></button>
+</div>
+<div class="summary" id="pick" role="dialog" aria-labelledby="pick-title" hidden>
+  <div class="summary-head"><span>📁</span><b id="pick-title"></b></div>
+  <div class="info-note" id="pick-note" hidden></div>
+  <div id="pick-rows"></div>
+  <button class="pick-project pick-cancel" id="pick-cancel" type="button"></button>
 </div>
 <div class="tail-mark" aria-hidden="true">TAIL · phone mic</div>
 <div class="mic-hint" id="mic-hint" role="status" hidden>🎙 Phone mic needs HTTPS: see Tailscale in setup</div>
@@ -428,7 +470,8 @@
     },
     hire(desk, role, floor) {
       tick();
-      send('/act', { action: 'hire', desk, ...(role ? { role } : {}), ...(floor ? { floor } : {}) });
+      const params = { action: 'hire', desk, ...(role ? { role } : {}), ...(floor ? { floor } : {}) };
+      send('/act', params, undefined, (text) => pickProject(params, text));
     },
     // Someone put on another floor: `floor` is 0 for the ground floor up to 5 for 6F; remembered, their folder's
     // sessions go there from now on. Whether they went.
@@ -1034,6 +1077,38 @@
     }
     return res.status;
   }
+
+  /*
+   * Which project a hire works on (FXHIREPROJECTSR4): on a Mac with the sandbox on, the office's hire into the folder
+   * for hires answers with the projects there and hires nobody; the one picked is hired into, as the same hire sent
+   * again with its name. Cancel, or a tap on nothing, hires nobody. Every word is the computer's.
+   */
+  function pickProject(params, text) {
+    let pick;
+    try { pick = JSON.parse(text).pick; } catch { return; }
+    if (!pick || !Array.isArray(pick.projects)) return;
+    $('pick-title').textContent = pick.title || '';
+    const note = pick.projects.length ? pick.note : pick.none;
+    $('pick-note').textContent = note || '';
+    $('pick-note').hidden = !note;
+    const rows = $('pick-rows');
+    rows.textContent = '';
+    for (const name of pick.projects) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'pick-project';
+      button.textContent = name;
+      button.onclick = () => {
+        tick();
+        $('pick').hidden = true;
+        send('/act', { ...params, project: name });
+      };
+      rows.append(button);
+    }
+    $('pick-cancel').textContent = pick.cancel || 'Cancel';
+    $('pick').hidden = false;
+  }
+  $('pick-cancel').addEventListener('click', () => { tick(); $('pick').hidden = true; });
 
   let flashTimer = null;
   function flash(text) {
@@ -1877,10 +1952,13 @@
   /*
    * The TV's preview (1.26 TV1): the picked desk's /desk/preview, as it's picked and every PREVIEW_EVERY ms while the
    * window is in sight, for the office's TV to show. An answer that says no, as any page but the computer's own
-   * window gets, ends the asking for good, as for the badges.
+   * window gets, ends the asking for good, as for the badges. Windows' window (its key handed in-process, givenKey)
+   * doesn't ask at all yet: its page is served with no key, so it frames nothing, and a preview on air there would
+   * open only a frame its own page refuses. Its TV stays off, and says why.
    */
   const PREVIEW_EVERY = 10000;
-  let previewAsking = false, previewOff = false, previewFor = null;
+  const previewNotInThisWindow = !!givenKey;
+  let previewAsking = false, previewOff = previewNotInThisWindow, previewFor = null;
   async function askPreview() {
     if (!gitHere || previewOff || previewAsking || document.hidden) return;
     const id = selected;
@@ -1904,6 +1982,7 @@
   if (gitHere) setInterval(askPreview, PREVIEW_EVERY);
   /** What a TV clicked says: the picked desk's address, or why there's none. */
   function tvLine(id, url) {
+    if (previewNotInThisWindow) return 'The TV\'s preview isn\'t shown in this window yet';
     // A page the computer won't tell (a spare screen's /office) never had a preview to show
     if (previewOff) return 'The TV shows a desk\'s preview only in Smolcorp\'s own window';
     if (!id) return 'Pick a desk first: the TV shows what it is building';
@@ -2055,6 +2134,141 @@
     }
   }
 
+  /* ------------------------------------------------------- setup's asks */
+
+  /*
+   * Open Setup on <computer>? Off a Mac, once a phone is paired, Setup on the computer opens only by your tap
+   * (setupask.go): the setup page shows a code, and GET /grants lists its ask here with the same code and the
+   * computer's name, never its ticket. Allow or Deny answers it with POST /grants/setup, which the computer takes from
+   * a paired phone over Tailscale alone (accessOwnerTap). Anywhere else, the Wi-Fi above all, GET /grants is refused,
+   * and while an ask waits the refusal says so and why: the sheet shows those words, with nothing to tap. The oldest
+   * ask first, one at a time, with a line when another waits too, so a code that doesn't match stands out. A computer
+   * without the route (404), or whose list has no setupAsks (a Mac, where Smolcorp's own Settings window opens Setup
+   * and no ask is ever made, or a computer from before them), is never asked again. Over the Wi-Fi a Mac's refusal
+   * can't be told from another computer's with no ask waiting, so the phone keeps asking there: a refusal reads
+   * nothing and changes nothing.
+   */
+  const SETUP_ASK_EVERY = 5_000;
+  const SETUP_ASK_NOT_HERE = 'Your computer ';
+  let setupAskTimer = null;
+  let setupAskOn = null;      // the ask the sheet shows, or the words it shows instead
+  let setupAskClosed = '';    // words closed with Close: not shown again until no ask waits
+  let setupAsksOff = false;   // this computer can never have one: no look again, not even on a return to the page
+  const SETUP_ASK_SETTLE = 1_000; // a tap this soon after the sheet swapped to another ask is ignored (SETUPTAPR3's O2)
+  let setupAskSwappedAt = -Infinity; // when the sheet last swapped one ask for another under the owner's thumb (performance.now())
+  let setupAskLastID = '';    // the last ask the sheet drew, kept while it's hidden: a tap hides it before it looks again
+
+  /** The sheet for an answer to GET /grants (its status and text): what it says, and the ask it answers, or null. */
+  function setupAskSheetFor(status, text) {
+    if (status === 200) {
+      let asks = [];
+      try { asks = JSON.parse(text).setupAsks || []; } catch {}
+      const waiting = asks.filter((a) => a && typeof a.id === 'string' && typeof a.code === 'string');
+      const ask = waiting[0];
+      if (!ask) return null;
+      const computer = typeof ask.computer === 'string' && ask.computer ? ask.computer : 'your computer';
+      return { head: `Open Setup on ${computer}?`, code: `Code ${ask.code}`,
+        why: 'Tap Allow only if your computer shows this same code. Setup then opens there.',
+        more: waiting.length > 1 ? 'Another ask is waiting too, so check the code before you tap Allow.' : '', ask };
+    }
+    if (status === 403 && text.startsWith(SETUP_ASK_NOT_HERE)) return { head: "This phone can't open Setup from here", code: '', why: text, more: '', ask: null };
+    return null;
+  }
+
+  /** Whether this computer can ever have an ask to open Setup: not when its list (a 200) has no setupAsks. */
+  function setupAsksHere(status, text) {
+    if (status !== 200) return true;
+    try { return Array.isArray(JSON.parse(text).setupAsks); } catch { return true; }
+  }
+
+  function showSetupAsk(sheet) {
+    // An ask drawn in place of the last one the sheet showed moves the code under the owner's thumb: a look that swaps
+    // it (it ran out or was answered elsewhere while a second waited), or the look after a tap, which hides the sheet
+    // first. A tap in the next moment was meant for the old one, and is let go. The sheet's first ask has none before
+    // it, so a tap on it goes through. The clock is the page's own, which never steps back as the phone's time can.
+    if (sheet && sheet.ask) {
+      if (setupAskLastID && sheet.ask.id !== setupAskLastID) setupAskSwappedAt = performance.now();
+      setupAskLastID = sheet.ask.id;
+    }
+    setupAskOn = sheet;
+    $('setup-ask').hidden = !sheet;
+    if (!sheet) return;
+    $('setup-ask-head').textContent = sheet.head;
+    $('setup-ask-code').textContent = sheet.code;
+    $('setup-ask-code').hidden = !sheet.code;
+    $('setup-ask-why').textContent = sheet.why;
+    $('setup-ask-more').textContent = sheet.more || '';
+    $('setup-ask-more').hidden = !sheet.more;
+    $('setup-ask-deny').hidden = $('setup-ask-allow').hidden = !sheet.ask;
+    $('setup-ask-close').hidden = !!sheet.ask;
+  }
+
+  async function checkSetupAsks() {
+    if (setupAsksOff || preview || document.hidden) return;
+    const res = await get('/grants');
+    if (!res) return; // out of reach: try again later
+    const text = res.status === 404 ? '' : await res.text().catch(() => '');
+    if (res.status === 404 || !setupAsksHere(res.status, text)) {
+      setupAsksOff = true;
+      clearInterval(setupAskTimer);
+      return showSetupAsk(null);
+    }
+    const sheet = setupAskSheetFor(res.status, text);
+    if (!sheet) setupAskClosed = '';
+    if (sheet && !sheet.ask && sheet.why === setupAskClosed) return;
+    // The same ask stays as it is drawn, unless another came or went beside it.
+    if (sheet && setupAskOn && sheet.ask && setupAskOn.ask && sheet.ask.id === setupAskOn.ask.id && sheet.more === setupAskOn.more) return;
+    showSetupAsk(sheet);
+  }
+
+  async function answerSetupAsk(answer) {
+    const ask = setupAskOn && setupAskOn.ask;
+    if (!ask || performance.now() - setupAskSwappedAt < SETUP_ASK_SETTLE) return;
+    tick();
+    showSetupAsk(null);
+    const res = await post('/grants/setup', { id: ask.id, code: ask.code, answer });
+    if (!res) flash("Can't reach your computer");
+    else if (res.ok) flash(answer === 'allow' ? `Setup opens on ${ask.computer || 'your computer'}.` : 'Setup stays closed.');
+    // Refused here: the sheet says why, with nothing to tap.
+    else if (res.status === 403) showSetupAsk({ head: "This phone can't open Setup from here", code: '', why: await problemText(res, 400), more: '', ask: null });
+    else flash(await problemText(res));
+    checkSetupAsks();
+  }
+  $('setup-ask-allow').onclick = () => answerSetupAsk('allow');
+  $('setup-ask-deny').onclick = () => answerSetupAsk('deny');
+  $('setup-ask-close').onclick = () => { setupAskClosed = setupAskOn ? setupAskOn.why : ''; showSetupAsk(null); };
+
+  /*
+   * The General Manager's notes waiting for you (memoryowner.go): a count alone, in the office's own window, every
+   * MEMORY_EVERY ms while it's in sight. A tap opens Setup, as ⚙︎ does. Anywhere else the computer says no, and the
+   * badge stays hidden for good: neither the timer nor coming back in sight asks again (memoryRefused). Windows' own
+   * office window gets the count too, as at every window-only route (FXTALKFIX).
+   */
+  const MEMORY_EVERY = 30_000;
+  let memoryTimer = null;
+  let memoryRefused = false;
+
+  async function checkMemory() {
+    if (preview || memoryRefused || document.hidden) return;
+    const res = await get('/memory/waiting');
+    if (!res) return; // out of reach: try again later
+    if (!res.ok) {
+      memoryRefused = true;
+      $('memory-badge').hidden = true;
+      clearInterval(memoryTimer);
+      return;
+    }
+    const n = await res.json().then((data) => data.waiting).catch(() => 0);
+    $('memory-badge').textContent = n === 1 ? '📝 1 note to review' : `📝 ${n} notes to review`;
+    $('memory-badge').hidden = !(n > 0);
+  }
+  // Setup opens as from ⚙︎ in this window: Smolcorp's own Settings on a Mac, Setup in the browser elsewhere.
+  $('memory-badge').addEventListener('click', async () => {
+    tick();
+    const res = await post('/act', { action: 'settings' });
+    if (res && res.status === 502) flash((await res.text()) || 'Could not open your browser');
+  });
+
   /**
    * Unpaired on the computer: the pairing page takes over, without the old key. Not in the office's own window on
    * Windows (&own), which pairs by itself and is never paired like a phone: with no key that opens the office (its
@@ -2151,6 +2365,16 @@
     if (!whole && !bare) {
       checkWaiting();
       waitingTimer = setInterval(checkWaiting, WAITING_EVERY);
+      checkSetupAsks();
+      setupAskTimer = setInterval(checkSetupAsks, SETUP_ASK_EVERY);
+      // Opened to answer: the sheet at once, not at the next look.
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) checkSetupAsks(); });
+    }
+    // The office's own window on this computer (not the screen saver): the General Manager's notes waiting for you.
+    if (whole && ownWindow && !saver) {
+      checkMemory();
+      memoryTimer = setInterval(checkMemory, MEMORY_EVERY);
+      document.addEventListener('visibilitychange', checkMemory);
     }
   }
   render();

@@ -17,9 +17,11 @@ import (
 
 // The demo's page (FXX1d). `smolcorp demo` holds only a tool's key (demooffice.go), which never hires and never opens a
 // session of setup (the route table; server.go). So the demo's General Manager is hired by you, from Setup's
-// Start here: the demo makes its folder, then asks the app to open Setup at the demo. The app makes the
-// one-time link and opens it in the browser itself, as the tray's Open Setup… does, so the link's token never
-// reaches the command. The page shows the demo's hire, which the app builds from its own template (the project,
+// Start here: the demo makes its folder, then asks the app to open Setup at the demo. Where Smolcorp has a Settings
+// window of its own (under the Mac app, and on Windows with WebView2), the app opens the demo's page there, as its
+// Settings… does, since a browser's Setup only looks there (routes.go's windowOnlyRefusal); elsewhere it makes the
+// one-time link and opens it in the browser itself, as the tray's Open Setup… does. Either way the page's session
+// never reaches the command. The page shows the demo's hire, which the app builds from its own template (the project,
 // its scope, the task, the roles), what it spends and the switches its Hire turns on; you click Hire, and the
 // page's own POST /setup/hire carries the scope. The command waits for that GM, then follows the team.
 //
@@ -31,7 +33,8 @@ import (
 //	                                        open); with root, that demo's hire, its switches, its page and its GM
 //	POST /setup/demo/register?root=R&roles=L the command alone (a tool's key): records the folder it made, with
 //	                                        the roles its fence lets the GM hire
-//	POST /setup/demo/open?root=R            page, tool: opens Setup at the demo in the browser, once per demo folder
+//	POST /setup/demo/open?root=R            page, tool: opens Setup at the demo, in Smolcorp's own Settings window
+//	                                        where it has one, else in the browser, once per demo folder
 //	POST /setup/demo/page?root=R&state=S    the page alone: it is open (S=open, every 15 s) or was closed (S=closed)
 //
 // None is in the route table (routes.go), which keeps 1.23's rule for a route it doesn't name (the page, or a tool
@@ -224,6 +227,38 @@ func demoPageLink(root, token string) string {
 	return link
 }
 
+// demoPageThen is Setup at the demo at root in Smolcorp's own Settings window, which is opened on what follows # (as
+// on #pair): setup.html reads the demo from there too (demoFromAddress).
+func demoPageThen(root string) string {
+	return "demo=" + url.QueryEscape(root)
+}
+
+// openDemoPage opens Setup at the demo at root where its Hire works, and says why not if it couldn't ("" once open).
+// Where Smolcorp has a Settings window of its own, a browser's Setup only looks (routes.go's windowOnlyRefusal): under
+// the Mac app, the app's Settings window, through the bridge; on Windows with WebView2, the one here (as openSetup
+// does). Elsewhere (Linux, a Windows without WebView2), the browser, with a link that works once.
+func (d *Deck) openDemoPage(root string) string {
+	if h := d.macHost(); h != nil {
+		if err := hostShowSettingsAt(h, demoPageThen(root)); err != nil {
+			return fmt.Sprintf("Smolcorp's Settings window didn't open at the demo (%v): run smolcorp demo again.", err)
+		}
+		return ""
+	}
+	if settingsWebView() {
+		if err := d.showSettingsWindow(demoPageThen(root)); err != nil {
+			return fmt.Sprintf("Smolcorp's Settings window didn't open at the demo (%v): run smolcorp demo again.", err)
+		}
+		return ""
+	}
+	d.mu.Lock()
+	token := d.access.NewSetupToken()
+	d.mu.Unlock()
+	if err := openURL(demoPageLink(root, token)); err != nil {
+		return fmt.Sprintf("The browser didn't open (%v): run smolcorp demo --no-open for the demo's link.", err)
+	}
+	return ""
+}
+
 // demoAnswer is GET /setup/demo.
 func (d *Deck) demoAnswer(root string) (map[string]any, int, string) {
 	hires := officeHires()
@@ -239,7 +274,9 @@ func (d *Deck) demoAnswer(root string) (map[string]any, int, string) {
 		open = append(open, name)
 		gmIn = gmIn || h.Role == gmRole
 	}
-	answer := map[string]any{"gmHired": gmIn, "open": open}
+	// window: the demo's page opens in Smolcorp's own Settings window here (openDemoPage), not in a browser. The
+	// command says so before your yes, and refuses --no-open then: a browser's Setup beside the window only looks.
+	answer := map[string]any{"gmHired": gmIn, "open": open, "window": d.ownSettingsWindow()}
 	if root == "" {
 		return answer, http.StatusOK, ""
 	}
@@ -334,11 +371,8 @@ func (d *Deck) demoRoute(w http.ResponseWriter, r *request) bool {
 			return true
 		}
 		demoPages.Unlock()
-		d.mu.Lock()
-		token := d.access.NewSetupToken()
-		d.mu.Unlock()
-		if err := openURL(demoPageLink(f.root, token)); err != nil {
-			writeStatus(w)(http.StatusBadGateway, fmt.Sprintf("The browser didn't open (%v): run smolcorp demo --no-open for the demo's link.", err))
+		if why := d.openDemoPage(f.root); why != "" {
+			writeStatus(w)(http.StatusBadGateway, why)
 			return true
 		}
 		demoPages.Lock()

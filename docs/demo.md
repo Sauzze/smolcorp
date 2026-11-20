@@ -12,25 +12,30 @@ smolcorp-cli demo         # Windows
 /Applications/Smolcorp.app/Contents/Resources/bin/smolcorp demo   # Mac
 ```
 
-**On a Mac only, for now.** The demo asks Smolcorp for a key, with a code you
-check and Allow in Smolcorp's Settings window. On Windows and Linux nothing may
-say yes to a terminal yet (only your paired phone will, and on Windows
-Smolcorp's own window), so the demo says so and stops before it makes anything.
+**On a Mac, and on Windows with the WebView2 Runtime.** The demo asks Smolcorp
+for a key, with a code you check and Allow in Smolcorp's Settings window (on
+Windows, the tray icon, then **Open Setup…**). On Windows, hiring from the
+demo's page hasn't been tried yet: the demo is still made for a Mac. On Linux
+there's no window of Smolcorp's own to say yes in, so the demo says so and
+stops before it makes anything, as it does on Windows without WebView2.
 
 It makes a new folder, `~/smolcorp-demo` (then `smolcorp-demo-2`, and so on;
 `--in FOLDER` makes it somewhere else inside your home folder), copies a small
 sample project into it, and starts Smolcorp if it isn't running. Then it says
 what it's about to spend and waits for your yes.
 
-**A browser page opens for the one click.** After your yes, Smolcorp opens
-Setup in your browser at the demo, signed in, as Open Setup… does. The page
+**A browser page opens for the one click.** This is how it goes on a Mac, the
+system the demo is made for. After your yes, Smolcorp opens Setup in your
+browser at the demo, signed in. The page
 shows what the demo is about to hire: the project, the folder the General
 Manager is held to, the roles it may hire, its task word for word, what it
 spends, and which switches Hire turns on. You click Hire there; the demo's
 terminal waits for that, then follows the team. The demo itself never hires:
 the setup key it holds can't, on purpose. Close the page without hiring and
 the demo says so and stops, nothing spent; the demo folder stays for you to
-delete. It waits 15 minutes at most, and Ctrl-C stops the wait.
+delete. It waits 15 minutes at most, and Ctrl-C stops the wait. On Windows,
+the page opens in your browser the same way, but hiring from it hasn't been
+tried there yet.
 
 With `--no-open`, nothing is opened: the demo prints the page's link instead.
 Open it in a browser on this computer where Setup is already open (signed in);

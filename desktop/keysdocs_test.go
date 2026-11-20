@@ -58,7 +58,7 @@ func TestTheKeysPageSaysWhatChangesAndWhatItCantStop(t *testing.T) {
 		"**Reset**", "Unlock the keychain and restart Smolcorp", "ad hoc rebuild", "nothing is sealed",
 		"readable by you alone",
 		// The update: the General Manager's new token comes with its next hire (RT126SD1 S3).
-		"Pair each phone again, and each paired Mac", "and the General Manager when you hire it again",
+		"Pair each phone again.**", "and the General Manager when you hire it again",
 		// The guard, a broken guard file as a desk meets it (S1), and the messages quoted whole (S6).
 		"2.1.314 or later", "can only add rules", "Anthropic's own installer", "a hard link",
 		"the guard refuses every command a desk runs", "can't answer. No desk was started.\"",

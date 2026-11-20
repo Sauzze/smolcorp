@@ -5,7 +5,6 @@ package desktop
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,12 +68,27 @@ func installAndRelaunch() bool {
 	}
 	installed, err := install(program)
 	if err != nil {
-		// The installed copy may be running, its files in use: the instance
-		// lock hands over to it next, and the checklist says how to update.
-		fmt.Fprintf(os.Stderr, "smolcorp: not installed: %v\n", err)
+		// Said plainly, as Smolcorp.exe has no console: the folder is as it
+		// was, and this copy goes on from where it is (or hands over to the
+		// installed one, running).
+		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
+		notifyUser(err.Error())
 		return false
 	}
-	return startProgram(installed, installedFromVariable+"="+filepath.Dir(program)) == nil
+	// An update over a Smolcorp that runs: the new copy, started as one taking
+	// its place, waits for the instance lock (waitForInstance), and only then
+	// is the old one asked to make way (startThenMakeWay). If the new one
+	// can't start, the old one isn't asked and runs on.
+	err = startThenMakeWay(runningToMakeWay, func() error {
+		return startProgram(installed, installedFromVariable+"="+filepath.Dir(program), restartedVariable+"=1")
+	})
+	if err != nil {
+		said := fmt.Sprintf("Smolcorp is installed in %s, but couldn't start from there: %s.", filepath.Dir(installed), plainReason(err))
+		fmt.Fprintf(os.Stderr, "smolcorp: %s\n", said)
+		notifyUser(said)
+		return false
+	}
+	return true
 }
 
 // installNow is the checklist's Install: this copy installed, and the
@@ -91,60 +105,36 @@ func installNow() error {
 	return relaunch(installed, installedFromVariable+"="+filepath.Dir(program))
 }
 
-// install copies program, and smolcorp-cli.exe beside it, into installDir,
-// and puts that folder on your PATH. The installed program's path.
+// install puts program, and smolcorp-cli.exe beside it, in installDir, both
+// or neither, even while the old ones run (placePrograms), and puts that
+// folder on your PATH. The installed program's path.
 func install(program string) (string, error) {
 	dir := installDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
+		return "", fmt.Errorf("Smolcorp couldn't make its folder %s: %s. Nothing was changed.", dir, plainReason(err))
 	}
 	installed := filepath.Join(dir, "Smolcorp.exe")
-	for _, name := range []string{filepath.Base(program), "smolcorp-cli.exe"} {
-		from := filepath.Join(filepath.Dir(program), name)
-		if _, err := os.Stat(from); err != nil {
-			continue // a build by hand has no console program beside it
-		}
-		to := filepath.Join(dir, name)
-		if strings.EqualFold(name, filepath.Base(program)) {
-			to = installed
-		}
-		if err := copyOver(from, to); err != nil {
-			return "", fmt.Errorf("Smolcorp is open from %s already: quit it from its tray icon, then open this copy again to update it (%w)", dir, err)
-		}
+	programs := []newProgram{{from: program, to: installed}}
+	// A build by hand has no console program beside it.
+	if console := filepath.Join(filepath.Dir(program), "smolcorp-cli.exe"); fileExists(console) {
+		programs = append(programs, newProgram{from: console, to: filepath.Join(dir, "smolcorp-cli.exe")})
 	}
+	if err := placePrograms(programs); err != nil {
+		return "", err
+	}
+	moveStartupShortcuts(installed)
 	if err := addToPath(dir); err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: not on PATH: %v\n", err)
 	}
 	return installed, nil
 }
 
-// copyOver writes from's bytes to to through a file beside it, renamed
-// over it: never half a program, and an error while the old one runs.
-func copyOver(from, to string) error {
-	source, err := os.Open(from)
-	if err != nil {
-		return err
+// removeOldPrograms takes away, quietly, what the last update left in the
+// installed copy's folder: the programs it set aside, once nothing runs them.
+func removeOldPrograms() {
+	if program, err := executable(); err == nil && installedHere(program) && testCopyPort() == 0 {
+		removeLeftovers(installDir(), installedPrograms)
 	}
-	defer source.Close()
-	next := to + ".new"
-	target, err := os.OpenFile(next, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(target, source); err != nil {
-		target.Close()
-		os.Remove(next)
-		return err
-	}
-	if err := target.Close(); err != nil {
-		os.Remove(next)
-		return err
-	}
-	if err := os.Rename(next, to); err != nil {
-		os.Remove(next)
-		return err
-	}
-	return nil
 }
 
 // addToPath puts dir at the end of your own PATH, once, and tells the

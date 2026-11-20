@@ -325,11 +325,11 @@ func TestTheGMStartsWithItsPluginAndAgent(t *testing.T) {
 		t.Errorf("no plugin bundled, none loaded:\n%s", script)
 	}
 
-	intro := gmIntroduction("/x/hires", false)
+	intro := gmIntroduction("/x/hires", "", "", false)
 	if !strings.HasPrefix(intro, "You are the General Manager of this team. Your folder is /x/hires.") || strings.Contains(intro, "not available") {
 		t.Errorf("the introduction: %q", intro)
 	}
-	if !strings.Contains(gmIntroduction("/x/hires", true), "The `smolcorp` tools are not available in this copy of Smolcorp") {
+	if !strings.Contains(gmIntroduction("/x/hires", "", "", true), "The `smolcorp` tools are not available in this copy of Smolcorp") {
 		t.Error("the GM isn't told its tools are missing")
 	}
 }

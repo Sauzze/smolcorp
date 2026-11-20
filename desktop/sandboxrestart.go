@@ -121,13 +121,21 @@ func restartDesk(h Hire, role Role, account string, profiles []claudeProfile, o 
 	}
 	command, err := deskStarts.issue(o.CLI, h.ID, tmux, plan, o.Key)
 	if err != nil {
-		deskStopped(Hire{ID: h.ID, TmuxSocket: tmux.socket}, o)
+		// A program its stop couldn't end in its sandbox is said too (FXFIREREAPR3).
+		if why := deskStopped(Hire{ID: h.ID, TmuxSocket: tmux.socket}, o); why != "" {
+			return stopped(err.Error() + " " + why + ".")
+		}
 		return stopped(err.Error())
 	}
 	_, socket, started, err := tmux.start(startedIn(h), command)
 	if err != nil {
 		deskStarts.forget(h.ID)
-		deskStopped(Hire{ID: h.ID, TmuxSocket: tmux.socket}, o)
+		// What the refused start left running in its sandbox is ended first (FXFIREREAPR1): one that can't be says so.
+		ended := h
+		ended.TmuxSocket = tmux.socket
+		if why := deskStopped(ended, o); why != "" {
+			return stopped(reapWordsAfterColon(why) + ".")
+		}
 		_, words := tmuxStartRefusal(err)
 		return stopped(words)
 	}
