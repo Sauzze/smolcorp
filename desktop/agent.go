@@ -3,7 +3,10 @@ package desktop
 import (
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/Sauzze/smolcorp/internal/acp"
 )
 
 // Agent is a coding agent the deck follows, as in the Mac app's Agent.swift.
@@ -23,7 +26,41 @@ const (
 
 var agents = []Agent{Claude, Codex, Gemini, OpenCode, Grok}
 
+// acpKind is the agent kind of an agent that speaks the Agent Client Protocol (internal/acp): an Agent value is
+// "acp:" and the id of its entry in knownACPAgents, as "acp:gemini". It isn't in agents: that list is the agents that
+// report through hooks, and an ACP agent has no hook, no terminal and no keys. Smolcorp talks to it over its stdin
+// and stdout, and its Tab (A3) answers Interrupt and Reject through the protocol, not by pressing keys.
+const acpKind = "acp:"
+
+// ACPAgent is the Agent for the known ACP agent with id.
+func ACPAgent(id string) Agent { return Agent(acpKind + id) }
+
+// IsACP says whether a is an ACP agent, known or not.
+func (a Agent) IsACP() bool { return strings.HasPrefix(string(a), acpKind) }
+
+// acpKnown is a's entry in the list of known ACP agents. Not an ACP agent, or one the list doesn't have: ok false.
+func (a Agent) acpKnown() (known KnownACPAgent, ok bool) {
+	if !a.IsACP() {
+		return KnownACPAgent{}, false
+	}
+	return knownACPAgent(strings.TrimPrefix(string(a), acpKind))
+}
+
+// acpLaunch is the program and the arguments that start a as an ACP agent: the entry's own, never through a shell.
+// The arguments are a copy.
+func (a Agent) acpLaunch() (command string, args []string, ok bool) {
+	known, ok := a.acpKnown()
+	if !ok {
+		return "", nil, false
+	}
+	return known.Command, slices.Clone(known.Args), true
+}
+
 func (a Agent) Name() string {
+	if a.IsACP() {
+		known, _ := a.acpKnown()
+		return known.Name
+	}
 	return map[Agent]string{
 		Claude: "Claude Code", Codex: "Codex", Gemini: "Gemini CLI", OpenCode: "OpenCode", Grok: "Grok",
 	}[a]
@@ -43,6 +80,14 @@ const (
 	TabKey   Key = "tab"
 	ShiftTab Key = "shift-tab"
 )
+
+// digitKey is the digit n, 1 to 9: a menu's choice picked by its number (talkpick.go).
+func digitKey(n int) (Key, bool) {
+	if n < 1 || n > 9 {
+		return "", false
+	}
+	return Key(strconv.Itoa(n)), true
+}
 
 // Keystroke is a key pressed Times times in a row.
 type Keystroke struct {
@@ -71,6 +116,17 @@ func (a Agent) Reject() Keystroke {
 		return press(CtrlC)
 	}
 	return press(Escape)
+}
+
+// Pick is the key that picks choice n of a menu the agent shows, and whether there is one. Claude Code's menus, a
+// permission prompt's and AskUserQuestion's, take the choice's digit and answer at once. Other agents' menus aren't
+// picked by number from the office: their four keys are.
+func (a Agent) Pick(n int) (Keystroke, bool) {
+	key, ok := digitKey(n)
+	if a != Claude || !ok {
+		return Keystroke{}, false
+	}
+	return press(key), true
 }
 
 // NewConversation starts a fresh conversation in the same tab.
@@ -163,6 +219,9 @@ func agentOf(event map[string]any, reported string) Agent {
 // canonical is event in Claude Code's words, or nil for one the deck
 // should not act on.
 func (a Agent) canonical(event map[string]any) map[string]any {
+	if a.IsACP() {
+		return acpCanonical(event)
+	}
 	switch a {
 	case Gemini:
 		return renaming(event, map[string]string{
@@ -208,4 +267,78 @@ func renaming(event map[string]any, names map[string]string) map[string]any {
 		}
 	}
 	return renamed
+}
+
+// acpCanonical is an ACP desk's event (acpdesk.go) in Claude Code's words. An ACP agent has no hook: the desk names
+// each event by the protocol's own method or update, with the protocol's own camelCase fields, and only these
+// fields are carried over, so nothing else an agent put in an update can pass for a Claude Code field.
+//   - session/new is the session starting; session/closed, its end (the agent stopped, or was closed).
+//   - session/prompt is a turn starting; session/prompt_done, its end, by its stopReason, or failed with "error".
+//   - session/update's tool_call and tool_call_update are a tool starting and ending, by their status: a call that
+//     comes in already done is only its end. Every other update changes nothing on the deck.
+//   - session/request_permission is a permission ask.
+func acpCanonical(event map[string]any) map[string]any {
+	str := func(field string) string { s, _ := event[field].(string); return s }
+	claude := map[string]any{"session_id": str("sessionId"), "cwd": str("cwd")}
+	if path := str("transcriptPath"); path != "" {
+		claude["transcript_path"] = path
+	}
+	name := ""
+	switch str("hook_event_name") {
+	case "session/new":
+		name, claude["source"] = "SessionStart", "startup"
+	case "session/closed":
+		name, claude["reason"] = "SessionEnd", "other"
+	case "session/prompt":
+		name = "UserPromptSubmit"
+	case "session/prompt_done":
+		switch {
+		case str("error") != "":
+			name, claude["error"] = "StopFailure", str("error")
+		case str("stopReason") == string(acp.StopCancelled):
+			name = "Interrupt"
+		default: // end_turn, max_tokens, max_turn_requests, refusal: the turn is over, and its answer is there to read
+			name = "Stop"
+		}
+	case "session/request_permission":
+		name = "PermissionRequest"
+	case "session/update":
+		switch str("status") {
+		case "completed":
+			name = "PostToolUse"
+		case "failed":
+			name = "PostToolUseFailure"
+		default:
+			if str("sessionUpdate") == "tool_call" {
+				name = "PreToolUse"
+			}
+		}
+		if kind := str("sessionUpdate"); kind != "tool_call" && kind != "tool_call_update" {
+			name = ""
+		}
+	}
+	if name == "" {
+		return nil
+	}
+	claude["hook_event_name"] = name
+	if id := str("toolCallId"); id != "" {
+		claude["tool_use_id"] = id
+		claude["tool_name"] = acpToolName(str("kind"))
+		if input, ok := event["rawInput"].(map[string]any); ok {
+			claude["tool_input"] = input
+		}
+	}
+	return claude
+}
+
+// acpToolName is the Claude Code tool an ACP tool call's kind stands for, where there is one, so the office shows it
+// as it shows Claude Code's: the protocol's kinds are read, edit, delete, move, search, execute, think, fetch,
+// switch_mode and other.
+func acpToolName(kind string) string {
+	if name, ok := map[string]string{
+		"read": "Read", "edit": "Edit", "search": "Grep", "execute": "Bash", "fetch": "WebFetch",
+	}[kind]; ok {
+		return name
+	}
+	return "Tool"
 }

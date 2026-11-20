@@ -125,12 +125,8 @@ func TestLookAtOpenCodeKeepsAnotherOfficesPort(t *testing.T) {
 	isolate(t)
 	setVersion, update := fakeOpenCode(t)
 	setVersion("opencode v2.0.32")
-	onPort(t, 4322)
-	if err := writePlugin(); err != nil {
-		t.Fatal(err)
-	}
-	other, _ := os.ReadFile(openCodePlugin())
-	onPort(t, 4323)
+	onDefaultPort(t)
+	other := anotherOfficesPlugin(t, 4322)
 	update()
 	refreshHooks()
 	lookAtOpenCode()
@@ -138,11 +134,11 @@ func TestLookAtOpenCodeKeepsAnotherOfficesPort(t *testing.T) {
 		t.Fatal("the start-up look moved another office's OpenCode plugin")
 	}
 	// A plugin with no port, or on this office's port, is rewritten for the update.
-	for name, old := range map[string]string{"no port": "// old plugin\n", "own port": "// old\n\"--port\", \"4323\"\n"} {
+	for name, old := range map[string]string{"no port": "// old plugin\n", "own port": "// old\n\"--port\", \"7710\"\n"} {
 		writeFile(t, openCodePlugin(), old)
 		update()
 		lookAtOpenCode()
-		if after, _ := os.ReadFile(openCodePlugin()); string(after) == old || !strings.Contains(string(after), "4323") {
+		if after, _ := os.ReadFile(openCodePlugin()); string(after) == old || !strings.Contains(string(after), `"7710"`) {
 			t.Errorf("%s: the plugin was not refreshed", name)
 		}
 	}

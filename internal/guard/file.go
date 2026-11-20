@@ -9,8 +9,10 @@ import (
 )
 
 // File is hire-guard.json, in the app's support folder: the groups every
-// hire is refused, yours to edit. The guard reads it at each command, and
-// the app builds each hire's deny rules from it.
+// hire is refused. Since 1.26 the app holds its own copy and writes the file
+// from it (Settings); a desk's guard gets that copy in its command line, and
+// the file, read at each command, only adds to it (Held). An edit by hand
+// then only adds, and the next Settings save drops it.
 type File struct {
 	Groups []Group `json:"groups"`
 }
@@ -18,12 +20,14 @@ type File struct {
 // Load is the groups in the file at path, or, if it isn't there or isn't
 // a guard file this can read, the default ones and what's wrong with it. A
 // broken file falls back to the default, never to nothing (the hook goes
-// further and refuses everything while the file is broken).
+// further and refuses everything while the file is broken). It reads the
+// file with ReadFile, so a link, a pipe, a device, a hard link or a file over
+// 64 KiB is a broken file, at once.
 func Load(path string) (groups []Group, problem string) {
 	if path == "" {
 		return DefaultGroups(), ""
 	}
-	data, err := os.ReadFile(path)
+	data, err := readGuardFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return DefaultGroups(), ""

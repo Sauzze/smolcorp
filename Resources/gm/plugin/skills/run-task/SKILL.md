@@ -4,7 +4,7 @@ description: Run one task end to end - hire a writer, check the tests, get an in
 ---
 
 # Run a task
-1. **Brief.** Write the brief in your folder: job, "done", proof (commands and results), off-limits. Say the writer reports in its `STATUS.md` and ends with `NEEDS-REVIEW:` when ready.
+1. **Brief.** Write the brief in your workspace: job, "done", proof (commands and results), off-limits. Say the writer reports in its `STATUS.md` and ends with `NEEDS-REVIEW:` when ready.
 2. **Hire the writer** on Sonnet (`hire`, role fitting the task, its own worktree and branch). Within a minute check in `team` that it started and shows a prompt.
 3. **Wait** for `inbox` to tell you of `NEEDS-REVIEW:`. Don't poll; check on the team every 10 to 20 minutes.
 4. **Tests.** Read the writer's proof. Run the tests yourself in its worktree (the real path, not a copy). Failing: `brief` it back with the exact failure.

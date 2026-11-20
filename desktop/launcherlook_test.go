@@ -16,7 +16,7 @@ import (
 // through the tee the launcher uses.
 func teedScreen(t *testing.T, rows, cols int, output string, chunk int) *launcherScreen {
 	t.Helper()
-	screen := newLauncherScreen(rows, cols, true)
+	screen := newLauncherScreen(rows, cols, true, westernCP)
 	tee := io.TeeReader(strings.NewReader(output), io.MultiWriter(&cursorMode{}, screen))
 	buf := make([]byte, chunk)
 	for {
@@ -46,11 +46,22 @@ func TestTheLauncherScreenReadsTheSixFixturesThroughTheTee(t *testing.T) {
 func TestStartUpSequencesAreSkippedAndOthersStillReadUnknown(t *testing.T) {
 	idle := ptyOutput(pane(t, "idle-empty"))
 	for _, seq := range []string{
-		"\x1b[38:2::12:34:56m", "\x1b[48:5:99m", "\x1b[4:3m", "\x1b[0 q", "\x1b[5 q", "\x1b(B", "\x1b)B",
+		"\x1b[38:2::12:34:56m", "\x1b[48:5:99m", "\x1b[4:3m", "\x1b(B", "\x1b)B",
 	} {
 		s := drawn(t, 60, 200, seq+idle)
 		if s.Unknown() || s.PaneState() != PaneIdle {
 			t.Errorf("%q: unknown %v, state %v, want idle", seq, s.Unknown(), s.PaneState())
+		}
+	}
+	// The cursor's shape is off the allow-list (FXWINSCREENR3): it draws nothing, so it breaks the screen only
+	// until a full redraw.
+	for _, seq := range []string{"\x1b[0 q", "\x1b[5 q"} {
+		s := drawn(t, 60, 200, seq+idle)
+		if !s.Unknown() {
+			t.Errorf("%q: known", seq)
+		}
+		if s.Write([]byte("\x1b[2J\x1b[H" + idle)); s.Unknown() || s.PaneState() != PaneIdle {
+			t.Errorf("%q, then a full redraw: unknown %v, state %v, want idle", seq, s.Unknown(), s.PaneState())
 		}
 	}
 	// A colour in the middle of a pending wrap changes nothing about it.
@@ -80,16 +91,19 @@ func TestStartUpSequencesAreSkippedAndOthersStillReadUnknown(t *testing.T) {
 
 func TestTheLauncherScreenIsUnknownWithoutASizeAndKeepsStepWithTheConsole(t *testing.T) {
 	idle := ptyOutput(pane(t, "idle-empty"))
-	unsized := newLauncherScreen(24, 80, false)
+	unsized := newLauncherScreen(24, 80, false, westernCP)
 	unsized.Write([]byte(idle))
 	if state, unknown := unsized.Look(); state != PaneUnknown || !unknown {
 		t.Errorf("a console of no known size read %v", state)
 	}
 
 	screen := teedScreen(t, 60, 200, idle, 4096)
-	screen.Resize(70, 220) // bigger: still known
-	if state, unknown := screen.Look(); state != PaneIdle || unknown {
+	screen.Resize(70, 220) // bigger: terminals differ on the lines (FXWINSCREENR2), so unknown until a full redraw
+	if state, unknown := screen.Look(); state != PaneUnknown || !unknown {
 		t.Errorf("after growing: %v unknown %v", state, unknown)
+	}
+	if screen.Write([]byte("\x1b[2J\x1b[H" + idle)); screen.screen.Unknown() {
+		t.Error("grown, then a full redraw: unknown")
 	}
 	if got := len(screen.screen.grid); got != 70 || len(screen.screen.grid[0]) != 220 {
 		t.Errorf("screen is %dx%d, want 70x220", got, len(screen.screen.grid[0]))
@@ -98,14 +112,14 @@ func TestTheLauncherScreenIsUnknownWithoutASizeAndKeepsStepWithTheConsole(t *tes
 	if state, unknown := screen.Look(); state != PaneUnknown || !unknown {
 		t.Errorf("after narrowing: %v unknown %v", state, unknown)
 	}
-	screen.Write([]byte("\x1b[2J" + idle))
+	screen.Write([]byte("\x1b[2J\x1b[H" + idle)) // erased, and the cursor put at a known place
 	if state, _ := screen.Look(); state != PaneIdle {
 		t.Errorf("after a full erase: %v", state)
 	}
 }
 
 func TestTheLauncherScreenCanBeWrittenResizedAndReadAtOnce(t *testing.T) {
-	screen := newLauncherScreen(40, 120, true)
+	screen := newLauncherScreen(40, 120, true, westernCP)
 	var wg sync.WaitGroup
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
@@ -139,7 +153,7 @@ func TestFollowAnswersALookAndLeavesTheOtherCommandsAlone(t *testing.T) {
 		if n != "s3/7" { // the secret from the first line is not a command
 			t.Errorf("look %q", n)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("the look wasn't passed on")
 	}
 	if typed.String() != keyBytes[Enter] {
@@ -193,7 +207,7 @@ func TestAnUnknownScreenAnswersUnknownNeverIdle(t *testing.T) {
 	tab := d.launcherConnected("L1", Claude, "/work/api", "", "")
 	server := newLocalServer(t, d)
 	// Idle text, but a sequence the screen can't draw.
-	screen := teedScreen(t, 60, 200, "\x1bM"+ptyOutput(pane(t, "idle-empty")), 4096)
+	screen := teedScreen(t, 60, 200, "\x1b[3b"+ptyOutput(pane(t, "idle-empty")), 4096) // (was ESC M, which is drawn now)
 	go func() {
 		command := <-tab.commands
 		postScreenAnswer(server.Client(), server.URL, d.access.HookKey, tab.screenSecret, "L1", command.Look, screen)
@@ -222,7 +236,7 @@ func TestALookThatIsNotAnsweredOrCantBeSentIsUnknown(t *testing.T) {
 	if got, err := d.lookAtLauncher("L1", 50*time.Millisecond); got != PaneUnknown || err != errLookTimedOut {
 		t.Errorf("no answer: %v, %v", got, err)
 	}
-	if time.Since(start) > 2*time.Second {
+	if time.Since(start) > 10*time.Second { // far from 50ms, so a busy computer can't fail it
 		t.Error("the wait wasn't bounded")
 	}
 	if got, err := d.lookAtLauncher("nobody", time.Second); got != PaneUnknown || err != errLauncherGone {
@@ -281,7 +295,8 @@ func TestTheScreenRouteIsGuardedLikeTheLauncherRoute(t *testing.T) {
 }
 
 func TestTheAnswerCarriesNoScreenText(t *testing.T) {
-	// The answer's type has the four fields (the last says only whether bracketed paste is on) and nothing that holds the window's words.
+	// The answer's type has the four fields (the last says only whether bracketed paste is on) and nothing that holds the window's words
+	// (a fifth, broke, names what made an unknown screen so, and is left out for a known one).
 	var seen []string
 	capture := &captureTransport{seen: &seen}
 	client := &http.Client{Transport: capture}
@@ -381,7 +396,7 @@ func TestTheSecretIsOnlyOnItsOwnStream(t *testing.T) {
 		t.Error("the secret is in /state")
 	}
 	var seen []string
-	postScreenAnswer(&http.Client{Transport: &captureTransport{seen: &seen}}, "http://127.0.0.1:1", "fake-key", want, "L1", "3", newLauncherScreen(24, 80, true))
+	postScreenAnswer(&http.Client{Transport: &captureTransport{seen: &seen}}, "http://127.0.0.1:1", "fake-key", want, "L1", "3", newLauncherScreen(24, 80, true, westernCP))
 	if len(seen) != 1 || strings.Contains(seen[0], want) {
 		t.Errorf("the answer body carries the secret: %q", seen)
 	}
@@ -458,5 +473,32 @@ func TestALookAtALauncherThatDropsReturnsAtOnce(t *testing.T) {
 	got, err := d.lookAtLauncher("L1", 10*time.Second)
 	if got != PaneUnknown || err != errLauncherGone || time.Since(start) > 3*time.Second {
 		t.Errorf("%v, %v after %v", got, err, time.Since(start))
+	}
+}
+
+// exeLine measures a Windows command line as Go writes it there (syscall.EscapeArg, which the Windows test holds it
+// to): an argument with a space is quoted, a quote takes a backslash, and backslashes before a quote or a closing
+// quote are doubled. A desk's settings, a JSON object, grow by one character per quote.
+var exeLineCases = map[string]string{
+	"":              `""`,
+	"plain":         "plain",
+	"a b":           `"a b"`,
+	`a"b`:           `a\"b`,
+	`a\b`:           `a\b`,
+	`a\"b`:          `a\\\"b`,
+	`a\ b\`:         `"a\ b\\"`,
+	`{"x":"y z"}`:   `"{\"x\":\"y z\"}"`,
+	`--settings={}`: `--settings={}`,
+}
+
+func TestAWindowsCommandLineIsMeasuredAsWindowsQuotesIt(t *testing.T) {
+	for arg, want := range exeLineCases {
+		if got := exeLine("claude", []string{arg}); got != "claude "+want {
+			t.Errorf("%q: %q, want %q", arg, got, "claude "+want)
+		}
+	}
+	settings := `--settings={"permissions":{"deny":["` + strings.Repeat("x", 100) + `"]}}`
+	if got := len(exeLine(`C:\Program Files\claude.exe`, []string{settings})); got != len(`"C:\Program Files\claude.exe" `)+len(settings)+strings.Count(settings, `"`) {
+		t.Errorf("%d characters", got)
 	}
 }

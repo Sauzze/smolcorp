@@ -9,12 +9,18 @@
 //
 // A line is read twice, once as bash and once as PowerShell/cmd (where a
 // backslash is part of a path and { } start commands), and refused if either
-// reading finds a refused command. When a << comes after something that
+// reading finds a refused command. cmd's line is read after its /c, /k or /r
+// however cmd.exe and Git Bash spell it (cmd //c, /c"git push", /q/c: cmdLines). When a << comes after something that
 // may open an arithmetic unit, it is read a third time with no here
 // documents at all. The body of a here document is read as commands only
 // when its command may run it (a shell, ssh, a command we don't know).
 // Every word of a command is also checked for the token and the guard file,
-// patterns included (gm-t*). Anything it can't read as a command
+// patterns included (gm-t*), each read as its skeleton: every way bash or zsh
+// could read it, each character they may give a meaning taken as anything
+// (skeleton.go). In PowerShell's and cmd's reading a * ? [ ] < > in quotes is a
+// pattern too, read the way Win32 matches, and an 8.3 short name as the names
+// it may be (windowsWild, shortNameAlts: GUARDPS1): for a line a wrapper hands
+// them everywhere, for the line itself on Windows (onWindows). Anything it can't read as a command
 // name (a pattern in a path like /usr/bin/g?t, too many braces, -EncodedCommand, a shell
 // reading a pipe) is refused too. The guard fails closed: a call, a file or
 // a tool it can't make sense of is denied.
@@ -27,34 +33,207 @@
 //     x.sh, powershell -File x.ps1, ./ship), because it reads one line,
 //     never the files;
 //   - a command spelled through a variable or a substitution ($v deploy,
-//     $(echo git) push, git ${EMPTY}push, "$(which git)" push, iex 'g'+'it
-//     push');
+//     $(echo git) push, "$(which git)" push, iex 'g'+'it push'). git's
+//     subcommand spelled so (git ${EMPTY}push, git $cmd) is refused while
+//     the push, merge or deploy group is on, as one it doesn't know, and so
+//     is a program named that way after PowerShell's & or a dot (& $c,
+//     & (gcm claude), . $c) or by cmd's %c% or !c!, as a name it can't
+//     read (launchers.go);
 //   - another language running it (python -c, node -e, perl -e, ruby -e,
 //     awk's system()), and xargs -I{} {} or bash -c "$(printf …)", where
 //     the command comes from input;
-//   - a git or gh alias set in config (git -c alias.p=push p, git config
-//     alias.p push && git p, gh alias set p 'pr create' && gh p);
-//   - a here-string given to a sourcing dot (. /dev/stdin <<< 'git push');
+//   - a command git runs, stored in config before the line (a
+//     core.fsmonitor or core.pager already set, then git status), and a gh
+//     alias (gh alias set p 'pr create' && gh p). A git alias, an extension
+//     and any subcommand the guard doesn't know (git p after an earlier git
+//     config alias.p push) is refused while the push, merge or deploy group
+//     is on (gitKnown). What the line itself gives git is read
+//     (gitruns.go): -c, --config-env and GIT_CONFIG_… only for keys that run
+//     nothing, git's editor, pager and ssh variables only as true, : or cat,
+//     and the options that take a command; a git config that writes a key
+//     git or its helpers run is refused by a list of such keys, not an
+//     allow-list, and so is any value starting with ! or holding a shell
+//     sign;
+//   - a here-string or a <( ) given to a sourcing dot (. /dev/stdin <<< 'git push',
+//     source <(echo git push));
 //   - aws-vault exec p -- aws …, and any wrapper program not listed in rules.go
 //     (screen -dm, fakeroot, strace, ltrace, gdb --args, launchctl submit,
 //     runuser, proxychains4, reattach-to-user-namespace, asdf exec, volta run,
-//     fnm exec, pyenv exec, uvx, pipx run, expect -c, script -c, limactl
+//     fnm exec, pyenv exec, uvx, pipx run, expect -c, limactl
 //     shell, zellij run, entr, at); there are too many to chase;
-//   - a file in the app's support folder reached by a glob after a cd, or
-//     by a glob earlier in the path (cd <folder>; cat gm*, cat ~/Lib*/App*/A*/g*):
-//     the guard tests each word alone. This is not chased with more patterns,
-//     because the GM token file is gone by default in 1.24 (the GM gets the
-//     token in its environment only, T310) and the deny rules (T306) guard
-//     the folder for Edit, Write and Read;
+//   - a file in the app's support folder reached by a glob with fewer than
+//     three letters of the folder's name written out, earlier in the path or
+//     in a cd before it (cat A*/Ag*/s*, cat ~/*/*/*/*, cd ~/*/*/*; cat gm*):
+//     WIN125k refuses a cd, pushd or -C into the folder by its name or a
+//     pattern with three of its letters, and a call whose cwd is in it, but
+//     not the three-letter rule's other side. Or by a command that reads the
+//     whole folder (grep -r . <folder>): the guard tests each word alone. The
+//     setup key too. This is not chased with more patterns, because the GM
+//     token file is gone by default in 1.24 (the GM gets the token in its
+//     environment only, T310) and the deny rules (T306) guard the folder for
+//     Edit, Write and Read;
 //   - text the lexer can't place: an arithmetic or expansion unit it
 //     mistakes, followed by a real here document with a quote in it.
+//   - a merge onto a base branch raced against a checkout in another call
+//     run at the same moment (merge.go reads the branch just before each
+//     call), or done by git config already stored that moves a branch (a
+//     remote's fetch refspec into refs/heads, an alias, autocorrect, a
+//     sequence editor), or by a rebase's todo list written by hand;
+//   - a file written under .git/ (refs, packed-refs, HEAD, config, hooks)
+//     by the Write and Edit tools (the deny rules' layer) or by a script the
+//     hire writes and runs: this hook reads Bash lines only. With the merge
+//     group on, a line that names a path in a git folder is refused unless
+//     it only reads (merge.go, N3), but a hire's own script and Write/Edit
+//     can still write there. Design A's sandbox closes it (a planned row in
+//     SA-X1's Policy);
+//   - a path into .git/ the line doesn't spell out (RT126NS0aR3 B3): one
+//     reached through xargs (echo .git/refs/heads/x | xargs cp), find
+//     -exec, a substitution ($(git rev-parse --git-dir)/refs/heads/main), a
+//     variable (d=.gi; cp ${d}t/…) or an archive's rename (tar -s) isn't
+//     read by this hook, the same as a hire's own script. Design A's
+//     sandbox closes it too;
+//   - on Windows (RT126GUARDPS1 N2): a path PowerShell builds at run time
+//     ($p = 'C:\x\hire-g' + '*'; Set-Content $p x), the same open class as
+//     a command spelled through a variable; cmd's %VAR:~a,b% and delayed
+//     !VAR!, which put letters in a name with no wildcard at all (type
+//     "%APPDATA%\SauzzeDeck Pro\gm-to%PATHEXT:~0,0%ken", cmd /v:on /c "set
+//     x=gm-t&& type !x!*"); a pipe that hands names on, as xargs does
+//     (Get-ChildItem "…\SauzzeDeck Pro" -Filter "hire-g*" | Remove-Item); a
+//     wildcard that fills in a name starting with a dot, which Windows doesn't
+//     hide (Set-Content "*\settings.json" x may reach .claude\settings.json:
+//     the skeleton reads patterns the way bash does there, and refusing every
+//     run that could start .claude would refuse del "build\*"); the 8.3
+//     short name a hire sets itself (fsutil file setshortname, an
+//     administrator's), which no rule on the name can follow; and a path
+//     part's trailing dots and blanks, which Win32 drops (Set-Content
+//     ".claude.\settings.json" x is .claude\settings.json, with no wildcard
+//     in it: RT126GUARDPS1R2 N3).
+//
+// Closed since, kept here so the history reads (each with the piece and the day):
+//
+//   - CLOSED by FXNS1R2 and FXNS1R3, 2026-11-14 (RT126NS1R2 B1, RT126NS1R3
+//     B1): git log, show, diff or blame writing the guard file or the night
+//     shift's jobs through --output: such a call is no reader (gitWritesOutput), with
+//     the option written out, built from a pattern (--outpu?=, ?-output=),
+//     or given through a variable or a substitution ($o, "$1", $(printf --
+//     --output)). The name of the file a variable holds is still the open
+//     class "words built at run time" below;
+//   - CLOSED by GUARDPS1, 2026-11-14 (RT126NS1R2): a * or ? in quotes on
+//     Windows. PowerShell's -Path (Set-Content, Clear-Content, Remove-Item,
+//     Get-Content, Copy-Item, Move-Item, Out-File, Add-Content) and cmd's
+//     del, copy, type and move fill in a wildcard in quotes, where bash
+//     doesn't, and the guard read it as text: Set-Content "…\hire-g*" x,
+//     Remove-Item "…\gm-t*" and del "%APPDATA%\SauzzeDeck Pro\hire-g*"
+//     reached every kept name, while the unquoted forms were refused. On
+//     Windows the guard is the only layer. PowerShell's and cmd's reading
+//     now takes a * ? [ ] in quotes, or after a backtick, as a pattern
+//     wherever it could fill in a kept name (windowsWild), failing closed
+//     for every command. A Windows test runs the real pwsh, powershell and
+//     cmd on stand-ins to pin that premise (winwild_windows_test.go,
+//     SMOLCORP_REQUIRE_PWSH in CI). The open classes on Windows are listed
+//     above (RT126GUARDPS1 N2);
+//   - CLOSED by FXGUARDPS1R1, 2026-11-14 (RT126GUARDPS1 B1-B4, B6): what
+//     GUARDPS1 left open of the same rule. A here-string (@"…"@, @'…'@) is
+//     read as one string too (hereReadings). -LiteralPath is no exemption:
+//     after -- it is a plain string and the next word is -Path, and a
+//     function can take a cmdlet's name. PowerShell's -Name:value has its
+//     value read as a path of its own (psParamColon). cmd matches the Win32
+//     way: a path part is read by what is written before its first * ? [ <
+//     >, the rest a run (gm-t*., *.jso), and a part that may be an 8.3
+//     short name (HIRE-G~1.JSO, PUSH-K~1, SAUZZE~1) as each kept name it may
+//     stand for (shortNameAlts). And the line itself is read so only on
+//     Windows: on a Mac or Linux it is bash's, and find . -name '*token*'
+//     runs again there, where a wrapper's line (pwsh -c, cmd /c) is still
+//     read so;
+//   - CLOSED by FXGUARDPS1R2, 2026-11-14 (RT126GUARDPS1R2 B1): text in
+//     the same word hiding a path from PowerShell. An unquoted comma makes
+//     an array whose every item -Path takes (Set-Content x,'.cl*\settings.json'
+//     y, Remove-Item x,'.cl*' -Recurse), and an argument that starts with a
+//     quote may end at its close ('.cl*\settings.json'x). PowerShell's and
+//     cmd's reading now takes each piece of a word, from its start, a comma
+//     or a quote's edge to its end, a comma or a quote's close, as a word of
+//     its own, read by the command in the word's place (psPieces): one rule
+//     for the word's spelling, not a list of forms;
+//   - CLOSED by GUARDPS1, 2026-11-14 (RT126NS1, FXNS1R1): phones.json by a
+//     pattern. It was in always only, which finds a name written out, so cp
+//     x …/ph*s.json reached it. It is in protectedNames now, its patterns
+//     read as the token's are, and refused to every command, reading
+//     included (FXGUARDPS1R1, RT126GUARDPS1 B5: off a Mac the file holds
+//     each phone's signing secret).
+//
+// THE CLOSED LISTS (RWIN9, WIN125k; RWIN10, WIN125l). The guard closes these
+// lists, each in full:
+//
+//   - the ways bash and zsh fill in a pattern or an expansion in a word that
+//     holds something written (the skeleton, skeleton.go): * ? [ ] and zsh's
+//     forms, and $name, ${…}, $( ), backticks, $(( )) and zsh's $=name,
+//     $+name and $#name as runs (its $~ and $^ are refused), in quotes or
+//     not; in a --opt=value's value as in any word; and in find's and git's
+//     own patterns, where a run is a * (reach.go);
+//   - the variables and options that change how they do or where ~ and cd
+//     lead (HOME, PWD, OLDPWD, CDPATH, DIRSTACK, cdpath, dirstack; GLOB_DOTS,
+//     dotglob, GLOBIGNORE, GLOB_SUBST, GLOB_ASSIGN; setopt and unsetopt but
+//     for plainOptions), set by NAME=, NAME+=, ${NAME=…}, ${NAME:=…} and
+//     zsh's ${NAME::=…}, typeset -n, or a builtin given the bare name (read,
+//     for, printf -v and the rest: setsVarByName);
+//   - the builtins of both shells that run text (textRunners, runsText,
+//     wrapped), and the variables that make a shell run a file or a command
+//     when it starts (BASH_ENV, ENV, ZDOTDIR, BASH_FUNC_…, SHELLOPTS,
+//     BASHOPTS, NULLCMD, READNULLCMD, FPATH: startVars);
+//   - a variable's value written in the line, in every form (lexer.value):
+//     NAME= and NAME+= (leading, or after declare, typeset, local, export,
+//     readonly, env), the words of =( ) and +=( ), for's, select's and
+//     foreach's words after in, set's, getopts', zstyle's and zparseopts'
+//     words, printf -v's and print -v's, a here-string or a here document
+//     given to read, mapfile or readarray, and ${NAME:=word}: read as a
+//     pattern bash fills in and as a folder (x=.claude/agents is refused);
+//   - the moves into a .claude folder or the app's own folder (reach.go): cd,
+//     pushd, chdir, PowerShell's Set-Location, sl and Push-Location (and
+//     cmd's cd /d), git -C and the other dirOptions, GIT_DIR=; a cd-family
+//     folder holding a $ or a backtick is refused whatever it holds (cd
+//     "$dir" too), and so is zsh's dirs with a folder;
+//   - cmd's switches, as cmd.exe and Git Bash spell them (cmdLines).
+//
+// Three classes are open, and are named here rather than chased:
+//
+//   - programs that match names themselves: find and git are read (find's
+//     -name, -path and -regex when its action changes something, git's
+//     pathspecs for rm, mv, restore, checkout, reset, clean and stash:
+//     reach.go), but not find reading through a file (find ~ -name
+//     'setup-k*' -exec cat {} +), fd (fd -H settings.json -x rm), git
+//     ls-files piped to xargs, git stash -u, rsync's filters, tar
+//     --wildcards, cp -r or mv over a folder, a pathspec of the whole tree
+//     (git rm -r .), git clean without -x on a settings.json git doesn't
+//     ignore, or removing a folder above the project (rm -rf ../app);
+//   - words built at run time: a name split across assignments (a=.cla;
+//     b=ude; rm $a$b/settings.json), one printed whole by a $( ) (cat
+//     $(printf 'setup-%s' key)), a value read from a file or a pipe (read x
+//     < f, zsh's echo x | read y), and a word that is expansions alone
+//     (${f%.txt}, "$f" as find's or git's pattern too): each is any name
+//     when it runs, and refusing them would refuse rm "$f" and mv "$a" "$b".
+//     A $ splice in a written name (.clau${x}de) is read: the expansion is a
+//     run of the skeleton;
+//   - the cd class's three-letter rule (above): once a cd into the folder by
+//     its name is refused, a cd through patterns with fewer letters, then a
+//     short pattern, still reaches it.
+//
+// The lasting fix for the setup key and the guard file is the app keeping
+// them out of a hire's reach: where a hire's account can neither read nor
+// write them (a separate macOS account, or a store only the app's process
+// opens), not a guard that reads lines.
 //
 // tests in guard_test.go name each of these.
 package guard
 
 import (
 	"path"
+	"regexp"
+	"runtime"
+	"slices"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // A Rule refuses one command: its name, then the words that must come
@@ -79,6 +258,8 @@ type Group struct {
 	// gm is set by ForGM on the groups of the General Manager's profile. It is
 	// not in the guard file or in --print: it only picks the words of a refusal.
 	gm bool
+	// place is where the line runs (At), for the merge group's @base rules; nil is a place unknown (merge.go).
+	place *Place
 }
 
 // Refusal says why a command is refused, or is nil.
@@ -106,23 +287,162 @@ func (r *Refusal) Error() string {
 		"`. A hire doesn't do this; ask the GM, who asks the owner."
 }
 
+// Fold is text as the Mac's disk and Windows' compare names, case aside: NFC, then full case folding (WIN125h).
+// Each letter goes to the least member of its Unicode simple case folding (ſ, the long s, is s; K, the Kelvin
+// sign, is k), then to lower case, and the letters that fold to more than one (ß and ẞ are ss, ﬁ is fi: RWIN6
+// B2) are spelled out first. NFC's one-letter forms that are ASCII (the Kelvin sign is K, U+037E is ;, U+1FEF is
+// `) are taken too. NFC's other changes put an accent on a letter, and an accented letter is never ASCII: every
+// name the guard or the demo's fence holds back (the setup key, the token, the guard file, Claude Code's
+// settings, a program's name) is ASCII, so these never make one match or miss. A path or argument that isn't
+// written plainly (an accent typed apart, a ligature) is refused before any comparison (plain.go).
+func Fold(text string) string {
+	if low, ok := foldASCII(text); ok {
+		return low
+	}
+	return strings.Map(func(r rune) rune {
+		least := r
+		for other := unicode.SimpleFold(r); other != r; other = unicode.SimpleFold(other) {
+			least = min(least, other)
+		}
+		return unicode.ToLower(least)
+	}, fullFolds.Replace(text))
+}
+
+// foldASCII is Fold of text that is all ASCII, and true; false when it isn't. No ASCII letter is in fullFolds, and
+// the least member of an ASCII letter's simple folding is its ASCII capital (k's others are K and the Kelvin sign,
+// s's are S and ſ), so Fold of ASCII is its ASCII lower case. Fold runs on every word of a line, often a dozen times
+// (FXGUARDWIN: a 1 MB line took 10 s), and most lines are ASCII.
+func foldASCII(text string) (string, bool) {
+	upper := false
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if c >= utf8.RuneSelf {
+			return "", false
+		}
+		upper = upper || 'A' <= c && c <= 'Z'
+	}
+	if !upper {
+		return text, true
+	}
+	b := []byte(text)
+	for i, c := range b {
+		if 'A' <= c && c <= 'Z' {
+			b[i] = c + 'a' - 'A'
+		}
+	}
+	return string(b), true
+}
+
+// fullFolds are Unicode's full case folds of more than one letter where the letters are ASCII (as RWIN6 found them
+// on the Mac's disk), ŉ and ǰ (Latin letters the guard's plain words keep out anyway), and NFC's ASCII singletons.
+var fullFolds = strings.NewReplacer(
+	"\u00df", "ss", "\u1e9e", "ss", "\ufb00", "ff", "\ufb01", "fi", "\ufb02", "fl", "\ufb03", "ffi", "\ufb04", "ffl",
+	"\ufb05", "st", "\ufb06", "st", "\u0149", "\u02bcn", "\u01f0", "j\u030c", "\u037e", ";", "\u1fef", "`",
+)
+
 // Always refused, whatever the groups say, wherever the text is in the
 // line and in any word of it (quotes, escapes and braces taken away, and
-// compared in lower case: the Mac's disk doesn't mind case): what would make
+// compared folded, Fold: the Mac's disk doesn't mind case): what would make
 // a hire the GM (its token, from its file or from the GM's own environment,
-// as ps shows it) or switch the hooks off. A pattern that fills in the
-// token file's name (gm-t*) comes out of the lexer as the name itself.
-var always = []string{"gm-token", "SMOLCORP_GM_TOKEN", "disableAllHooks"}
+// as ps shows it) or switch the hooks off, or would forge the owner's yes:
+// the grant record's file and its key's name (desktop/grants.go), the
+// paired phones whose tap answers it and their seal's key (phones.json,
+// phones-seal: desktop/access.go; the Windows window's key, whose device
+// reads as a phone, is windowKeyFile below), which Claude Code the owner has
+// (claude-install: desktop/agentcheck.go), whose "npm" would let an unsigned
+// Claude Code start where a signed one ran, and the push key where a computer
+// with no secret store keeps it, which signs what rings those phones
+// (push-key-kept: desktop/pushkey.go); and the GM's memory (gm-memory:
+// desktop/memory.go), which only the core writes, and the GM reads only
+// through the core's routes. A pattern that fills in a file's name (gm-t*)
+// comes out of the lexer as the name itself, for each file of
+// protectedNames (lex.go): phones.json is there too (GUARDPS1). The night
+// shift's jobs are kept as the guard file is (nightFile). And the paste
+// hold's key and file (hold-key, paste-hold: desktop/pastehold.go), whose
+// hold keeps what the office types into desks waiting.
+var always = []string{"gm-token", "SMOLCORP_GM_TOKEN", "disableAllHooks", "grants-key", "grants.jsonl",
+	"phones.json", "phones-seal", "claude-install", "push-key-kept", "gm-memory", "hold-key", "paste-hold"}
+
+// foldedAlways is always, each name folded once (Fold), as namesAlways compares them.
+var foldedAlways = func() []string {
+	out := make([]string, len(always))
+	for i, name := range always {
+		out[i] = Fold(name)
+	}
+	return out
+}()
 
 func namesAlways(text string) string {
-	low := strings.ToLower(text)
-	for _, name := range always {
-		if strings.Contains(low, strings.ToLower(name)) {
-			return name
+	low := Fold(text)
+	for i, name := range foldedAlways {
+		if strings.Contains(low, name) {
+			return always[i]
 		}
 	}
 	return ""
 }
+
+// setupKeyFile is the app's setup key, which opens every setup route of the
+// owner's office that a tool may use. A word that is that file (its last
+// path part, quotes and escapes taken away, any case: echo setup-key too) or a pattern that fills
+// it in (setup-k?y, setup-*) is refused, whatever the command: reading it is
+// the harm. Only as a word, not anywhere in the line as the token is, so a
+// commit message that mentions it still runs. A search for the word as a
+// pattern (grep -rn setup-key desktop/) is refused too (RWIN4 B1): which word
+// grep, rg or git reads as the pattern turns on option spellings (--reg is
+// --regexp), GREP_OPTIONS, rg's config file and git's: a race the guard won't
+// win, so the word is refused wherever it stands.
+// Nothing in the app can stop a process of the owner's reading a file of the
+// owner's; the per-hire deny rules cover Read, and this covers Bash.
+const setupKeyFile = "setup-key"
+
+// windowKeyFile is the key the office's window on Windows opens the office with (desktop/paths.go), held the same
+// way as the setup key and under its rule (WIN125j: the brief names it among the files no pattern may fill in).
+const windowKeyFile = "window-key"
+
+// namesSetupKey is whether any word of the command is the setup key's file.
+func namesSetupKey(words simple) bool {
+	for _, w := range words {
+		low := Fold(strings.ReplaceAll(strings.TrimPrefix(w, unreadable), `\`, "/"))
+		// After a /, and after an @ or = (curl's @file, dd's if=file, --file=…); and as a short option's
+		// value in the same word (grep -fsetup-key, -rf~/…/setup-key). Before an = too: cmd splits a word there, so
+		// del %APPDATA%\smolcorp\setup-key=x deletes the key (RT126GUARDWIN126 N5).
+		option := strings.HasPrefix(low, "-") && !strings.HasPrefix(low, "--")
+		parts := strings.Split(low, "=")
+		for i, part := range parts {
+			last := part[strings.LastIndexAny(part, "/@")+1:]
+			if setupKeyName(last, option && (i == 0 || i == len(parts)-1)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// setupKeyName says whether a word's last path part (folded) is the setup key (or the window key) to some system: as it is, and as
+// Windows reads it (RWIN5 B3): with the dots and blanks at its end taken off (Win32 drops them: setup-key. and
+// "setup-key " are the key), each side of a : (an NTFS stream, setup-key::$DATA; a drive's own folder,
+// C:setup-key), or its 8.3 short name (SETUP-~1, or the hashed SE1A2B~1). With option, the part may end with it
+// (grep -fsetup-key).
+func setupKeyName(last string, option bool) bool {
+	for _, part := range strings.Split(last, ":") {
+		part = strings.TrimRight(part, ". ")
+		if part == setupKeyFile || part == windowKeyFile || setupKeyShortName.MatchString(part) {
+			return true
+		}
+		if option && (strings.HasSuffix(part, setupKeyFile) || strings.HasSuffix(part, windowKeyFile) || setupKeyShortTail.MatchString(part)) {
+			return true
+		}
+	}
+	return false
+}
+
+// setupKeyShortName is the shape of the setup key's 8.3 name on Windows: its first letters (setup-) or two and a
+// hash, then ~ and digits. Folded first, so in lower case.
+var (
+	setupKeyShortName = regexp.MustCompile(`^(setup-|se[0-9a-f]{4})~[0-9]+$`)
+	setupKeyShortTail = regexp.MustCompile(`(setup-|se[0-9a-f]{4})~[0-9]+$`)
+)
 
 // guardFile is the owner's guard file: one edit from a hire would switch
 // every group off, as the guard reads it at each command. A command that
@@ -131,6 +451,32 @@ func namesAlways(text string) string {
 // must also cover Edit and Write of that file and of the hire's own
 // .claude/settings.json.
 const guardFile = "hire-guard"
+
+// nightFile is the night shift's jobs (desktop/nightshift.go), whose approvals start hires overnight: off a Mac the
+// guard is all that stands between a hire and a job it approved itself (RT126NS1 B1). It is kept as the guard file
+// is: a command that names it, by any spelling or a pattern that fills it in (night?hift.json, n*), is refused
+// unless it only reads (readsNightFile). It holds no secret, so a read through a pattern that fills it in is not
+// refused for it (jq .jobs …/night?hift.json); a * in the support folder, or cat package*.json, may fill in
+// phones.json too, and is refused for that file (phonesFile), not for this one.
+const nightFile = "nightshift.json"
+
+// nightRule is the rule a refusal for nightFile names: no feature, since a hire reads it and the night shift is off in
+// this version (FXPOLISHA, RT126FIXREVIEW-DORMANTOFF's O4). The command, which names the file, is shown as it is.
+const nightRule = "a file only Smolcorp writes"
+
+// phonesFile is the paired phones (desktop/access.go). Off a Mac it holds each phone's signing secret as it is
+// (KeyHash) and its web-push secret, so reading it is the harm, as with the setup key: written out anywhere in the
+// line it is refused as always says, reading included, and so is a pattern that fills it in (ph*s.json; *.json where
+// the path before could be the support folder), which the lexer hands on as the name (protectedNames; GUARDPS1,
+// FXGUARDPS1R1 B5). That refuses cat package*.json too: "age" is three letters of AgentDeck, so the path before the
+// * could be the support folder.
+const phonesFile = "phones.json"
+
+// onWindows says the hook runs on Windows, where a line it is handed may be PowerShell's or cmd's: only there is the
+// line itself read with their wildcards (lexer.wild, FXGUARDPS1R1 B6). On a Mac or Linux the line is bash's or zsh's
+// (Claude Code's Bash tool), and PowerShell or cmd only read what a wrapper hands them (powershell -Command, pwsh -c,
+// cmd /c, iex, Start-Process), which is read with their wildcards everywhere. Tests set it.
+var onWindows = runtime.GOOS == "windows"
 
 // Check is the first refusal for line under groups, or nil.
 func Check(line string, groups []Group) *Refusal {
@@ -147,6 +493,9 @@ func Check(line string, groups []Group) *Refusal {
 }
 
 func check(line string, groups []Group) *Refusal {
+	if r := controlIn(line); r != nil {
+		return r
+	}
 	if name := namesAlways(line); name != "" {
 		return &Refusal{Group: "guard", Rule: name, Command: name}
 	}
@@ -156,31 +505,95 @@ func check(line string, groups []Group) *Refusal {
 	if needsPessimist(line) {
 		pessimist = append(pessimist, true)
 	}
+	type reading struct {
+		pess, ps bool
+		cmds     []simple
+	}
+	var readings []reading
+	var all [][]simple
 	for _, pess := range pessimist {
 		for _, ps := range []bool{false, true} {
-			for _, cmd := range commandsAs(line, 0, ps, pess) {
-				if r := checkCommand(cmd, groups, 0, pess); r != nil {
-					return r
-				}
+			for _, here := range hereReadings(line, ps) {
+				cmds := commandsRead(line, 0, ps, pess, onWindows, here)
+				readings, all = append(readings, reading{pess, ps, cmds}), append(all, cmds)
+			}
+		}
+	}
+	// The merge group's place, for this line: whether it is one command alone, whether it moves, and whether it sets
+	// git's config (merge.go). Groups never placed are at a place unknown, for this line all the same.
+	if i := slices.IndexFunc(groups, func(g Group) bool { return g.place != nil }); i >= 0 {
+		groups = At(groups, placeLine(all, *groups[i].place))
+	} else if slices.ContainsFunc(groups, func(g Group) bool {
+		return slices.ContainsFunc(g.Commands, isBaseRule)
+	}) {
+		groups = At(groups, placeLine(all, Place{}))
+	}
+	var tried map[string]bool
+	if !noMemo {
+		tried = map[string]bool{}
+	}
+	for _, r := range readings {
+		for _, cmd := range r.cmds {
+			if refusal := checkCommand(cmd, groups, 0, r.pess, r.ps, tried); refusal != nil {
+				return refusal
 			}
 		}
 	}
 	return nil
 }
 
+// hereReadings are the ways a line is read for PowerShell's here-strings (FXGUARDPS1R1 B1): as one string each
+// (@"…"@, here) and as before, where @ is a letter and "…" a string, both when the line holds one, so whichever
+// PowerShell takes, the guard has read it. A line not read as PowerShell's, or with none, is read the one way.
+func hereReadings(line string, ps bool) []bool {
+	if ps && hasHereString(line) {
+		return []bool{false, true}
+	}
+	return []bool{false}
+}
+
 // checkCommand looks at one simple command: the command itself, and what
-// any wrapper it is runs.
-func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
+// any wrapper it is runs. ps says the line was read as PowerShell's. tried holds what wrappers ran that was read
+// already, in this line (triedKey): each is read once (RT126SWEEP3FIXP2 O1).
+func checkCommand(words simple, groups []Group, depth int, pess, ps bool, tried map[string]bool) *Refusal {
 	if depth > 8 {
 		return &Refusal{Group: "guard", Rule: "nesting", Command: strings.Join(words, " ")}
+	}
+	if len(words) == 3 && words[0] == plainMark {
+		return &Refusal{Group: "guard", Rule: notPlainRule, Command: withoutSubs(words[2]), Why: words[1]}
+	}
+	// raw keeps the subMarks for the folder moves, find's and git's patterns and what a wrapper runs (RWIN10 B2 B4);
+	// every other check reads the words as the shell would when a $( ) prints nothing.
+	raw := words
+	words = stripSubs(words)
+	if r := notPlainWords(words); r != nil {
+		return r
 	}
 	for _, w := range words {
 		if name := namesAlways(strings.TrimPrefix(w, unreadable)); name != "" {
 			return &Refusal{Group: "guard", Rule: name, Command: name}
 		}
 	}
-	// Leading assignments: FOO=1 vercel.
+	all := raw
+	// Leading assignments: FOO=1 vercel. Each value is a path too (RWIN9 B3), whatever runs after it: f=.claude/settings.json
+	// alone sets what a later rm $f removes.
 	for len(words) > 0 && isAssignment(words[0]) {
+		raw = raw[1:]
+		if namesSetupKey(words[:1]) {
+			return &Refusal{Group: "guard", Rule: setupKeyFile, Command: strings.TrimPrefix(words[0], unreadable)}
+		}
+		if namesGuardFile(words[:1]) {
+			return &Refusal{Group: "guard", Rule: guardFile, Command: strings.TrimPrefix(words[0], unreadable)}
+		}
+		if namesNightFile(words[:1]) {
+			return &Refusal{Group: "guard", Rule: nightRule, Command: strings.TrimPrefix(words[0], unreadable)}
+		}
+		if namesFence(words[:1]) {
+			return &Refusal{Group: "guard", Rule: fenceRule, Command: strings.TrimPrefix(words[0], unreadable)}
+		}
+		if r := gitFolderRefusal(groups, "=", words[:1]); r != nil {
+			return r
+		}
 		words = words[1:]
 	}
 	if len(words) == 0 {
@@ -195,29 +608,104 @@ func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
 	if words[0] == "\x00long" {
 		return &Refusal{Group: "guard", Rule: "a command with more words than the guard reads", Command: strings.Join(words[1:], " ")}
 	}
+	if words[0] == redirInMark {
+		if namesSetupKey(words[1:]) {
+			return &Refusal{Group: "guard", Rule: setupKeyFile, Command: "< " + strings.TrimPrefix(words[len(words)-1], unreadable)}
+		}
+		return nil
+	}
 	if words[0] == redirMark {
 		for _, w := range words[1:] {
-			if strings.Contains(strings.ToLower(w), guardFile) {
+			if strings.Contains(Fold(w), guardFile) {
 				return &Refusal{Group: "guard", Rule: guardFile, Command: "> " + strings.TrimPrefix(w, unreadable)}
 			}
+			if namesNightFile(simple{w}) {
+				return &Refusal{Group: "guard", Rule: nightRule, Command: "> " + strings.TrimPrefix(w, unreadable)}
+			}
+			if namesFence(simple{w}) {
+				return &Refusal{Group: "guard", Rule: fenceRule, Command: "> " + strings.TrimPrefix(w, unreadable)}
+			}
+			if namesSetupKey(simple{w}) {
+				return &Refusal{Group: "guard", Rule: setupKeyFile, Command: "> " + strings.TrimPrefix(w, unreadable)}
+			}
+		}
+		if r := gitFolderRefusal(groups, "", words[1:]); r != nil {
+			r.Command = "> " + r.Command
+			return r
 		}
 		return nil
 	}
 	if words[0] == "\x00stdin" {
 		return &Refusal{Group: "guard", Rule: "a shell reading its commands from a pipe", Command: "| sh"}
 	}
+	if words[0] == launchMark {
+		return &Refusal{Group: "guard", Rule: launchRule, Command: strings.Join(words[1:], " ")}
+	}
+	if namedByCmdVariable(words[0]) {
+		// cmd's %c% or !c! as the command: a name the guard can't read (RT126SWEEP3 F4).
+		words = calledAtRunTime(words)
+	}
 	if strings.HasPrefix(words[0], unreadable) {
 		return &Refusal{Group: "guard", Rule: "a command name the guard can't read", Command: strings.TrimPrefix(strings.Join(words, " "), unreadable)}
 	}
 	name := commandName(words[0])
-	args := words[1:]
+	args, rawArgs := words[1:], raw[1:]
 	if strings.HasPrefix(name, "git-") && len(name) > len("git-") {
 		// git's own programs by name ($(git --exec-path)/git-push) are git push.
 		args = append([]string{name[len("git-"):]}, args...)
+		rawArgs = append([]string{name[len("git-"):]}, rawArgs...)
 		name = "git"
 	}
-	if namesGuardFile(words) && !readsGuardFile(name, args) {
+	if namesSetupKey(words) {
+		return &Refusal{Group: "guard", Rule: setupKeyFile, Command: strings.Join(unmark(words), " ")}
+	}
+	if namesGuardFile(words) && !readsKept(name, args, rawArgs) {
 		return &Refusal{Group: "guard", Rule: guardFile, Command: strings.Join(words, " ")}
+	}
+	if namesNightFile(words) && !readsNightFile(name, args, rawArgs) {
+		return &Refusal{Group: "guard", Rule: nightRule, Command: strings.Join(words, " ")}
+	}
+	// Claude Code's settings, the same way: the fence of a hire in T3 Code is its worktree's own.
+	if namesFence(words) && !readsKept(name, args, rawArgs) {
+		return &Refusal{Group: "guard", Rule: fenceRule, Command: strings.Join(words, " ")}
+	}
+	if rule := clearsIgnored(name, args); rule != "" {
+		return &Refusal{Group: "guard", Rule: rule, Command: strings.Join(words, " ")}
+	}
+	// A move into .claude or the app's folder, and the variables that move ~ and cd (WIN125k, RWIN9 B1).
+	if r := dirRefusal(name, all, rawArgs, ps); r != nil {
+		return r
+	}
+	if why := setsVarByName(name, args); why != "" {
+		return &Refusal{Group: "guard", Rule: notPlainRule, Command: strings.Join(unmark(words), " "), Why: why}
+	}
+	if why := setsGitVar(name, unmark(args)); why != "" {
+		return &Refusal{Group: "guard", Rule: notPlainRule, Command: strings.Join(unmark(words), " "), Why: why}
+	}
+	// What git runs from the line (gitruns.go), for every group.
+	if name == "git" {
+		if why, _ := gitRuns(rawArgs); why != "" {
+			return &Refusal{Group: "guard", Rule: gitTextRule, Command: strings.Join(unmark(words), " "), Why: why}
+		}
+		// One it can't tell what it runs fails closed for the push, merge and deploy groups (RT126NS0aR3 B1).
+		if sub, _ := gitSubcommand(unmark(args)); sub != "" && !gitKnown(sub) && guardsGit(groups) {
+			return &Refusal{Group: "guard", Rule: gitUnknownRule, Command: strings.Join(unmark(words), " "), Why: gitUnknownWhy}
+		}
+	}
+	// A path in a git folder, while the merge group is on (merge.go, N3).
+	if r := gitFolderRefusal(groups, name, words); r != nil {
+		return r
+	}
+	// find's and git's own patterns (RWIN9 B6).
+	if rule := keptByMatch(name, rawArgs); rule != "" {
+		return &Refusal{Group: "guard", Rule: keptMatchRule, Command: strings.Join(unmark(words), " "), Why: keptMatchWhy}
+	}
+	if rule := runsText(name, unmark(args)); rule != "" {
+		why := textWhy
+		if name == "setopt" || name == "unsetopt" || name == "emulate" || strings.HasSuffix(rule, " -4") {
+			why = plainOption // RWIN10 N1: they change how the shell reads, rather than run text
+		}
+		return &Refusal{Group: "guard", Rule: textRule, Command: strings.Join(words, " "), Why: why}
 	}
 	// Always on, like the token and the guard file, and not a group: the owner
 	// can't switch it off in the guard editor. A nested Claude Code gets none of
@@ -225,8 +713,15 @@ func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
 	if startsClaude(name, unmark(args)) {
 		return &Refusal{Group: "claude", Rule: "starting Claude Code again", Command: strings.Join(words, " "), Why: nestedClaudeWhy(groups)}
 	}
+	// smolcorp run starts its agent as the agent itself would start: judged as that command. A role's
+	// agent may be Claude Code, and nothing here says which, so `run --role` is starting it again.
+	if agent, role := smolcorpRun(name, args); role {
+		return &Refusal{Group: "claude", Rule: "starting Claude Code again", Command: strings.Join(words, " "), Why: nestedClaudeWhy(groups)}
+	} else if r := checkCommand(agent, groups, depth+1, pess, ps, tried); len(agent) > 0 && r != nil {
+		return r
+	}
 	if name == "tmux" {
-		args = tmuxFull(args)
+		args, rawArgs = tmuxFull(args), tmuxFull(rawArgs)
 	}
 	plain := unmark(args)
 	if name == "ps" && showsEnvironment(plain) {
@@ -237,32 +732,85 @@ func checkCommand(words simple, groups []Group, depth int, pess bool) *Refusal {
 			continue
 		}
 		for _, rule := range g.Commands {
-			if matches(rule, name, plain) {
-				return &Refusal{Group: g.Name, Rule: string(rule), Command: strings.Join(words, " ")}
+			if !matches(rule, name, plain) {
+				continue
 			}
-		}
-	}
-	// What a wrapper runs: a line to parse again, or the words after it.
-	for _, inner := range wrapped(name, args) {
-		if inner.line != "" {
-			for _, cmd := range commandsAs(inner.line, depth+1, inner.ps, pess) {
-				if r := checkCommand(cmd, groups, depth+1, pess); r != nil {
-					return r
+			refusal := &Refusal{Group: g.Name, Rule: string(rule), Command: strings.Join(words, " ")}
+			if isBaseRule(rule) {
+				// Only what lands on a base branch, at the line's place (merge.go).
+				if refusal.Why = onBase(g.place, plain, depth); refusal.Why == "" {
+					continue
 				}
 			}
-		} else if r := checkCommand(inner.words, groups, depth+1, pess); r != nil {
+			return refusal
+		}
+	}
+	// What a wrapper runs: a line to parse again, or the words after it. One read already in this line, which let it
+	// through, is not read again: a launcher tries each of its words as the command's start (wt, conhost, explorer),
+	// and launchers nested in those words would try the same starts again and again (wt wt wt … a).
+	for _, inner := range wrapped(name, rawArgs) {
+		if tried != nil {
+			key := triedKey(inner, pess, ps)
+			if tried[key] {
+				continue
+			}
+			tried[key] = true
+		}
+		if inner.line != "" {
+			for _, here := range hereReadings(inner.line, inner.ps) {
+				for _, cmd := range commandsRead(inner.line, depth+1, inner.ps, pess, inner.ps, here) {
+					if r := checkCommand(cmd, groups, depth+1, pess, inner.ps, tried); r != nil {
+						return r
+					}
+				}
+			}
+		} else if r := checkCommand(inner.words, groups, depth+1, pess, ps, tried); r != nil {
 			return r
 		}
 	}
 	return nil
 }
 
-// commandName is how a word names a command: its last path part, lower
-// case (the Mac's disk doesn't mind case), any @version taken off (npx
+// triedKey is what a wrapper runs, and how it is read, as a key of checkCommand's tried. Two different runs must never
+// share a key, or the second is skipped unread and its refusal lost (RT126SWEEP3FIXP2R1 B1: the words "" and stdin,
+// joined with a \x00 before each, were the guard's own "\x00stdin" mark, so `nohup "" stdin; curl … | sh` ran). So
+// each word goes in after its length, which holds for any bytes, a \x00 included (a hook's JSON can carry \u0000).
+// Depth isn't in the key: a run read deeper than before may only be refused as nested too deep, and was read whole
+// the first time.
+func triedKey(in inner, pess, ps bool) string {
+	var b strings.Builder
+	for _, on := range []bool{pess, ps, in.ps, in.line != ""} {
+		b.WriteByte("01"[boolInt(on)])
+	}
+	if in.line != "" {
+		b.WriteString(in.line)
+	} else {
+		for _, w := range in.words {
+			b.WriteString(strconv.Itoa(len(w)))
+			b.WriteByte(':')
+			b.WriteString(w)
+		}
+	}
+	return b.String()
+}
+
+// noMemo turns checkCommand's tried off, so each wrapper's run is read every time it comes (tests set it: a line
+// refused without the memo is refused with it).
+var noMemo bool
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// commandName is how a word names a command: its last path part, folded
+// (Fold: the Mac's disk doesn't mind case, and finds verſel as vercel), any @version taken off (npx
 // vercel@latest), and a package's name for its command (eas-cli is eas).
 func commandName(word string) string {
 	// A Windows path: C:\Program Files\Git\bin\git.exe.
-	name := strings.ToLower(strings.ReplaceAll(word, "\\", "/"))
+	name := Fold(strings.ReplaceAll(word, "\\", "/"))
 	if at := strings.LastIndexByte(name, '@'); at > 0 {
 		name = name[:at]
 	}
@@ -289,14 +837,251 @@ var aliases = map[string]string{
 }
 
 // namesGuardFile is whether any word of the command names the guard file
-// (in lower case: the Mac's disk doesn't mind case).
+// (folded, Fold: the Mac's disk doesn't mind case).
 func namesGuardFile(words simple) bool {
 	for _, w := range words {
-		if strings.Contains(strings.ToLower(w), guardFile) {
+		if strings.Contains(Fold(w), guardFile) {
 			return true
 		}
 	}
 	return false
+}
+
+// namesNightFile is whether any word of the command names the night shift's jobs (folded, as namesGuardFile).
+func namesNightFile(words simple) bool {
+	for _, w := range words {
+		if strings.Contains(Fold(w), nightFile) {
+			return true
+		}
+	}
+	return false
+}
+
+// textRule names a refusal of a command that runs text it's given as a command by a way the guard doesn't read,
+// or that changes which program a name runs (RWIN8 B4). Always on, for every hire and the GM.
+const (
+	textRule = "a command that runs text as a command"
+	textWhy  = "The shell would run text this command is given, out of the guard's sight. Write the command plainly, as a command."
+)
+
+// textRunners and runsText are one closed list (WIN125k merges RWIN8 B4's zsh list with RWIN9 B5's bash one): the
+// builtins and shipped functions of zsh and bash that take text and run it as a command by a way the guard doesn't
+// read, or change which program a name runs or how a pattern fills in names. From zsh's manual (zshbuiltins,
+// zshmodules, zshcontrib): zpty (a command in a pseudo-terminal), zargs (a command over a list), zmv, zcp and zln (a
+// replacement that can run $( )), autoload (a function's text from a file), zmodload (the modules: mapfile reads
+// any file as a variable, zpty, system, net/tcp), sched (a command later), fc (history run again, or text through
+// an editor, bash's too). By their options or words (runsText): zsh's print -P, zstyle -e, alias -g and -s, hash
+// name=path, -p and -d, set and zsh -4 (GLOB_DOTS by its letter), setopt and unsetopt but for the names in
+// plainOptions (RWIN9 B4), and emulate in any mode but zsh's (sh and ksh turn GLOB_SUBST on; its -c line is read,
+// wrapped). From bash's manual (SHELL BUILTIN
+// COMMANDS): compgen and complete with -C or -F (a command, or a function, run for the words), mapfile and readarray
+// with -C (a callback run every -c lines), bind -x (a command run on a key) and enable -f (a builtin loaded from a
+// file). bash's jobs -x runs its words as a command (wrapped), eval, trap and coproc too, and its ${ …; } and
+// ${| …; } run commands where a $( ) would (the lexer reads them).
+var textRunners = map[string]bool{
+	"zpty": true, "zargs": true, "zmv": true, "zcp": true, "zln": true, "autoload": true, "zmodload": true, "sched": true, "fc": true,
+}
+
+// plainOptions are the zsh options setopt and unsetopt may name (RWIN9 B4: WIN125k takes the closed form): those
+// that only change what a pattern that fills in nothing does (NULL_GLOB, CSH_NULL_GLOB, NOMATCH, and their NO_
+// forms), which a hire's line sometimes needs in zsh, EXTENDED_GLOB, whose forms (^, #, ~) the guard refuses
+// anyway (plain.go), and a script's own hygiene (ERR_EXIT, NO_UNSET, PIPE_FAIL, LOCAL_OPTIONS,
+// INTERACTIVE_COMMENTS), which touch neither names nor patterns. Any other name, any letter or number (unsetopt +4 is GLOB_DOTS) and -m (by a pattern) is
+// refused: a hire's line has no use for them, and some change how patterns fill in names. A name refused as not
+// written plainly (GLOB_DOTS) is left to that refusal.
+var plainOptions = map[string]bool{"nullglob": true, "cshnullglob": true, "nomatch": true, "extendedglob": true,
+	"errexit": true, "unset": true, "pipefail": true, "localoptions": true, "interactivecomments": true}
+
+// runsText is how a command runs text, or changes which program a name runs or how patterns fill in, by a way the
+// guard doesn't read (see textRunners); "" for none.
+func runsText(name string, args []string) string {
+	if textRunners[name] {
+		return name
+	}
+	cluster := func(letters string) bool {
+		for _, a := range args {
+			if a == "--" || a == "-" {
+				return false
+			}
+			if len(a) > 1 && (a[0] == '-' || a[0] == '+') && a[1] != '-' && strings.ContainsAny(a[1:], letters) {
+				return true
+			}
+		}
+		return false
+	}
+	switch name {
+	case "print":
+		if cluster("P") {
+			return "print -P"
+		}
+	case "zstyle":
+		if cluster("e") {
+			return "zstyle -e"
+		}
+	case "alias":
+		if cluster("gs") {
+			return "alias -g"
+		}
+	case "hash":
+		if cluster("pd") || slices.ContainsFunc(args, func(a string) bool { return strings.Contains(a, "=") }) {
+			return "hash"
+		}
+	case "set", "zsh":
+		for _, a := range args {
+			if len(a) > 1 && (a[0] == '-' || a[0] == '+') && a[1] != '-' && strings.Trim(a[1:], "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") == "" && strings.Contains(a, "4") {
+				return name + " -4"
+			}
+		}
+	case "setopt", "unsetopt":
+		for _, a := range args {
+			option := optionName.Replace(Fold(a))
+			if !plainOptions[option] && !plainOptions[strings.TrimPrefix(option, "no")] && textAsCode(a) == "" {
+				return name + " " + a
+			}
+		}
+	case "emulate":
+		for i, a := range args {
+			if a == "-c" || i > 0 && (args[i-1] == "-c" || args[i-1] == "-o" || args[i-1] == "+o") {
+				break // the line (read by wrapped), or an option's name (refused by its name if it's a dot switch)
+			}
+			if !strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "+") && Fold(a) != "zsh" {
+				return "emulate " + a
+			}
+		}
+	case "compgen", "complete":
+		if cluster("CF") {
+			return name + " -C"
+		}
+	case "mapfile", "readarray":
+		if cluster("C") {
+			return name + " -C"
+		}
+	case "bind":
+		if cluster("x") {
+			return "bind -x"
+		}
+	case "enable":
+		if cluster("f") {
+			return "enable -f"
+		}
+	}
+	return ""
+}
+
+// fenceRule is how a refusal names Claude Code's settings. A hire in T3 Code
+// works inside its fence: its worktree's .claude/settings.local.json, the
+// deny rules and this guard as a hook (T797b), ignored by git. A command that
+// names a .claude/settings file, a settings.local.json or the .claude folder
+// itself is refused unless it only reads (as for the guard file), for every
+// hire: no hire rewrites or removes Claude Code's settings. The per-hire
+// deny rules already cover Edit and Write of them.
+const fenceRule = ".claude/settings"
+
+func namesFence(words simple) bool {
+	for _, w := range words {
+		low := Fold(strings.ReplaceAll(strings.TrimPrefix(w, unreadable), `\`, "/"))
+		// The word, and what follows each = in it (X=.claude, --dir=.claude).
+		if fencePath(low) {
+			return true
+		}
+		for i := 0; i < len(low); i++ {
+			if low[i] == '=' && fencePath(low[i+1:]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// fencePath says whether a path (folded, / between its parts) names Claude Code's settings or their folder, as it
+// is and cleaned lexically (cleanWord, RWIN9 B1: .claude/./settings.json, .claude//settings.json). The path before a
+// .. after a part may be anywhere (a link), .claude too: .claude/agents/../settings.json and x/../settings.json name
+// the settings, and x/.. the folder.
+func fencePath(p string) bool {
+	if p == "" {
+		return false
+	}
+	if strings.Contains(p, ".claude/settings") || strings.Contains(p, "settings.local.json") {
+		return true
+	}
+	clean, _ := cleanWord(p, nil)
+	// The folder itself: rm -rf .claude, mv .claude x.
+	if strings.Contains(clean, ".claude/settings") || clean == ".claude" || strings.HasSuffix(clean, "/.claude") {
+		return true
+	}
+	if clean[0] == runOpen {
+		_, end := runText(clean, 0)
+		rest := strings.TrimPrefix(clean[end+1:], "/")
+		first, _, _ := strings.Cut(rest, "/")
+		return first == "" || first == "settings.json"
+	}
+	return false
+}
+
+// clearsIgnored is the rule when git would take away every ignored file,
+// the fence among them, without naming it: git clean with -x or -X, git
+// stash with --all (-a). "" otherwise.
+func clearsIgnored(name string, args []string) string {
+	if name != "git" {
+		return ""
+	}
+	sub, rest := gitSubcommand(unmark(args))
+	var wanted, valued string
+	switch sub {
+	case "clean":
+		wanted, valued = "xX", "e"
+	case "stash":
+		wanted, valued = "a", "m"
+	default:
+		return ""
+	}
+	for i := 0; i < len(rest); i++ {
+		a := rest[i]
+		switch {
+		case a == "--":
+			return ""
+		case sub == "stash" && a == "--all":
+			return "git stash --all"
+		case strings.HasPrefix(a, "--") || !strings.HasPrefix(a, "-"):
+			continue
+		}
+		// A cluster of short options (-fdx); the one that takes a value
+		// (-e, -m) ends it, with the next word as its value when it's last.
+		for k := 1; k < len(a); k++ {
+			if strings.IndexByte(wanted, a[k]) >= 0 {
+				if sub == "clean" {
+					return "git clean -x"
+				}
+				return "git stash --all"
+			}
+			if strings.IndexByte(valued, a[k]) >= 0 {
+				if k == len(a)-1 {
+					i++
+				}
+				break
+			}
+		}
+	}
+	return ""
+}
+
+// gitSubcommand is git's subcommand, in lower case, and the words after it.
+func gitSubcommand(args []string) (string, []string) {
+	takes := valueOptions["git"]
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			return "", nil
+		case strings.HasPrefix(a, "-") && len(a) > 1:
+			if !strings.Contains(a, "=") && takesNext(a, takes) {
+				i++
+			}
+		default:
+			return strings.ToLower(a), args[i+1:]
+		}
+	}
+	return "", nil
 }
 
 // guardReaders are the commands that may name the guard file, because they
@@ -318,12 +1103,60 @@ func readsGuardFile(name string, args []string) bool {
 	switch name {
 	case "git":
 		pos := positional("git", unmark(args))
-		return len(pos) > 0 && gitReaders[strings.ToLower(pos[0])]
+		return len(pos) > 0 && gitReaders[strings.ToLower(pos[0])] && !gitWritesOutput(args)
 	case "smolcorp":
 		pos := positional("smolcorp", unmark(args))
 		return len(pos) > 0 && pos[0] == "guard"
 	}
 	return guardReaders[name]
+}
+
+// gitWritesOutput is whether a git call is given --output, alone or as --output=<file> (RT126NS1R2 B1): log, show,
+// diff and blame write to that file what they would print, text of the caller's choosing with --format included.
+// git takes the option whole, never abbreviated, and --output-indicator-new= and its kin write nothing. A word the
+// shell may turn into --output is taken as it (RT126NS1R3 B1): one whose letters before its first expansion,
+// substitution, pattern or brace could start --output. That is --outpu?=, --outp{u,}t= and --outp$x, and any word
+// that starts with one: $o, "$1", ${o}=…, $(printf -- --output)=…, `echo --output`, ?-output=…, [-]-output=…,
+// *output=…. args are the words with their subMarks (a $( ) or a backtick's place) where the caller has them; a
+// splice the lexer joins (--outp""ut) reaches here whole. A word that starts with ~ or $HOME/ is a path in the home
+// folder, never an option, so git log -1 ~/.config/…/night?hift.json still reads. No other subcommand in gitReaders
+// writes a file it's given: commit, status, add and grep refuse --output, and none takes -o for one.
+func gitWritesOutput(args []string) bool {
+	for _, a := range unmark(args) {
+		if a == "--output" || strings.HasPrefix(a, "--output=") {
+			return true
+		}
+		if strings.HasPrefix(a, "~") || strings.HasPrefix(a, "$HOME/") {
+			continue
+		}
+		if i := strings.IndexAny(a, "*?[{(<^#~$"+string(subMark)); i >= 0 && strings.HasPrefix("--output", a[:i]) {
+			return true
+		}
+	}
+	return false
+}
+
+// readsKept is readsGuardFile for a command that names a kept file, with git's --output also looked for in raw, its
+// words with their subMarks (RT126NS1R3 B1): a $( ) or a backtick that could print --output leaves no text in args.
+func readsKept(name string, args, raw []string) bool {
+	return readsGuardFile(name, args) && !(name == "git" && gitWritesOutput(raw))
+}
+
+// readsNightFile is whether a command that names the night shift's jobs only reads: the guard file's readers.
+func readsNightFile(name string, args, raw []string) bool { return readsKept(name, args, raw) }
+
+// stripSubs is words without their subMarks (withoutSubs).
+func stripSubs(words []string) []string {
+	out, cloned := words, false
+	for i, w := range words {
+		if strings.IndexByte(w, subMark) >= 0 {
+			if !cloned {
+				out, cloned = slices.Clone(words), true
+			}
+			out[i] = withoutSubs(w)
+		}
+	}
+	return out
 }
 
 // unmark takes the unreadable mark off arguments, which are only words.
@@ -335,13 +1168,21 @@ func unmark(args []string) []string {
 	return out
 }
 
+// isAssignment says whether a word is NAME=value, NAME+=value (RWIN10 B3) or NAME[subscript]=value.
 func isAssignment(word string) bool {
 	word = strings.TrimPrefix(word, unreadable)
 	eq := strings.IndexByte(word, '=')
 	if eq <= 0 {
 		return false
 	}
-	for i, r := range word[:eq] {
+	name := strings.TrimSuffix(word[:eq], "+")
+	if open := strings.IndexByte(name, '['); open > 0 && strings.HasSuffix(name, "]") {
+		name = name[:open]
+	}
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
 		if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || i > 0 && r >= '0' && r <= '9') {
 			return false
 		}
@@ -375,7 +1216,7 @@ func startsClaude(name string, args []string) bool {
 		return false
 	}
 	for _, a := range args {
-		low := strings.ToLower(strings.ReplaceAll(a, "\\", "/"))
+		low := Fold(strings.ReplaceAll(a, "\\", "/"))
 		if strings.Contains(low, "claude-code/cli") || strings.Contains(low, "@anthropic-ai/claude-code") {
 			return true
 		}
@@ -385,6 +1226,29 @@ func startsClaude(name string, args []string) bool {
 		}
 	}
 	return false
+}
+
+// smolcorpRun reads `smolcorp run`: the agent's command and its arguments, after the launcher's own
+// options (--hire, --hire-id, --pinned, --agent, which the app gives a hire it opens), or role when it
+// starts a role's agent (run --role). Neither when the command isn't smolcorp run.
+func smolcorpRun(name string, args []string) (agent simple, role bool) {
+	if name != "smolcorp" && name != "smolcorp-cli" || len(args) == 0 || !strings.EqualFold(strings.TrimPrefix(args[0], unreadable), "run") {
+		return nil, false
+	}
+	rest := args[1:]
+	for len(rest) > 0 {
+		switch strings.ToLower(strings.TrimPrefix(rest[0], unreadable)) {
+		case "--hire", "--hire-id", "--agent":
+			rest = rest[min(2, len(rest)):]
+		case "--pinned":
+			rest = rest[1:]
+		case "--role":
+			return nil, true
+		default:
+			return simple(rest), false
+		}
+	}
+	return nil, false
 }
 
 func nestedClaudeWhy(groups []Group) string {

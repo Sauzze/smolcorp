@@ -3,8 +3,10 @@
 #
 #   ./install.sh
 #
-# Needs the Xcode Command Line Tools for the Swift compiler. Running it again
-# updates an existing install; your pairing and settings are kept.
+# Needs the Xcode Command Line Tools for the Swift compiler, and Go 1.27 (the
+# release line go.mod names, 1.27.2 or a later 1.27) for the app's engine.
+# Running it again updates an existing install; your pairing and settings are
+# kept.
 
 set -euo pipefail
 
@@ -23,6 +25,13 @@ if ! xcrun --find swift >/dev/null 2>&1; then
   exit 1
 fi
 
+# The app's engine is written in Go: without it the app would have nothing to run.
+if ! command -v go >/dev/null 2>&1; then
+  echo "Smolcorp needs Go 1.27 to build (1.27.2 or a later 1.27): its engine is written in Go."
+  echo "Install it (brew install go, or go.dev/dl), then run ./install.sh again."
+  exit 1
+fi
+
 scripts/build-app.sh
 
 # Whether the app at $1 is Smolcorp under any of its names: another app
@@ -31,16 +40,20 @@ is_ours() {
   [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null)" = "$BUNDLE_ID" ]
 }
 
-if pgrep -x AgentDeck >/dev/null; then # the executable kept the old name
+# Whether a copy is running, by its program's name: Smolcorp since 1.26, and
+# AgentDeck before, which a copy from before the update still has.
+running() { pgrep -x Smolcorp >/dev/null || pgrep -x AgentDeck >/dev/null; }
+
+if running; then
   echo "Closing the running copy…"
   osascript -e "quit app id \"$BUNDLE_ID\"" >/dev/null 2>&1 || true
   # Replaced while it still runs, the old copy would carry on, and the new
   # one wouldn't open: wait for it to quit, or stop here.
   for _ in $(seq 20); do
-    pgrep -x AgentDeck >/dev/null || break
+    running || break
     sleep 0.5
   done
-  if pgrep -x AgentDeck >/dev/null; then
+  if running; then
     echo "Smolcorp is still running. Quit it from its menu bar icon, then run ./install.sh again."
     exit 1
   fi

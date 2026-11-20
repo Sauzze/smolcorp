@@ -1,12 +1,14 @@
 package desktop
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -28,7 +30,7 @@ type FloorRule struct {
 	// The folder alone, not those in it: as "Always put … here" remembers it
 	// from the office, where a folder above a project's would otherwise take
 	// all of them up. A rule added in setup holds the folders in it too.
-	Exact bool `json:"exact,omitempty"`
+	Exact bool `json:"exact"`
 }
 
 const mostFloorRules = 64
@@ -75,14 +77,16 @@ func checkedFloorRules(given []FloorRule) floorRuleList {
 // floorRulesSent is the rules POST /setup/floors sends, as {"rules": [...]},
 // checked; false when there's no list of them, as from a setup page from
 // before rules.
+// Rules that aren't a list are none, as the Mac reads them (Floor.rules): never an empty list that clears them.
 func floorRulesSent(body []byte) (floorRuleList, bool) {
 	var sent struct {
-		Rules *floorRuleList `json:"rules"`
+		Rules json.RawMessage `json:"rules"`
 	}
-	if json.Unmarshal(body, &sent) != nil || sent.Rules == nil {
+	var rules floorRuleList
+	if json.Unmarshal(body, &sent) != nil || !bytes.HasPrefix(sent.Rules, []byte("[")) || json.Unmarshal(sent.Rules, &rules) != nil {
 		return nil, false
 	}
-	return checkedFloorRules(*sent.Rules), true
+	return checkedFloorRules(rules), true
 }
 
 // ruleFolder is a rule's folder as it's kept: a whole path, a Mac's or
@@ -176,6 +180,8 @@ type upstairsPerson[Person any] struct {
 	// go till one is free on its own floor. There only for want of room, it
 	// makes way for anyone put on that floor (see seatBuilding).
 	yields bool
+	// The desk upstairs its folder is pinned to, if it is (see FloorPin).
+	pin *Seat
 }
 
 // seatedPerson is someone seated above the ground floor, with their desk.
@@ -194,8 +200,10 @@ type seatedPerson[Person any] struct {
 // order: at the desk they had if it's free, else at the first free desk from
 // 2F up. So nobody moves when someone else comes or goes. Each floor's people
 // in the order of their desks; how many there's no desk for; and the desk each
-// one has now.
-func seatBuilding[Person any](placed, rest []upstairsPerson[Person]) ([][]seatedPerson[Person], int, map[string]Seat) {
+// one has now. Before anyone, the pinned desks: each its folder's, for one
+// of its sessions on that floor, the one that had it first, and nobody else's,
+// kept empty while none is there.
+func seatBuilding[Person any](placed, rest []upstairsPerson[Person], pinned ...Seat) ([][]seatedPerson[Person], int, map[string]Seat) {
 	everyone := slices.Concat(placed, rest)
 	taken := map[Seat]int{}
 	seats := map[string]Seat{}
@@ -209,11 +217,28 @@ func seatBuilding[Person any](placed, rest []upstairsPerson[Person]) ([][]seated
 	}
 	onAFloor := func(p upstairsPerson[Person]) bool { return p.floor >= 1 && p.floor < floorCount }
 	seated := func(i int) bool { _, ok := seats[everyone[i].id]; return ok }
+	const kept = -1 // a pinned desk with nobody at it
+	for _, seat := range pinned {
+		if valid(&seat) {
+			taken[seat] = kept
+		}
+	}
+	// The one who had the desk first, then any other of its folder there.
+	for _, hadIt := range []bool{true, false} {
+		for i, p := range placed {
+			if !valid(p.pin) || p.floor != p.pin.Floor || hadIt && (p.had == nil || *p.had != *p.pin) {
+				continue
+			}
+			if at, ok := taken[*p.pin]; ok && at == kept {
+				sit(i, *p.pin)
+			}
+		}
+	}
 	// First everyone at the desk they had, so nobody moves for someone new: those put on a floor at theirs there,
 	// then everyone else at theirs, wherever it is; then those who yield at theirs on a floor not their own, where
 	// theirs had no room: after the rest, so one back at a desk it had takes no one's.
 	for i, p := range placed {
-		if onAFloor(p) && valid(p.had) && p.had.Floor == p.floor && free(*p.had) {
+		if onAFloor(p) && !seated(i) && valid(p.had) && p.had.Floor == p.floor && free(*p.had) {
 			sit(i, *p.had)
 		}
 	}
@@ -250,7 +275,7 @@ func seatBuilding[Person any](placed, rest []upstairsPerson[Person]) ([][]seated
 			}
 		}
 		for desk := 0; desk < desksPerFloor && gives != nil; desk++ {
-			if at, ok := taken[Seat{floor, desk}]; ok && gives(at, floor) {
+			if at, ok := taken[Seat{floor, desk}]; ok && at != kept && gives(at, floor) {
 				return desk
 			}
 		}
@@ -344,7 +369,7 @@ func seatBuilding[Person any](placed, rest []upstairsPerson[Person]) ([][]seated
 	for floor := range floors {
 		floors[floor] = []seatedPerson[Person]{}
 		for desk := 0; desk < desksPerFloor; desk++ {
-			if i, ok := taken[Seat{floor, desk}]; ok {
+			if i, ok := taken[Seat{floor, desk}]; ok && i != kept {
 				floors[floor] = append(floors[floor], seatedPerson[Person]{everyone[i].person, desk})
 			}
 		}
@@ -474,6 +499,9 @@ func (d *Deck) move(id, given string, remember bool) (int, string) {
 		d.changed()
 		return http.StatusNoContent, ""
 	}
+	if hire, ok := d.t3HireAtDesk(id); ok {
+		return d.moveT3(hire, id, floor, full)
+	}
 	s := d.sessions.Get(id)
 	if s == nil {
 		return http.StatusNotFound, "Session not found"
@@ -528,9 +556,20 @@ func (d *Deck) hasFreeKey() bool {
 // held.
 func (d *Deck) hasRoom(floor int, id string) bool {
 	put := 0
+	there := map[string]bool{}
+	if s := d.sessions.Get(id); s != nil {
+		there[s.Project] = true
+	}
 	for _, s := range d.sessions.All() {
 		if f, ok := d.aboveGround(s); ok && f == floor && s.ID != id {
 			put++
+			there[s.Project] = true
+		}
+	}
+	for _, one := range d.t3Seated() {
+		if one.session.ID != id && t3FloorOf(one.hire) == floor {
+			put++
+			there[one.session.Project] = true
 		}
 	}
 	bots, sitting := d.cloud.seated()
@@ -538,6 +577,13 @@ func (d *Deck) hasRoom(floor int, id string) bool {
 		seat, ok := d.seatOf[s.ID]
 		elsewhere := sitting[i].floorIndex() < 0 && ok && seat.Floor != floor
 		if d.cloudFloor(sitting[i]) == floor && s.ID != id && !elsewhere {
+			put++
+			there[s.Project] = true
+		}
+	}
+	// A desk pinned there is kept for its folder, taken whether or not one of its sessions is at it: counted once.
+	for _, pin := range d.config.FloorPins {
+		if pin.Floor == floor && !there[pin.Folder] {
 			put++
 		}
 	}
@@ -564,4 +610,21 @@ func floorFolder(rules []FloorRule, floor int) string {
 		}
 	}
 	return folder
+}
+
+// pinDesk is the desk /setup/pin and /setup/unpin name: `key`, 0 to 8, on
+// `floor`, 0 for the ground floor up to 5 for 6F, the ground floor when it's
+// left out, as callers from before floors had pins send it. False for a desk
+// or floor there isn't.
+func pinDesk(query url.Values) (floor, desk int, ok bool) {
+	desk, err := strconv.Atoi(query.Get("key"))
+	if err != nil || desk < 0 || desk >= desksPerFloor {
+		return 0, 0, false
+	}
+	if given := query.Get("floor"); given != "" {
+		if floor, err = strconv.Atoi(given); err != nil || floor < 0 || floor >= floorCount {
+			return 0, 0, false
+		}
+	}
+	return floor, desk, true
 }

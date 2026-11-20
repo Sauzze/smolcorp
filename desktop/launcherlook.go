@@ -7,8 +7,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -27,11 +33,14 @@ type launcherScreen struct {
 	screen *textScreen
 }
 
-// newLauncherScreen starts a screen the size of the console. A size nobody
-// could read is not a size to trust, so that screen reads unknown for good.
-func newLauncherScreen(rows, cols int, known bool) *launcherScreen {
-	l := &launcherScreen{screen: newTextScreen(rows, cols)}
-	l.screen.broken = !known
+// newLauncherScreen starts a screen the size of the console, on its code page.
+// A size nobody could read is not a size to trust, so that screen reads
+// unknown for good.
+func newLauncherScreen(rows, cols int, known bool, page screenCodePage) *launcherScreen {
+	l := &launcherScreen{screen: newTextScreen(rows, cols, page)}
+	if !known {
+		l.screen.lost = "a console whose size couldn't be read"
+	}
 	return l
 }
 
@@ -47,6 +56,13 @@ func (l *launcherScreen) Resize(rows, cols int) {
 	l.screen.Resize(rows, cols)
 }
 
+// SetCodePage gives the screen the console's code page, as read now.
+func (l *launcherScreen) SetCodePage(page screenCodePage) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.screen.SetCodePage(page)
+}
+
 // Look is the screen's state, and whether the screen is unknown. An unknown
 // screen always reads PaneUnknown.
 func (l *launcherScreen) Look() (PaneState, bool) {
@@ -57,10 +73,16 @@ func (l *launcherScreen) Look() (PaneState, bool) {
 // lookPaste is Look and whether the agent turned bracketed paste on, read together.
 // An unknown screen never says bracketed.
 func (l *launcherScreen) lookPaste() (PaneState, bool, bool) {
+	state, unknown, bracketed, _ := l.lookWhy()
+	return state, unknown, bracketed
+}
+
+// lookWhy is lookPaste and, for an unknown screen, what made it so (by name, never the screen's text).
+func (l *launcherScreen) lookWhy() (PaneState, bool, bool, string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	unknown := l.screen.Unknown()
-	return l.screen.PaneState(), unknown, !unknown && l.screen.Bracketed()
+	return l.screen.PaneState(), unknown, !unknown && l.screen.Bracketed(), l.screen.Why()
 }
 
 // Bracketed is whether the agent has bracketed paste on, now.
@@ -76,6 +98,11 @@ type screenAnswer struct {
 	Unknown bool   `json:"unknown"`
 	// Bracketed: the agent turned bracketed paste on. Mail pastes multi-line text only then.
 	Bracketed bool `json:"bracketed"`
+	// Pasted: for the phone's text, "pasted" or "not-taken" (see launcherCommand.PhoneText); "" for a look.
+	Pasted string `json:"pasted,omitempty"`
+	// Broke: for an unknown screen, what made it so, as a sequence's own bytes or a kind of character
+	// ("CSI ?7l", "bad UTF-8"), never the screen's text; the app logs it once (launcherScreenAnswered).
+	Broke string `json:"broke,omitempty"`
 }
 
 // lookSecretHeader carries the launcher's secret back with an answer. The
@@ -107,12 +134,70 @@ func (d *Deck) isLauncherSecret(id, proof string) bool {
 // screenAnswerPath is where a launcher posts the answer to a look.
 const screenAnswerPath = "/launcher/screen"
 
+// screenBrokeMax: the most reasons a launcher's screen logs; past them, no more lines.
+const screenBrokeMax = 32
+
+// The file in the support folder that each reason logged also goes to, on Windows, where the app has no log file
+// and runs without a console, so its log lines go nowhere. One that would pass screenLogMax is moved to
+// screenLogOld first (the one there before is dropped), so the two hold at most twice that. Both are *.log
+// names, kept from hires as every log in the support folder is (hireDenyRules).
+const (
+	screenLogName = "launcher-screen.log"
+	screenLogOld  = "launcher-screen.old.log"
+	screenLogMax  = 64 << 10
+)
+
+// screenLogOn: the reasons reach screenLogName on Windows only; a row turns it on elsewhere.
+var screenLogOn = runtime.GOOS == "windows"
+
+// screenLogMu keeps two lines, and a move aside, from interleaving.
+var screenLogMu sync.Mutex
+
+// appendScreenLog adds line to the screen log in the support folder: the one appdirs.Resolve finds (supportDir;
+// a test binary's own). Only a plain file is written or moved: a link or a folder at either name is left alone,
+// and the line dropped. A failure drops the line; the log line was said anyway.
+func appendScreenLog(line string) {
+	if !screenLogOn {
+		return
+	}
+	screenLogMu.Lock()
+	defer screenLogMu.Unlock()
+	path := filepath.Join(supportDir, screenLogName)
+	if st, err := os.Lstat(path); err == nil {
+		if !st.Mode().IsRegular() {
+			return
+		}
+		if st.Size()+int64(len(line)) > screenLogMax {
+			old := filepath.Join(supportDir, screenLogOld)
+			if st, err := os.Lstat(old); err == nil && !st.Mode().IsRegular() {
+				return
+			}
+			if os.Rename(path, old) != nil {
+				return
+			}
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	if err != nil {
+		return
+	}
+	_, _ = file.WriteString(line)
+	_ = file.Close()
+}
+
 // postScreenAnswer reads the screen and tells the app. base is the app's
 // address without a path. A failure is dropped: the app's wait times out,
 // which it reads as unknown.
 func postScreenAnswer(client *http.Client, base, key, proof, id, look string, screen *launcherScreen) {
-	state, unknown, bracketed := screen.lookPaste()
-	body, _ := json.Marshal(screenAnswer{Look: look, State: state.String(), Unknown: unknown, Bracketed: bracketed})
+	postPasteAnswer(client, base, key, proof, id, look, "", screen)
+}
+
+// postPasteAnswer is postScreenAnswer, saying too what came of the phone's text: pasted, or not-taken.
+func postPasteAnswer(client *http.Client, base, key, proof, id, look, pasted string, screen *launcherScreen) {
+	state, unknown, bracketed, why := screen.lookWhy()
+	body, _ := json.Marshal(screenAnswer{Look: look, State: state.String(), Unknown: unknown, Bracketed: bracketed, Pasted: pasted, Broke: why})
 	request, err := http.NewRequest(http.MethodPost, base+screenAnswerPath+"?"+url.Values{"id": {id}}.Encode(), bytes.NewReader(body))
 	if err != nil {
 		return
@@ -198,14 +283,35 @@ func (d *Deck) launcherScreenAnswered(id, proof string, answer screenAnswer) boo
 			}
 		}
 	}
+	said := ""
 	d.mu.Lock()
+	if tab := d.launchers[id]; tab != nil && answer.Unknown && answer.Broke != "" {
+		// Said once per launcher and reason (up to 32 reasons), so a Windows run shows what its screen couldn't
+		// follow, in the support folder's screen log too (appendScreenLog). Nothing is typed into it meanwhile.
+		why := answer.Broke[:min(len(answer.Broke), 80)]
+		if tab.screenBroke == nil {
+			tab.screenBroke = map[string]bool{}
+		}
+		if !tab.screenBroke[why] && len(tab.screenBroke) < screenBrokeMax {
+			tab.screenBroke[why] = true
+			said = fmt.Sprintf("launcher %s's screen can't be read since %q", id, why)
+			log.Print("smolcorp: " + said)
+		}
+	}
 	key := id + "/" + answer.Look
 	waiting, ok := d.looks[key]
 	if ok && d.lookBracketed != nil {
 		// Only a screen that was known can say bracketed paste is on.
 		d.lookBracketed[key] = answer.Bracketed && state != PaneUnknown
 	}
+	// Kept only for a phone paste waiting for it (pasteIntoLauncher made its entry): an ordinary look leaves nothing behind.
+	if _, paste := d.lookPasted[key]; ok && paste {
+		d.lookPasted[key] = answer.Pasted
+	}
 	d.mu.Unlock()
+	if said != "" {
+		appendScreenLog(time.Now().Format(time.RFC3339) + " " + said + "\n")
+	}
 	if !ok {
 		return false
 	}
@@ -214,4 +320,64 @@ func (d *Deck) launcherScreenAnswered(id, proof string, answer screenAnswer) boo
 	default: // answered already
 	}
 	return true
+}
+
+// launcherPasteWait is how long the phone's text waits for a launcher to say it pasted it.
+var launcherPasteWait = 2 * time.Second
+
+// pasteIntoLauncher has the launcher with the id given paste the phone's words into its agent, and waits
+// for it to say whether it did. The launcher pastes as for mail (cursorMode.pasteBytes): several lines only
+// inside a bracketed paste, which it sees the agent turn on in what it draws, and checks right as it writes;
+// otherwise nothing. On Windows that is the agent's console input (ConPTY), which carries the paste's
+// markers to an agent that asked for them. A launcher that's gone, doesn't answer, or only looked (an older
+// one) is a failure: nothing more goes, not even Return.
+func (d *Deck) pasteIntoLauncher(id, words string) (pasteResult, error) {
+	d.mu.Lock()
+	tab, ok := d.launchers[id]
+	if !ok {
+		d.mu.Unlock()
+		return pasteFailed, errLauncherGone
+	}
+	if d.looks == nil {
+		d.looks = map[string]chan PaneState{}
+	}
+	if d.lookPasted == nil {
+		d.lookPasted = map[string]string{}
+	}
+	number := randomHex(8)
+	key := id + "/" + number
+	answer := make(chan PaneState, 1)
+	d.looks[key] = answer
+	d.lookPasted[key] = "" // a paste's look: only this one's answer is kept there
+	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		delete(d.looks, key)
+		delete(d.lookBracketed, key)
+		delete(d.lookPasted, key)
+		d.mu.Unlock()
+	}()
+	if err := tab.send(launcherCommand{PhoneText: words, Look: number}); err != nil {
+		return pasteFailed, err
+	}
+	timer := time.NewTimer(launcherPasteWait)
+	defer timer.Stop()
+	select {
+	case <-answer:
+	case <-tab.gone:
+		// Gone after the words were sent: they may have landed.
+		return pasteFailed, fmt.Errorf("%w (%w)", errPasteFailed, errLauncherGone)
+	case <-timer.C:
+		return pasteFailed, errLookTimedOut
+	}
+	d.mu.Lock()
+	outcome := d.lookPasted[key]
+	d.mu.Unlock()
+	switch outcome {
+	case "pasted":
+		return pasteDone, nil
+	case "not-taken":
+		return pasteNotTaken, nil
+	}
+	return pasteFailed, errPasteFailed
 }
