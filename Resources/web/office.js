@@ -11295,6 +11295,14 @@
     return outfitOf(person.session.agent, person.session.model, memberOf(person.session), workspaceOf(person.session, person.desk), person.session.role, person.desk, person.session.name).style === 'janitor';
   }
 
+  /**
+   * Whether a session's desk has a talk bubble, where the room has them: not a hire in T3 Code, whose thread is in T3
+   * Code, nor a cloud bot, which works in someone else's cloud with no terminal and nothing to type into.
+   */
+  function hasTalk(session) {
+    return !!session && !session.t3 && !session.cloud;
+  }
+
   /** The top row of a person's hair. Sitting lowers it; standing at the desk to wave raises them back up. */
   function topOf(person, pose) {
     const feet = Math.round(person.position.y);
@@ -60170,7 +60178,7 @@
       if (state === 'idle') {
         // No bubble over an idle head, but its desk can be talked to: `quiet`, the page opens it by Enter on the
         // picked desk or from its desk list, never by a click on the empty air over the head
-        if (frame.talk && !person.isStaff && !person.session.t3) {
+        if (frame.talk && !person.isStaff && hasTalk(person.session)) {
           TALK_ANCHORS.record(frame.talk.bubbles, { id: person.session.id, x: Math.round(person.position.x), top, state, since: null, quiet: true });
         }
         // A nap, after a while on the couch or the beanbag, not at the drums or in the hot tub
@@ -60205,8 +60213,8 @@
       dot(x - 1, bottom + 1, PALETTE.bubble);
       dot(x - 1, bottom + 2, PALETTE.bubbleEdge);
       // Where a click on it goes, when the page takes talk bubbles: the bubble at rest, not as it shakes. Staff and a
-      // hire in T3 Code have none.
-      if (frame.talk && !person.isStaff && !person.session.t3) {
+      // hire in T3 Code or a cloud bot have none (hasTalk).
+      if (frame.talk && !person.isStaff && hasTalk(person.session)) {
         TALK_ANCHORS.record(frame.talk.bubbles, { id: person.session.id, x: Math.round(person.position.x), top, state, since: person.askingSince });
       }
 
@@ -70907,12 +70915,13 @@
      * What a person is to a finger, `kind` being what their desk is: the sprite, its arms, and the bubble over its
      * head. With the talk bubbles (the office's own window), a tap on them opens their bubble, whatever they're doing
      * and wherever they are (`talk`), as a tap on the bubble does; a finger held on them is still their desk's. Staff,
-     * someone coming in or going, and (for the bubble) a hire in T3 Code, as before.
+     * someone coming in or going, and (for the bubble) a hire in T3 Code, as before; a cloud bot has no bubble either
+     * (hasTalk): a tap on it is its desk's, as on 1.26.0 as released, its card upstairs.
      */
     function personAt(person, kind, now) {
       if (person.isStaff || person.isLeaving || person.entering) return null;
       const px = Math.round(person.position.x), top = topOf(person, poseOf(person, now));
-      const target = { kind, id: person.session.id, ...(on.talk && !person.session.t3 ? { talk: true } : {}) };
+      const target = { kind, id: person.session.id, ...(on.talk && hasTalk(person.session) ? { talk: true } : {}) };
       return { target, box: { left: px - 5, right: px + 8, top: top - 11, bottom: Math.round(person.position.y) + 1 } };
     }
 
@@ -71119,14 +71128,14 @@
      * The talk bubble over `id`'s head on the floor in view: as the room last drew it or, for someone it drew none over
      * this frame (visiting, the mic held on them, a storm, out of order, idle away from the desk), where it would be
      * over their head, so their open bubble stays with them rather than blinking out. None on the ride, for a desk on
-     * another floor or gone, or for staff and a hire in T3 Code.
+     * another floor or gone, or for staff, a hire in T3 Code and a cloud bot (hasTalk).
      */
     function talkBubbleOf(id) {
       const drawn = bubblesAt.find((b) => b.id === id);
       if (drawn || ride || !id) return drawn || null;
       const now = clock();
       const over = (there) => {
-        const person = there.people.find((p) => !p.isStaff && !p.entering && p.session && p.session.id === id && !p.session.t3);
+        const person = there.people.find((p) => !p.isStaff && !p.entering && p.session && p.session.id === id && hasTalk(p.session));
         return person ? { id, x: Math.round(person.position.x), top: topOf(person, poseOf(person, now)), state: person.session.state, since: null, quiet: true } : null;
       };
       if (talkFloor < 2) return over(office);
@@ -71321,8 +71330,6 @@
       }
       // A talk bubble, or with them a person: their desk's bubble opens (open, it closes)
       if (target.kind === 'talk' || target.talk) {
-        // A cloud bot's person upstairs opens its card too, as its desk does, so its news is seen
-        if (target.talk && isCloudDesk(target.id)) openCard(target.id);
         hoverTalk(null);
         talkPanels?.open(target.id);
         return on.talk?.open?.(target.id, talkAnchor(target.id));

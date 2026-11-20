@@ -19,7 +19,7 @@ func tvRig(t *testing.T) string {
 	for _, change := range [][2]string{
 		{"return () => {};", "if (k === 'fillRect') return (x, y, w, h) => { rects.push([store.fillStyle, x, y, w, h]); };\n      if (k === 'fillText') return (text) => { texts.push(text); };\n      return () => {};"},
 		{"let T = 1000;", "let T = 1000;\nconst rects = [], texts = [];"},
-		{"function rig(talk, sessions) {", "function rig(talk, sessions, tv, room) {"},
+		{"function rig(talk, sessions, feed = false, more = () => ({})) {", "function rig(talk, sessions, tv, room, feed = false, more = () => ({})) {"},
 		{"hint() {}, held() {} };", "hint() {}, held() {} };\n  if (tv) on.tv = (id, url) => calls.push(['tv', id, url]);"},
 		{"layout: {},", "layout: room ? { room } : {},"},
 		{"const r = {\n    calls, canvas,", "const r = {\n    calls, canvas, office,"},

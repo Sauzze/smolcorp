@@ -19,7 +19,7 @@ func prRig(t *testing.T) string {
 	for _, change := range [][2]string{
 		{"return () => {};", "return k === 'fillRect' ? (x, y, w, h) => { rects.push([store.fillStyle, x, y, w, h]); } : () => {};"},
 		{"let T = 1000;", "let T = 1000;\nconst rects = [];"},
-		{"function rig(talk, sessions) {", "function rig(talk, sessions, pr) {"},
+		{"function rig(talk, sessions, feed = false, more = () => ({})) {", "function rig(talk, sessions, pr, feed = false, more = () => ({})) {"},
 		{"hint() {}, held() {} };", "hint() {}, held() {} };\n  if (pr) on.pr = (id) => calls.push(['pr', id]);"},
 		{"const r = {\n    calls, canvas,", "const r = {\n    calls, canvas, office,"},
 	} {

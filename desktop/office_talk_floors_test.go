@@ -286,36 +286,76 @@ console.log('armed ok');
 `, path)
 }
 
-// Upstairs, a tap on a cloud bot's person opens its card too, as a tap on its desk does, so its news is seen, and its
-// bubble; held, only its card. (On tree 6fd09473, a tap opened the bubble only, and a hold both.)
-func TestATapOnACloudBotUpstairsOpensItsCardToo(t *testing.T) {
+// A cloud bot (a Grok Bot) has no terminal and nothing to type into, so no talk bubble, on the ground floor or
+// upstairs: none recorded (the desk list leaves it out, Enter on it opens nothing), a mouse resting on it is told
+// nothing, and a click or a tap on its person is its desk's, as on 1.26.0 as released: on the ground floor it's
+// selected, upstairs its card opens and its news is seen; held upstairs, its card only. A normal agent beside it keeps
+// its bubble. (On tree 9d5e50b1, a tap on it opened a bubble, upstairs with its card.)
+func TestACloudBotHasNoTalkBubble(t *testing.T) {
 	runTalkFloorRow(t, `
 (async () => {
-  const fresh = () => { const r = floorRig([session('a')], [up('v', { state: 'idle' }), up('c', { state: 'unread', cloud: true, drivable: false })]); r.office.ride(2); r.step(10); return r; };
+  const fresh = () => floorRig([session('a', { name: 'Ann' }), session('g', { state: 'unread', cloud: true, name: 'Gus', project: 'Gus' })],
+    [up('u'), up('v', { state: 'idle' }), up('c', { state: 'unread', cloud: true, drivable: false, name: 'Cal', project: 'Cal' })]);
   const done = (r) => { r.office.close(); win.document.body.replaceChildren(); };
-  // Where c's person is: the lowest click that opens c's bubble (its bubble is above it)
-  let spot = null;
-  const r0 = fresh();
-  for (let y = 358; y >= 0 && !spot; y -= 2) for (let x = 0; x < 640 && !spot; x += 2) {
-    const n = r0.calls.length;
-    r0.click(x, y);
-    if (r0.since(n).some((c) => c[0] === 'open' && c[1] === 'c')) spot = [x, y];
-  }
-  done(r0);
-  need(spot, 'no click upstairs opened the cloud bot\'s bubble');
-  let r = fresh(), n = r.calls.length;
-  r.click(...spot);
-  need(JSON.stringify(r.since(n)) === '[["seen","c"],["open","c"]]', 'a tap on the cloud bot: ' + JSON.stringify(r.since(n)));
-  done(r);
-  for (const kind of ['mouse', 'touch']) {
-    r = fresh();
-    n = r.calls.length;
-    r.send('pointerdown', ...spot, kind);
-    r.step(6);
-    r.send('pointerup', ...spot, kind);
+  const upTo2 = (r) => { r.office.ride(2); r.step(10); };
+  const shown = async (r) => { await settle(); r.step(3); await settle(); r.step(3); };
+  // Every click on the room, by mouse or touch, and what each told the page; a card it opened put away again
+  const everyClick = (r, kind) => {
+    const told = [];
+    for (let y = 0; y < 360; y += 3) for (let x = 0; x < 640; x += 3) {
+      const n = r.calls.length;
+      r.click(x, y, kind);
+      told.push({ at: [x, y], calls: r.since(n) });
+      r.office.hold(null);
+    }
+    return told;
+  };
+  const has = (calls, what, id) => calls.some((c) => c[0] === what && c[1] === id);
+  for (const [bot, mate, floor] of [['g', 'a', 1], ['c', 'u', 2]]) {
+    const where = ' (floor ' + floor + ')';
+    // Hover: the agent's bubble is told, the bot's never
+    let r = fresh();
+    if (floor === 2) upTo2(r);
+    need(r.bubble(mate), 'no bubble to hover over ' + mate + where);
+    need(r.bubble(bot) === null, 'a mouse resting on the cloud bot was told of its bubble' + where);
+    // No bubble recorded: not in the desk list, and Enter on it, picked, opens nothing
+    await shown(r);
+    need(deskList().length > 0 && !deskList().some((d) => d.startsWith(floor === 1 ? 'Gus' : 'Cal')), 'the desk list has the cloud bot' + where + ': ' + JSON.stringify(deskList()));
+    r.office.select(bot);
     r.step(2);
-    need(JSON.stringify(r.since(n)) === '[["seen","c"]]', 'a ' + kind + ' hold on the cloud bot: ' + JSON.stringify(r.since(n)));
+    r.canvas.focus();
+    r.canvas.dispatch('keydown', { key: 'Enter' });
+    await settle();
+    need(panels().length === 0, 'Enter on the cloud bot opened ' + JSON.stringify(panels()) + where);
     done(r);
+    for (const kind of ['mouse', 'touch']) {
+      r = fresh();
+      if (floor === 2) upTo2(r);
+      const told = everyClick(r, kind);
+      need(!told.some((t) => has(t.calls, 'open', bot)), 'a ' + kind + ' click opened the cloud bot\'s bubble' + where);
+      need(told.some((t) => has(t.calls, 'open', mate)), 'no ' + kind + ' click opened ' + mate + '\'s bubble' + where);
+      // Its desk's, as on 1.26.0: selected downstairs; upstairs its card, its news seen, and nothing else
+      const own = told.filter((t) => t.calls.some((c) => c[1] === bot));
+      need(own.length > 0, 'no ' + kind + ' click reached the cloud bot' + where);
+      for (const t of own) {
+        const ok = floor === 1 ? JSON.stringify(t.calls) === '[["select","g"]]' : JSON.stringify(t.calls) === '[["seen","c"]]';
+        need(ok, 'a ' + kind + ' click on the cloud bot at ' + t.at + where + ': ' + JSON.stringify(t.calls));
+      }
+      done(r);
+      // Held upstairs: its card only
+      if (floor === 2) {
+        const spot = own[own.length - 1].at;
+        r = fresh();
+        upTo2(r);
+        const n = r.calls.length;
+        r.send('pointerdown', ...spot, kind);
+        r.step(6);
+        r.send('pointerup', ...spot, kind);
+        r.step(2);
+        need(JSON.stringify(r.since(n)) === '[["seen","c"]]', 'a ' + kind + ' hold on the cloud bot: ' + JSON.stringify(r.since(n)));
+        done(r);
+      }
+    }
   }
   console.log('cloud ok');
 })().catch((e) => { console.error(e); process.exit(1); });
