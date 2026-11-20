@@ -95,7 +95,7 @@ holds a key to them: the setup key lives in Smolcorp's memory only, new each
 time it starts, so nothing that can read your files can use it.
 
 - **The checklist.** `smolcorp setup` (on a Mac,
-  `/Applications/Smolcorp.app/Contents/MacOS/AgentDeck --setup`) reads it
+  `/Applications/Smolcorp.app/Contents/MacOS/Smolcorp --setup`) reads it
   with the check-only key, in the `selftest-key` file in Smolcorp's folder. That
   key opens `GET /setup/selftest` and nothing else, sent as
   `X-Smolcorp-Selftest-Key`.

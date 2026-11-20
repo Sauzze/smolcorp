@@ -262,7 +262,7 @@ echo
 SIGNED="signed ad hoc"
 [ -n "$DEVELOPER_ID" ] && SIGNED="Developer ID, not notarised"
 [ -n "$NOTARY_PROFILE" ] && SIGNED="Developer ID, notarised"
-echo "Smolcorp $(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist"): $(lipo -archs "$APP/Contents/MacOS/AgentDeck"), $SIGNED, $("$TMUX_FILE" -V)"
+echo "Smolcorp $(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist"): $(lipo -archs "$APP/Contents/MacOS/Smolcorp"), $SIGNED, $("$TMUX_FILE" -V)"
 for FILE in "$DMG" "$ZIP"; do
   echo "$FILE ($(du -h "$FILE" | cut -f 1 | tr -d ' '))"
   echo "SHA-256: $(shasum -a 256 "$FILE" | cut -d ' ' -f 1)"

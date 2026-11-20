@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-/// Where AgentDeck reads and writes. Its own state lives in
+/// Where Smolcorp reads and writes. Its own state lives in
 /// ~/Library/Application Support/AgentDeck, so the app can be moved or
 /// replaced without losing the paired phones or the deck's layout.
 /// A test copy of the app, for trying a build beside the one in use: started

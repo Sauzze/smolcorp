@@ -176,7 +176,7 @@ var rows = []row{
 	all("$S", Write, D), all("$ROOT", Write, D), all("$H/Projects", Write, D), all("$H", Write, D), all(repo, Write, D),
 	all(home+"/Library/Application Support", Write, D), {"$R", Write, D, D, D},
 	// Smolcorp's install and the programs it resolved.
-	all("/Applications/Smolcorp.app/Contents/MacOS/AgentDeck", Write, D), all("/Applications/Smolcorp.app/Contents/MacOS/AgentDeck", Read, A),
+	all("/Applications/Smolcorp.app/Contents/MacOS/Smolcorp", Write, D), all("/Applications/Smolcorp.app/Contents/MacOS/Smolcorp", Read, A),
 	all("/opt/homebrew/Cellar/tmux/3.5/bin/tmux", Write, D),
 	// Plants.
 	all("$H/.zshrc", Write, D), all("$H/.zshrc", Read, A), all("$H/.bash_profile", Write, D), all("$H/.profile", Write, D),

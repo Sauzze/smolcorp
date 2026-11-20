@@ -247,7 +247,7 @@ jobs:
           SMOLCORP_SIGN_IDENTITY=- scripts/build-app.sh universal
           APP=build/Smolcorp.app
           for arch in arm64 x86_64; do
-            lipo -archs "$APP/Contents/MacOS/AgentDeck" | grep -qw "$arch" || { echo "::error::the release build has no $arch"; exit 1; }
+            lipo -archs "$APP/Contents/MacOS/Smolcorp" | grep -qw "$arch" || { echo "::error::the release build has no $arch"; exit 1; }
           done
           pieces=("$APP" "$APP/Contents/Resources/bin/smolcorp" "$APP/Contents/Resources/bin/smolcorp-spawn")
           [ -f "$APP/Contents/Resources/bin/tmux" ] && pieces+=("$APP/Contents/Resources/bin/tmux")

@@ -203,7 +203,7 @@ func startAndCheck(cmd *exec.Cmd, wait time.Duration) error {
 func setupAdvice(goos string) string {
 	switch goos {
 	case "darwin":
-		return "choose Settings… from Smolcorp's menu bar icon, or run /Applications/Smolcorp.app/Contents/MacOS/AgentDeck --setup --open"
+		return "choose Settings… from Smolcorp's menu bar icon, or run /Applications/Smolcorp.app/Contents/MacOS/Smolcorp --setup --open"
 	case "windows": // the tray is always there; no command makes a setup link
 		return "choose Open Setup… from Smolcorp's tray icon once your browser opens links, or quit Smolcorp from its tray icon and start it again for a new link"
 	default: // Linux: the same tray item, and with no tray the only new link comes from quitting and starting again

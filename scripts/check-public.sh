@@ -3,8 +3,9 @@
 # Anthropic API key, an AWS access key ID or secret key, a name or path from the
 # maintainer's own machine, the folders of notes and briefs a personal build
 # keeps beside the code, or, in a line added since the release base, a name of
-# the team that builds it. A test that needs a key-shaped string puts it together
-# when it runs ("AKIA" + "FAKE…"), so no file holds one whole.
+# the team that builds it (in a clone without that base, in any line of its code,
+# pages, docs and workflows). A test that needs a key-shaped string puts it
+# together when it runs ("AKIA" + "FAKE…"), so no file holds one whole.
 #
 #   scripts/check-public.sh
 #
@@ -131,7 +132,10 @@ for name in [n for n in all_names if re.match(r"desktop/summary[^/]*\.go$", n) a
 # capitals (a word in small letters, or one inside a longer name, is another word), listed only as its SHA-256 with
 # its own prefix, as the names above are. The base is a tree (SMOLCORP_RELEASE_BASE, or the one below: the signed
 # 1.26 base), and an added line is one the diff from it to the files here adds. A clone without that tree (a shallow
-# one) says so and checks the rest.
+# one, or a tree loaded on its own) checks every line of its .go, .html, .js, .swift, .md and .yml files instead, and
+# says so. It lets through only a line the base itself had, kept or moved: scripts/check-public-base-lines.txt lists
+# each one, trimmed, as the SHA-256 of its text with its own prefix (TestCheckPublicsBaseLinesAreTheReleaseBases
+# checks the list, and remakes it, against the default base).
 TEAM_SALT = "smolcorp-team-check:"
 TEAM = set("""
 1145fd2c3199bfa9ce66190ba34516d4009f3315073546c0eb25bf21b663c4c9
@@ -142,9 +146,30 @@ b7d10a7ebddba0209e7aa2e61313175930487c7aa27b73547e7396766ed3ff49
 7e3c4b6a9c022d8ed2402029bcb4438c4585727cdf7ef1b72c9fe0c1c3cf6c08
 """.split())
 RELEASE_BASE = os.environ.get("SMOLCORP_RELEASE_BASE") or "cf9905c004436821c52bbb41cb47093a9f124d4f"
+TEAM_CHECKED = (".go", ".html", ".js", ".swift", ".md", ".yml")
+BASE_LINE_SALT = "smolcorp-team-line:"
+try:
+    BASE_LINES = {line.strip() for line in open("scripts/check-public-base-lines.txt", encoding="utf-8")
+                  if line.strip() and not line.startswith("#")}
+except OSError:
+    BASE_LINES = set()
+
+def names_team(text):
+    return any(word.isupper() and word.isalpha() and hashlib.sha256((TEAM_SALT + word).encode()).hexdigest() in TEAM
+               for word in re.findall(r"\w+", text, re.ASCII))
+
 notes = []
 if subprocess.run(["git", "cat-file", "-e", RELEASE_BASE + "^{tree}"], stderr=subprocess.DEVNULL).returncode != 0:
-    notes.append(f"Note: the release base {RELEASE_BASE} is not in this clone, so the added lines were not checked for the team names.")
+    notes.append(f"Note: the release base {RELEASE_BASE} is not in this clone, so every line of its "
+                 + ", ".join(TEAM_CHECKED) + " files was checked for the team names, but for the lines the base had.")
+    for name in [n for n in all_names if n.endswith(TEAM_CHECKED) and not n.startswith(KEPT_OUT)]:
+        try:
+            text = open(name, "rb").read().decode("utf-8", "replace")
+        except OSError:
+            continue
+        for number, line in enumerate(text.split("\n"), 1):
+            if names_team(line) and hashlib.sha256((BASE_LINE_SALT + line.strip()).encode()).hexdigest() not in BASE_LINES:
+                problems.append(f"{name}:{number}: a name of the team, in a clone without the release base")
 else:
     diff = subprocess.run(["git", "-c", "core.quotePath=false", "diff", "--no-ext-diff", "--no-textconv", "--no-color",
                            "--src-prefix=a/", "--dst-prefix=b/", "-M", "-U0", RELEASE_BASE, "--"],
@@ -158,8 +183,7 @@ else:
         elif line.startswith("@@ "):
             number, hunk = int(re.match(r"@@ -\S+ \+(\d+)", line).group(1)), True
         elif hunk and line.startswith("+"):
-            if any(word.isupper() and word.isalpha() and hashlib.sha256((TEAM_SALT + word).encode()).hexdigest() in TEAM
-                   for word in re.findall(r"\w+", line[1:], re.ASCII)):
+            if names_team(line[1:]):
                 problems.append(f"{name}:{number}: a name of the team in a line added since the release base")
             number += 1
 

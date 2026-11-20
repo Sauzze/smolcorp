@@ -699,7 +699,7 @@ var guardAllowed = map[string]string{
 	"programs_darwin_test.go TestOnAMacAProgramPlantedUnderAnInstallRootIsRefused":              "Smolcorp.app's stand-in script for the resolver, never run; Other.app: an empty folder the sandbox's file probe makes",
 	"programs_darwin_test.go TestOnAMacUsrBinsToolsAreDeniedWithTheDeveloperFolderTheyHandOnTo": "Xcode.app's stand-in git script for the resolver, never run; .app/ in a check of developerRoot's answer",
 	"gitconfig_test.go TestACommandsWordsAreTheShells":                                          "\"open and 'open: unclosed quotes commandWords must refuse, never run",
-	"policy_test.go var rows":                 "/Applications/Smolcorp.app/Contents/MacOS/AgentDeck in the Policy's rows: a path, nothing on disk",
+	"policy_test.go var rows":                 "/Applications/Smolcorp.app/Contents/MacOS/Smolcorp in the Policy's rows: a path, nothing on disk",
 	"escape3_darwin_test.go var guardAllowed": "this list: its reasons name what each declaration may",
 	"policy_test.go hirePlaces":               "/Applications/Smolcorp.app as an install root in the Policy's Places: a path, nothing on disk",
 

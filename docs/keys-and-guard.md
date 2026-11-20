@@ -33,7 +33,7 @@ last section says plainly what's still open.
   so: "Another program on this computer opened Setup with this link first." It
   also lists what that session changed. Open Setup again from Smolcorp's menu.
 - **`smolcorp setup` only checks.** It, and Smolcorp's `--setup` on a Mac
-  (`/Applications/Smolcorp.app/Contents/MacOS/AgentDeck --setup`), read the
+  (`/Applications/Smolcorp.app/Contents/MacOS/Smolcorp --setup`), read the
   checklist with the check-only key in `selftest-key`, which opens nothing
   else. The fixes are on the setup page.
 - **A tool of yours asks, with a code** (on a Mac, and on Windows with

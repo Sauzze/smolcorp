@@ -40,16 +40,20 @@ is_ours() {
   [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null)" = "$BUNDLE_ID" ]
 }
 
-if pgrep -x AgentDeck >/dev/null; then # the executable kept the old name
+# Whether a copy is running, by its program's name: Smolcorp since 1.26, and
+# AgentDeck before, which a copy from before the update still has.
+running() { pgrep -x Smolcorp >/dev/null || pgrep -x AgentDeck >/dev/null; }
+
+if running; then
   echo "Closing the running copy…"
   osascript -e "quit app id \"$BUNDLE_ID\"" >/dev/null 2>&1 || true
   # Replaced while it still runs, the old copy would carry on, and the new
   # one wouldn't open: wait for it to quit, or stop here.
   for _ in $(seq 20); do
-    pgrep -x AgentDeck >/dev/null || break
+    running || break
     sleep 0.5
   done
-  if pgrep -x AgentDeck >/dev/null; then
+  if running; then
     echo "Smolcorp is still running. Quit it from its menu bar icon, then run ./install.sh again."
     exit 1
   fi

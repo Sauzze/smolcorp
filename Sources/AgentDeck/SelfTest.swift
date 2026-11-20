@@ -1,7 +1,7 @@
 import AppKit
 
 /// The self-test: setup's "Start here" checklist, and what
-/// `Smolcorp.app/Contents/MacOS/AgentDeck --setup` prints. Each check only
+/// `Smolcorp.app/Contents/MacOS/Smolcorp --setup` prints. Each check only
 /// looks; what puts one right is a fix, asked for by its name, as the
 /// Windows and Linux app has them (desktop/selftest.go).
 struct Check: Equatable {
