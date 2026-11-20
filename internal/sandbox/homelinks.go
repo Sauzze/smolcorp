@@ -152,6 +152,19 @@ func (e *HomeTooBigError) Error() string {
 	return fmt.Sprintf("too many names to look through: it stopped in %s, after %d in %s", e.Inside, e.Most, e.Folder)
 }
 
+// HomeLinksError is a start followLinks refused because a place couldn't be looked through: At is the place it was
+// at, a row's own or one a link leads to, and Err why (a link loop, a folder it can't read, HomeTooBigError). It is
+// ErrHomeLinks, and Err too. At lets the start's words name the variable the place came from (FXAGENTHOMEMACR2:
+// AgentPlaceOf).
+type HomeLinksError struct {
+	At  string
+	Err error
+}
+
+func (e *HomeLinksError) Error() string { return fmt.Sprintf("%v: %s: %v", ErrHomeLinks, e.At, e.Err) }
+
+func (e *HomeLinksError) Unwrap() []error { return []error{ErrHomeLinks, e.Err} }
+
 // followLinks holds the owner's places, the rows from first on, where their links lead (see above). home and owned
 // are the home folder and the account folders: only rows in those are looked into for links below them.
 func (b *builder) followLinks(first int, home string, owned []string) {
@@ -160,7 +173,7 @@ func (b *builder) followLinks(first int, home string, owned []string) {
 	}
 	fail := func(at string, err error) {
 		if b.err == nil {
-			b.err = fmt.Errorf("%w: %s: %w", ErrHomeLinks, at, err)
+			b.err = &HomeLinksError{At: at, Err: err}
 		}
 	}
 	homeKey := key(b.goos, home)

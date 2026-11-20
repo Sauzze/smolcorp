@@ -168,7 +168,7 @@ func (r *lrig) connect(launcherID, folder, role, token, hireID string, env hireS
 	if tab == nil {
 		r.t.Fatal("launcher not connected")
 	}
-	w := &winLauncher{id: launcherID, tab: tab, screen: newLauncherScreen(60, 200, true), env: env}
+	w := &winLauncher{id: launcherID, tab: tab, screen: newLauncherScreen(60, 200, true, westernCP), env: env}
 	w.screen.Write([]byte("\x1b[?2004h\x1b[2J\x1b[H" + ptyOutput(pane(r.t, r.shows))))
 	pipe, feed := io.Pipe()
 	r.t.Cleanup(func() { feed.Close() })

@@ -41,7 +41,7 @@ terminal. Free and open source (MIT).
    each change reviewed by a second agent.
 4. **Approve what ships.** Pushes, merges, releases and deploys wait for you.
 
-To watch all of this on a sample project first, in a folder of its own, run `smolcorp demo`: a browser page opens for the one click that hires its General Manager ([The demo](docs/demo.md)). It's made for a Mac: on Windows with the WebView2 Runtime it runs too, but hiring from its page hasn't been tried there yet, and on Linux it says why it can't and stops.
+To watch all of this on a sample project first, in a folder of its own, run `smolcorp demo`: Smolcorp's Settings window opens at the demo for the one click that hires its General Manager ([The demo](docs/demo.md)). It's made for a Mac: on Windows with the WebView2 Runtime it runs too, but hiring from its page hasn't been tried there yet, and on Linux it says why it can't and stops.
 
 You can also hire anyone yourself: hold a free desk in the office and pick a
 role. [Your team](docs/team.md) has every role and what the General Manager
@@ -67,7 +67,9 @@ can do.
 - **The General Manager's hires each work on a branch of their own**, so
   nothing lands on main without you. On a Mac, a hire's sandbox lets it commit
   only to its own branches: that one, and any new one it makes under its own
-  `hire/<id>/`.
+  `hire/<id>/`. With the sandbox on, every hire there but the General Manager
+  works in one project: the office asks you which, and each hire, a plain one
+  too, gets a worktree of its own when the project is a repository.
 - **Nothing leaves your network unless you turn it on.** No account, no
   analytics, no cloud service of its own. See
   [Setup, privacy and security](docs/setup.md#privacy-and-security).

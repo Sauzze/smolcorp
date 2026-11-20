@@ -39,9 +39,13 @@ last section says plainly what's still open.
 - **A tool of yours asks, with a code** (on a Mac, and on Windows with
   WebView2). `smolcorp demo`, `status` and `desks` each ask at every run:
   Smolcorp's Settings window shows the ask with a four-digit code, and you click
-  **Allow** once you've checked that the terminal shows the same code. On
-  Windows, where nothing keeps a hire from asking too, the window also names the
-  program that asked, as Windows says it. On Linux, and on Windows without
+  **Allow** once you've checked that the terminal shows the same code. A hire
+  can ask too: on a Mac it still reaches Smolcorp from its sandbox, so an ask
+  from a program in a sandbox is refused, and so is one no program is still
+  waiting on; when macOS can't tell whether the program that asked is in a
+  sandbox, the window says it may be a hire. On Windows, where hires
+  have no sandbox, the window names the program that asked, as Windows says
+  it. On Linux, and on Windows without
   WebView2, they stop and say so: see your team and set things up in Setup
   instead. On Windows, `smolcorp demo` asks the same way, makes its folder and
   opens its page in your browser, but hiring from that page hasn't been tried
@@ -136,7 +140,13 @@ deploys, publishing and the rest): see
   Setup). Your other projects there, their git settings and hooks, and any
   project you add later are read-only to it. It's told so as it starts: "You
   can change files only in your own worktree here; other projects are
-  read-only." No hire works in the projects folder as a whole. When you hire
+  read-only." Your preferences folder, `~/Library/Preferences`, is read-only
+  to it too, and it can't ask macOS's preferences service (cfprefsd) to
+  change a setting for it. The settings an app keeps elsewhere, in
+  `~/Library/Application Support` or its own container, aren't held, except
+  your terminals' (see "Links deep in your agents' and apps' folders" in
+  [What this doesn't stop](#what-this-doesnt-stop)). No hire works in the
+  projects folder as a whole. When you hire
   from the office, whatever the agent, it first asks you which project (the
   General Manager aside: it gets a workspace of its own). The list shows each
   repository there, each repository inside a plain folder (`clients/acme`, not
@@ -199,8 +209,9 @@ deploys, publishing and the rest): see
   repack -a -d && git prune` in it.
 - **What still runs for other desks.** A plain hire in tmux (Claude Code with
   the manager off, or Codex, Gemini CLI, OpenCode or Grok, which on a Mac start
-  only with the sandbox off in 1.26.0) starts on tmux's usual server, which
-  runs your `~/.tmux.conf`. A desk opened in a terminal
+  only with the sandbox off in 1.26.0) starts on a tmux server of its own,
+  never your default one, and that server reads no start file, so your
+  `~/.tmux.conf` doesn't run there. A desk opened in a terminal
   window no longer goes through a login shell of Smolcorp's, but Terminal,
   iTerm2 and Ghostty start your shell for every window, so its start files run
   first. On Windows, a desk gets a one-time token from Smolcorp's launcher
@@ -280,13 +291,27 @@ with is on your Mac.
 Said plainly, so you can judge for yourself:
 
 - **A hire can still act as any desk it can reach, the General Manager
-  included.** It can type into a desk's tmux, read its scrollback, or restart
-  its pane with a program of its own, which then runs without the guard. It can
-  debug a desk's own programs that lack the hardened runtime, such as Node MCP
-  servers, or plant code that a desk runs later, in `~/.claude` or your shell's
-  start files. On Linux it can also trace a desk's programs, unless your system
-  forbids it. On a Mac, it can't open Setup, read your phones' keys, change your
-  guard, or forge a record.
+  included.** Without a sandbox (on Windows and Linux, and on a Mac for a desk
+  Setup lists as **No sandbox**), it can type into a desk's tmux, read its
+  scrollback, or restart its pane with a program of its own, which then runs
+  without the guard, and it can plant code that a desk runs later, in
+  `~/.claude` or your shell's start files. In its sandbox on a Mac, it can't
+  reach another desk's tmux, and `~/.claude`, your shell's start files and
+  your agents' settings are read-only to it. Nor can it debug another desk's
+  programs or yours: only the ones it started itself. Without a sandbox, it
+  can still debug a desk's programs that lack the hardened runtime, such as
+  Node MCP servers, and on Linux it can also trace them, unless your system
+  forbids it.
+  On a Mac, it can't open Setup, read your phones' keys, change your guard, or
+  forge a record.
+- **Program folders outside your home folder, on a Mac.** A hire in its
+  sandbox can add or replace programs in Homebrew's folders and the other
+  folders on your PATH outside your home folder, like `/usr/local/bin`, and in
+  `~/.local/bin`. So a command you run later, such as `ls` or the `ssh` behind
+  `git push`, can be one it put there, and so can a zsh function your next
+  Terminal window runs at its start, from Homebrew's
+  `share/zsh/site-functions`. Only the programs Smolcorp itself runs are held,
+  wherever they're found.
 - **On Windows and Linux, a program of yours can change Smolcorp's files while
   Smolcorp is stopped**: add a phone, or loosen the guard for hires started
   later. Smolcorp takes the change at its next start, and a program can stop
@@ -320,6 +345,85 @@ Said plainly, so you can judge for yourself:
   `~/Documents` is read at every start. It looks through at most 50,000
   folders where they lead; past that, the desk doesn't start until you
   remove the links it doesn't need.
+- **Links deep in your agents' and apps' folders, on a Mac.** At each start,
+  Smolcorp follows the links in your terminals', agents' and keychains'
+  folders, and in `~/.claude` (and any other Claude Code account folder), so a
+  settings file you keep as a link into a dotfiles folder is held where it
+  leads. It looks there only two levels deep, and not at all into what an
+  agent adds to at every session: its sessions, checkpoints, snapshots,
+  temporary files and downloaded packages, and in `~/.claude` the `projects`,
+  `file-history`, `todos`, `shell-snapshots`, `debug` and `session-env`
+  folders. A link deeper in, or inside one of those, isn't followed, so a hire
+  may write where it leads. A hire can't make such a link itself: only you or
+  an app of yours could have. Two places are looked into further:
+  `~/.claude`'s `skills`, `commands`, `agents` and `hooks`, whole, with
+  wherever their links lead, and iTerm2's `Scripts/AutoLaunch` folder, two
+  levels deep (a full-environment Python script's main file, three levels in,
+  isn't followed if it's a link). What it looks through in `~/.claude` counts
+  toward the 200,000 files and folders Smolcorp looks through at most, with
+  your other folders that are looked into whole. If a skill brings a lot with
+  it (a `node_modules` folder, a Python virtual environment), remove what you
+  don't need, or keep it somewhere no link in `~/.claude` leads.
+- **An agent's folder you moved, on a Mac.** Smolcorp holds your agents'
+  folders where they're kept by default (`~/.codex`, `~/.gemini`, `~/.grok`,
+  `~/.agents`, and OpenCode's in `~/.opencode`, `~/.config`, `~/.local` and
+  `~/.cache`). If you moved one with `CODEX_HOME`, `GEMINI_CLI_HOME`,
+  `GROK_HOME`, `XDG_CONFIG_HOME` or the like, Smolcorp holds it where it went
+  only if the variable is in launchd's environment: set it with `launchctl
+  setenv`, then quit and reopen Smolcorp. A desk that was already running
+  holds it only from its next start: fire it and hire it again. A variable
+  set only in your shell's start files doesn't reach an app opened from the
+  Finder or at login, so that folder isn't held, and a desk can change what
+  your agent keeps there. On Windows and Linux there's no sandbox yet, so no
+  agent's folder is held there, moved or not.
+- **zsh's files in a folder you moved them to, on a Mac.** Smolcorp holds
+  zsh's start files in your home folder and in `~/.config/zsh`. If you set
+  `ZDOTDIR` to another folder, they're held there only if `ZDOTDIR` is in
+  launchd's environment: set it with `launchctl setenv ZDOTDIR <folder>`,
+  then quit and reopen Smolcorp. Set only in `~/.zshenv`, it doesn't reach
+  Smolcorp, and a hire can change the files there.
+- **What your shell's start files load, on a Mac.** Smolcorp holds zsh's and
+  bash's own start files, oh-my-zsh in `~/.oh-my-zsh` or your `ZDOTDIR`, and
+  `~/.p10k.zsh`, not the other files and programs they load from your home
+  folder: a plugin manager's plugins, Powerlevel10k's cache in `~/.cache`,
+  nvm's `~/.nvm`, `~/.cargo/env`, conda. A hire can change those, so your next
+  terminal window runs what it put there.
+- **Local servers that run commands, on a Mac.** A hire in its sandbox can
+  still connect to most servers on your Mac's own addresses, since the sandbox
+  can't tell yours from the ones a hire starts for its work. One that runs
+  commands or reads files for whoever connects does that for a hire too: a
+  virtual machine's SSH port, Node's inspector, Jupyter, a browser's debugging
+  port. Smolcorp holds the SSH keys of Lima, Colima, Rancher Desktop and
+  OrbStack machines, and of Podman's default machine (`~/.lima/_config`,
+  `~/.colima/_lima/_config`,
+  `~/Library/Application Support/rancher-desktop/lima/_config`,
+  `~/.orbstack/ssh` and Podman's default machine keys), so a hire can't read
+  them. A `LIMA_HOME` or `COLIMA_HOME` moved elsewhere isn't followed, so
+  keys kept there stay readable. Stop such a server while hires work if you
+  don't need it.
+- **A hire's window in your terminal app.** While one is open, what the hire
+  prints reaches Terminal, iTerm2, Ghostty or whichever terminal app shows it,
+  including sequences some terminals act on, such as one that sets your
+  clipboard (OSC 52). Don't paste what a hire's window put on your clipboard
+  without reading it first.
+- **Remote-tracking branches, on a Mac.** A hire can update `refs/remotes/*`,
+  as its own `git fetch` needs to. Fetch before you merge `origin/*` into your
+  own branch, so you merge what the remote really holds.
+- **Git tools other than git's own command line, on a Mac.** If you use
+  Xcode's or Eclipse's source control (or another libgit2 or JGit tool) on a
+  repository while hires work in it, a hire could change its packed refs. Use
+  git's command line there, or fire the hires first.
+- **Very large repositories.** In a repository with millions of objects, the
+  fire's check of the stored objects can't finish within its two minutes. The
+  hire's worktree and branch are then kept, and you merge its work by hand.
+- **Installers and updaters, on a Mac.** A package manager or an app's updater
+  that stages files in a folder of its own can be watched by a hire while it
+  runs. Install and update with no hire working.
+- **A network or FUSE-T volume holding git's hooks, on a Mac.** If a network
+  share or a FUSE-T volume (a vault, an rclone mount) is mounted in your home
+  folder and holds git's hooks, or a file git's config names, at its top, no
+  desk starts or stops while it's mounted. Smolcorp says which one it is:
+  unmount it to go on.
 - **A General Manager you started by hand** runs without the guard.
 - **The hook key** stays readable in `hook-key`. A program that reads it can
   report events as if they came from your agents, and connect as a desk's

@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -347,7 +346,7 @@ func demoMakeRepo(f demoFolder) error {
 // ownerGitIdentity is the owner's own name and address for a commit, from their git config (reading config runs
 // nothing; --global follows no includes): "" for what they haven't set.
 func ownerGitIdentity(ctx context.Context) (name, email string) {
-	env := slices.DeleteFunc(gitReadEnv(os.Environ(), nil), func(kv string) bool { return strings.HasPrefix(kv, "GIT_CONFIG_GLOBAL=") })
+	env := gitOwnerConfigEnv(os.Environ())
 	value := func(key string) string {
 		out, status, err := execGit(ctx, env, "-C", os.TempDir(), "--no-pager", "config", "--global", "--get", key)
 		if err != nil || status != 0 {
@@ -359,7 +358,8 @@ func ownerGitIdentity(ctx context.Context) (name, email string) {
 }
 
 // demoSettings is the project's .claude/settings.json: the demo's fence before every tool call,
-// and deny rules for the plain forms of what it refuses.
+// and deny rules for the plain forms of what it refuses. A fence that times out, is killed or fails
+// refuses the call (onFailure "block", as the hire's and the GM's hooks: smolcorpHook).
 func demoSettings(root string, roles []string) ([]byte, error) {
 	program := commandLineProgram() // links resolved; on Windows, smolcorp-cli.exe
 	if program == "" {
@@ -371,7 +371,7 @@ func demoSettings(root string, roles []string) ([]byte, error) {
 		"permissions": map[string]any{"deny": []string{"Bash(git push:*)", "Bash(git remote add:*)", "Bash(gh:*)", "PowerShell"}},
 		"hooks": map[string]any{"PreToolUse": []any{map[string]any{
 			"matcher": "*",
-			"hooks":   []any{map[string]any{"type": "command", "command": command, "timeout": 10}},
+			"hooks":   []any{map[string]any{"type": "command", "command": command, "timeout": 10, "onFailure": "block"}},
 		}}},
 	}, "", "  ")
 }

@@ -84,6 +84,79 @@ final class EngineTests: XCTestCase {
                        "nothing else of a terminal Smolcorp was opened from: not its tokens")
     }
 
+    /// FXAGENTHOMEMAC: the core is given each variable that moves an agent's folder when this app has it, as it is,
+    /// so a desk's sandbox holds the folder where it went; and nothing else new. Without them it's given none.
+    func testTheCoreIsGivenWhereYourAgentsFoldersWereMovedAndNothingElse() throws {
+        let core = try core("exit 0")
+        XCTAssertEqual(GoCore.agentPlaces.count, 18)
+        XCTAssertTrue(GoCore.agentPlaces.contains("CODEX_HOME") && GoCore.agentPlaces.contains("XDG_CONFIG_HOME"))
+        var base = ["PATH": "/usr/bin", "CODEX_API_KEY": "fake-key", "OPENAI_API_KEY": "fake-key", "GEMINI_API_KEY": "fake-key",
+                    "XAI_API_KEY": "fake-key", "XDG_RUNTIME_DIR": "/fake/run", "XDG_SESSION_ID": "c1", "OPENCODE_SERVER_PASSWORD": "fake-key"]
+        for name in GoCore.agentPlaces { base[name] = "/Users/ada/moved/" + name.lowercased() }
+        let environment = core.environment(base: base)
+        for name in GoCore.agentPlaces {
+            XCTAssertEqual(environment[name], "/Users/ada/moved/" + name.lowercased(), name)
+        }
+        XCTAssertEqual(Set(environment.keys), Set(["PATH", "SMOLCORP_PORT", "SMOLCORP_TEST_SUPPORT_DIR"] + GoCore.agentPlaces),
+                       "nothing else new: no key, no runtime folder")
+        XCTAssertFalse(environment.values.contains("fake-key"))
+        XCTAssertEqual(Set(core.environment(base: ["PATH": "/usr/bin", "XDG_RUNTIME_DIR": "/fake/run"]).keys),
+                       ["PATH", "SMOLCORP_PORT", "SMOLCORP_TEST_SUPPORT_DIR"], "none when this app has none")
+    }
+
+    /// FXSWEEP3P1 (RT126SWEEP3 P1's B1): the core is given ZDOTDIR, where zsh's start files are when you moved them, so a
+    /// desk's sandbox holds them there; only as a clean whole path, like an agent's folder, else by its name alone.
+    func testTheCoreIsGivenWhereZshsStartFilesWereMoved() throws {
+        let core = try core("exit 0")
+        XCTAssertEqual(GoCore.agentPlaces.last, "ZDOTDIR")
+        XCTAssertTrue(GoCore.inherited.contains("ZDOTDIR"))
+        let moved = core.environment(base: ["PATH": "/usr/bin", "ZDOTDIR": "/Users/ada/.config/zsh"])
+        XCTAssertEqual(moved["ZDOTDIR"], "/Users/ada/.config/zsh")
+        XCTAssertNil(moved[GoCore.agentPlacesDroppedVariable])
+        XCTAssertNil(core.environment(base: ["PATH": "/usr/bin", "ZDOTDIR": "zsh"])["ZDOTDIR"], "not a whole path: not passed")
+        let dotted = core.environment(base: ["PATH": "/usr/bin", "ZDOTDIR": "/Users/ada/x/../zsh"])
+        XCTAssertNil(dotted["ZDOTDIR"])
+        XCTAssertEqual(dotted[GoCore.agentPlacesDroppedVariable], "ZDOTDIR")
+    }
+
+    /// FXAGENTHOMEMACR2 (RT126AGENTHOMEMACR1 B1): a variable that moves an agent's folder reaches the core only as a
+    /// whole path. A relative or empty one would be read in the temp folder, where desks write; it isn't passed.
+    func testTheCoreIsGivenAnAgentsMovedFolderOnlyAsAWholePath() throws {
+        let core = try core("exit 0")
+        let environment = core.environment(base: ["PATH": "/usr/bin", "XDG_CONFIG_HOME": "rel", "CODEX_HOME": "",
+                                                  "GROK_AUTH_PATH": "./auth.json", "OPENCODE_DB": "~/opencode.db",
+                                                  "GEMINI_CLI_HOME": "/Users/ada/moved/gemini"])
+        XCTAssertEqual(Set(environment.keys), Set(["PATH", "SMOLCORP_PORT", "SMOLCORP_TEST_SUPPORT_DIR", "GEMINI_CLI_HOME"]))
+        XCTAssertEqual(environment["GEMINI_CLI_HOME"], "/Users/ada/moved/gemini")
+    }
+
+    /// FXAGENTHOMEMACR3 (RT126AGENTHOMEMACR2 B1): nor one spelled with a `.` or `..` in it, or a doubled `/`: a desk's
+    /// sandbox holds it as cleaned, while the Mac takes the `..` after a link a desk could make. Its name alone is
+    /// passed, so the core refuses each desk's start in words that name it. A `/` at the end is no such spelling.
+    func testTheCoreIsGivenNoAgentsFolderWithADotDotInItButItsName() throws {
+        let core = try core("exit 0")
+        let environment = core.environment(base: ["PATH": "/usr/bin", "XDG_CONFIG_HOME": "/a/../b", "CODEX_HOME": "/Users/ada/a/./b",
+                                                  "OPENCODE_DB": "/Users/ada//x", "GEMINI_CLI_HOME": "/Users/ada/moved/gemini/",
+                                                  "GROK_HOME": "rel/../x"])
+        XCTAssertEqual(Set(environment.keys), Set(["PATH", "SMOLCORP_PORT", "SMOLCORP_TEST_SUPPORT_DIR", "GEMINI_CLI_HOME",
+                                                   GoCore.agentPlacesDroppedVariable]))
+        XCTAssertEqual(environment["GEMINI_CLI_HOME"], "/Users/ada/moved/gemini/")
+        XCTAssertEqual(environment[GoCore.agentPlacesDroppedVariable], "CODEX_HOME,XDG_CONFIG_HOME,OPENCODE_DB",
+                       "the names alone, in the core's order")
+        XCTAssertFalse(environment.values.contains { $0.contains("..") || $0.contains("/./") })
+        XCTAssertNil(core.environment(base: ["PATH": "/usr/bin", "XDG_CONFIG_HOME": "/Users/ada/cfg"])[GoCore.agentPlacesDroppedVariable])
+        // Read by its bytes, as the core reads it (RT126AGENTHOMEMACR3 N1): a combining mark after a `.`, a `..` or a
+        // doubled `/` is one Character with it, and the value is dropped all the same. One that only starts a name is kept.
+        for spelling in ["/Users/ada/x/../\u{301}b", "/Users/ada/x//\u{301}b", "/Users/ada/x/./\u{301}b"] {
+            let dropped = core.environment(base: ["PATH": "/usr/bin", "CODEX_HOME": spelling])
+            XCTAssertNil(dropped["CODEX_HOME"], spelling)
+            XCTAssertEqual(dropped[GoCore.agentPlacesDroppedVariable], "CODEX_HOME", spelling)
+        }
+        let kept = core.environment(base: ["PATH": "/usr/bin", "CODEX_HOME": "/Users/ada/x/\u{301}b"])
+        XCTAssertEqual(kept["CODEX_HOME"], "/Users/ada/x/\u{301}b")
+        XCTAssertNil(kept[GoCore.agentPlacesDroppedVariable])
+    }
+
     /// ENVSCRUB1: a Smolcorp opened inside a Claude Code session tells its core the names of the session's
     /// variables, never their values, and nothing else of them; one opened outside tells it nothing.
     func testTheCoreIsToldOnlyTheNamesOfTheClaudeVariablesItWasOpenedWith() throws {

@@ -366,7 +366,7 @@
       "kind" : "action",
       "method" : "POST",
       "path" : "\/setup\/hiring",
-      "why" : "how and where hires start"
+      "why" : "how and where hires start: the folder (folder=) only from the page, and the GM turns hiring off, never on (RT126SWEEP3 P4 B1, F2)"
     },
     {
       "callers" : [
@@ -379,13 +379,12 @@
     },
     {
       "callers" : [
-        "gm",
         "page"
       ],
-      "kind" : "action",
+      "kind" : "page",
       "method" : "POST",
       "path" : "\/setup\/hire-folder",
-      "why" : "the folder for new hires, from Start here"
+      "why" : "the folder for new hires, from Start here: only you choose it, never the GM, a tool or a hire, since every hire's sandbox holds it (RT126SWEEP3 P4 B1)"
     },
     {
       "callers" : [

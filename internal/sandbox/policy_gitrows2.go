@@ -1024,19 +1024,26 @@ func (p *Policy) refPlace(at string) ([]string, bool) {
 
 // makeHold is MakeHold of folders, but each where CheckRefPlaces looks is made by makeRefFolder, never through a link:
 // a keeper made through a link at refs/heads/topic would be in the desk's worktree (RT126FIXREVIEW-GITROWS2R1's B1).
-func (p *Policy) makeHold(folders []string) error {
+// Every other one the owner can't make either doesn't fail the start (makeHeld): unmade are the first missing folders
+// of those, each once, for the profile to deny (unmadeHeld). The shared .git is the owner's to write: a ref folder
+// that can't be made there still fails the start.
+func (p *Policy) makeHold(folders []string) (unmade []string, err error) {
 	for _, folder := range folders {
-		var err error
 		if names, ok := p.refPlace(folder); ok {
-			err = makeRefFolder(p.git, names)
-		} else {
-			err = MakeHold([]string{folder})
+			if err := makeRefFolder(p.git, names); err != nil {
+				return nil, err
+			}
+			continue
 		}
+		m, err := makeHeld(folder)
 		if err != nil {
-			return err
+			return nil, err
+		}
+		if m != "" && !slices.Contains(unmade, m) {
+			unmade = append(unmade, m)
 		}
 	}
-	return nil
+	return unmade, nil
 }
 
 // makeRefFolder makes the folder names below the shared .git git, as MakeHold does, from the .git down, one folder at

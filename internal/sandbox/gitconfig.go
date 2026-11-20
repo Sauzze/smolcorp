@@ -28,6 +28,18 @@ import (
 // operator), unbalanced quotes, or too many included files.
 var ErrGitConfig = errors.New("sandbox: the owner's git config names a place that can't be told")
 
+// ExcludesFileError is ErrGitConfig for an ignore file (core.excludesFile) spelled in a way the reader can't tell
+// the place of: from another account's home folder (`~name/…`) or from where git is installed (`%(prefix)/…`).
+// Value is the setting as written, for words that name it and say how to spell it instead (FXAGENTHOMEMACR2,
+// RT126AGENTHOMEMACR1 O1).
+type ExcludesFileError struct{ Value string }
+
+func (e *ExcludesFileError) Error() string {
+	return fmt.Sprintf("%v: core.excludesFile is %q", ErrGitConfig, e.Value)
+}
+
+func (e *ExcludesFileError) Unwrap() error { return ErrGitConfig }
+
 // maxGitConfigFiles is how many config files ReadGitConfig reads at most: git's own includes stop at a depth of 10.
 const maxGitConfigFiles = 64
 
@@ -37,9 +49,9 @@ const maxHookEntries = 1000
 
 // ReadGitConfig is what the owner's git config names for the desk at pl, for pl.GitHooks and pl.GitNamed: hooks are
 // core.hooksPath's folders, and named the files git reads as config or runs (include.path and every includeIf's path,
-// whatever its condition; core.fsmonitor's and core.sshCommand's files). git is the program the core resolved, run
-// with env, the environment the owner's git runs with. M1 calls it at the desk's start, before New, and doesn't start
-// the desk when it fails.
+// whatever its condition; core.fsmonitor's and core.sshCommand's files), and core.excludesFile's ignore file, which the
+// core's reads take too. git is the program the core resolved, run with env, the environment the owner's git runs
+// with. M1 calls it at the desk's start, before New, and doesn't start the desk when it fails.
 //
 // It reads every file the owner's git reads for this repo: the system's, the global ones and the command line's as git
 // finds them (`git config --list`), and the repo's own as files (its config and config.worktree, and the desk's
@@ -227,6 +239,12 @@ func (r *gitConfigReader) take(key, value, from string) error {
 			}
 		}
 		return nil
+	case key == "core.excludesfile":
+		// The ignore file (FXAGENTHOMEMACR1, RT126AGENTHOMEMAC O2): the core hands the owner's to every read
+		// (desktop's askGitHere), so a desk that wrote it would hide its files from them, and from the owner's git.
+		files, err := r.ignorePlaces(value)
+		r.named = append(r.named, files...)
+		return err
 	case key == "core.fsmonitor" && gitBool(value):
 		return nil // git's own daemon, or none
 	case key == "core.fsmonitor" || key == "core.sshcommand":
@@ -328,6 +346,35 @@ func (r *gitConfigReader) followHookLinks() error {
 		}
 	}
 	return nil
+}
+
+// ignorePlaces is an ignore file's value (core.excludesFile) as git reads it in the desk's root and the checkout
+// (places), with ExcludesFileError for a spelling it can't tell.
+func (r *gitConfigReader) ignorePlaces(value string) ([]string, error) {
+	if strings.HasPrefix(value, "~") && value != "~" && !strings.HasPrefix(value, "~/") || strings.HasPrefix(value, "%(") {
+		return nil, &ExcludesFileError{Value: value}
+	}
+	return r.places(value, r.roots)
+}
+
+// CarriedIgnorePlaces are the places of the ignore file the core carries into its reads (core.excludesFile, as its
+// git was asked for it once: desktop's gitHere), to add to Places.GitNamed at each desk's start (FXAGENTHOMEMACR2,
+// RT126AGENTHOMEMACR1 N2): ReadGitConfig names the file the config names now, and the owner may have changed it since.
+// Spelled as git reads it, as ReadGitConfig does: `~` from each of homes, a relative one in each of roots, as written
+// and with its links followed. "" and /dev/null are none.
+func CarriedIgnorePlaces(value string, homes, roots []string) ([]string, error) {
+	r := &gitConfigReader{}
+	for _, home := range homes {
+		if home != "" && !slices.Contains(r.homes, home) {
+			r.homes = append(r.homes, home)
+		}
+	}
+	for _, root := range roots {
+		if root != "" && !slices.Contains(r.roots, root) {
+			r.roots = append(r.roots, root)
+		}
+	}
+	return r.ignorePlaces(value)
 }
 
 // places is a path value as git reads it, `~` expanded, relative to each of bases: as written and with its links

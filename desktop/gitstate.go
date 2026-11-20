@@ -203,6 +203,12 @@ var gitReadArgs = []string{"--no-pager", "--no-optional-locks", "-c", "protocol.
 // from outside (and git's own test switches, GIT_TEST_*, which change what it writes, and the switches that change
 // what every pathspec means, GIT_*_PATHSPECS): they are dropped, whole or by prefix, from a read's environment. GIT_TEST_ASSUME_DIFFERENT_OWNER is kept: it only makes git refuse a repo as
 // another account's, never write more, and it is how the tests stand in for another account.
+//
+// XDG_CONFIG_HOME is dropped too on a Mac, where a desk's sandbox runs (FXAGENTHOMEMAC; elsewhere it's kept, as it
+// always was there: FXAGENTHOMEMACR1, RT126AGENTHOMEMAC O1): git takes its user ignore and attributes files from
+// $XDG_CONFIG_HOME/git when no config names one (and its user config, which a read turns off anyway), and every read
+// takes them from ~/.config/git instead, as the Mac's core always did. A read of the owner's own config puts it back
+// (gitOwnerConfigEnv).
 var gitConfigNames = map[string]bool{
 	"GIT_DIR": true, "GIT_WORK_TREE": true, "GIT_INDEX_FILE": true, "GIT_COMMON_DIR": true, "GIT_OBJECT_DIRECTORY": true,
 	"GIT_ALTERNATE_OBJECT_DIRECTORIES": true, "GIT_PAGER": true, "GIT_TERMINAL_PROMPT": true, "GIT_OPTIONAL_LOCKS": true,
@@ -211,7 +217,24 @@ var gitConfigNames = map[string]bool{
 	"GIT_SSH": true, "GIT_SSH_COMMAND": true, "GIT_ASKPASS": true, "SSH_ASKPASS": true, "GIT_PROXY_COMMAND": true,
 	"GIT_ALLOW_PROTOCOL": true, "GIT_PROTOCOL_FROM_USER": true, "GIT_NO_LAZY_FETCH": true, "GIT_EXEC_PATH": true,
 	"GIT_LITERAL_PATHSPECS": true, "GIT_GLOB_PATHSPECS": true, "GIT_NOGLOB_PATHSPECS": true, "GIT_ICASE_PATHSPECS": true,
-	"GIT_NO_REPLACE_OBJECTS": true, "GIT_REPLACE_REF_BASE": true, "GIT_GRAFT_FILE": true,
+	"GIT_NO_REPLACE_OBJECTS": true, "GIT_REPLACE_REF_BASE": true, "GIT_GRAFT_FILE": true, "XDG_CONFIG_HOME": runtime.GOOS == "darwin",
+}
+
+// gitOwnerConfigEnv is a read's environment made from base (gitReadEnv), with the owner's own global config on
+// again, for a read of the owner's settings (reading config runs nothing): without GIT_CONFIG_GLOBAL, and with base's
+// XDG_CONFIG_HOME, never the core's own (O4), so git finds the owner's config where their own git does
+// ($XDG_CONFIG_HOME/git/config, which a desk's sandbox holds: Places.GitConfigs).
+func gitOwnerConfigEnv(base []string) []string {
+	env := slices.DeleteFunc(gitReadEnv(base, nil), func(kv string) bool { return strings.HasPrefix(kv, "GIT_CONFIG_GLOBAL=") })
+	if !gitConfigNames["XDG_CONFIG_HOME"] {
+		return env // kept already
+	}
+	for i := len(base) - 1; i >= 0; i-- {
+		if xdg, ok := strings.CutPrefix(base[i], "XDG_CONFIG_HOME="); ok {
+			return append(env, "XDG_CONFIG_HOME="+xdg)
+		}
+	}
+	return env
 }
 
 // gitReadAround are the settings every read is given last, so neither a repo's config nor a caller's beats them: git
@@ -356,7 +379,7 @@ func askGitHere() gitHereInfo {
 	here := gitHereInfo{version: string(out)}
 	// The owner's own config, read with their global config left on (reading config runs nothing; --global follows
 	// no includes). Only these two keys are kept.
-	env := slices.DeleteFunc(gitReadEnv(os.Environ(), nil), func(kv string) bool { return strings.HasPrefix(kv, "GIT_CONFIG_GLOBAL=") })
+	env := gitOwnerConfigEnv(os.Environ())
 	list, _, _ := execGit(ctx, env, "-C", os.TempDir(), "--no-pager", "config", "--global", "-z", "--get-regexp", `^(core\.excludesfile|safe\.directory)$`)
 	for _, record := range strings.Split(string(list), "\x00") {
 		if key, value, found := strings.Cut(record, "\n"); found {
@@ -364,6 +387,18 @@ func askGitHere() gitHereInfo {
 		}
 	}
 	return here
+}
+
+// carriedExcludesFiles are the values of core.excludesFile the core's reads carry (gitHere's), as given: a desk's
+// start holds each one (deskPlaces, FXAGENTHOMEMACR2).
+func carriedExcludesFiles() []string {
+	var values []string
+	for _, kv := range gitHere().owner {
+		if strings.EqualFold(kv[0], "core.excludesfile") {
+			values = append(values, kv[1])
+		}
+	}
+	return values
 }
 
 // gitVersionAtLeast reads "git version 2.43.0.windows.1" or "git version 2.39.5 (Apple Git-154)".

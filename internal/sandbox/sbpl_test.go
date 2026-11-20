@@ -641,7 +641,7 @@ func TestAProfileIsRefusedForWhatItCantSpell(t *testing.T) {
 // SA-M2: sockets, services, signals and network, on the made-up Mac.
 
 // m2Ops are the operations SA-M2's sections name, each default's first (a terminal's: Read's first, FXPTYOWN).
-var m2Ops = []string{"network-outbound", "mach-lookup", "iokit-open", "signal", "file-read-data"}
+var m2Ops = []string{"network-outbound", "mach-lookup", "iokit-open", "signal", "file-read-data", "mach-priv-task-port"}
 
 // What the desk may reach comes after what is denied by default, every allow of an operation after its default deny,
 // and what nothing opens after every allow (SIERRA's order rule: last match wins). Each operation is named exactly,
@@ -686,8 +686,11 @@ func TestTheServicesComeAfterTheirDefaultsAndWhatNothingOpensComesLast(t *testin
 				t.Errorf("%s: default %d is %s", s.name, i, sections[0].rules[i])
 			}
 		}
-		if got := sections[1].rules[len(sections[1].rules)-1].String(); got != "(allow signal (target same-sandbox))" {
+		if got := sections[1].rules[len(sections[1].rules)-2].String(); got != "(allow signal (target same-sandbox))" {
 			t.Errorf("%s: the signal allow is %s", s.name, got)
+		}
+		if got := sections[1].rules[len(sections[1].rules)-1].String(); got != "(allow mach-priv-task-port (target same-sandbox))" {
+			t.Errorf("%s: the debugging allow is %s", s.name, got)
 		}
 		if strings.Contains(fmtRules(lines), "(target others)") {
 			t.Errorf("%s: a signal rule names (target others), which doesn't hold on macOS 26", s.name)
@@ -701,7 +704,7 @@ func TestTheServicesComeAfterTheirDefaultsAndWhatNothingOpensComesLast(t *testin
 				t.Errorf("%s: the Services change the file rules' section %q", s.name, sections[i].heading)
 			}
 		}
-		if fmtRules(bare[1].rules) != fmtRules([]sbRule{sbOwnTerminals, sbSameSandbox}) || fmtRules(bare[6].rules) != fmtRules(sbNever) {
+		if fmtRules(bare[1].rules) != fmtRules([]sbRule{sbOwnTerminals, sbSameSandbox, sbOwnDebugging}) || fmtRules(bare[6].rules) != fmtRules(sbNever) {
 			t.Errorf("%s: an empty Services allows %q and denies last %q", s.name, fmtRules(bare[1].rules), fmtRules(bare[6].rules))
 		}
 	}
@@ -840,7 +843,7 @@ func TestTheLocalPortsAreDeniedLastOnLocalhostAndAnyIPv6(t *testing.T) {
 // Only SA-M2's own rules are written as they are (sbRaw); every file rule names its filter, so one made with no kind
 // can't be written unquoted (RT126SAM2 N4).
 func TestOnlySAM2sOwnRulesAreWrittenRaw(t *testing.T) {
-	own := map[string]bool{sbOwnTerminals.String(): true, sbSameSandbox.String(): true}
+	own := map[string]bool{sbOwnTerminals.String(): true, sbSameSandbox.String(): true, sbOwnDebugging.String(): true}
 	for _, r := range slices.Concat(sbDefaults, sbNever) {
 		own[r.String()] = true
 	}

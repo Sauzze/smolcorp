@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"slices"
 	"strings"
 	"sync"
 )
@@ -383,11 +384,16 @@ func wrapped(name string, args []string) []inner {
 	case name == "" || name == "@" || name == "call":
 		// PowerShell's dot-sourcing (. claude.exe) and the shells' (. ./env.sh), cmd's @ (@ claude) and call (call
 		// claude): each runs the word after it, with the words after that (RT126GUARDWIN126 N1). A word of dots alone
-		// names no command (commandName), so "" is the dot.
-		return []inner{{words: args}}
+		// names no command (commandName), so "" is the dot. One whose name a variable fills in (. $c, call %c%) is a
+		// name the guard can't read (RT126SWEEP3 F4).
+		return []inner{{words: calledAtRunTime(args)}}
 	case strings.HasPrefix(name, "@"):
 		// cmd's @ written onto the command (@claude) runs the command.
-		return []inner{{words: append(simple{name[1:]}, args...)}}
+		return []inner{{words: calledAtRunTime(append(simple{name[1:]}, args...))}}
+	case windowsLaunchers[name]:
+		// wt, conhost, schtasks /tr, wmic … call create, forfiles /c, runas, explorer, rundll32 and Invoke-CimMethod's
+		// Win32_Process Create (launchers.go, RT126SWEEP3 F4).
+		return windowsLaunched(name, args)
 	case name == "if":
 		// The shells' if runs the words after it (if noglob git push; then …), as then and the rest below; cmd's runs
 		// the words after its condition.
@@ -785,11 +791,15 @@ func cmdLines(args []string) []inner {
 				continue
 			}
 			text := strings.Join(append([]string{p[1:]}, parts[k+1:]...), "/")
-			out = append(out, inner{line: strings.TrimSpace(text + " " + strings.Join(args[i+1:], " ")), ps: true})
 			// cmd reads its command line, where a word with a blank came quoted (RT126NS0aR4 N4): cmd //c sh -c "git
-			// push origin x" runs sh -c with the whole line.
-			if quoted := strings.TrimSpace(text + " " + cmdQuoted(args[i+1:])); quoted != out[len(out)-1].line {
-				out = append(out, inner{line: quoted, ps: true})
+			// push origin x" runs sh -c with the whole line. Each is read again with cmd's ^ escapes taken out
+			// (cmdCarets): cmd /c "g^it push" runs git push.
+			plain := strings.TrimSpace(text + " " + strings.Join(args[i+1:], " "))
+			quoted := strings.TrimSpace(text + " " + cmdQuoted(args[i+1:]))
+			for _, line := range []string{plain, quoted, cmdCarets(plain), cmdCarets(quoted)} {
+				if !slices.ContainsFunc(out, func(in inner) bool { return in.line == line }) {
+					out = append(out, inner{line: line, ps: true})
+				}
 			}
 			switches++
 			break
@@ -799,6 +809,32 @@ func cmdLines(args []string) []inner {
 		}
 	}
 	return out
+}
+
+// cmdCarets is a line cmd runs with its ^ escapes taken out, as cmd takes them (RT126SWEEP3FIXP2 O6): ^ and the
+// character after it are that character (cl^aude is claude, ^^ is ^), and a ^ at the end continues the line. A ^
+// before & | < > ( ) or " stays: the line is read as before there, where the escaped character is the guard's to read
+// as written (echo a^&b). A ^ inside quotes, which cmd keeps, is taken out too: that reading can only refuse more.
+func cmdCarets(line string) string {
+	if !strings.Contains(line, "^") {
+		return line
+	}
+	var b strings.Builder
+	for i := 0; i < len(line); i++ {
+		if line[i] != '^' {
+			b.WriteByte(line[i])
+			continue
+		}
+		switch {
+		case i+1 >= len(line):
+		case strings.IndexByte(`&|<>()"`, line[i+1]) >= 0:
+			b.WriteByte('^')
+		default:
+			b.WriteByte(line[i+1])
+			i++
+		}
+	}
+	return b.String()
 }
 
 // cmdIf is what cmd's if runs (if [/i] [not] <condition> <command>, RT126GUARDWIN126 N1): the words after its

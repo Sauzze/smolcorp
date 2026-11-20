@@ -60,8 +60,10 @@ type deskTicket struct {
 	plan   deskPlan
 	key    func() string // the API key, for a plan that reads it
 	made   time.Time
-	// started is the pid of the process tmux started for the ticket, once tmux has said it (pin).
-	started chan int
+	// pinned is closed once tmux has said which process it started for the ticket (pin); pid is that process, read
+	// only after pinned is closed. Every try waits on it, so a try by another process doesn't take the pid away.
+	pinned chan struct{}
+	pid    int
 }
 
 // deskStarter is the core's side: its socket, and the tickets not yet taken.
@@ -73,10 +75,10 @@ type deskStarter struct {
 	// refused is why each desk refused at its start didn't start, for its watch to say.
 	refused map[string]string
 	// unpinned are the tickets whose process tmux hasn't said yet, by hire.
-	unpinned map[string]chan int
+	unpinned map[string]*deskTicket
 }
 
-var deskStarts = &deskStarter{tickets: map[string]*deskTicket{}, refused: map[string]string{}, unpinned: map[string]chan int{}}
+var deskStarts = &deskStarter{tickets: map[string]*deskTicket{}, refused: map[string]string{}, unpinned: map[string]*deskTicket{}}
 
 // deskPinWait is how long a ticket given waits for tmux to say which process it was started for: as long as the
 // call that starts the pane may take.
@@ -156,9 +158,9 @@ func (s *deskStarter) issue(cli, hireID string, tmux *hireTmux, plan deskPlan, k
 		}
 	}
 	delete(s.refused, hireID)
-	started := make(chan int, 1)
-	s.unpinned[hireID] = started
-	s.tickets[ticket] = &deskTicket{hireID: hireID, cli: cli, tmux: tmux, plan: plan, key: key, made: time.Now(), started: started}
+	t := &deskTicket{hireID: hireID, cli: cli, tmux: tmux, plan: plan, key: key, made: time.Now(), pinned: make(chan struct{})}
+	s.unpinned[hireID] = t
+	s.tickets[ticket] = t
 	return []string{cli, "desk-start", s.path, strconv.Itoa(os.Getpid()), ticket}, nil
 }
 
@@ -166,11 +168,11 @@ func (s *deskStarter) issue(cli, hireID string, tmux *hireTmux, plan deskPlan, k
 // ticket opens for that process alone.
 func (s *deskStarter) pin(hireID string, pid int) {
 	s.mu.Lock()
-	started := s.unpinned[hireID]
-	delete(s.unpinned, hireID)
-	s.mu.Unlock()
-	if started != nil {
-		started <- pid
+	defer s.mu.Unlock()
+	if t := s.unpinned[hireID]; t != nil {
+		delete(s.unpinned, hireID)
+		t.pid = pid
+		close(t.pinned)
 	}
 }
 
@@ -221,7 +223,10 @@ const (
 	deskTicketUnknown = "This desk's start ticket isn't Smolcorp's, or was used already: nothing was started. Hire again."
 	deskTicketLate    = "This desk's start ticket came too late: nothing was started. Hire again."
 	deskTicketNotPane = "This desk's start ticket was given by a program that isn't the desk's own window, so it was thrown away and nothing was started. Hire again."
-	deskTicketNotOurs = "This desk's start ticket was given by a program that isn't Smolcorp's own, so it was thrown away and nothing was started. Hire again."
+	// deskTicketNotTheWindow is a try by a process that isn't the one tmux started for the ticket: the ticket stays
+	// for that one (any desk can read another's ticket from ps: RT126SWEEP3 F3).
+	deskTicketNotTheWindow = "This desk's start ticket was given by a program that isn't the desk's own window, so nothing was started for it. Hire again."
+	deskTicketNotOurs      = "This desk's start ticket was given by a program that isn't Smolcorp's own, so it was thrown away and nothing was started. Hire again."
 )
 
 // deskPeerRuns is whether process pid runs Smolcorp's own program, cli (peerRunsProgram: agentcheck_darwin.go,
@@ -229,33 +234,62 @@ const (
 var deskPeerRuns = peerRunsProgram
 
 // redeem takes ticket from the process peer, once, and says the desk's start, or why there is none. The ticket is
-// gone after its first try, right or wrong: a ticket another process tried is spent.
+// spent only by a try of the process tmux started for it (or once it's late, or tmux said no process it could
+// have started): any desk can read another's ticket from ps, and its try mustn't stop that desk's start
+// (RT126SWEEP3 F3). Another process's try is refused, and the ticket stays for its own.
 func (s *deskStarter) redeem(ticket string, peer int) deskLaunch {
 	s.mu.Lock()
 	t := s.tickets[ticket]
-	delete(s.tickets, ticket)
 	s.mu.Unlock()
 	if t == nil {
 		return deskLaunch{Error: deskTicketUnknown}
 	}
+	// spent is whether this try spent the ticket: then why it opened nothing is the desk's.
+	spent := false
+	// refuse says why, and tells the desk's watch while the ticket is still the desk's and this try's say is its:
+	// a try that spent it, or one while it's there unspent. Another process's try that ends after the desk's own
+	// start, or after the desk's new ticket took this one's place, says nothing to the watch (RT126SWEEP3FIXP2 O2).
 	refuse := func(why string) deskLaunch {
 		s.mu.Lock()
-		s.refused[t.hireID] = why
+		if spent || s.tickets[ticket] == t {
+			s.refused[t.hireID] = why
+		}
 		s.mu.Unlock()
 		return deskLaunch{Error: why}
 	}
+	// spend takes the ticket away, once: false when another try spent it first.
+	spend := func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.tickets[ticket] != t {
+			return false
+		}
+		delete(s.tickets, ticket)
+		spent = true
+		return true
+	}
 	if time.Since(t.made) > deskStartWait {
+		spend()
 		return refuse(deskTicketLate)
 	}
 	// The process tmux started for the ticket, and no other: one the pane runs in its place since (respawned by a
 	// program of the owner's, say) has another pid.
-	started := 0
 	select {
-	case started = <-t.started:
+	case <-t.pinned:
 	case <-time.After(deskPinWait):
+		// Not said yet: whose try this is can't be known, so the ticket stays (it goes once late).
+		return refuse(deskTicketNotTheWindow)
 	}
-	if started <= 1 || peer != started {
+	started := t.pid
+	if started <= 1 {
+		spend()
 		return refuse(deskTicketNotPane)
+	}
+	if peer != started {
+		return refuse(deskTicketNotTheWindow)
+	}
+	if !spend() {
+		return deskLaunch{Error: deskTicketUnknown}
 	}
 	if pane, ok := t.tmux.panePID(); !ok || pane != started {
 		return refuse(deskTicketNotPane)
@@ -283,6 +317,9 @@ func (s *deskStarter) redeem(ticket string, peer int) deskLaunch {
 	if err != nil {
 		return refuse(err.Error())
 	}
+	s.mu.Lock()
+	delete(s.refused, t.hireID) // another process's try, before this one, isn't why it didn't start
+	s.mu.Unlock()
 	return deskLaunch{Program: program, Args: slices.Clone(t.plan.Words), Env: env}
 }
 

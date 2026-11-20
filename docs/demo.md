@@ -24,22 +24,22 @@ It makes a new folder, `~/smolcorp-demo` (then `smolcorp-demo-2`, and so on;
 sample project into it, and starts Smolcorp if it isn't running. Then it says
 what it's about to spend and waits for your yes.
 
-**A browser page opens for the one click.** This is how it goes on a Mac, the
-system the demo is made for. After your yes, Smolcorp opens Setup in your
-browser at the demo, signed in. The page
-shows what the demo is about to hire: the project, the folder the General
+**A Setup page opens for the one click.** After your yes, Smolcorp opens
+Setup at the demo, signed in: on a Mac in Smolcorp's own Settings window, as
+the menu's **Settings…** opens it, and on Windows in its Settings window. The
+page shows what the demo is about to hire: the project, the folder the General
 Manager is held to, the roles it may hire, its task word for word, what it
 spends, and which switches Hire turns on. You click Hire there; the demo's
 terminal waits for that, then follows the team. The demo itself never hires:
-the setup key it holds can't, on purpose. Close the page without hiring and
-the demo says so and stops, nothing spent; the demo folder stays for you to
-delete. It waits 15 minutes at most, and Ctrl-C stops the wait. On Windows,
-the page opens in your browser the same way, but hiring from it hasn't been
-tried there yet.
+the setup key it holds can't, on purpose. Close the page without hiring, or
+the Settings window it's in, and the demo says so and stops, nothing spent;
+the demo folder stays for you to delete. When you close the window, the demo
+may take a few minutes to notice. It waits 15 minutes at most, and Ctrl-C stops the wait. On Windows,
+hiring from that page hasn't been tried yet.
 
-With `--no-open`, nothing is opened: the demo prints the page's link instead.
-Open it in a browser on this computer where Setup is already open (signed in);
-if it isn't, open Setup from Smolcorp's menu first, then the link.
+Wherever the demo runs today (on a Mac, and on Windows with Smolcorp's
+Settings window), its page opens in that window, so the demo refuses
+`--no-open` before it makes anything.
 
 The page shows a demo only for a folder `smolcorp demo` told Smolcorp about
 while Smolcorp was running, with roles the office has. A folder that only looks
@@ -100,7 +100,10 @@ else is paid for, and the demo asks before it starts anything.
   Claude account and never the API key; send, brief, fire, contacts,
   nicknames, pins and watches only for its own hires and folders; nothing
   else that changes your office (its switches, roles, layout or windows).
-  Each refusal is one sentence. A General Manager you hire yourself has no
+  A file it watches stays in the project: a link put on the way later can't
+  take the watch elsewhere, and the watch reads nothing once the GM is no
+  longer held to that project. Each refusal is one sentence. A General
+  Manager you hire yourself has no
   scope, and works as it always has. The scope needs Smolcorp's hire engine
   in tmux (a Mac, or Linux): where a GM's hire would open any other way
   (Windows' launcher), Smolcorp refuses to hire it with a scope rather than
@@ -130,9 +133,13 @@ else is paid for, and the demo asks before it starts anything.
   General Manager, above.
 - It reads files changed with Claude Code's own tools and shell commands. A
   tool of another MCP server that writes files isn't read.
-- It's a Claude Code hook: if `smolcorp` is gone, or doesn't answer within
-  10 seconds, Claude Code goes ahead without it. The project's pre-push hook
-  and its settings' deny rules for `git push` stay; `git push --no-verify`
+- It's a Claude Code hook that blocks when it fails: if `smolcorp` is gone,
+  or doesn't answer within 10 seconds, the call is refused. A Claude Code you
+  start yourself in the demo folder, if it's older than 2.1.314, lets the call
+  through then. A demo folder made by an older Smolcorp doesn't have that
+  setting either: run `smolcorp demo` again, and the new folder it makes has
+  it. The project's pre-push hook and its settings' deny rules for `git push` stay;
+  `git push --no-verify`
   skips the hook, and the fence and the deny rules refuse it anyway.
 
 ## A dry run first

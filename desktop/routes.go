@@ -57,7 +57,7 @@ var routeTable = []routeRow{
 	{"GET", "/setup/hire/gm/preflight", []string{"page"}},
 	{"POST", "/setup/hiring", []string{"gm", "page"}},
 	{"POST", "/setup/hiring/choose", []string{"page"}},
-	{"POST", "/setup/hire-folder", []string{"gm", "page"}},
+	{"POST", "/setup/hire-folder", []string{"page"}},
 	{"POST", "/setup/roles", []string{"gm", "page"}},
 	{"POST", "/setup/hooks", []string{"gm", "page"}},
 	{"POST", "/setup/unpair", []string{"gm", "page"}},
@@ -339,3 +339,10 @@ func webhookSecretFor(who caller, secret string) string {
 
 // webhookOffOnly is what the GM is told when it asks POST /setup/webhook for more than {"enabled": false}.
 const webhookOffOnly = "The GM can only turn the webhook off. Where it sends is the owner's to set, in Setup."
+
+// What the GM is told by POST /setup/hiring (RT126SWEEP3 P4 B1, F2): the folder for hires is the owner's alone, as
+// POST /setup/hire-folder is the page's alone in the table, and the GM turns hiring off, never on.
+const (
+	hireFolderPageOnly = "Only the owner chooses the folder for hires, in Setup: every hire's sandbox holds it."
+	hiringOffOnly      = "The GM can only turn hiring off. Turning it back on is the owner's, in Setup."
+)

@@ -183,6 +183,9 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 		array    bool      // the words are a NAME=( … ) array's (RWIN10 B3)
 		pending  []heredoc // here documents whose bodies start at the next newline
 		closed   bool      // the last word of the command was a ]], or it was a (( )): see plainShort
+		called   bool      // the command follows PowerShell's & (callAt): its program's name may be a variable's
+		semi     bool      // the command follows a ; (see wtSubcommands)
+		piped    bool      // the command follows a | (see pipedMark)
 	)
 	lit := func(c byte) { word = append(word, c); unq = append(unq, false) }
 	raw := func(c byte) { word = append(word, c); unq = append(unq, true) }
@@ -271,8 +274,25 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 	}
 	endCommand := func() {
 		endWord()
+		if called {
+			// & $c, & "$c", & $(…): a name filled in when it runs, which the guard can't read (RT126SWEEP3 F4).
+			cur, called = calledAtRunTime(cur), false
+		}
+		// A command after a ; that starts with one of wt's subcommands is wt's own (RT126SWEEP3FIXP2 N2): cmd, and
+		// PowerShell after --%, hand wt the ; with the words after it (wt nt ; nt claude). So is one that starts with
+		// an option: wt reads a command that names no subcommand as its default, new-tab (wt nt ; -d . git push,
+		// RT126SWEEP3FIXP2R1 N1). No program a hire runs is named with a - first.
+		var lead simple
+		if semi && len(cur) > 0 && (wtSubcommands[strings.ToLower(withoutSubs(cur[0]))] || strings.HasPrefix(cur[0], "-")) {
+			lead = simple{"wt"}
+		}
+		// A WMI method call a pipeline feeds gets its object from it (… | icim -MethodName StopService): wmiClassUnwritten.
+		if piped && len(cur) > 0 && wmiMethods[commandName(strings.TrimPrefix(withoutSubs(cur[0]), unreadable))] {
+			cur = append(cur, pipedMark)
+		}
+		semi, piped = false, false
 		if len(cur) > 0 {
-			out = append(out, cur)
+			out = append(out, slices.Concat(lead, cur))
 		}
 		// The command once more for each piece of a word, that word's words swapped for the piece's: each piece is
 		// read where the word stands, by the command it is given to, and no other word moves. A command that runs its
@@ -285,7 +305,7 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 				pieces = sw.split
 			}
 			for _, p := range pieces {
-				out = append(out, slices.Concat(cur[:sw.at], p, cur[sw.at+sw.n:]))
+				out = append(out, slices.Concat(lead, cur[:sw.at], p, cur[sw.at+sw.n:]))
 			}
 		}
 		cur, closed, swaps = nil, false, nil
@@ -497,6 +517,10 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 			endWord()
 			i++
 		case c == ';' || c == '&' || c == '|' || c == '\n' || c == '(' || c == ')' || ps && (c == '{' || c == '}'):
+			// PowerShell's & at a command's start runs the program its next word names, and & ( … ) and . ( … ) the one
+			// an expression gives (& (gcm claude)): a name the guard can't read (RT126SWEEP3 F4).
+			call := ps && c == '&' && callAt(line, i, inWord, cur, word)
+			dot := ps && c == '(' && (!inWord && slices.Equal(cur, simple{"."}) || inWord && len(cur) == 0 && string(word) == ".")
 			startArray := false
 			if c == '(' && !ps {
 				plain, _ := stripRuns(string(word), nil)
@@ -507,7 +531,23 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 			}
 			endCommand()
 			array = startArray || array && c != ')'
+			semi = c == ';'
+			piped = c == '|' && (i == 0 || line[i-1] != '|') && (i+1 >= len(line) || line[i+1] != '|')
 			i++
+			if call || dot {
+				j := i
+				for j < len(line) && (line[j] == ' ' || line[j] == '\t') {
+					j++
+				}
+				switch {
+				case dot:
+					out = append(out, simple{unreadable + ".", "(" + expressionText(line, i)})
+				case j < len(line) && line[j] == '(':
+					out = append(out, simple{unreadable + "&", "(" + expressionText(line, j+1)})
+				default:
+					called = true
+				}
+			}
 			if c == '\n' {
 				// The bodies of the here documents opened on the line just ended.
 				for _, h := range pending {
@@ -569,6 +609,19 @@ func (l *lexer) lexLine(line string, depth int, ps, body bool) []simple {
 		case c == '$':
 			inWord = true
 			i = dollar(i, raw)
+		case c == '.' && ps && inWord && len(cur) == 0 && psAssigned(word):
+			// $x=.$c: PowerShell's dot straight after an assignment starts the command it runs (RT126SWEEP3FIXP2 N3).
+			endCommand()
+			inWord = true
+			raw(c)
+			i++
+		case c == '.' && ps && !inWord && len(cur) > 0 && callsNext(cur) && i+1 < len(line) && (line[i+1] == ' ' || line[i+1] == '\t'):
+			// $x= . $c, $x = . $c, return . $c: the dot, a word of its own, starts the command it runs
+			// (RT126SWEEP3FIXP2R1 N2).
+			endCommand()
+			inWord = true
+			raw(c)
+			i++
 		default:
 			inWord = true
 			raw(c)
@@ -1909,4 +1962,66 @@ func number(s string, base, max int) (value, used int) {
 		used++
 	}
 	return value, used
+}
+
+// callAt is whether the & at line[i] is PowerShell's call operator: at a command's start, or where callsNext says, (&
+// $c, $x = & $c, $x= & $c, return & $c), straight after an assignment too ($x=&$c, $x+=&$c: the word so far ends in =,
+// +=, -=, *=, /= or ??=, RT126SWEEP3FIXP2 N3), and not half of && or bash's & after a command (npm run dev & sleep 2).
+func callAt(line string, i int, inWord bool, cur simple, word []byte) bool {
+	start := !inWord && (len(cur) == 0 || callsNext(cur)) || inWord && strings.HasSuffix(string(word), "=")
+	return start && (i == 0 || line[i-1] != '&') && (i+1 >= len(line) || line[i+1] != '&')
+}
+
+// callsNext is whether PowerShell's & or . after cur's words calls what follows: after an = of its own ($x = & $c),
+// after an assignment whose last word is its variable and operator ($x= & $c, $x+= . $c: psAssigned's test), and after
+// a command's return, which takes a pipeline (return & $c, RT126SWEEP3FIXP2R1 N2).
+func callsNext(cur simple) bool {
+	last := cur[len(cur)-1]
+	return last == "=" || psAssigned([]byte(last)) || len(cur) == 1 && strings.EqualFold(last, "return")
+}
+
+// psAssigned is whether a command's first word so far is PowerShell's assignment up to its operator: a variable
+// ($x, [void]$x, $a,$b, $env:x), then =, +=, -=, *=, /= or ??=. A bash assignment (PATH=./bin:$PATH) names no $.
+func psAssigned(word []byte) bool {
+	w := strings.TrimLeft(string(word), string(runOpen))
+	for strings.HasPrefix(w, "[") {
+		end := strings.IndexByte(w, ']')
+		if end < 0 {
+			return false
+		}
+		w = strings.TrimLeft(w[end+1:], string(runOpen))
+	}
+	return strings.HasPrefix(w, "$") && strings.HasSuffix(w, "=")
+}
+
+// pipedMark ends the words of a WMI method call (wmiMethods) that a pipeline feeds (lexLine's piped).
+const pipedMark = "\x00piped"
+
+// wtSubcommands are Windows Terminal's subcommands, which start a command after a ; on wt's line (wt nt ; sp claude).
+var wtSubcommands = map[string]bool{"nt": true, "new-tab": true, "sp": true, "split-pane": true, "ft": true,
+	"focus-tab": true, "mf": true, "move-focus": true, "mp": true, "move-pane": true, "swap-pane": true}
+
+// expressionText is the text of the ( … ) whose inside starts at line[from], with its closing parenthesis: as a
+// refusal shows it, at most 80 bytes.
+func expressionText(line string, from int) string {
+	depth := 1
+	for j := from; j < len(line); j++ {
+		switch line[j] {
+		case '(':
+			depth++
+		case ')':
+			if depth--; depth == 0 {
+				return truncateText(line[from : j+1])
+			}
+		}
+	}
+	return truncateText(line[from:])
+}
+
+// truncateText is text cut at 80 bytes, … after it when cut.
+func truncateText(text string) string {
+	if len(text) > 80 {
+		return text[:80] + "…"
+	}
+	return text
 }

@@ -20,7 +20,9 @@ of your own, as many as you like. Each role has its own instructions, agent, mod
 effort, and comes in wearing its badge, like the Reviewer's glasses and red pen,
 and many dress for the job. A role never guesses what to work on: its first
 reply asks you which project, and its own questions, such as which branch to
-review. On Windows and Linux, `smolcorp run --role reviewer` also starts one
+review. When the office hires into your projects folder on a Mac with the
+sandbox on, it asks you which project first, so the hire is told its project,
+and its first reply asks only its own questions. On Windows and Linux, `smolcorp run --role reviewer` also starts one
 from any terminal.
 [More about roles](office.md#the-office).
 
@@ -40,8 +42,12 @@ want to approve yourself. Then it:
   or reaches a real person;
 - keeps its board of what's done and what's left next to its brief.
 
-Each hire works on a branch of its own, in its own git worktree. On a Mac,
-its sandbox lets it commit only to its own branches: that one, and any new
+Each hire works on a branch of its own, in its own git worktree. On a Mac
+with the sandbox on, that goes for every hire, a plain one too (no role, or a
+Claude Code role with the manager off), and each works in one project: when
+you hire from the office, it first asks you which one in your projects folder.
+The General Manager is the exception: it gets a workspace of its own.
+A hire's sandbox lets it commit only to its own branches: that one, and any new
 one it makes under its own `hire/<id>/`. Other branches, tags and
 `git stash` aren't open to it. For another branch or a tag it asks the GM
 or you, and the GM asks you. The GM can
@@ -218,7 +224,9 @@ Two choices, asked once on Start here and kept in setup under Hires and roles
     its agent runs: In T3 Code**, and the General Manager can ask for the same
     (`smolcorp gm hire … --t3`). The hire gets its own worktree and branch, its
     brief as the first message of a T3 Code thread, and the same fence as any
-    fenced hire, written into its worktree before T3 Code hears of it. It has a
+    fenced hire, written into its worktree before T3 Code hears of it. On a
+    Mac, it runs in T3 Code, outside Smolcorp's sandbox, and Setup lists it as
+    **No sandbox**. It has a
     desk in the office and gets the General Manager's mail. T3 Code has no stop,
     so it isn't fired: **Let go**, in setup's team list or on its desk's card,
     removes its thread in T3 Code and keeps its worktree and branch. It works
@@ -227,7 +235,8 @@ Two choices, asked once on Start here and kept in setup under Hires and roles
   - **Take over in T3 Code** (experimental, the Mac and Linux): on a hire's
     row in setup, it stops the hire's Claude Code in its own tmux session (only
     while it's idle, with nothing typed) and carries on the same session in T3
-    Code, in its worktree, with its fence. **Hand back** brings it home. Until
+    Code, in its worktree, with its fence (on a Mac, outside Smolcorp's
+    sandbox). **Hand back** brings it home, on a Mac back in its sandbox. Until
     then nobody can fire it. A hire on the API-key account can't be taken over.
 
 ## Supported agents

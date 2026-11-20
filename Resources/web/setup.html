@@ -5211,7 +5211,8 @@
    * Allow is offered only once you tick that the code in your terminal is this one: any program can ask, and the code
    * is how you tell yours from another's. No key is ever shown here: it goes to that terminal alone. On Windows, which
    * has no sandbox, a hire can ask too: there the ask also says which program asked, as Windows says it (program, ""
-   * when it couldn't say), and what started it (startedFrom).
+   * when it couldn't say), and what started it (startedFrom). On a Mac an ask from a program in a sandbox is refused,
+   * and one macOS couldn't tell comes with mayBeAHire.
    */
   function renderTerminalAsks() {
     // Where Smolcorp has no Settings window of its own, none is let in: why, in the owner's words, as the terminal is told it.
@@ -5245,6 +5246,13 @@
         el.querySelector('.from').hidden = false;
         el.querySelector('.from').textContent = (from.length ? `Started by ${from[0]}${from.slice(1).map((name) => `, which ${name} started`).join('')}. ` : '')
           + 'One of your hires can ask too, as nothing fences it on this computer: if this isn\'t a command you just ran, or a tool you just started, don\'t allow it.';
+      }
+      // A Mac that couldn't tell which program asked (askprogram.go): an ask from a program in a sandbox, as a hire's
+      // is, is refused before it's listed, so this one may be a hire's all the same. Its folder is shown below, as ever.
+      if (ask.mayBeAHire) {
+        el.querySelector('.who').hidden = false;
+        el.querySelector('.who').textContent = 'Smolcorp couldn\'t tell which program asked, so this may be one of your hires. '
+          + 'Allow it only if you just ran a command yourself, in your own terminal.';
       }
       el.querySelector('.where').textContent = ask.folder ? 'It says it runs in this folder:' : 'It says nothing of where it runs.';
       el.querySelector('.folder').hidden = !ask.folder;

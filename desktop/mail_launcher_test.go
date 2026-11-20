@@ -70,7 +70,7 @@ func newFakeLauncherAs(t *testing.T, d *Deck, id, folder, role, hire, shows stri
 	if tab == nil {
 		t.Fatal("launcher not connected")
 	}
-	f := &fakeLauncher{t: t, d: d, id: id, tab: tab, screen: newLauncherScreen(60, 200, true)}
+	f := &fakeLauncher{t: t, d: d, id: id, tab: tab, screen: newLauncherScreen(60, 200, true, westernCP)}
 	mode := ""
 	if bracketed {
 		mode = "\x1b[?2004h"
@@ -396,7 +396,7 @@ func TestTheScreenTracksBracketedPasteWithoutChangingWhatItReads(t *testing.T) {
 		}
 	}
 	// Split across two writes, and cleared with the screen's reset.
-	s := newTextScreen(60, 200)
+	s := newTextScreen(60, 200, westernCP)
 	s.Write([]byte("\x1b[?20"))
 	s.Write([]byte("04h"))
 	if !s.Bracketed() {

@@ -1075,3 +1075,31 @@ func TestTheSampleHasNoPrivateNames(t *testing.T) {
 		t.Error("the sample isn't MIT")
 	}
 }
+
+// RT126SWEEP3FIXP2: the demo's fence blocks the call when it fails (times out, is killed, crashes), as the hire's
+// and the GM's guard hooks do (smolcorpHook): onFailure "block", beside its 10 seconds.
+func TestTheDemosFenceBlocksWhenItFails(t *testing.T) {
+	data, err := demoSettings(t.TempDir(), []string{"reviewer", "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings struct {
+		Hooks map[string][]struct {
+			Matcher string           `json:"matcher"`
+			Hooks   []map[string]any `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatal(err)
+	}
+	pre := settings.Hooks["PreToolUse"]
+	if len(settings.Hooks) != 1 || len(pre) != 1 || pre[0].Matcher != "*" || len(pre[0].Hooks) != 1 {
+		t.Fatalf("the demo's hooks: %s", data)
+	}
+	hook := pre[0].Hooks[0]
+	command, _ := hook["command"].(string)
+	if hook["onFailure"] != "block" || hook["timeout"] != float64(10) || hook["type"] != "command" ||
+		!strings.Contains(command, " demo fence --root ") {
+		t.Errorf("the demo's fence: %v", hook)
+	}
+}

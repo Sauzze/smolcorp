@@ -260,6 +260,10 @@ var (
 		{ops: []string{"signal"}, row: "signals: only to its own sandbox (C1)"},
 		{ops: slices.Concat(sbRead, sbWrite, []string{"file-revoke"}), place: sbPlace{text: `(regex "^/dev/tty([p-w][0-9a-f]|s[0-9]+)$")`},
 			row: "terminals: only those it made itself, and never revoked"},
+		// A debugger's hold on a process (FXSWEEP3P1, RT126SWEEP3 P2's B1): lldb, or any program with the right to ask, takes
+		// over an unhardened program of the owner's that runs outside every sandbox (Homebrew's, one the owner built), and
+		// runs what it likes there as the owner. `(deny signal)` doesn't stop it; this does.
+		{ops: []string{"mach-priv-task-port"}, row: "debugging a process: only its own sandbox's"},
 	}
 	sbOwnTerminals = sbRule{allow: true, ops: slices.Concat(sbRead, sbWrite),
 		place: sbPlace{text: `(require-all (regex "^/dev/ttys[0-9]+$") (extension "com.apple.sandbox.pty"))`},
@@ -272,9 +276,21 @@ var (
 		{ops: []string{"appleevent-send"}, row: "Apple Events"},
 		{ops: []string{"lsopen"}, row: "opening apps (LaunchServices)"},
 		{ops: []string{"job-creation"}, row: "new launchd jobs"},
+		// FXSWEEP3P1 (RT126SWEEP3 P1's F1): a mount over a folder it may not write (`mount -t devfs devfs .git/hooks`)
+		// hides the owner's files there from the owner's programs and the core, and outlives the desk's processes; and
+		// an unmount would show what the owner's own mount hides. No desk's work mounts anything.
+		{ops: []string{"file-mount", "file-unmount"}, row: "mounting or unmounting a file system"},
+		// FXSWEEP3P1 (RT126SWEEP3 P2's F2): capturing packets, where the owner's group may (Wireshark's ChmodBPF), reads
+		// the desks' and the owner's keys as they cross loopback to Smolcorp.
+		{ops: slices.Concat(sbRead, sbWrite), place: sbPlace{text: `(regex "^/dev/bpf[0-9]*$")`}, row: "capturing packets (/dev/bpf)"},
 		{ops: []string{"file-issue-extension", "generic-issue-extension", "mach-issue-extension", "iokit-issue-extension"}, row: "handing its rights to another process (sandbox extensions, of every kind): its mark stays its sandbox's alone"},
 	}
 )
+
+// sbOwnDebugging lets a desk debug what it started itself, in its own sandbox: no other desk's, nor the owner's
+// (FXSWEEP3P1, after sbDefaults' deny).
+var sbOwnDebugging = sbRule{allow: true, ops: []string{"mach-priv-task-port"}, place: sbPlace{text: "(target same-sandbox)"},
+	row: "debugging its own processes"}
 
 // serviceRules is s for p's desk: the allows that follow the defaults, and the denies that come last.
 func (p *Policy) serviceRules(s Services) (open, shut []sbRule, err error) {
@@ -364,7 +380,7 @@ func (p *Policy) serviceRules(s Services) (open, shut []sbRule, err error) {
 			sbRule{ops: sbConnect, place: sbPlace{kind: "remote tcp4", text: fmt.Sprintf("localhost:%d", port)}, row: "a local port on its list: any address of this Mac"},
 			sbRule{ops: sbConnect, place: sbPlace{kind: "remote tcp6", text: fmt.Sprintf("*:%d", port)}, row: "a local port on its list: any IPv6 address, ::ffff:127.0.0.1 too (C4)"})
 	}
-	return append(open, sbOwnTerminals, sbSameSandbox), slices.Concat(ports, shut, sbNever), nil
+	return append(open, sbOwnTerminals, sbSameSandbox, sbOwnDebugging), slices.Concat(ports, shut, sbNever), nil
 }
 
 // sbSection is a profile's lines under one heading.
@@ -524,19 +540,30 @@ func sbComment(row string) string {
 // on the way to a base branch's name (CheckRefPlaces), makes the folders the Policy holds that are missing (MakeHold; in the shared .git's refs/ and
 // logs/, never through a link) and the keepers of the ref folders git would remove (Keep), then writes p's profile
 // with svc (Profile) at file, owner-only, through a new file and a rename, so a desk never finds it half written and
-// a link at file is replaced, not followed. The folder file goes in must exist. Anything that fails fails the start.
+// a link at file is replaced, not followed. A held folder the owner can't make either (on a volume that isn't there,
+// under a folder of root's) doesn't fail the start: the profile denies writing at and below its first missing folder
+// instead (makeHeld, FXAGENTHOMEMACR1). The folder file goes in must exist. Anything else that fails fails the start.
 func PrepareProfile(p *Policy, file string, svc ...Services) error {
-	profile, err := p.Profile(svc...)
-	if err != nil {
+	if _, err := p.Profile(svc...); err != nil { // before anything is made
 		return err
 	}
 	if err := p.CheckRefPlaces(); err != nil { // no link in refs/ or logs/ (RT126FIXREVIEW-GITROWS2R1's and R2's B1)
 		return err
 	}
-	if err := p.makeHold(p.Hold()); err != nil {
+	unmade, err := p.makeHold(p.Hold())
+	if err != nil {
 		return err
 	}
-	if err := p.makeHold(p.Keep()); err != nil { // the ref folders' keepers, and the folders when missing (FXGITROWS2R1)
+	kept, err := p.makeHold(p.Keep()) // the ref folders' keepers, and the folders when missing (FXGITROWS2R1)
+	if err != nil {
+		return err
+	}
+	q, err := p.unmadeHeld(append(unmade, kept...))
+	if err != nil {
+		return err
+	}
+	profile, err := q.Profile(svc...)
+	if err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(file), ".sandbox-*.sb")

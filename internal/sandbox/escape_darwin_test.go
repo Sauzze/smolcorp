@@ -170,6 +170,11 @@ type escapeDesk struct {
 	pl                                                                Places
 	checks                                                            Checks
 	port                                                              int
+	// noTerminal has work start its program in a session of its own, with no controlling terminal, as Claude Code's
+	// Bash tool starts a desk's shell (FXZSHROW126). An interactive shell whose stdin isn't a terminal reads its
+	// commands from /dev/tty when it has one: under a runner with a terminal of its own, a desk's `zsh -i` would wait
+	// there instead of reading /dev/null and ending. With no terminal, a row runs the same on any runner.
+	noTerminal bool
 }
 
 func newEscapeDesk(t *testing.T) *escapeDesk {

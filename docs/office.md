@@ -251,7 +251,10 @@ setup page (it's off until you do):
   hire walks in through the door with a coffee or a box, and sits at the desk
   you held. It stays there after a refresh, `/clear` and a restart; a desk
   that's taken can't be hired onto. On a pinned project's empty desk, the hire
-  starts in that project instead.
+  starts in that project instead. On a Mac with the sandbox on, the office
+  first asks which project in that folder the hire is for, and the hire works
+  in a worktree of its own of that project, on a branch of its own (in a
+  folder that holds no repository, it works in the folder itself).
 - **Comings and goings**, on the setup page: as above, with the coffee, the box
   and the packing up, or **Plain**, where people just walk in and out.
 
@@ -289,7 +292,10 @@ or add as many of your own as you like.
 A role never assumes what to work on. Its first reply only asks you, all
 together, which project to work on (at a pinned project's desk, whether it's
 that one) and its own questions, such as the Reviewer's branch, base and what
-matters most. It's told to read nothing and run nothing until you've
+matters most. When the office hires into your projects folder on a Mac with
+the sandbox on, it has already asked which project the hire is for: the hire is told that project, and its own
+worktree and branch when the project is a repository, and its first reply
+asks only its own questions. It's told to read nothing and run nothing until you've
 answered, then it gets to work. Each role's questions are yours to change, one per line. Its desk shows the role,
 as in *Reviewer · api-server*, and its badge, and it keeps the role after
 `/clear`. Roles stay on your computer, out of profiles: the phone only knows

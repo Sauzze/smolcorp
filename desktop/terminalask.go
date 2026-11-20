@@ -35,7 +35,9 @@ import (
 // On Windows there's no sandbox, so a hire can ask as well as you, and print the code in its own window
 // (RT126SWEEP2 P4 F4). So there the window also says which program asked, as Windows itself says it: the program
 // holding the asking connection, and the programs that started it (askprogram.go). The folder is still the asker's
-// own words.
+// own words. On a Mac a hire in its sandbox still reaches Smolcorp's port, so an ask from a program in a sandbox is
+// refused, as is one no program holds any more, and one macOS can't tell is shown as one that may be a hire's
+// (RT126SWEEP3 P4 F1, askprogram.go).
 
 // terminalAskPath is the terminal's route: POST asks, GET waits for the answer.
 const terminalAskPath = "/terminal/ask"
@@ -287,7 +289,19 @@ func (d *Deck) terminalAskRoute(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusTooManyRequests, asksFull)
 			return
 		}
-		ask, why := d.asks.add(kind, r.URL.Query().Get("folder"), askingProgram(r.Request))
+		// On a Mac, a program in a sandbox, as a hire is, is refused: only one in none, as your terminal is, may ask
+		// (askprogram.go, RT126SWEEP3 P4 F1). So is an ask no program holds any more, which couldn't read its ticket
+		// (RT126SWEEP3FIXP4 N2): neither is listed, so neither takes a place in the queue.
+		asker := askingProgram(r.Request)
+		switch asker.sandbox {
+		case sandboxInside:
+			writeStatus(w)(http.StatusForbidden, askFromASandbox)
+			return
+		case sandboxNoAsker:
+			writeStatus(w)(http.StatusForbidden, askNoAsker)
+			return
+		}
+		ask, why := d.asks.add(kind, r.URL.Query().Get("folder"), asker)
 		if ask == nil {
 			writeStatus(w)(http.StatusTooManyRequests, why)
 			return

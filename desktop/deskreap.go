@@ -528,7 +528,7 @@ func unmarkedWords(h Hire, why string) string {
 // reapLeftUnmarked is whether why, the words of desk h's reap, named a program left in a desk with a profile and no mark
 // (reapSandboxAt), which no reap signals.
 func reapLeftUnmarked(h Hire, why string) bool {
-	if runtime.GOOS != "darwin" || !plainHireID(h.ID) || strings.HasPrefix(why, reapUnsure) {
+	if runtime.GOOS != "darwin" || !plainHireID(h.ID) || strings.HasPrefix(why, reapUnsure) || strings.HasPrefix(why, mountedBegins) {
 		return false
 	}
 	own := hireFolder(supportDir, h.ID)

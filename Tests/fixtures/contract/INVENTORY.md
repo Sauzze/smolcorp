@@ -128,10 +128,10 @@ since 1.25.0, serves it: **served**, **404**, or **differs** (served, with a kno
 
 | Method | Path | Callers | Request | Answer | Statuses | Fixture | Go |
 |---|---|---|---|---|---|---|---|
-| POST | `/setup/hiring` | gm, page | `?enabled=&folder=&agent=&terminal=&tmux=`; `?claudeUnsigned=1` the page alone (1.26, RT126SG2 B2: an unsigned Claude Code refused after a signed one ran is the one to start from now on; `hiring.claudeUnsigned` in `/setup/state` names it) | the setup state | 200, 400, 403 (`claudeUnsigned` from anyone but the page), 409 (Go: off while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | setup.json | differs |
+| POST | `/setup/hiring` | gm, page | `?enabled=&folder=&agent=&terminal=&tmux=`; `?claudeUnsigned=1` the page alone (1.26, RT126SG2 B2: an unsigned Claude Code refused after a signed one ran is the one to start from now on; `hiring.claudeUnsigned` in `/setup/state` names it) | the setup state | 200, 400, 403 (`claudeUnsigned` from anyone but the page; Go: the GM's `folder=`, or its `enabled=1`, RT126SWEEP3 P4 B1, F2), 409 (Go: off while the records' key can't be read, so nothing taken away is saved until the owner unlocks the keychain and restarts: 1.26 SK1) | setup.json | differs |
 | POST | `/setup/hiring/choose` | page | `?pick=1&for=floor` | the setup state; pick: `{picked}` | 200 | none: opens the system's folder picker | served (the system's picker; under the Mac app, its folder panel through the bridge) |
 | GET | `/setup/hire-folder` | page, tool | `?check=` | `{exists, fix, folder, home, problem, suggested}` | 200 | setup.json | served |
-| POST | `/setup/hire-folder` | gm, page | `?folder=&create=1` | as GET | 200, 400 | setup.json | served |
+| POST | `/setup/hire-folder` | page | `?folder=&create=1` | as GET | 200, 400, 403 (the GM, a tool or a hire: every hire's sandbox holds this folder, RT126SWEEP3 P4 B1) | setup.json | served |
 | GET | `/setup/hire/folders` | page, tool | — | `{default, recent}` | 200 | setup.json | served |
 | POST | `/setup/hire` | gm, page | `{role, folder, account, model, floor, worktree, apiKey, task, answers, engine, scope}` (`engine: "t3"`: into T3 Code, experimental (Go: `Deck.hireIntoT3`); `scope`, Go only: the GM's own project, see the General Manager's section) | empty or `{ok, desk, session}` | 200, 204, 400, 404, 409 | setup.json, frontdesk/hire-guard.json | served |
 | POST | `/setup/hire/gm` | gm, page | `?worktree=1&account=` | empty | 204, 409, and the hire's | setup.json | served |
@@ -313,8 +313,7 @@ core does, outside the desk's sandbox: the GM's powers, as before, behind the ga
 | the GM's token | * | `/setup/gm/*` | the rest of the GM's routes (404, or 409 while the manager is off) |
 | the GM's token | POST | `/setup/hire` | as its row above |
 | the GM's token | POST | `/setup/hire/gm` | as its row above |
-| the GM's token | POST | `/setup/hiring` | as its row above |
-| the GM's token | POST | `/setup/hire-folder` | as its row above |
+| the GM's token | POST | `/setup/hiring` | how hires start, and hiring turned off; never the folder for hires, and never hiring turned on (403, RT126SWEEP3 P4 B1, F2) |
 | the GM's token | POST | `/setup/roles` | as its row above |
 | the GM's token | POST | `/setup/hooks` | as its row above |
 | the GM's token | POST | `/setup/unpair` | as its row above |

@@ -37,6 +37,10 @@ func (d *Deck) act(w http.ResponseWriter, r *request, phoneID, session string) {
 			writeStatus(w)(http.StatusForbidden, "Take over in T3 Code is on your "+t3Here()+".")
 			return
 		}
+		if d.officeInABrowser(r, phoneID) {
+			writeStatus(w)(http.StatusForbidden, officeWindowOnly)
+			return
+		}
 		status, answer, ok := d.takeOverAtDesk(action, session)
 		if !ok {
 			writeStatus(w)(http.StatusNotFound, "Only a hire Smolcorp runs can be taken over in T3 Code, or handed back.")
@@ -49,6 +53,10 @@ func (d *Deck) act(w http.ResponseWriter, r *request, phoneID, session string) {
 		writeJSON(w, status, answer)
 	// Let go of a hire in T3 Code from its desk's card, after its confirm (t3desks.go): the lane's answer, as Setup's.
 	case "letgo":
+		if d.officeInABrowser(r, phoneID) {
+			writeStatus(w)(http.StatusForbidden, officeWindowOnly)
+			return
+		}
 		status, answer, ok := d.letGoAtDesk(session)
 		if !ok {
 			writeStatus(w)(d.Perform("letgo", session, r.URL.Query()))
@@ -62,4 +70,15 @@ func (d *Deck) act(w http.ResponseWriter, r *request, phoneID, session string) {
 	default:
 		writeStatus(w)(d.PerformFrom(phoneID, action, session, r.URL.Query()))
 	}
+}
+
+// officeWindowOnly is what the office in a browser is told, under the Mac app, for what only its own window does.
+const officeWindowOnly = "Do this in Smolcorp's own office window on your Mac, not in a browser."
+
+// officeInABrowser is whether a request from the office (phoneID officeWindowID) comes from the office in a browser
+// under the Mac app (RT126SWEEP3 P4 F3): its key is one the browser's history keeps, which other programs can read, so
+// taking a hire over or letting it go, and opening a hire's window or T3 Code, are the Mac app's own window's alone
+// (r.ownWindow). A phone isn't the office (it is let in or not as before), and off the Mac app nothing changes.
+func (d *Deck) officeInABrowser(r *request, phoneID string) bool {
+	return phoneID == officeWindowID && !r.ownWindow && d.macHost() != nil
 }

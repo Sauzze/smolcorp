@@ -443,7 +443,7 @@ func launch(run *launcherRun) int {
 		}
 	}
 	rows, cols, sized := consoleSize()
-	screen := newLauncherScreen(rows, cols, sized)
+	screen := newLauncherScreen(rows, cols, sized, consoleCodePage())
 	matchSize(terminal, screen)
 	if err := agent.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
@@ -753,12 +753,13 @@ var consoleSize = func() (rows, cols int, ok bool) {
 
 // matchSize gives the agent's terminal the console's size, and the screen the
 // launcher reads the same one, first, so what the agent draws next lands at
-// the new size.
+// the new size; and the screen the console's code page, read again.
 func matchSize(terminal pty.Pty, screen *launcherScreen) {
 	if rows, cols, ok := consoleSize(); ok {
 		screen.Resize(rows, cols)
 		_ = terminal.Resize(cols, rows)
 	}
+	screen.SetCodePage(consoleCodePage())
 }
 
 // lockedWriter keeps your typing and the deck's keys from interleaving.
@@ -960,6 +961,8 @@ type launcherTab struct {
 	// stream only; and a channel closed when the launcher is gone.
 	screenSecret string
 	gone         chan struct{}
+	// What its screen said made it unknown, each logged once (launcherScreenAnswered). Under the deck's lock.
+	screenBroke map[string]bool
 	// The ends of its connection to this app as the app saw them, and the launcher's own process, found from them
 	// once it's asked for (process, in preview.go). Under conn.
 	conn             sync.Mutex

@@ -316,8 +316,9 @@ type Places struct {
 	// ~/.config (SIERRA, 14 Nov).
 	GitConfigs []string
 	// GitHooks are the folders the owner's git config names for hooks (core.hooksPath), and GitNamed the files it names
-	// for git to read as config or run (include and includeIf targets, core.fsmonitor's and core.sshCommand's files),
-	// as ReadGitConfig gives them at the desk's start (GITCFG1). M1 must fill both.
+	// for git to read as config or run (include and includeIf targets, core.fsmonitor's and core.sshCommand's files)
+	// or as the owner's ignore file (core.excludesFile, FXAGENTHOMEMACR1), as ReadGitConfig gives them at the desk's
+	// start (GITCFG1). M1 must fill both.
 	GitHooks, GitNamed []string
 	// RemoteLogin is whether port 22 answers on this computer (C5): the ssh keys are then denied.
 	RemoteLogin bool
@@ -328,6 +329,15 @@ type Places struct {
 	// AgentSignIns the sign-ins there: each held on a Mac, as agentFolders and macCredentialNames are
 	// (FXPLANTSTERMR3).
 	AgentHomes, AgentSignIns []string
+	// ConfigHomes are where the owner's environment moves ~/.config (XDG_CONFIG_HOME), as the core reads it at the
+	// desk's start, when that isn't ~/.config: the places the owner's programs read in it are held there as they are
+	// in ~/.config (FXAGENTHOMEMACR1, RT126AGENTHOMEMAC O3). OpenCode's is AgentHomes'.
+	ConfigHomes []string
+	// ShellHomes are where the owner's environment moves zsh's own files (ZDOTDIR), as the core reads it at the desk's
+	// start, when that isn't the home folder: zsh's start files, their compiled copies, its completion dump, Terminal's
+	// restored sessions and the key codes /etc/zshrc sources are held there as they are in the home folder (FXSWEEP3P1,
+	// RT126SWEEP3 P1's B1 and B2). A Mac's rows.
+	ShellHomes []string
 }
 
 // Policy is the rows for one desk, in order.
@@ -342,6 +352,9 @@ type Policy struct {
 	// desks is the keys of the places Smolcorp gives some desk, this one or another (anyDesks): where a link at git's
 	// own names may neither lead nor go through (FXGITROWS2R9).
 	desks []string
+	// work is the keys of the places the owner and the desks work in (workPlaces): where MountedOver never counts a
+	// mount over a narrow place.
+	work []string
 }
 
 // Rules are the Policy's rows. Their order says nothing: a profile made from them must let every deny win but a Wide
@@ -511,6 +524,8 @@ const (
 	rowOwnSockets = "its own socket folder"
 	rowSupport    = "the support folder, whole"
 	rowAbove      = "the folders above a denied place can't be moved or removed"
+	// rowPlaceAbove is a desk's place and each folder above it, each held itself, not what's in it.
+	rowPlaceAbove = "a desk's place and the folders above it can't be moved or removed"
 )
 
 // rowSupportOtherName is a support folder by its other name, whole (supportSiblings).
@@ -553,6 +568,38 @@ const (
 	rowKeychains  = "plants the owner's programs run later: the keychains"
 )
 
+// rowShellStart and rowShellSessions are the Mac's rows of what zsh, bash and Terminal read or run at a window's start
+// besides the plants, and rowVMKeys of the VM tools' SSH keys (FXSWEEP3P1).
+const (
+	rowShellStart    = "plants the owner's programs run later: what a shell reads at its start"
+	rowShellSessions = "plants the owner's programs run later: a terminal window's restored session"
+	rowVMKeys        = "the VM tools' SSH keys: neither read nor written"
+)
+
+// zshStartFiles are zsh's start files in ${ZDOTDIR:-~} (zshall, STARTUP/SHUTDOWN FILES), and zshCompiled what zsh
+// runs in a file's place when it's there and not older, or when the file isn't there at all (this Mac's zsh 5.9).
+var zshStartFiles = []string{".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"}
+
+const zshCompiled = ".zwc"
+
+// vmKeyFolders are, in the home folder, where Lima, Colima, OrbStack and Podman keep the SSH keys their machines take,
+// and Rancher Desktop, which runs Lima with a LIMA_HOME of its own (FXSWEEP3P1R1, RT126SWEEP3FIXP1's N2).
+var vmKeyFolders = []string{".lima/_config", ".colima/_lima/_config", ".orbstack/ssh", ".local/share/containers/podman/machine",
+	"Library/Application Support/rancher-desktop/lima/_config"}
+
+// ohMyZsh is where oh-my-zsh is kept, and p10kConfig Powerlevel10k's settings, which ~/.zshrc sources at every
+// interactive zsh (FXSWEEP3P1R1, RT126SWEEP3FIXP1's recommendation (b)). oh-my-zsh is held whole: it puts its cache's
+// completions first on $fpath, so a function planted there runs at the next window as a plant in its scripts would.
+// A desk's own zsh still starts with them held: oh-my-zsh skips its update check where it can't write, and its
+// cache writes fail without a word. ohMyZshBeside is where oh-my-zsh's installer puts it when ZDOTDIR is set and isn't
+// the home folder ($ZDOTDIR/ohmyzsh), held whole in each zsh folder but the home folder (FXSWEEP3P1R2,
+// RT126SWEEP3FIXP1R1's N3).
+const (
+	ohMyZsh       = ".oh-my-zsh"
+	ohMyZshBeside = "ohmyzsh"
+	p10kConfig    = ".p10k.zsh"
+)
+
 // rowAccounts is the row of the account folders, `~/.claude` and the other accounts': read, never written.
 const rowAccounts = "the account folders"
 
@@ -561,10 +608,12 @@ const rowAccounts = "the account folders"
 // Terminal's and iTerm2's profiles are (each one's command and whether it runs as the shell), Ghostty's and kitty's
 // Mac folders, and every app's named preferences, which a desk can't reach through cfprefsd (lists.go) but could write
 // here as a file; iTerm2's folder, with its dynamic profiles and its AutoLaunch scripts, and its link to it in
-// ~/.config; Ghostty's two config places; WezTerm's and kitty's config folders. WezTerm's ~/.wezterm.lua is a file,
+// ~/.config; Ghostty's two config places; WezTerm's and kitty's config folders; and Terminal's saved state, which a
+// restored window is made from (FXSWEEP3P1: nothing of a desk's writes there). WezTerm's ~/.wezterm.lua is a file,
 // with the plants.
 var terminalPlaces = []string{"Library/Preferences", "Library/Application Support/iTerm2", ".config/iterm2",
-	"Library/Application Support/com.mitchellh.ghostty", ".config/ghostty", ".config/wezterm", ".config/kitty"}
+	"Library/Application Support/com.mitchellh.ghostty", ".config/ghostty", ".config/wezterm", ".config/kitty",
+	"Library/Saved Application State/com.apple.Terminal.savedState"}
 
 // agentFolders are, in the home folder, the own folders of the agents Smolcorp hires besides Claude Code, whose next
 // session outside a desk runs or loads what they hold: their settings folders (desktop/hooks.go's agentFolder), with
@@ -574,6 +623,10 @@ var terminalPlaces = []string{"Library/Preferences", "Library/Application Suppor
 // Grok load. ~/.claude and the accounts' folders have their own row.
 var agentFolders = []string{".codex", ".gemini", ".cache/.gemini", ".config/opencode", ".local/share/opencode",
 	".cache/opencode", ".local/state/opencode", ".opencode", ".grok", ".agents"}
+
+// configPlants are the places in ~/.config the plants' row holds, as names below a config folder: held where the
+// owner's environment moves it too (Places.ConfigHomes).
+var configPlants = []string{"fish", "autostart", "systemd/user", "git", "tmux"}
 
 // agentHomeVariables are the variables that move an agent's own folder, or a file it runs what it names from, out of
 // the home folder's places (FXPLANTSTERMR3; which agent reads each, and where in its source: the report): the place
@@ -621,6 +674,23 @@ var (
 	openCodeSignIns = []string{"auth.json", "mcp-auth.json", "opencode.db"}
 )
 
+// shellPlaceVariables are the variables that move the owner's shell's own files out of the home folder: zsh's
+// ZDOTDIR, which the core reads for Places.ShellHomes (FXSWEEP3P1, RT126SWEEP3 P1's B1).
+var shellPlaceVariables = []string{"ZDOTDIR"}
+
+// AgentPlaceVariables are the names of agentHomeVariables, each once, then agentSignInVariables, then
+// shellPlaceVariables, in that order: every variable AgentPlaces reads, and ZDOTDIR, and the list the Mac app passes
+// the core (GoCore.agentPlaces).
+func AgentPlaceVariables() []string {
+	var names []string
+	for _, v := range agentHomeVariables {
+		if !slices.Contains(names, v.Variable) {
+			names = append(names, v.Variable)
+		}
+	}
+	return slices.Concat(names, agentSignInVariables, shellPlaceVariables)
+}
+
 // AgentPlaces are the agents' own places and sign-in files the environment getenv gives moves out of the home
 // folder's (agentHomeVariables, agentSignInVariables), for Places.AgentHomes and AgentSignIns, as given. A value that
 // isn't a whole path is passed over: an agent reads it from the folder it starts in, which no start can know.
@@ -642,6 +712,88 @@ func AgentPlaces(getenv func(string) string) (homes, signIns []string) {
 		}
 	}
 	return homes, signIns
+}
+
+// AgentPlaceRefused is the first of agentHomeVariables and agentSignInVariables, "" for none, whose place getenv
+// gives is one no desk's profile on a Mac can hold, as given or as resolve spells it (FXAGENTHOMEMACR1): the top of the
+// disk, which an agent's own folder or sign-in can't be, or a place with a character a profile can't be given exactly
+// (a line break or another control character). Such a start is refused in words that name the variable. A variable's
+// own value is checked as well as the place below it an agent reads (FXAGENTHOMEMACR2, RT126AGENTHOMEMACR1 N1):
+// XDG_CONFIG_HOME's is the config folder itself (Places.ConfigHomes), and `/` there held the whole disk's links. So is
+// a value with a `.` or `..` in it, or a doubled `/` (AgentPlaceUnclean, FXAGENTHOMEMACR3).
+func AgentPlaceRefused(getenv func(string) string, resolve func(string) string) string {
+	unfit := func(place string) bool {
+		for _, p := range []string{filepath.Clean(place), resolve(place)} {
+			if filepath.Dir(p) == p || !sbSpellable(p) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, v := range agentHomeVariables {
+		if value := getenv(v.Variable); filepath.IsAbs(value) &&
+			(AgentPlaceUnclean(value) || unfit(value) || unfit(filepath.Join(value, v.Under))) {
+			return v.Variable
+		}
+	}
+	for _, variable := range slices.Concat(agentSignInVariables, shellPlaceVariables) {
+		if value := getenv(variable); filepath.IsAbs(value) && (AgentPlaceUnclean(value) || unfit(value)) {
+			return variable
+		}
+	}
+	return ""
+}
+
+// AgentPlaceUnclean is whether value, a whole path one of the agent place variables gives, is spelled with a `.` or
+// `..` in it, or a doubled `/` (one at its end aside): a place no desk's profile can hold (FXAGENTHOMEMACR3,
+// RT126AGENTHOMEMACR2 B1). A profile holds a place as cleaned, `$HOME/dots/../cfg` as `$HOME/cfg`, while the kernel
+// takes the `..` after the link: through a link a desk made at ~/dots, the owner's git and agents, and the core's own
+// read of the owner's git config, would read a config the desk wrote. The Mac app passes none such (GoCore.environment);
+// the core unsets one and refuses each desk's start in the variable's words.
+func AgentPlaceUnclean(value string) bool {
+	trimmed := strings.TrimRight(value, "/")
+	if trimmed == "" {
+		trimmed = "/"
+	}
+	return filepath.IsAbs(value) && filepath.Clean(value) != trimmed
+}
+
+// AgentPlaceOf is the first of agentHomeVariables and agentSignInVariables, "" for none, whose whole-path value getenv
+// gives, as given or as resolve spells it, is place or holds it: the variable a place a start couldn't look through
+// came from (FXAGENTHOMEMACR2, RT126AGENTHOMEMACR1 N1), so the words for it can name the variable. A value that is
+// home, or holds it (`/Users`), names no place in home, which is held whatever the variable says, and no value names
+// a place in the agents' own folders in home or in ~/.config, held as well without it.
+func AgentPlaceOf(getenv func(string) string, resolve func(string) string, home, place string) string {
+	goos := runtime.GOOS
+	homeKey := key(goos, home)
+	var anyway []string
+	for _, folder := range append(slices.Clone(agentFolders), ".config") {
+		anyway = append(anyway, key(goos, filepath.Join(home, folder)))
+	}
+	places := []string{filepath.Clean(place), resolve(place)}
+	inAny := func(k string) bool {
+		return k != "" && slices.ContainsFunc(places, func(at string) bool { return under(key(goos, at), k) })
+	}
+	if slices.ContainsFunc(anyway, inAny) {
+		return ""
+	}
+	inHome := inAny(homeKey)
+	for _, name := range AgentPlaceVariables() {
+		value := getenv(name)
+		if !filepath.IsAbs(value) {
+			continue
+		}
+		for _, from := range []string{filepath.Clean(value), resolve(value)} {
+			k := key(goos, from)
+			if inHome && homeKey != "" && under(homeKey, k) {
+				continue
+			}
+			if inAny(k) {
+				return name
+			}
+		}
+	}
+	return ""
 }
 
 // New makes the Policy for a desk at pl. A desk whose root (or checkout, hires folder or GM folder) is inside a
@@ -797,10 +949,74 @@ func build(pl Places) (*Policy, error) {
 		if name == ".zshrc" {
 			more = omzNames
 		}
+		if slices.Contains(zshStartFiles, name) {
+			more = append(slices.Clone(more), zshCompiled) // zsh runs <file>.zwc in its place (B1)
+		}
 		b.ownersBeside(Rule{Row: "plants the owner's programs run later", Path: join(home, name), Write: Deny}, more...)
+	}
+	// What zsh, bash and Terminal read or run at a new window or a restored one besides the plants above (FXSWEEP3P1,
+	// RT126SWEEP3 P1's B1 and B2; the report lists each file they read, held or not, and why): zsh's compiled start
+	// files (each plant's <file>.zwc, above), its completion dump, which compinit sources (`.zcompdump`, oh-my-zsh's
+	// `.zcompdump-<host>-<version>`, their compiled copies and compdump's `.<host>.<pid>` beside), the key codes
+	// /etc/zshrc sources (`.zkbd`), and Terminal's restored sessions, which /etc/zshrc_Apple_Terminal and
+	// /etc/bashrc_Apple_Terminal source at a window's start (`<id>.session`): each folder whole, so no window's file is
+	// made there. zsh reads its own in ${ZDOTDIR:-~}: so in the home folder, in each place the owner's environment
+	// moves ZDOTDIR to (ShellHomes), and in zsh's folder in ~/.config and where the environment moves that, where most
+	// set it from ~/.zshenv (which the core can't read). bash's sessions are always in the home folder, and readline
+	// reads ~/.inputrc, whose bindings type commands. Then what most owners' ~/.zshrc sources (FXSWEEP3P1R1):
+	// oh-my-zsh, whole, in the home folder and where its installer puts it beside ZDOTDIR's files, and Powerlevel10k's
+	// settings in each zsh folder, where `p10k configure` writes them. On a Mac. Here, before the plant folders: the
+	// start's link walk counts these small places first, so a plant folder too big to look through is still the one its
+	// words name.
+	if goos == "darwin" {
+		zdots := []string{home, join(home, ".config", "zsh")}
+		for _, config := range pl.ConfigHomes {
+			zdots = append(zdots, join(config, "zsh"))
+		}
+		zdots = append(zdots, pl.ShellHomes...)
+		seen := map[string]bool{}
+		for _, zdot := range zdots {
+			k := key(goos, zdot)
+			if k == "" || seen[k] {
+				continue
+			}
+			seen[k] = true
+			if k != key(goos, home) {
+				for _, name := range zshStartFiles {
+					more := []string{zshCompiled}
+					if name == ".zshrc" {
+						more = append(slices.Clone(omzNames), zshCompiled)
+					}
+					b.ownersBeside(Rule{Row: "plants the owner's programs run later", Path: join(zdot, name), Write: Deny}, more...)
+				}
+				b.add(Rule{Row: rowShellStart, Path: join(zdot, ohMyZshBeside), Below: true, Write: Deny})
+			}
+			b.ownersBeside(Rule{Row: rowShellStart, Path: join(zdot, p10kConfig), Write: Deny})
+			b.add(Rule{Row: rowShellStart, Path: zdot, Tail: ".zcompdump*", Write: Deny})
+			b.add(Rule{Row: rowShellStart, Path: join(zdot, ".zkbd"), Below: true, Write: Deny})
+			b.add(Rule{Row: rowShellSessions, Path: join(zdot, ".zsh_sessions"), Below: true, Write: Deny})
+		}
+		b.add(Rule{Row: rowShellSessions, Path: join(home, ".bash_sessions"), Below: true, Write: Deny})
+		b.ownersBeside(Rule{Row: rowShellStart, Path: join(home, ".inputrc"), Write: Deny})
+		b.add(Rule{Row: rowShellStart, Path: join(home, ohMyZsh), Below: true, Write: Deny})
+		// The VM tools' SSH keys (RT126SWEEP3 P2's B2, part (b)): Lima, Colima, OrbStack, Podman and Rancher Desktop
+		// machines answer SSH on a local port with these keys, and Colima, OrbStack, Podman and Rancher Desktop mount the
+		// home folder writable in the VM, so a desk that read one would write the owner's files from outside its sandbox.
+		// Neither read nor written. Other local servers that run commands for whoever connects are a known limit.
+		for _, folder := range vmKeyFolders {
+			b.add(Rule{Row: rowVMKeys, Path: join(home, folder), Below: true, Read: Deny, Write: Deny})
+		}
+		b.add(Rule{Row: rowVMKeys, Path: join(home, ".ssh"), Tail: "podman-machine-default*", Read: Deny, Write: Deny})
 	}
 	for _, folder := range []string{".config/fish", "Library/LaunchAgents", ".config/autostart", ".config/systemd/user", ".config/git", ".config/tmux"} {
 		b.add(Rule{Row: "plants the owner's programs run later", Path: join(home, folder), Below: true, Write: Deny})
+	}
+	// …and the same places where the owner's environment moves ~/.config (O3): fish, tmux, git (its ignore and
+	// attributes files as much as its config), autostart and systemd read them there instead.
+	for _, config := range pl.ConfigHomes {
+		for _, folder := range configPlants {
+			b.add(Rule{Row: "plants the owner's programs run later", Path: join(config, folder), Below: true, Write: Deny})
+		}
 	}
 	b.add(Rule{Row: "plants the owner's programs run later", Path: join(home, ".ssh"), Tail: "authorized_keys*", Write: Deny})
 	// A git folder at the home folder (FXHIREPROJECTSR1, RT126FIXREVIEW-GMROOTR1's "seen outside"): git run in any
@@ -876,6 +1092,12 @@ func build(pl Places) (*Policy, error) {
 		// comes in 1.26.1. Linux's view and Windows' jail come with their sandboxes.
 		for _, folder := range terminalPlaces {
 			b.add(Rule{Row: rowTerminals, Path: join(home, folder), Below: true, Write: Deny})
+			// Those in ~/.config where the owner's environment moves it (O3): Ghostty, kitty and WezTerm read them there.
+			if in, ok := strings.CutPrefix(folder, ".config/"); ok {
+				for _, config := range pl.ConfigHomes {
+					b.add(Rule{Row: rowTerminals, Path: join(config, in), Below: true, Write: Deny})
+				}
+			}
 		}
 		b.ownersBeside(Rule{Row: rowTerminals, Path: join(home, ".wezterm.lua"), Write: Deny})
 		folders := []string{}
@@ -939,7 +1161,7 @@ func build(pl Places) (*Policy, error) {
 			}
 		}
 	}
-	b.followLinks(owners, home, append(slices.Clone(pl.Accounts), pl.AgentHomes...))
+	b.followLinks(owners, home, slices.Concat(pl.Accounts, pl.AgentHomes, pl.ConfigHomes, pl.ShellHomes))
 	// …and below a desk's place (FXHIREPROJECTSR6, RT126FIXREVIEW-HIREPROJECTSR5 B1 and N2): a git
 	// folder there that isn't the desk's own is another repo's, whose hooks and config the owner's git runs outside any
 	// sandbox: a nested clone in a checkout (lib/vendor/x), a repo in a folder of repos (clients/acme, under a projects
@@ -1210,7 +1432,7 @@ func build(pl Places) (*Policy, error) {
 	// keeps the root as the core made it, readable and removable by the fire's look and `git worktree remove`.
 	for _, place := range append([]string{pl.Root, pl.Checkout}, supports...) {
 		for folder := spell(goos, place); place != ""; folder = parent(folder) {
-			b.add(Rule{Row: "a desk's place and the folders above it can't be moved or removed", Path: folder, Write: Deny})
+			b.add(Rule{Row: rowPlaceAbove, Path: folder, Write: Deny})
 			if parent(folder) == folder {
 				break
 			}
@@ -1311,6 +1533,16 @@ func build(pl Places) (*Policy, error) {
 		}
 		if pl.GMPlans != "" {
 			b.add(Rule{Row: rowGMProjects + ": its own plans", Path: pl.GMPlans, Below: true, Read: Allow, Write: Allow, Opens: []string{rowGMProjects}})
+			// …with a hire's rule for a git folder below its place (FXSWEEP3P1, RT126SWEEP3 P1's F3): the plans folder is
+			// in no repo of its own, so no `.git` at it or below it, a folder or a file, and no HEAD at it, which git
+			// takes for a bare repo's. Final: the allow above doesn't open it. On a Mac, as a hire's. But not its backstop
+			// (RT126SWEEP3FIXP1's N1): a hire's place is looked at for git folders at its next start (gitsSinceWords), the
+			// plans folder isn't, so a folder holding a .git made in the GM's workspace and moved in, or a bare repo's
+			// folders below it, stay until the owner removes them. docs/manager/README.md says not to run git there.
+			if goos == "darwin" {
+				b.add(Rule{Row: rowGitBelow + ": in the GM's own plans", Path: pl.GMPlans, Tail: "**/.git", Below: true, Write: Deny})
+				b.add(Rule{Row: rowGitBelow + ": in the GM's own plans", Path: join(pl.GMPlans, "HEAD"), Write: Deny})
+			}
 		}
 		b.add(Rule{Row: rowGMWorkspace, Path: pl.Root, Below: true, Read: Allow, Write: Allow, Opens: opens})
 	}
@@ -1325,7 +1557,7 @@ func build(pl Places) (*Policy, error) {
 	if b.err != nil {
 		return nil, b.err
 	}
-	p := &Policy{goos: goos, rules: b.rules}
+	p := &Policy{goos: goos, rules: b.rules, work: workPlaces(goos, pl)}
 	if pl.GitDir != "" {
 		p.git = spell(goos, pl.GitDir)
 		p.ownerHEAD = pl.Checkout != "" && key(goos, pl.Checkout) != key(goos, pl.Root)
@@ -1627,6 +1859,50 @@ func MakeHold(folders []string) error {
 		}
 	}
 	return nil
+}
+
+// makeHeld is MakeHold of one folder, for a desk's start on a Mac (FXAGENTHOMEMACR1, RT126AGENTHOMEMAC B1): one the
+// owner can't make either doesn't fail the start. That is one on a volume that isn't there, under a folder of root's,
+// one the owner can't write in or a read-only one, or under something that isn't a folder (EACCES, EPERM, EROFS,
+// ENOENT, ENOTDIR). unmade is then the first folder on its way that isn't there, which the desk's profile denies
+// writing at and below (unmadeHeld): the desk can't make it, link it or rename one there either, should it become
+// makeable later (a volume mounted, a folder opened). Any other failure fails the start, as MakeHold's does.
+func makeHeld(folder string) (unmade string, err error) {
+	err = MakeHold([]string{folder})
+	if err != nil && !ownerCantMake(err) {
+		return "", err
+	}
+	if m := firstMissing(folder); m != "" {
+		return m, nil
+	}
+	return "", err
+}
+
+// ownerCantMake is whether err, a folder's making's, says the owner can't make it.
+func ownerCantMake(err error) bool {
+	return errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EROFS) || errors.Is(err, fs.ErrNotExist) ||
+		errors.Is(err, syscall.ENOTDIR)
+}
+
+// rowUnmade is the row of a held folder the core couldn't make before the desk's start (makeHeld).
+const rowUnmade = "a held folder no one could make at the start"
+
+// unmadeHeld is p with each of folders, the first missing folder of a held one the core couldn't make (makeHeld),
+// denied writing at and below: a copy, so a Policy kept for the desk's stop stays as New made it.
+func (p *Policy) unmadeHeld(folders []string) (*Policy, error) {
+	if len(folders) == 0 {
+		return p, nil
+	}
+	b := &builder{goos: p.goos}
+	for _, folder := range folders {
+		b.add(Rule{Row: rowUnmade, Path: folder, Below: true, Write: Deny})
+	}
+	if b.err != nil {
+		return nil, b.err
+	}
+	q := *p
+	q.rules = append(slices.Clone(p.rules), b.rules...)
+	return &q, nil
 }
 
 // parent is a spelled folder's parent: the folder itself at the top.

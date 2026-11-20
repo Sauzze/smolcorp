@@ -552,7 +552,7 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			return
 		}
 		if err := showOffice(d); err != nil {
-			http.Error(w, "The browser could not be started: "+err.Error(), http.StatusBadGateway)
+			http.Error(w, raiseFailedWords(d.macHost() != nil)+err.Error(), http.StatusBadGateway)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -813,6 +813,10 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			writeStatus(w)(http.StatusForbidden, hireWindowElsewhere)
 			return
 		}
+		if r.Method == http.MethodPost && d.officeInABrowser(r, phoneID) {
+			writeStatus(w)(http.StatusForbidden, officeWindowOnly)
+			return
+		}
 		if r.Method == http.MethodGet {
 			_, tmux := hireWays()
 			d.mu.Lock()
@@ -861,6 +865,10 @@ func (rt *router) handle(w http.ResponseWriter, r *request) {
 			}
 			writeJSON(w, http.StatusOK, answer)
 		case http.MethodPost:
+			if d.officeInABrowser(r, phoneID) {
+				writeStatus(w)(http.StatusForbidden, officeWindowOnly)
+				return
+			}
 			openHireInT3(w, d.t3Latest(hire), found)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -1800,6 +1808,17 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			}
 			claudeInstalls.confirm()
 			writeJSON(w, http.StatusOK, rt.setupStateFor(r.caller))
+			return
+		}
+		// The folder for hires is the projects folder every hire's sandbox holds (desksandbox.go's hireProjectsFolder),
+		// so the page alone moves it, never the GM, itself a desk (RT126SWEEP3 P4 B1). And the GM turns hiring off,
+		// never on again once the owner turned it off (F2), as for the webhook.
+		if r.caller != callerPage && query.Has("folder") {
+			writeStatus(w)(http.StatusForbidden, hireFolderPageOnly)
+			return
+		}
+		if r.caller != callerPage && query.Get("enabled") == "1" {
+			writeStatus(w)(http.StatusForbidden, hiringOffOnly)
 			return
 		}
 		folder := strings.TrimSpace(query.Get("folder"))

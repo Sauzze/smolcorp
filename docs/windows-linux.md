@@ -39,6 +39,9 @@ pairing, the same agents, roles and hiring. What's different from the Mac:
   windows is the Mac's. A General Manager started by hand (`smolcorp gm
   login`) works on Windows with WebView2, not on Linux. See
   [Run a team](team.md#run-a-team).
+- **No sandbox for hires yet.** Hires here run as you, held by the guard
+  only, and Setup says so. The Windows sandbox comes in 1.26.1, and Linux's
+  in a later release.
 - **Typing from the phone** reaches tmux panes and the launcher's windows
   (several lines as one paste where the agent asked for it), and WezTerm and
   kitty one line at a time. The phone's own mic is the Mac's. See
@@ -64,9 +67,9 @@ your browser instead.
   nor in the window's address, which WebView2 keeps in its own folder. Phones still pair with the six-digit code,
   and **Unpair All Phones** leaves the window's device alone.
 - The 📝 badge counts the notes your General Manager suggested, in this window
-  as in the Mac's and in a browser. To review them, open Setup from the tray
-  icon (**Open Setup…**): **What your General Manager has learnt** lists what
-  waits for you.
+  as in the Mac's and in a browser. Here it isn't a button: to review them,
+  open Setup from the tray icon (**Open Setup…**), where **What your General
+  Manager has learnt** lists what waits for you.
 
 ### Windows: Setup in its own window
 

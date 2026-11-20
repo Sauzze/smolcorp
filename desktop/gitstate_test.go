@@ -485,6 +485,41 @@ func TestTheOwnersIgnoreFileStillHidesFiles(t *testing.T) {
 	}
 }
 
+// FXAGENTHOMEMAC: the Mac app now gives the core XDG_CONFIG_HOME. On a Mac, git's own ignore file in a moved config
+// folder hides nothing from a read; ~/.config/git's, which a desk's sandbox holds, still does. Elsewhere, where no
+// desk's sandbox runs yet, a read takes the moved folder's, as the owner's git does and the core always did
+// (FXAGENTHOMEMACR1, O1). The owner's own config there is still read for their ignore file and trusted folders, as
+// their git reads it.
+func TestAMovedConfigFoldersIgnoreFileHidesNothingFromARead(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git here")
+	}
+	dir := aGitRepo(t) // made before the stand-in owner's files, which would hide its own
+	home := physical(t.TempDir())
+	moved := filepath.Join(home, "dotfiles", "config")
+	writeRepoFile(t, home, ".config/git/ignore", "*.swp\n")
+	writeRepoFile(t, moved, "git/ignore", "*.txt\n") // as a desk could write it
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", moved)
+	withGitHere(t, gitHereInfo{version: "git version 2.40.0"})
+	writeRepoFile(t, dir, "notes.swp", "x\n")
+	writeRepoFile(t, dir, "kept.txt", "x\n")
+	shown := "kept.txt"
+	if runtime.GOOS != "darwin" {
+		shown = "notes.swp"
+	}
+	if state := realGitState(dir); state.Skipped || state.Changed != 1 || state.Files[0].Path != shown {
+		t.Errorf("%+v", state)
+	}
+	// The owner's settings, from their config in the moved folder (and none in ~/.config/git's).
+	writeRepoFile(t, moved, "git/config", "[core]\n\texcludesfile = ~/ignored\n[safe]\n\tdirectory = /some/repo\n")
+	writeRepoFile(t, home, ".config/git/config", "[core]\n\texcludesfile = ~/wrong\n")
+	if here := askGitHere(); len(here.owner) != 2 || here.owner[0] != [2]string{"core.excludesfile", "~/ignored"} ||
+		here.owner[1] != [2]string{"safe.directory", "/some/repo"} {
+		t.Errorf("the owner's settings: %+v", here)
+	}
+}
+
 func TestBothPathsAgreeOnAnOrdinaryRepo(t *testing.T) {
 	dir := aGitRepo(t)
 	writeRepoFile(t, dir, "a.txt", "one\ntwo changed\n")
@@ -526,8 +561,13 @@ func TestGitIsReadWithNothingToAskAndNoOtherRepoNamed(t *testing.T) {
 		"GIT_CONFIG_COUNT=1", "git_config_key_0=filter.x.clean", "GIT_CONFIG_VALUE_0=prog", "GIT_CONFIG_PARAMETERS='a.b=c'", "GIT_CONFIG_GLOBAL=/g",
 		"GIT_EXTERNAL_DIFF=prog", "GIT_SSH_COMMAND=prog", "GIT_ASKPASS=prog", "GIT_ATTR_SOURCE=HEAD", "GIT_ALLOW_PROTOCOL=file:ext",
 		"GIT_PROTOCOL_FROM_USER=1", "GIT_NO_LAZY_FETCH=0", "GIT_EXEC_PATH=/elsewhere", "GIT_AUTHOR_NAME=kept", "GIT_TEST_SPLIT_INDEX=1", "git_test_x=1",
-		"GIT_TEST_ASSUME_DIFFERENT_OWNER=1", "GIT_LITERAL_PATHSPECS=1", "GIT_GLOB_PATHSPECS=1", "GIT_NOGLOB_PATHSPECS=1", "git_icase_pathspecs=1"}
-	want := "PATH=/bin HOME=/h GIT_AUTHOR_NAME=kept GIT_TEST_ASSUME_DIFFERENT_OWNER=1 GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 GIT_PAGER=cat GIT_ALLOW_PROTOCOL= GIT_NO_LAZY_FETCH=1 " +
+		"GIT_TEST_ASSUME_DIFFERENT_OWNER=1", "GIT_LITERAL_PATHSPECS=1", "GIT_GLOB_PATHSPECS=1", "GIT_NOGLOB_PATHSPECS=1", "git_icase_pathspecs=1",
+		"XDG_CONFIG_HOME=/moved"}
+	want := "PATH=/bin HOME=/h GIT_AUTHOR_NAME=kept GIT_TEST_ASSUME_DIFFERENT_OWNER=1 "
+	if runtime.GOOS != "darwin" {
+		want += "XDG_CONFIG_HOME=/moved " // dropped only where a desk's sandbox runs (FXAGENTHOMEMACR1, O1)
+	}
+	want += "GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 GIT_PAGER=cat GIT_ALLOW_PROTOCOL= GIT_NO_LAZY_FETCH=1 " +
 		"GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=" + os.DevNull + " GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE="
 	// FXREPLACEREFS: gitReadAround, last. FXWINWORKTREER3: on Windows, the grafts file is the null device, and git's
 	// hint about it is off, after gitReadAround.
@@ -1185,5 +1225,24 @@ func TestTheDeskRouteIsTheWindowsAndTheGMReadsAHireInItsWorktree(t *testing.T) {
 	}
 	if got := m.call(t, asRev, "GET", "/setup/gm/git?hire=h1", ""); got.Code != http.StatusForbidden {
 		t.Errorf("a hire's key: %d", got.Code)
+	}
+}
+
+// FXAGENTHOMEMACR1 (O4): a read of the owner's own config takes XDG_CONFIG_HOME from the environment it's handed,
+// never from the core's own, and has it once.
+func TestAReadOfTheOwnersConfigTakesTheConfigFolderItsHanded(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/the-core-s")
+	env := gitOwnerConfigEnv([]string{"PATH=/bin", "XDG_CONFIG_HOME=/handed", "GIT_CONFIG_GLOBAL=/g"})
+	var xdg []string
+	for _, kv := range env {
+		if value, ok := strings.CutPrefix(kv, "XDG_CONFIG_HOME="); ok {
+			xdg = append(xdg, value)
+		}
+		if strings.HasPrefix(kv, "GIT_CONFIG_GLOBAL=") {
+			t.Errorf("the owner's global config is still off: %s", kv)
+		}
+	}
+	if !slices.Equal(xdg, []string{"/handed"}) {
+		t.Errorf("XDG_CONFIG_HOME: %q, want only /handed", xdg)
 	}
 }

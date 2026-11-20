@@ -8,6 +8,7 @@
 (deny iokit-open) ; IOKit: only the classes on its list
 (deny signal) ; signals: only to its own sandbox (C1)
 (deny file-read-data file-read-xattr file-write* file-link file-revoke (regex "^/dev/tty([p-w][0-9a-f]|s[0-9]+)$")) ; terminals: only those it made itself, and never revoked
+(deny mach-priv-task-port) ; debugging a process: only its own sandbox's
 
 ;; What it may still reach
 (allow network-outbound (literal "/private/tmp/smolcorp-501/h1/s")) ; its own socket
@@ -19,6 +20,7 @@
 (allow iokit-open (iokit-user-client-class "IOSurfaceSendRight")) ; an IOKit class on its list
 (allow file-read-data file-read-xattr file-write* file-link (require-all (regex "^/dev/ttys[0-9]+$") (extension "com.apple.sandbox.pty"))) ; the terminals it made itself: macOS's key to each
 (allow signal (target same-sandbox)) ; its own processes (C1)
+(allow mach-priv-task-port (target same-sandbox)) ; debugging its own processes
 
 ;; Allowed places
 (allow file-read-data file-read-xattr (subpath "/Users/ada/.claude")) ; the account folders
@@ -66,6 +68,7 @@
 (deny file-write* file-link (literal "/Users/ada/.zshrc___jb_tmp___")) ; plants the owner's programs run later
 (deny file-write* file-link (literal "/Users/ada/.zshrc-omztemp")) ; plants the owner's programs run later
 (deny file-write* file-link (literal "/Users/ada/.zshrc.pre-oh-my-zsh")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zshrc.zwc")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.zshrc$")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.\\.zshrc\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/INS@[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later
@@ -75,6 +78,7 @@
 (deny file-write* file-link (regex "^/Users/ada/\\.zshenv\\.tmp[^/]*$")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.zshenv\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
 (deny file-write* file-link (literal "/Users/ada/.zshenv___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zshenv.zwc")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.zshenv$")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.\\.zshenv\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
 (deny file-write* file-link (literal "/Users/ada/.zprofile")) ; plants the owner's programs run later
@@ -83,6 +87,7 @@
 (deny file-write* file-link (regex "^/Users/ada/\\.zprofile\\.tmp[^/]*$")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.zprofile\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
 (deny file-write* file-link (literal "/Users/ada/.zprofile___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zprofile.zwc")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.zprofile$")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.\\.zprofile\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
 (deny file-write* file-link (literal "/Users/ada/.zlogin")) ; plants the owner's programs run later
@@ -91,6 +96,7 @@
 (deny file-write* file-link (regex "^/Users/ada/\\.zlogin\\.tmp[^/]*$")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.zlogin\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
 (deny file-write* file-link (literal "/Users/ada/.zlogin___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zlogin.zwc")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.zlogin$")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.\\.zlogin\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
 (deny file-write* file-link (literal "/Users/ada/.zlogout")) ; plants the owner's programs run later
@@ -99,6 +105,7 @@
 (deny file-write* file-link (regex "^/Users/ada/\\.zlogout\\.tmp[^/]*$")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.zlogout\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
 (deny file-write* file-link (literal "/Users/ada/.zlogout___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.zlogout.zwc")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.zlogout$")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.\\.zlogout\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
 (deny file-write* file-link (literal "/Users/ada/.bashrc")) ; plants the owner's programs run later
@@ -175,6 +182,94 @@
 (deny file-write* file-link (literal "/Users/ada/.ssh/rc___jb_tmp___")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.ssh/\\.![^/]*!rc$")) ; plants the owner's programs run later
 (deny file-write* file-link (regex "^/Users/ada/\\.ssh/\\.rc\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.p10k.zsh")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (literal "/Users/ada/.p10k.zsh.lock")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (literal "/Users/ada/.p10k.zsh.new")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.p10k\\.zsh\\.tmp[^/]*$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.p10k\\.zsh\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (literal "/Users/ada/.p10k.zsh___jb_tmp___")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.p10k\\.zsh$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.p10k\\.zsh\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.zcompdump[^/]*$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (subpath "/Users/ada/.zkbd")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (subpath "/Users/ada/.zsh_sessions")) ; plants the owner's programs run later: a terminal window's restored session
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zshenv")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zshenv.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zshenv.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.zshenv\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.zshenv\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zshenv___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zshenv.zwc")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.![^/]*!\\.zshenv$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.\\.zshenv\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/INS@[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/XX[^/][^/][^/][^/][^/][^/]$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zprofile")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zprofile.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zprofile.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.zprofile\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.zprofile\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zprofile___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zprofile.zwc")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.![^/]*!\\.zprofile$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.\\.zprofile\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zshrc")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zshrc.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zshrc.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.zshrc\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.zshrc\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zshrc___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zshrc-omztemp")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zshrc.pre-oh-my-zsh")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zshrc.zwc")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.![^/]*!\\.zshrc$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.\\.zshrc\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zlogin")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zlogin.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zlogin.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.zlogin\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.zlogin\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zlogin___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zlogin.zwc")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.![^/]*!\\.zlogin$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.\\.zlogin\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zlogout")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zlogout.lock")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zlogout.new")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.zlogout\\.tmp[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.zlogout\\.[^/]*\\.tmp$")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zlogout___jb_tmp___")) ; plants the owner's programs run later
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.zlogout.zwc")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.![^/]*!\\.zlogout$")) ; plants the owner's programs run later
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.\\.zlogout\\.tmp\\.[^/]*$")) ; plants the owner's programs run later
+(deny file-write* file-link (subpath "/Users/ada/.config/zsh/ohmyzsh")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.p10k.zsh")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.p10k.zsh.lock")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.p10k.zsh.new")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.p10k\\.zsh\\.tmp[^/]*$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.p10k\\.zsh\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (literal "/Users/ada/.config/zsh/.p10k.zsh___jb_tmp___")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.![^/]*!\\.p10k\\.zsh$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.\\.p10k\\.zsh\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.config/zsh/\\.zcompdump[^/]*$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (subpath "/Users/ada/.config/zsh/.zkbd")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (subpath "/Users/ada/.config/zsh/.zsh_sessions")) ; plants the owner's programs run later: a terminal window's restored session
+(deny file-write* file-link (subpath "/Users/ada/.bash_sessions")) ; plants the owner's programs run later: a terminal window's restored session
+(deny file-write* file-link (literal "/Users/ada/.inputrc")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (literal "/Users/ada/.inputrc.lock")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (literal "/Users/ada/.inputrc.new")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.inputrc\\.tmp[^/]*$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.inputrc\\.[^/]*\\.tmp$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (literal "/Users/ada/.inputrc___jb_tmp___")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.![^/]*!\\.inputrc$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (regex "^/Users/ada/\\.\\.inputrc\\.tmp\\.[^/]*$")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-write* file-link (subpath "/Users/ada/.oh-my-zsh")) ; plants the owner's programs run later: what a shell reads at its start
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.lima/_config")) ; the VM tools' SSH keys: neither read nor written
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.colima/_lima/_config")) ; the VM tools' SSH keys: neither read nor written
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.orbstack/ssh")) ; the VM tools' SSH keys: neither read nor written
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/.local/share/containers/podman/machine")) ; the VM tools' SSH keys: neither read nor written
+(deny file-read-data file-read-xattr file-write* file-link (subpath "/Users/ada/Library/Application Support/rancher-desktop/lima/_config")) ; the VM tools' SSH keys: neither read nor written
+(deny file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.ssh/podman-machine-default[^/]*$")) ; the VM tools' SSH keys: neither read nor written
 (deny file-write* file-link (subpath "/Users/ada/.config/fish")) ; plants the owner's programs run later
 (deny file-write* file-link (subpath "/Users/ada/Library/LaunchAgents")) ; plants the owner's programs run later
 (deny file-write* file-link (subpath "/Users/ada/.config/autostart")) ; plants the owner's programs run later
@@ -269,6 +364,7 @@
 (deny file-write* file-link (subpath "/Users/ada/.config/ghostty")) ; plants the owner's programs run later: what a terminal reads at a window's start
 (deny file-write* file-link (subpath "/Users/ada/.config/wezterm")) ; plants the owner's programs run later: what a terminal reads at a window's start
 (deny file-write* file-link (subpath "/Users/ada/.config/kitty")) ; plants the owner's programs run later: what a terminal reads at a window's start
+(deny file-write* file-link (subpath "/Users/ada/Library/Saved Application State/com.apple.Terminal.savedState")) ; plants the owner's programs run later: what a terminal reads at a window's start
 (deny file-write* file-link (literal "/Users/ada/.wezterm.lua")) ; plants the owner's programs run later: what a terminal reads at a window's start
 (deny file-write* file-link (literal "/Users/ada/.wezterm.lua.lock")) ; plants the owner's programs run later: what a terminal reads at a window's start
 (deny file-write* file-link (literal "/Users/ada/.wezterm.lua.new")) ; plants the owner's programs run later: what a terminal reads at a window's start
@@ -566,6 +662,8 @@
 (deny file-write-create (require-all (literal "/Users/ada/.zshrc-omztemp") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zshrc.pre-oh-my-zsh")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.zshrc.pre-oh-my-zsh") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zshrc.zwc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zshrc.zwc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zshenv")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.zshenv") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zshenv.lock")) ; the folders above a denied place can't be moved or removed
@@ -574,6 +672,8 @@
 (deny file-write-create (require-all (literal "/Users/ada/.zshenv.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zshenv___jb_tmp___")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.zshenv___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zshenv.zwc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zshenv.zwc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zprofile")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.zprofile") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zprofile.lock")) ; the folders above a denied place can't be moved or removed
@@ -582,6 +682,8 @@
 (deny file-write-create (require-all (literal "/Users/ada/.zprofile.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zprofile___jb_tmp___")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.zprofile___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zprofile.zwc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zprofile.zwc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zlogin")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.zlogin") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zlogin.lock")) ; the folders above a denied place can't be moved or removed
@@ -590,6 +692,8 @@
 (deny file-write-create (require-all (literal "/Users/ada/.zlogin.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zlogin___jb_tmp___")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.zlogin___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zlogin.zwc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zlogin.zwc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zlogout")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.zlogout") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zlogout.lock")) ; the folders above a denied place can't be moved or removed
@@ -598,6 +702,8 @@
 (deny file-write-create (require-all (literal "/Users/ada/.zlogout.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zlogout___jb_tmp___")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.zlogout___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zlogout.zwc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zlogout.zwc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.bashrc")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.bashrc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.bashrc.lock")) ; the folders above a denied place can't be moved or removed
@@ -670,14 +776,140 @@
 (deny file-write-create (require-all (literal "/Users/ada/.ssh/rc.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.ssh/rc___jb_tmp___")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.ssh/rc___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
-(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/fish")) ; the folders above a denied place can't be moved or removed
-(deny file-write-create (require-all (literal "/Users/ada/.config/fish") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.p10k.zsh")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.p10k.zsh") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.p10k.zsh.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.p10k.zsh.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.p10k.zsh.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.p10k.zsh.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.p10k.zsh___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.p10k.zsh___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zkbd")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zkbd") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.zsh_sessions")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.zsh_sessions") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zshenv")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zshenv") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.config") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
-(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/LaunchAgents")) ; the folders above a denied place can't be moved or removed
-(deny file-write-create (require-all (literal "/Users/ada/Library/LaunchAgents") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zshenv.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zshenv.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zshenv.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zshenv.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zshenv___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zshenv___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zshenv.zwc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zshenv.zwc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zprofile")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zprofile") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zprofile.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zprofile.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zprofile.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zprofile.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zprofile___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zprofile___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zprofile.zwc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zprofile.zwc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zshrc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zshrc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zshrc.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zshrc.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zshrc.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zshrc.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zshrc___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zshrc___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zshrc-omztemp")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zshrc-omztemp") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zshrc.pre-oh-my-zsh")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zshrc.pre-oh-my-zsh") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zshrc.zwc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zshrc.zwc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zlogin")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zlogin") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zlogin.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zlogin.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zlogin.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zlogin.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zlogin___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zlogin___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zlogin.zwc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zlogin.zwc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zlogout")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zlogout") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zlogout.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zlogout.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zlogout.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zlogout.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zlogout___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zlogout___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zlogout.zwc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zlogout.zwc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/ohmyzsh")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/ohmyzsh") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.p10k.zsh")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.p10k.zsh") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.p10k.zsh.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.p10k.zsh.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.p10k.zsh.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.p10k.zsh.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.p10k.zsh___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.p10k.zsh___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zkbd")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zkbd") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/zsh/.zsh_sessions")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/zsh/.zsh_sessions") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.bash_sessions")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.bash_sessions") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.inputrc")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.inputrc") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.inputrc.lock")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.inputrc.lock") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.inputrc.new")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.inputrc.new") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.inputrc___jb_tmp___")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.inputrc___jb_tmp___") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.oh-my-zsh")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.oh-my-zsh") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.lima/_config")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.lima/_config") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.lima")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.lima") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.colima/_lima/_config")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.colima/_lima/_config") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.colima/_lima")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.colima/_lima") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.colima")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.colima") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.orbstack/ssh")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.orbstack/ssh") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.orbstack")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.orbstack") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.local/share/containers/podman/machine")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.local/share/containers/podman/machine") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.local/share/containers/podman")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.local/share/containers/podman") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.local/share/containers")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.local/share/containers") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.local/share")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.local/share") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.local")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.local") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/rancher-desktop/lima/_config")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/rancher-desktop/lima/_config") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/rancher-desktop/lima")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/rancher-desktop/lima") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/rancher-desktop")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/rancher-desktop") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/Library") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/fish")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/.config/fish") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/LaunchAgents")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/LaunchAgents") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/autostart")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.config/autostart") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/systemd/user")) ; the folders above a denied place can't be moved or removed
@@ -808,8 +1040,6 @@
 (deny file-write-create (require-all (literal "/Users/ada/Library/Preferences") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/iTerm2")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/Library/Application Support/iTerm2") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
-(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support")) ; the folders above a denied place can't be moved or removed
-(deny file-write-create (require-all (literal "/Users/ada/Library/Application Support") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/iterm2")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.config/iterm2") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Application Support/com.mitchellh.ghostty")) ; the folders above a denied place can't be moved or removed
@@ -820,6 +1050,10 @@
 (deny file-write-create (require-all (literal "/Users/ada/.config/wezterm") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.config/kitty")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.config/kitty") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Saved Application State/com.apple.Terminal.savedState")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Saved Application State/com.apple.Terminal.savedState") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
+(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/Library/Saved Application State")) ; the folders above a denied place can't be moved or removed
+(deny file-write-create (require-all (literal "/Users/ada/Library/Saved Application State") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.wezterm.lua")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.wezterm.lua") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.wezterm.lua.lock")) ; the folders above a denied place can't be moved or removed
@@ -840,10 +1074,6 @@
 (deny file-write-create (require-all (literal "/Users/ada/.config/opencode") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.local/share/opencode")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.local/share/opencode") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
-(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.local/share")) ; the folders above a denied place can't be moved or removed
-(deny file-write-create (require-all (literal "/Users/ada/.local/share") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
-(deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.local")) ; the folders above a denied place can't be moved or removed
-(deny file-write-create (require-all (literal "/Users/ada/.local") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.cache/opencode")) ; the folders above a denied place can't be moved or removed
 (deny file-write-create (require-all (literal "/Users/ada/.cache/opencode") (vnode-type SYMLINK))) ; the folders above a denied place can't be moved or removed
 (deny file-write-unlink file-write-mode file-write-flags file-write-acl file-write-owner file-link (literal "/Users/ada/.local/state/opencode")) ; the folders above a denied place can't be moved or removed
@@ -1205,4 +1435,6 @@
 (deny appleevent-send) ; Apple Events
 (deny lsopen) ; opening apps (LaunchServices)
 (deny job-creation) ; new launchd jobs
+(deny file-mount file-unmount) ; mounting or unmounting a file system
+(deny file-read-data file-read-xattr file-write* file-link (regex "^/dev/bpf[0-9]*$")) ; capturing packets (/dev/bpf)
 (deny file-issue-extension generic-issue-extension mach-issue-extension iokit-issue-extension) ; handing its rights to another process (sandbox extensions, of every kind): its mark stays its sandbox's alone

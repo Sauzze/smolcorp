@@ -92,9 +92,26 @@ func makeDeskSandbox(d deskAt) (*deskSandbox, error) {
 			return nil, &errSandboxNotMade{sandboxNotMade}
 		}
 	}
+	// An agent's place no desk's profile can hold (the top of the disk, a control character, a `..`), in words that name
+	// its variable (FXAGENTHOMEMACR1): the owner's to fix, not the sandbox's. One spelled with a `..` was unset at the
+	// core's start, and only its name kept (agentPlacesDropped, FXAGENTHOMEMACR3).
+	variable := sandbox.AgentPlaceRefused(os.Getenv, physicalBelow)
+	if len(agentPlacesDropped) > 0 {
+		variable = agentPlacesDropped[0]
+	}
+	if runtime.GOOS == "darwin" && variable != "" {
+		log.Printf("sandbox: desk %s's places: %s names a place no profile can hold", d.ID, variable)
+		return nil, &errSandboxNotMade{agentPlaceWords(variable)}
+	}
 	pl, err := deskPlaces(d)
 	if err != nil {
 		log.Printf("sandbox: desk %s's places: %v", d.ID, err)
+		// An ignore file spelled from another account's home or git's own folder, in words that name the setting
+		// (FXAGENTHOMEMACR2, RT126AGENTHOMEMACR1 O1).
+		var excludes *sandbox.ExcludesFileError
+		if errors.As(err, &excludes) {
+			return nil, &errSandboxNotMade{excludesFileWords(excludes.Value)}
+		}
 		return nil, &errSandboxNotMade{sandboxNotMade}
 	}
 	// SA-M12's checks, at each start: whether Remote Login answers (its SSH keys denied then), and, with AQ21's
@@ -119,6 +136,14 @@ func makeDeskSandbox(d deskAt) (*deskSandbox, error) {
 		var big *sandbox.HomeTooBigError
 		if errors.As(err, &big) {
 			return nil, &errSandboxNotMade{homeTooBig(big)}
+		}
+		// A place one of the agent place variables names that couldn't be looked through (a folder of root's it
+		// can't read, `XDG_CONFIG_HOME=/private`), in words that name the variable (FXAGENTHOMEMACR2, N1).
+		var links *sandbox.HomeLinksError
+		if errors.As(err, &links) && runtime.GOOS == "darwin" {
+			if variable := sandbox.AgentPlaceOf(os.Getenv, physicalBelow, pl.Home, links.At); variable != "" {
+				return nil, &errSandboxNotMade{agentPlaceWords(variable)}
+			}
 		}
 		return nil, &errSandboxNotMade{sandboxNotMade}
 	}
@@ -175,7 +200,22 @@ func makeDeskSandbox(d deskAt) (*deskSandbox, error) {
 			return nil, &errSandboxNotMade{sandboxNotMade}
 		}
 	}
+	// Something a desk could have mounted before its profile denied mounting, at or inside a narrow place its Policy
+	// holds, or a share over a plant (FXSWEEP3P1, RT126SWEEP3 P1's F1; FXSWEEP3P1R1, FXSWEEP3P1R2): no desk starts
+	// while it hides what's there.
+	if words := mountedWords(pol, pl.Home); words != "" {
+		log.Printf("sandbox: desk %s's start: %s", d.ID, words)
+		return nil, &errSandboxNotMade{words + ", so no desk starts while it's there."}
+	}
 	if _, err := checkLinks(pol, pl); err != nil {
+		// Too many files to look at in a place one of the agent place variables names (`OPENCODE_DB=/Users`), in words
+		// that name the variable (FXAGENTHOMEMACR3, RT126AGENTHOMEMACR2 O1).
+		var many *tooManyToLook
+		if errors.As(err, &many) && runtime.GOOS == "darwin" {
+			if variable := sandbox.AgentPlaceOf(os.Getenv, physicalBelow, pl.Home, many.at); variable != "" {
+				return nil, &errSandboxNotMade{agentPlaceWords(variable)}
+			}
+		}
 		var words *linkCheckError
 		if errors.As(err, &words) {
 			return nil, &errSandboxNotMade{words.words}
@@ -381,6 +421,45 @@ func homeTooBig(e *sandbox.HomeTooBigError) string {
 		"looks through. " + todo + ", then start the hire again."
 }
 
+// agentPlacesDropped are the names of the agent place variables the core was started with a value of no desk's profile
+// can hold, spelled with a `.` or `..` in it or a doubled `/` (sandbox.AgentPlaceUnclean): unset at the core's start on
+// a Mac, by it (unsetAgentPlacesNotWhole) or by the Mac app (agentPlacesDroppedVariable), so nothing of the core reads
+// them, and kept here so every desk's start is refused in the first one's words (FXAGENTHOMEMACR3, RT126AGENTHOMEMACR2
+// B1). Set once, before the core serves.
+var agentPlacesDropped []string
+
+// agentPlacesDroppedVariable is how the Mac app tells its core the names, never the values, of the agent place
+// variables it dropped for such a spelling (Engine.swift, GoCore.environment). Comma-separated.
+const agentPlacesDroppedVariable = "SMOLCORP_AGENT_PLACES_DROPPED"
+
+// agentPlaceWords is the owner's words for a start refused because variable, one the Mac app passes the core
+// (sandbox.AgentPlaces), puts an agent's folder or sign-in, or the config folder, where no desk's sandbox can hold it
+// (AgentPlaceRefused, agentPlacesDropped), or somewhere the start couldn't look through (AgentPlaceOf, FXAGENTHOMEMACR2):
+// it names the variable and says to fix or unset it. Turning the sandbox off isn't the fix, and updating doesn't help.
+func agentPlaceWords(variable string) string {
+	return "Smolcorp didn't start this hire: " + variable + " puts a folder of yours where a hire's sandbox can't keep " +
+		"it (the top of your Mac's disk, a folder Smolcorp can't look all through, a path with . or .. or // in it, or " +
+		"one with a line break or another control character in it). Fix " + variable + " or unset it (launchctl " +
+		"unsetenv " + variable + " too, if you set it there), then quit and reopen Smolcorp and start the hire again."
+}
+
+// excludesFileWords is the owner's words for a start refused because their git config's ignore file,
+// core.excludesFile, is value, spelled from another account's home folder (`~name/…`) or from where git is installed
+// (`%(prefix)/…`): Smolcorp can't tell which file that is, so it can't keep a hire from writing it (FXAGENTHOMEMACR2,
+// RT126AGENTHOMEMACR1 O1). They say how to spell it instead, and to quit and reopen Smolcorp: the core asks for the
+// ignore file once for its life and carries it into its reads (gitHere), so the value it carries is the one refused
+// until then (FXAGENTHOMEMACR3, RT126AGENTHOMEMACR2 N1).
+func excludesFileWords(value string) string {
+	form := "from another account's home folder (~name/…)"
+	if strings.HasPrefix(value, "%(") {
+		form = "from the folder git is installed in (%(prefix)/…)"
+	}
+	return "Smolcorp didn't start this hire: your git config's core.excludesFile is " + strconv.Quote(value) + ", a path " +
+		form + ", and Smolcorp can't tell which file that is, so it can't keep a hire from changing what your git " +
+		"ignores. Spell it as a whole path (starting with /) or from your own home folder (~/…), with git config " +
+		"--global core.excludesFile, then quit and reopen Smolcorp and start the hire again."
+}
+
 // groupedCount is n with a comma between each group of three digits, as English writes a count.
 func groupedCount(n int) string {
 	s := strconv.Itoa(n)
@@ -421,23 +500,77 @@ func deskStartListing(s *deskSandbox) {}
 // FXFIREREAPR1): its tmux server's end doesn't end what its panes started in the background. One that can't be stops
 // it there, with nothing let go, and its words are said, for the caller to keep what it would have taken away (its
 // row, its worktree, its folders) and say so: "" otherwise.
+//
+// Then, with every program ended, something a desk could have mounted at or inside a narrow place its sandbox holds,
+// or a share over a plant, stops it there too (mountedWords, FXSWEEP3P1, FXSWEEP3P1R1, FXSWEEP3P1R2): the listing would read what the mount shows, not what's
+// there, and a fire would go on to look at the repo through it.
 func deskStopped(h Hire, o engineOptions) string {
 	if why := deskReap(h); why != "" {
 		return why
 	}
 	keptSandboxes.Lock()
 	s, kept := keptSandboxes.of[h.ID]
-	delete(keptSandboxes.of, h.ID)
 	keptSandboxes.Unlock()
 	if !kept {
 		s = rowDeskSandbox(h.ID, o)
 	}
+	if s != nil {
+		if why := mountedWords(s.policy, s.places.Home); why != "" {
+			log.Printf("sandbox: desk %s at its stop: %s", h.ID, why)
+			return why
+		}
+	}
+	keptSandboxes.Lock()
+	delete(keptSandboxes.of, h.ID)
+	keptSandboxes.Unlock()
 	if s != nil {
 		deskStopListing(s)
 	}
 	removeDeskSocketFolder(h.TmuxSocket)
 	deskChecksForgotten(h.ID)
 	return ""
+}
+
+// deskMounts are the owner's own file systems, where and of which type, read at each desk's start and stop
+// (sandbox.OwnersMounts). Tests set it.
+var deskMounts = sandbox.OwnersMounts
+
+// mountedBegins begins mountedWords' words, whichever they are.
+const mountedBegins = "Something "
+
+// mountedWords is "" when nothing a desk could have mounted is at or inside a narrow place pol holds, or over a plant
+// (MountedOver), and otherwise the owner's words for it, to be followed by what was or wasn't done (", so …"): what is
+// mounted where, inside or over what (FXSWEEP3P1R2), and how to take it away (FXSWEEP3P1R1, RT126SWEEP3FIXP1's B1:
+// the owner's own mounts aren't counted, so the words don't ask whether it's theirs). A mount table that can't be read
+// is said too. On a Mac.
+func mountedWords(pol *sandbox.Policy, home string) string {
+	if runtime.GOOS != "darwin" || pol == nil {
+		return ""
+	}
+	mounts, err := deskMounts()
+	if err != nil {
+		log.Printf("sandbox: the mount table: %v", err)
+		return mountedBegins + "may be mounted over a place no desk may change: Smolcorp couldn't read what is mounted on this Mac"
+	}
+	at, place := pol.MountedOver(home, mounts)
+	if at == "" {
+		return ""
+	}
+	kind := ""
+	for _, m := range mounts {
+		if m.At == at && m.Type != "" {
+			kind = " (" + m.Type + ")"
+			break
+		}
+	}
+	where := ""
+	if at, place := filepath.Clean(at), filepath.Clean(place); strings.HasPrefix(place, at+"/") {
+		where = ", over " + place // a share at a folder holding a plant
+	} else if at != place {
+		where = ", inside " + place
+	}
+	return mountedBegins + "is mounted at " + at + kind + where + ", where no desk may change anything (unmount it with umount " +
+		shellQuoted(at) + " in Terminal)"
 }
 
 // deskStopListing is where a desk's stop lists what it may have planted, from its sandbox: CLAUDEPLANT1's merge puts
@@ -595,6 +728,8 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 	}
 	pl.Accounts = deskAccounts(runtime.GOOS, d.Accounts)
 	pl.AgentHomes, pl.AgentSignIns = deskAgentHomes(runtime.GOOS, os.Getenv)
+	pl.ConfigHomes = deskConfigHomes(runtime.GOOS, os.Getenv)
+	pl.ShellHomes = deskShellHomes(runtime.GOOS, os.Getenv)
 	if d.Projects != "" {
 		// Its workspace, spelled so too, and its own plans folder where it starts (deskPlansFor), as the folder it
 		// starts in spells it to Claude Code.
@@ -628,7 +763,21 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	pl.GitHooks, pl.GitNamed, err = sandbox.ReadGitConfig(ctx, git, nil, pl)
-	return pl, err
+	if err != nil {
+		return pl, err
+	}
+	// …and the ignore file the core's reads carry (gitHere: asked once for the core's life), which the owner may have
+	// changed since: a desk that wrote it would hide its files from them (FXAGENTHOMEMACR2, RT126AGENTHOMEMACR1 N2).
+	for _, value := range carriedExcludesFiles() {
+		carried, err := sandbox.CarriedIgnorePlaces(value, []string{pl.Home, os.Getenv("HOME")}, []string{pl.Root, pl.Checkout})
+		if err != nil {
+			return pl, err
+		}
+		pl.GitNamed = append(pl.GitNamed, carried...)
+	}
+	slices.Sort(pl.GitNamed)
+	pl.GitNamed = slices.Compact(pl.GitNamed)
+	return pl, nil
 }
 
 // deskAgentHomes are the hired agents' places and sign-ins the core's own environment, getenv, moves out of their
@@ -637,18 +786,45 @@ func deskPlaces(d deskAt) (sandbox.Places, error) {
 // above a part not there yet too (a sign-in not made yet, in a linked folder), and on a Mac kept as spelled too, as an
 // account folder is (deskAccounts), so the Policy holds a link there itself as well as where it leads.
 func deskAgentHomes(goos string, getenv func(string) string) (homes, signIns []string) {
-	both := func(places []string) []string {
-		var out []string
-		for _, place := range places {
-			out = append(out, physicalBelow(place))
-			if goos == "darwin" && filepath.Clean(place) != physicalBelow(place) {
-				out = append(out, filepath.Clean(place))
-			}
-		}
-		return out
-	}
 	homes, signIns = sandbox.AgentPlaces(getenv)
-	return both(homes), both(signIns)
+	return resolvedAndSpelled(goos, homes), resolvedAndSpelled(goos, signIns)
+}
+
+// deskConfigHomes is where the core's own environment, getenv, moves ~/.config (XDG_CONFIG_HOME), read at each desk's
+// start, for Places.ConfigHomes on a Mac, where a desk's sandbox runs (FXAGENTHOMEMACR1, O3): resolved and as spelled,
+// as deskAgentHomes gives its places. None when it isn't a whole path, or is ~/.config, which has its own rows.
+func deskConfigHomes(goos string, getenv func(string) string) []string {
+	xdg := getenv("XDG_CONFIG_HOME")
+	if goos != "darwin" || !filepath.IsAbs(xdg) || physicalBelow(xdg) == physicalBelow(filepath.Join(homeDir, ".config")) {
+		return nil
+	}
+	return resolvedAndSpelled(goos, []string{xdg})
+}
+
+// deskShellHomes is where the core's own environment, getenv, moves zsh's own files (ZDOTDIR), read at each desk's
+// start, for Places.ShellHomes on a Mac (FXSWEEP3P1, RT126SWEEP3 P1's B1): resolved and as spelled, as deskConfigHomes
+// gives its places. None when it isn't a whole path, or is the home folder, whose zsh files have their own rows. The
+// Mac app passes it (GoCore.agentPlaces); set only in ~/.zshenv, it never reaches the core.
+func deskShellHomes(goos string, getenv func(string) string) []string {
+	zdot := getenv("ZDOTDIR")
+	if goos != "darwin" || !filepath.IsAbs(zdot) || physicalBelow(zdot) == physicalBelow(homeDir) {
+		return nil
+	}
+	return resolvedAndSpelled(goos, []string{zdot})
+}
+
+// resolvedAndSpelled is each of places resolved, the folders above a part not there yet too, and on a Mac as spelled
+// too when that differs, as an account folder is (deskAccounts), so the Policy holds a link there itself as well as
+// where it leads.
+func resolvedAndSpelled(goos string, places []string) []string {
+	var out []string
+	for _, place := range places {
+		out = append(out, physicalBelow(place))
+		if goos == "darwin" && filepath.Clean(place) != physicalBelow(place) {
+			out = append(out, filepath.Clean(place))
+		}
+	}
+	return out
 }
 
 // physicalBelow is p as physical makes it, with the folders above a part of it that isn't there yet resolved too.

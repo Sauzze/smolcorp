@@ -164,7 +164,8 @@ func (d *escapeDesk) appended(t *testing.T, name, rule string) string {
 }
 
 // work runs program in the desk's sandbox (under profile, d.profile when ""), in dir, with HOME and env, for at most
-// limit. startRefusal comes first, as in inside (escape3_darwin_test.go), told the start is in a desk.
+// limit. startRefusal comes first, as in inside (escape3_darwin_test.go), told the start is in a desk. With d.noTerminal,
+// program starts with no controlling terminal.
 func (d *escapeDesk) work(t *testing.T, profile, dir string, limit time.Duration, env []string, program string, args ...string) ran {
 	t.Helper()
 	if err := startRefusal(program, args, true); err != nil {
@@ -178,6 +179,9 @@ func (d *escapeDesk) work(t *testing.T, profile, dir string, limit time.Duration
 	defer cancel()
 	cmd := disclaim.Cmd(exec.CommandContext(ctx, sandboxExec, append([]string{"-f", profile, program}, args...)...))
 	cmd.Dir, cmd.WaitDelay = dir, 5*time.Second
+	if d.noTerminal {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	}
 	cmd.Env = append([]string{"HOME=" + d.home, "LANG=C", "TERM=xterm", "TMPDIR=" + filepath.Join(d.base, "t") + "/"}, env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr

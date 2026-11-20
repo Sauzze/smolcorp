@@ -49,10 +49,10 @@ func TestTheKeepersAreNeverMadeThroughALink(t *testing.T) {
 	}
 	pl, git, _ := refRows(t)
 	p := mustNew(t, pl)
-	if err := p.makeHold(inGit(p.Hold(), git)); err != nil {
+	if _, err := p.makeHold(inGit(p.Hold(), git)); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.makeHold(p.Keep()); err != nil {
+	if _, err := p.makeHold(p.Keep()); err != nil {
 		t.Fatal(err)
 	}
 	for _, keeper := range p.Keep() {
@@ -88,10 +88,10 @@ func TestTheKeepersAreNeverMadeThroughALink(t *testing.T) {
 				if folders = inGit(p.Hold(), git); slices.Contains(folders, link) {
 					t.Errorf("%s is a Hold", link)
 				}
-				if err := p.makeHold(folders); err != nil {
+				if _, err := p.makeHold(folders); err != nil {
 					t.Errorf("the Hold: %v", err)
 				}
-			} else if err := p.makeHold(folders); !errors.As(err, &at) || at.At != link || !at.Link {
+			} else if _, err := p.makeHold(folders); !errors.As(err, &at) || at.At != link || !at.Link {
 				t.Errorf("made through the link at %s: %v", link, err)
 			}
 			if names := namesOf(t, outside); len(names) != 0 {
@@ -109,7 +109,7 @@ func TestTheKeepersAreNeverMadeThroughALink(t *testing.T) {
 			t.Fatal(err)
 		}
 		p := mustNew(t, pl)
-		if err := p.makeHold(p.Keep()); err != nil {
+		if _, err := p.makeHold(p.Keep()); err != nil {
 			t.Errorf("below a file: %v", err)
 		}
 		if info, err := os.Lstat(heads); err != nil || !info.Mode().IsRegular() {

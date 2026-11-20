@@ -92,6 +92,18 @@ type linkCheckError struct{ words string }
 
 func (e *linkCheckError) Error() string { return e.words }
 
+// tooManyToLook is a link check that stopped at at, the most it looks at reached: the start's words then name the
+// variable at came from, when one of the agent place variables put it there (FXAGENTHOMEMACR3, RT126AGENTHOMEMACR2
+// O1). It is its linkCheckError too.
+type tooManyToLook struct {
+	at  string
+	err *linkCheckError
+}
+
+func (e *tooManyToLook) Error() string { return e.err.Error() }
+
+func (e *tooManyToLook) Unwrap() error { return e.err }
+
 // checkLinks is the link check for a desk at pl, whose Policy is pol. Every regular file pol denies the desk reading
 // or writing, in the places its rows name (but those linkCheckSkipped names), is looked at; one with more than one
 // name is:
@@ -322,7 +334,7 @@ func inside(folder, at string) bool {
 func walkLook(at string, depth int, skip func(string) bool, budget *int, each func(string, fs.FileInfo) error) error {
 	*budget--
 	if *budget < 0 {
-		return &linkCheckError{fmt.Sprintf("Smolcorp couldn't look at every file it keeps from desks (more than %d, at %s), so the desk didn't start.", linkCheckMost, at)}
+		return &tooManyToLook{at, &linkCheckError{fmt.Sprintf("Smolcorp couldn't look at every file it keeps from desks (more than %d, at %s), so the desk didn't start.", linkCheckMost, at)}}
 	}
 	info, err := os.Lstat(at)
 	switch {

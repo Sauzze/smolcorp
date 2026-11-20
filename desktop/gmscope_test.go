@@ -323,7 +323,6 @@ func TestAScopedGMCantHireOrChangeTheOfficeAnotherWay(t *testing.T) {
 		{"POST", "/setup/hire/gm", ""},
 		{"POST", "/setup/gm/manager?enabled=0", ""},
 		{"POST", "/setup/hiring?enabled=0", ""},
-		{"POST", "/setup/hire-folder?folder=" + homeDir, ""},
 		{"POST", "/setup/roles", `{}`},
 		{"POST", "/setup/hooks", ""},
 		{"POST", "/setup/layout", `{}`},
@@ -334,6 +333,10 @@ func TestAScopedGMCantHireOrChangeTheOfficeAnotherWay(t *testing.T) {
 		if code, text := scopedCall(t, d, token, c.method, c.target, c.body); !scopeRefused(code, text) {
 			t.Errorf("%s %s: %d %q, want the scope's 403", c.method, c.target, code, text)
 		}
+	}
+	// The folder for hires is the page's alone (RT126SWEEP3 P4 B1): the route table refuses every GM first.
+	if code, text := scopedCall(t, d, token, "POST", "/setup/hire-folder?folder="+homeDir, ""); code != http.StatusForbidden || scopeRefused(code, text) {
+		t.Errorf("/setup/hire-folder: %d %q, want the route table's 403", code, text)
 	}
 	// Not a route at all: the route table refuses it first, as for any caller but the page and a tool.
 	if code, _ := scopedCall(t, d, token, "POST", "/setup//hire", outside); code != http.StatusForbidden || len(registered(t)) != 1 {
@@ -445,7 +448,8 @@ func TestAGMWithNoScopeIsAsBefore(t *testing.T) {
 		{"POST", "/setup/gm/send", `{"to":"Rex","text":"hi"}`, http.StatusOK},
 		{"POST", "/setup/pin?key=2&folder=" + elsewhere, "", http.StatusNoContent},
 		{"POST", "/setup/gm/tile", "", http.StatusNotFound},
-		{"POST", "/setup/hiring?enabled=1", "", http.StatusOK},
+		// Hiring turned off: the GM never turns it on (RT126SWEEP3 P4 F2, sweep3p4_test.go).
+		{"POST", "/setup/hiring?enabled=0", "", http.StatusOK},
 	} {
 		if code, text := scopedCall(t, d, token, c.method, c.target, c.body); code != c.status {
 			t.Errorf("%s %s: %d %q, want %d", c.method, c.target, code, text, c.status)

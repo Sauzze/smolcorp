@@ -285,7 +285,10 @@ func TestOnAMacAnAccountFolderIsLookedIntoTwoLevelsDeepOnTheSharedBudget(t *test
 	if _, err := New(stand("plans", map[string]int{".claude/plans": 20, ".claude/paste-cache": 21})); err != nil {
 		t.Errorf("an account folder past an app's own budget: %v", err)
 	}
-	if _, err := New(stand("plugins", map[string]int{"code/big2": 41}, [2]string{".claude/plugins/big2", "../../code/big2"})); err != nil {
+	// (The folder is in dotfiles, a folder every stand-in home has at its top: a new one there would be listed again for
+	// each pattern row in the home folder, ~/.p10k.zsh's writers' names among them since FXSWEEP3P1R1, and that cost,
+	// not the folder's 41, would decide the row.)
+	if _, err := New(stand("plugins", map[string]int{"dotfiles/big2": 41}, [2]string{".claude/plugins/big2", "../../dotfiles/big2"})); err != nil {
 		t.Errorf("a folder a link in the plugins leads to, past an app's own budget: %v", err)
 	}
 	// Too big at the top two levels of an account folder: refused, saying where it stopped, on everything's count.

@@ -168,8 +168,8 @@ func t3WorktreeConfigIsData(ctx context.Context, h Hire, t deskTree) string {
 func t3HooksAreTheBase(ctx context.Context, h Hire, t deskTree) string {
 	// Where your git takes its hooks from there: your own config on (system, user, the repo's, the worktree's), and
 	// none of gitReadArgs, which name a hooks folder of their own. Reading config runs nothing.
-	env := slices.DeleteFunc(gitReadEnv(os.Environ(), nil), func(kv string) bool {
-		return strings.HasPrefix(kv, "GIT_CONFIG_GLOBAL=") || strings.HasPrefix(kv, "GIT_CONFIG_NOSYSTEM=")
+	env := slices.DeleteFunc(gitOwnerConfigEnv(os.Environ()), func(kv string) bool {
+		return strings.HasPrefix(kv, "GIT_CONFIG_NOSYSTEM=")
 	})
 	out, status, err := t3TreeGit(ctx, h, t, env, []string{"--no-pager"}, nil, "config", "--get", "core.hooksPath")
 	switch {

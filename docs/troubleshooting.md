@@ -63,6 +63,14 @@ page lists, or tmux.
 Manager and the hires it manages run in tmux, each in a session of its own.
 Install it (`brew install tmux`), then hire again.
 
+**"Smolcorp didn't start this hire" because a folder is too big (Mac).** At
+each start, Smolcorp looks for links in the folders of yours that hires can't
+change, up to a limit, and the message names the folder where it stopped.
+Clear out old sessions, caches or logs there, then start the hire again. If
+it's in `~/.claude`'s skills, commands, agents or hooks, remove what you
+don't need (a skill's `node_modules` folder or Python virtual environment),
+or keep it somewhere no link in `~/.claude` leads.
+
 **Firing a hire made by Smolcorp 1.24 doesn't close its Terminal tab.** A hire
 that 1.24 opened in a Terminal tab of its own, outside tmux, can't be found by
 the General Manager or setup with certainty, so they never close its tab: they

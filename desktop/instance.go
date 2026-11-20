@@ -23,8 +23,17 @@ import (
 const raisePath = "/raise"
 
 // showOffice is what /raise does; a test swaps it so no window opens. It says
-// if the browser could not be started, and the second instance is told.
-var showOffice = func(d *Deck) error { return d.openOffice() }
+// if the browser could not be started (under the Mac app, if the app's window
+// could not be opened), and the second instance is told. Under
+// the Mac app, the office in the app's own window, as the menu's Show Office
+// opens it, never the browser, whose office key ends up in its history and
+// reaches what the window's does (RT126SWEEP3 P4 F3).
+var showOffice = func(d *Deck) error {
+	if h := d.macHost(); h != nil {
+		return hostShowOffice(h)
+	}
+	return d.openOffice()
+}
 
 // showSettings is /raise?show=settings, `smolcorp setup --open` on Windows: Smolcorp's own Settings window, or the
 // one open brought forward ("" said), as the tray's Open Setup… does. Under the Mac app, its own Settings window, as
@@ -71,6 +80,30 @@ const instanceRaised = "Smolcorp is already running: its office is coming to the
 // could open the office (see notRaisedMessage).
 const instanceNotRaised = "Smolcorp is already running, but no browser could open its office"
 
+// What /raise answers when the office couldn't be shown, before why: off the Mac app the browser didn't start; under
+// it, the app's own office window didn't open, and no browser was tried (RT126SWEEP3FIXP4 O2).
+const (
+	raiseBrowserFailed = "The browser could not be started: "
+	raiseWindowFailed  = "The office window could not be opened: "
+)
+
+// raiseFailedWords is which of them /raise answers: under the Mac app (mac), the window's.
+func raiseFailedWords(mac bool) string {
+	if mac {
+		return raiseWindowFailed
+	}
+	return raiseBrowserFailed
+}
+
+// instanceWindowNotRaised is what the second one says when the first, under the Mac app, couldn't open its office
+// window: no browser was tried, so there's no address to open by hand and nothing to pair.
+const instanceWindowNotRaised = "Smolcorp is already running, but its office window didn't open"
+
+// windowNotRaisedMessage says why the office window didn't open, and where else it opens from.
+func windowNotRaisedMessage(failure string) string {
+	return instanceWindowNotRaised + " (" + failure + ").\nTo open it, choose Show Office from Smolcorp's menu bar icon."
+}
+
 // notRaisedMessage says why no browser opened the office and gives its address
 // on a line of its own, so it copies cleanly. The address carries no token, so
 // a browser that isn't paired yet is asked to pair first.
@@ -96,14 +129,17 @@ var stopHint = func() string {
 // office. Whatever happens it returns the exit code the second instance ends
 // with: 0 when the office is coming, 1 when no browser could open it (the
 // message and the plain address are printed all the same, and Smolcorp is
-// running either way).
+// running either way) or, under the Mac app, its office window didn't open.
 func handOverToRunning(quiet bool) int {
-	if answered, failure := askRunningToShowOffice(Port); answered {
+	if answered, failure, window := askRunningToShowOffice(Port); answered {
 		if failure == "" {
 			fmt.Fprintln(os.Stderr, instanceRaised+stopHint)
 			return 0
 		}
 		message := notRaisedMessage(failure)
+		if window {
+			message = windowNotRaisedMessage(failure)
+		}
 		fmt.Fprintln(os.Stderr, message+stopHint)
 		if !quiet {
 			notifyUser(message)
@@ -118,34 +154,43 @@ func handOverToRunning(quiet bool) int {
 }
 
 // askRunningToShowOffice reports whether the running Smolcorp answered, and, if
-// it couldn't open the office, why. A Smolcorp from before this route existed
-// answers 404 or 401, which is no answer.
-func askRunningToShowOffice(port int) (answered bool, failure string) {
+// it couldn't open the office, why, and whether it was the Mac app's office
+// window that didn't open (window) rather than a browser. A Smolcorp from before
+// this route existed answers 404 or 401, which is no answer.
+func askRunningToShowOffice(port int) (answered bool, failure string, window bool) {
 	key, err := os.ReadFile(hookKeyFile)
 	if err != nil {
-		return false, ""
+		return false, "", false
 	}
 	request, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d%s", port, raisePath), nil)
 	if err != nil {
-		return false, ""
+		return false, "", false
 	}
 	request.Header.Set(hookKeyHeader, strings.TrimSpace(string(key)))
 	client := http.Client{Timeout: 3 * time.Second}
 	response, err := client.Do(request)
 	if err != nil {
-		return false, ""
+		return false, "", false
 	}
 	defer response.Body.Close()
 	switch response.StatusCode {
 	case http.StatusNoContent:
-		return true, ""
+		return true, "", false
 	case http.StatusBadGateway:
 		text, _ := io.ReadAll(io.LimitReader(response.Body, 512))
-		failure = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(text)), "The browser could not be started: "))
+		said := strings.TrimSpace(string(text))
+		if failure, window = strings.CutPrefix(said, raiseWindowFailed); window {
+			failure = strings.TrimSpace(failure)
+			if failure == "" {
+				failure = "the office window could not be opened"
+			}
+			return true, failure, true
+		}
+		failure = strings.TrimSpace(strings.TrimPrefix(said, raiseBrowserFailed))
 		if failure == "" {
 			failure = "the browser could not be started"
 		}
-		return true, failure
+		return true, failure, false
 	}
-	return false, ""
+	return false, "", false
 }
