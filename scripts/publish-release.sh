@@ -25,7 +25,7 @@ cd "$(dirname "$0")/.."
 . scripts/release-gate.sh
 
 # Set both for the release being published; the checks below stop on a mismatch.
-VERSION="1.24.3"
+VERSION="1.26.0"
 BRANCH="release-next"
 TAG="v$VERSION"
 RELEASE_BRANCH="release/$VERSION"
