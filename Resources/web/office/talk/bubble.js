@@ -299,8 +299,8 @@ const TALK_BUBBLE = {
   },
 
   /**
-   * The live bubbles on `win`'s page. `room`: { canvas, anchor(id), view(), shape(), session(id), name(id) }, from the
-   * room. Gives { open(id, anchor), hover(id, anchor), expand(id), frame(bubbles), close(back), enter(id), tab(back),
+   * The live bubbles on `win`'s page. `room`: { canvas, anchor(id), view(), shape(), session(id), name(id), elsewhere(id) },
+   * from the room. Gives { open(id, anchor), hover(id, anchor), expand(id), frame(bubbles), close(back), enter(id), tab(back),
    * remove() }: the room's click and hover on a bubble, the Pixel Terminal on a desk (Expand, the ▤ key), each frame
    * the room draws (the bubbles it drew), a click on the floor, Enter and Tab in the room, and the room leaving the page.
    *
@@ -819,7 +819,9 @@ const TALK_BUBBLE = {
       frame(bubbles) {
         terminal.frame(bubbles);
         if (terminal.shown()) return under();
-        if (open && !room.session(open.id)) api.close();
+        // Gone, or on another floor than the one in view (the view rode away from it): closed. Its head out of sight a
+        // moment (on the ride to its own floor), it waits, hidden, and comes back over it.
+        if (open && (!room.session(open.id) || (room.elsewhere && room.elsewhere(open.id)))) api.close();
         place();
         const waiting = bubbles.filter((b) => b.state === 'asking');
         const now = waiting.map((b) => b.id).sort().join(' ');

@@ -106,8 +106,8 @@ same(list.map((b) => [b.id, b.x]), [['a', 1], ['b', 3]], 'one each');
 
 // The room, built from its sources and drawn by node on a stand-in for its page: with `on.talk`, the bubble is its
 // own target (a click opens it, ahead of the person under it, a mouse resting on it for a quarter second hovers,
-// a touch has no hover and opens on lift) and the four choice keys are gone; without, nothing changes: the bubble
-// selects, and the keys are there. Staff and a hire in T3 Code have no bubble.
+// a touch has no hover and opens on lift; a click on the person opens it too) and the four choice keys are gone;
+// without, nothing changes: the bubble and the person select, and the keys are there. Staff and a hire in T3 Code have no bubble.
 const officeRig = `
 const fs = require('fs');
 let T = 1000;
@@ -142,8 +142,9 @@ global.document = win.document;
 const session = (id, extra = {}) => ({ id, name: id, state: 'thinking', effort: '', agent: 'claude', model: '', tool: 'Edit', subagents: [],
   maxPressedAt: null, turnStartedAt: null, dial: false, mic: false, ...extra });
 
-// A room 640 × 360 CSS pixels, its art pixel two of them, with the sessions at its first desks.
-function rig(talk, sessions) {
+// A room 640 × 360 CSS pixels, its art pixel two of them, with the sessions at its first desks. Fed (feed), a select
+// picks as the page's does, and what a hold or a carry tells the page (held, swap) is kept; more(calls) adds to what it's given.
+function rig(talk, sessions, feed = false, more = () => ({})) {
   const handlers = {}, calls = [];
   const canvas = Object.assign(spare(), {
     ownerDocument: win.document,
@@ -153,7 +154,9 @@ function rig(talk, sessions) {
   });
   win.document.defaultView = win;
   const on = { select: (id) => calls.push(['select', id]), choose: (action) => calls.push(['choose', action]), hint() {}, held() {} };
+  if (feed) Object.assign(on, { select: (id) => { calls.push(['select', id]); office.select(id); }, held: () => calls.push(['held']), swap: (from, to) => calls.push(['swap', from, to]) });
   if (talk) on.talk = { open: (id, anchor) => calls.push(['open', id, anchor]), hover: (id, anchor) => calls.push(['hover', id, anchor]) };
+  Object.assign(on, more(calls));
   const office = win.AgentOffice.create(canvas, on);
   office.show({ now: Date.now(), keys: sessions.map((s) => ({ session: s })), layout: {}, hiring: { fire: false, hire: false } });
   office.select(sessions[0].id);
@@ -252,7 +255,7 @@ need(room.since(n).length === 0, 'a touch opened on landing');
 room.send('pointerup', ...middle, 'touch');
 need(kinds(room.since(n)) === 'open', 'a tap on the bubble: ' + kinds(room.since(n)));
 
-// A click on the bubble opens it and picks nobody; one on the person under it, or their desk, picks them, as before.
+// A click on the bubble opens it and picks nobody; so does one on the person under it (1.26.0: a person is their bubble).
 n = room.calls.length;
 room.click(...middle);
 const opened = room.since(n);
@@ -261,7 +264,7 @@ const open = opened.find((c) => c[0] === 'open');
 need(open[1] === 'a' && open[2].art.tip.x === anchor.art.tip.x, 'the click opens a with its anchor');
 n = room.calls.length;
 room.click(tip.x, tip.y + 24);
-need(kinds(room.since(n)) === 'select' && room.since(n)[0][1] === 'a', 'a click on the employee picks them: ' + kinds(room.since(n)));
+need(kinds(room.since(n)) === 'open' && room.since(n).find((c) => c[0] === 'open')[1] === 'a', 'a click on the employee: ' + kinds(room.since(n)));
 
 // The four keys are off: nothing in or round the bubble's head sends ▲ ▼ ✓ ✕.
 const keys = (r) => {
@@ -287,6 +290,9 @@ plain.step(5);
 need(plain.calls.length === before, 'hovering without on.talk told someone');
 plain.click(...middle);
 need(!plain.calls.some((c) => c[0] === 'open'), 'a bubble opened without on.talk');
+let m = plain.calls.length;
+plain.click(tip.x, tip.y + 24);
+need(kinds(plain.since(m)) === 'select' && plain.since(m)[0][1] === 'a', 'a click on the employee without on.talk: ' + kinds(plain.since(m)));
 need(keys(plain) === 'accept,down,reject,up', 'the four choice keys are not all there without on.talk: ' + keys(plain));
 `, path)
 }

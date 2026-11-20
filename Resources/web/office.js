@@ -572,8 +572,8 @@
     },
 
     /**
-     * The live bubbles on `win`'s page. `room`: { canvas, anchor(id), view(), shape(), session(id), name(id) }, from the
-     * room. Gives { open(id, anchor), hover(id, anchor), expand(id), frame(bubbles), close(back), enter(id), tab(back),
+     * The live bubbles on `win`'s page. `room`: { canvas, anchor(id), view(), shape(), session(id), name(id), elsewhere(id) },
+     * from the room. Gives { open(id, anchor), hover(id, anchor), expand(id), frame(bubbles), close(back), enter(id), tab(back),
      * remove() }: the room's click and hover on a bubble, the Pixel Terminal on a desk (Expand, the ▤ key), each frame
      * the room draws (the bubbles it drew), a click on the floor, Enter and Tab in the room, and the room leaving the page.
      *
@@ -1092,7 +1092,9 @@
         frame(bubbles) {
           terminal.frame(bubbles);
           if (terminal.shown()) return under();
-          if (open && !room.session(open.id)) api.close();
+          // Gone, or on another floor than the one in view (the view rode away from it): closed. Its head out of sight a
+          // moment (on the ride to its own floor), it waits, hidden, and comes back over it.
+          if (open && (!room.session(open.id) || (room.elsewhere && room.elsewhere(open.id)))) api.close();
           place();
           const waiting = bubbles.filter((b) => b.state === 'asking');
           const now = waiting.map((b) => b.id).sort().join(' ');
@@ -69910,7 +69912,8 @@
     let keyDown = null;      // the key last pressed: { action, at, held }
     const returnAt = new Map(); // when accept or send last went to each session, so a tap landing twice sends Return once
     let keysAt = null;       // where the keys were last drawn, in art pixels: { keys, box }
-    let bubblesAt = [];      // the talk bubbles last drawn on the ground floor, when the page takes them: { id, x, top, state, since }
+    let bubblesAt = [];      // the talk bubbles last drawn on the floor in view, when the page takes them: { id, x, top, state, since }
+    let talkFloor = 1;       // the floor the talk bubbles are for: the one in view, or the one the ride is going to
     let talkHover = TALK_ANCHORS.hover(); // the mouse over a talk bubble: see TALK_ANCHORS.hoverStep
     let talkTimer = null;    // the wait before a hovered bubble's tag shows
     const talkAsked = new Map(); // when hovering last asked for each desk's card, so it isn't asked for more than once a second
@@ -70285,7 +70288,9 @@
       };
       // cog: the settings' key where the room last drew it, in art pixels ({ x, y, w, h }), or null with none drawn;
       // artUnder: the room's art on its own layer, for a picture of the canvas (the Pixel Terminal's)
-      return { canvas, anchor: talkAnchor, view: talkView, shape: () => shape, session: sessionOf, name, cog: () => styleKeyAt, artUnder };
+      // elsewhere: whether `id` sits on a floor other than the one in view (or the ride's), or nowhere
+      const elsewhere = (id) => floorOf(id) !== talkFloor;
+      return { canvas, anchor: talkAnchor, view: talkView, shape: () => shape, session: sessionOf, name, elsewhere, cog: () => styleKeyAt, artUnder };
     }
 
     /** The next frame, or step, called off. */
@@ -70666,6 +70671,9 @@
         finger.held = true;
         const { kind, id, desk } = finger.target;
         // Upstairs, an empty desk is hired into where it is: there are no keys to keep in order there.
+        // A person held, whose tap opens their bubble (see personAt), is picked first, as a press on them picked them
+        // before: their keys, chips and button need them picked.
+        if (finger.target.talk && kind === 'session' && id !== selected) on.select?.(id);
         held = kind === 'session' ? { kind, id } : finger.target.floor ? { kind: 'empty', desk, floor: finger.target.floor }
           : hiresInto(desk) ? { kind: 'empty', desk } : null;
         roleOffset = 0;
@@ -70705,6 +70713,8 @@
             maxing: maxing && { ...maxDialog(), title: `Max effort for ${maxing.name}?`, detail: 'It uses much more of your usage.' },
             keyRow: keys, roleRow: hires, styleKey: key, voiceNotes: voiceNotesShown(now), hearing: hearingShown(),
             carrying: carrying && carrying.floor === n ? carrying : null,
+            // Its talk bubbles, as the ground floor's
+            talk: on.talk ? { bubbles: [] } : null,
           });
         }
       }
@@ -70766,8 +70776,9 @@
         if (comparing) compareDirect(storey, frames);
       }
       styleKeyAt = key && key.at;
-      // The talk bubbles the ground floor drew; upstairs and on the ride, none is there to click
-      bubblesAt = storey < 2 && !ride && frames[1].talk ? frames[1].talk.bubbles : [];
+      // The talk bubbles the floor in view drew, on any floor; on the ride, none is there to click
+      bubblesAt = !ride && frames[storey] && frames[storey].talk ? frames[storey].talk.bubbles : [];
+      talkFloor = ride ? ride.to : storey;
       if (talkPanels) talkPanels.frame(bubblesAt);
       keysAt = keys && keys.at ? { keys: keys.at, box: keys.box } : null;
       rolesAt = hires && hires.at ? { roles: hires.at, box: hires.box, most: hires.most, arrows: hires.arrows || [] } : null;
@@ -70843,6 +70854,19 @@
       return office.skipComing(person, now) && going;
     }
 
+    /**
+     * What a person is to a finger, `kind` being what their desk is: the sprite, its arms, and the bubble over its
+     * head. With the talk bubbles (the office's own window), a tap on them opens their bubble, whatever they're doing
+     * and wherever they are (`talk`), as a tap on the bubble does; a finger held on them is still their desk's. Staff,
+     * someone coming in or going, and (for the bubble) a hire in T3 Code, as before.
+     */
+    function personAt(person, kind, now) {
+      if (person.isStaff || person.isLeaving || person.entering) return null;
+      const px = Math.round(person.position.x), top = topOf(person, poseOf(person, now));
+      const target = { kind, id: person.session.id, ...(on.talk && !person.session.t3 ? { talk: true } : {}) };
+      return { target, box: { left: px - 5, right: px + 8, top: top - 11, bottom: Math.round(person.position.y) + 1 } };
+    }
+
     function targetAt(clientX, clientY) {
       const { x, y, scale, ratio } = roomAt(clientX, clientY);
       const reach = (SMALLEST_TARGET * ratio) / scale;
@@ -70908,6 +70932,17 @@
           return best ? best.target : { kind: 'uncard' };
         }
         for (const { id, box, drivable } of upstairsDeskBoxes()) consider(drivable ? { kind: 'session', id } : { kind: 'upstairsDesk', id }, box, 3);
+        // With the talk bubbles, as on the ground floor: each bubble, ahead of the person under it, and a person, whose
+        // tap opens it (see personAt). Held, a person here is their desk.
+        if (on.talk) {
+          for (const bubble of bubblesAt) if (!bubble.quiet) consider({ kind: 'talk', id: bubble.id }, TALK_ANCHORS.hitBox(bubble.x, bubble.top, shape), -1);
+          const desks = new Map(upstairsDeskBoxes().map((d) => [d.id, d.drivable]));
+          upstairs((upper) => upper.people.forEach((person) => {
+            if (!person.session || !desks.has(person.session.id)) return;
+            const target = personAt(person, desks.get(person.session.id) ? 'session' : 'upstairsDesk', now);
+            if (target) consider(target.target, target.box, 0);
+          }));
+        }
         // A desk's pull request tag, over the desk: one tap opens it
         for (const { id, box } of upstairs(prBoxes) || []) consider({ kind: 'pr', id }, box, 1);
         // An empty desk here, held, hires someone into it, by role, as downstairs.
@@ -70927,11 +70962,8 @@
       // A person's bubble is its own target, ahead of the person under it
       for (const bubble of bubblesAt) if (!bubble.quiet) consider({ kind: 'talk', id: bubble.id }, TALK_ANCHORS.hitBox(bubble.x, bubble.top, shape), -1);
       for (const person of office.people) {
-        if (person.isStaff || person.isLeaving || person.entering) continue;
-        const px = Math.round(person.position.x), top = topOf(person, poseOf(person, now));
-        // The sprite, its arms, and the bubble over its head
-        consider({ kind: 'session', id: person.session.id },
-          { left: px - 5, right: px + 8, top: top - 11, bottom: Math.round(person.position.y) + 1 }, 0);
+        const target = personAt(person, 'session', now);
+        if (target) consider(target.target, target.box, 0);
       }
       // A music piece, with the jukebox on: play or pause
       if (music && on.music) {
@@ -71034,9 +71066,27 @@
       return { scale, ox, oy, k: canvas.width / rect.width, left: rect.left, top: rect.top };
     }
 
+    /**
+     * The talk bubble over `id`'s head on the floor in view: as the room last drew it or, for someone it drew none over
+     * this frame (visiting, the mic held on them, a storm, out of order, idle away from the desk), where it would be
+     * over their head, so their open bubble stays with them rather than blinking out. None on the ride, for a desk on
+     * another floor or gone, or for staff and a hire in T3 Code.
+     */
+    function talkBubbleOf(id) {
+      const drawn = bubblesAt.find((b) => b.id === id);
+      if (drawn || ride || !id) return drawn || null;
+      const now = clock();
+      const over = (there) => {
+        const person = there.people.find((p) => !p.isStaff && !p.entering && p.session && p.session.id === id && !p.session.t3);
+        return person ? { id, x: Math.round(person.position.x), top: topOf(person, poseOf(person, now)), state: person.session.state, since: null, quiet: true } : null;
+      };
+      if (talkFloor < 2) return over(office);
+      return uppers.has(talkFloor) ? onUpper(talkFloor, over) : null;
+    }
+
     /** What the page is told of the talk bubble over `id`'s head: its box and tail point, in art and CSS pixels. */
     function talkAnchor(id) {
-      const bubble = bubblesAt.find((b) => b.id === id);
+      const bubble = talkBubbleOf(id);
       return bubble ? TALK_ANCHORS.anchorOf(bubble, shape, talkView()) : null;
     }
 
@@ -71094,7 +71144,7 @@
       }
       // A desk upstairs does nothing till it's held (see `draw`), but a cloud bot's, whose card a tap opens too; the
       // card, tapped, goes away, or down to who hired it.
-      if (target.kind === 'upstairsDesk') {
+      if (target.kind === 'upstairsDesk' && !target.talk) {
         if (isCloudDesk(target.id)) openCard(target.id);
         return;
       }
@@ -71220,7 +71270,10 @@
         chipDown = { level: target.level, at: clock(), held: true };
         return target.level === 'max' ? maxOrAsk(selectedSession()) : on.effort?.(target.level);
       }
-      if (target.kind === 'talk') {
+      // A talk bubble, or with them a person: their desk's bubble opens (open, it closes)
+      if (target.kind === 'talk' || target.talk) {
+        // A cloud bot's person upstairs opens its card too, as its desk does, so its news is seen
+        if (target.talk && isCloudDesk(target.id)) openCard(target.id);
         hoverTalk(null);
         talkPanels?.open(target.id);
         return on.talk?.open?.(target.id, talkAnchor(target.id));
@@ -71288,7 +71341,8 @@
       // would accept the other's question.
       if (finger && finger.waiting) {
         finger.waiting = false;
-        if (dropped && !finger.moved && finger.selected === selected) press(finger.target);
+        // A person held put out their keys: lifting from them then opens no talk bubble
+        if (dropped && !finger.moved && finger.selected === selected && !(finger.held && finger.target.talk)) press(finger.target);
         // Across the styles far enough, it turns their page: on, going left or up
         if (dropped && finger.moved && finger.swipes && finger.to) {
           const dx = finger.to.x - finger.x, dy = finger.to.y - finger.y, along = Math.abs(dx) > Math.abs(dy) ? dx : dy;
@@ -71728,8 +71782,11 @@
       canvas.setPointerCapture(e.pointerId);
       // With the agent picked as it touched down: see `lift`.
       finger = { id: e.pointerId, target, at: clock(), x: e.clientX, y: e.clientY, selected };
-      if (e.pointerType === 'touch' && SENT_ON_LIFT.includes(target.kind)) {
+      // A person whose tap opens their bubble waits for the lift on any pointer: held, they're their desk (see `tick`).
+      if ((e.pointerType === 'touch' && SENT_ON_LIFT.includes(target.kind)) || target.talk) {
         finger.waiting = true;
+        // As `press` does at touch-down: a key armed for one agent can't be fired by one tap for the next one held.
+        if (target.talk) keyArmed = null;
         return;
       }
       if (STYLE_SWIPES.includes(target.kind)) {
@@ -71820,7 +71877,8 @@
         }
         return;
       }
-      if (finger && e.pointerId === finger.id && finger.waiting) {
+      // A person held, waiting, is carried as their desk is
+      if (finger && e.pointerId === finger.id && finger.waiting && !(finger.held && finger.target.talk)) {
         if (Math.hypot(e.clientX - finger.x, e.clientY - finger.y) >= CARRY_AFTER) finger.moved = true;
         if (finger.swipes) finger.to = { x: e.clientX, y: e.clientY };
         return;
