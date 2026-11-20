@@ -44,6 +44,9 @@ func refRows(t *testing.T) (pl Places, git, outside string) {
 // way (a reftable repo's refs/heads) leaves the rest unmade, as MakeHold does. With no link, every keeper is made, a
 // folder in the .git.
 func TestTheKeepersAreNeverMadeThroughALink(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("a Mac desk's Policy spells /tmp as /private/tmp, which only a Mac has: off a Mac it makes nothing in this temp folder")
+	}
 	pl, git, _ := refRows(t)
 	p := mustNew(t, pl)
 	if err := p.makeHold(inGit(p.Hold(), git)); err != nil {

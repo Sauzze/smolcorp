@@ -822,15 +822,17 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 			// The office's own hire into the folder for hires, on a Mac with the sandbox on: the project it works in is
 			// picked first, and it is hired into that (FXHIREPROJECTSR4). Every other route's folder is checked once the
 			// hire's place is known (runManagedHire), and again at each start (makeDeskSandbox).
+			// It is told the project picked, rather than asked which (FXPICKEDPROJECT).
+			project := ""
 			if general && extra == nil && !fromSetup && !s.fenced && roleID != gmRole && d.hiresSandboxed() {
 				picked, status, answer := d.projectFirst(folder, s.project)
 				if status != 0 {
 					d.lastHire = time.Time{} // nobody was hired, so the pick needn't wait
 					return status, answer
 				}
-				folder = picked
+				folder, project = picked, s.project
 			}
-			if status, message, handled := d.managedHireWith(roleID, folder, terminal, showWindow, held, floor, engineExtra); handled {
+			if status, message, handled := d.managedHireWith(roleID, folder, project, terminal, showWindow, held, floor, engineExtra); handled {
 				return status, message
 			}
 		} else if launcherHires && d.config.HireManagedWindows && hasTerminal && !onAPIKey(extra) && (extra == nil || extra.Scope == "") {
@@ -895,7 +897,8 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 	// A plain hire's launcher starts its agent in a sandbox on a Mac (plainHireSandboxed): the office's own plain hire
 	// into the folder for hires picks its project first, as the engine's does (FXHIREPROJECTSR5, N1). The GM's place
 	// is never one project: it isn't asked.
-	plainDesk, plain := "", Hire{}
+	plainDesk, plain, project := "", Hire{}, ""
+	var pickedArgs []string // what its launcher is told of the project picked, after --desk
 	if plainHireSandboxed(*d.config) {
 		if general && extra == nil && !fromSetup && roleID != gmRole {
 			picked, status, answer := d.projectFirst(folder, s.project)
@@ -903,7 +906,7 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 				d.lastHire = time.Time{} // nobody was hired, so the pick needn't wait
 				return status, answer
 			}
-			folder = picked
+			folder, project = picked, s.project
 		}
 		// Its place is refused here as its launcher's start would refuse it (makeDeskSandbox), by any route: the
 		// projects folder or home, or a folder holding one, or a folder in no repo that holds one (FXHIREPROJECTSR5).
@@ -938,6 +941,14 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 				return http.StatusInternalServerError, err.Error()
 			}
 			folder = place.Folder
+			// A role's hire is told the project picked, rather than asked which, by its launcher (FXPICKEDPROJECT): the
+			// project's name and its own worktree's branch go with it.
+			if project != "" && roleID != "" && plainProjectName(project) {
+				pickedArgs = []string{"--project", project}
+				if place.Branch != "" {
+					pickedArgs = append(pickedArgs, "--branch", place.Branch)
+				}
+			}
 			// On record until its end, as the engine's row is, so its worktree and branch get the fire's clean-up and its
 			// recap once its launcher is gone (plainhireend.go). A folder in no repo has none: nothing to end.
 			if place.Worktree != "" {
@@ -960,6 +971,7 @@ func (d *Deck) hireWith(s hireSpec) (int, string) {
 	command := []string{commandLineProgram(), "run", "--hire", token}
 	if plainDesk != "" {
 		command = append(command, "--desk", plainDesk)
+		command = append(command, pickedArgs...)
 	}
 	// Claude Code starts on the account it's hired on, whatever the terminal's shell sets (PLAINENV1): a named one's
 	// folder, from setup's confirmed list (configDir), goes with it; without one, the launcher takes CLAUDE_CONFIG_DIR

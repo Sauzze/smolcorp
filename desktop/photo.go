@@ -50,16 +50,17 @@ const (
 	// photoMemoryMost is the most a picture may take once unpacked, as photoMemory reckons it from its header: a
 	// 25 MP picture of 16 bits a channel fits; a progressive CMYK JPEG that size doesn't.
 	photoMemoryMost = 200 << 20
-	// How long a photo waits for its desk to read it, at most (well inside answer 6's 24 hours: photoNote says it),
-	// and how often the photos are looked through.
-	photoWait       = 30 * time.Minute
-	photoSweepEvery = 10 * time.Minute
+	// How long a photo waits for its desk to read it, at most (well inside answer 6's 24 hours: photoNote says it).
+	photoWait = 30 * time.Minute
 	// photoJPEGQuality is the quality a JPEG is encoded again at.
 	photoJPEGQuality = 90
 	// photosFolder is the photos' folder in the support folder, and photoPrefix how each photo's name starts.
 	photosFolder = "photos"
 	photoPrefix  = "smolcorp-photo-"
 )
+
+// photoSweepEvery is how often the photos are looked through. A variable for the tests.
+var photoSweepEvery = 10 * time.Minute
 
 const (
 	photoTooBig    = "Too big: a photo can be at most 8 MB."

@@ -276,6 +276,7 @@ func TestTheAutoInstallAsksTheRunningCopyToMakeWay(t *testing.T) {
 // read back to be that very file; never by an alias an update moved to another file.
 func TestAWindowsHookNamesTheConsoleProgramItself(t *testing.T) {
 	const usual = `C:\Users\ada\AppData\Local\Smolcorp\smolcorp-cli.exe`
+	const usualShort = `C:\Users\ada\AppData\Local\Smolcorp\SMOLCO~1.EXE`
 	const spaced = `C:\Users\Ada Lovelace\AppData\Local\Smolcorp\smolcorp-cli.exe`
 	const spacedShort = `C:\Users\ADALOV~1\AppData\Local\Smolcorp\SMOLCO~1.EXE`
 	// The disk: the short name it gives a path, and the long name it reads a short one back as. They disagree when
@@ -301,7 +302,9 @@ func TestAWindowsHookNamesTheConsoleProgramItself(t *testing.T) {
 		short, long map[string]string
 		want        string
 	}{
-		{"the usual folder", usual, map[string]string{usual: `C:\Users\ada\AppData\Local\Smolcorp\SMOLCO~1.EXE`}, nil,
+		// The short name reads back as this very file, so only the usual case's own branch keeps the long path
+		// (RT126FIXREVIEW-WININSTALLR2 O1: with no read-back, a short name was never in the running).
+		{"the usual folder", usual, map[string]string{usual: usualShort}, map[string]string{usualShort: usual},
 			"C:/Users/ada/AppData/Local/Smolcorp/smolcorp-cli.exe"},
 		{"a space in the user's name", spaced, map[string]string{spaced: spacedShort}, map[string]string{spacedShort: spaced},
 			"C:/Users/ADALOV~1/AppData/Local/Smolcorp/SMOLCO~1.EXE"},

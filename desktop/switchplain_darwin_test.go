@@ -15,7 +15,8 @@ import (
 
 // FXSWITCHPLAIN on a Mac, end to end: a plain hire made while the owner had the sandbox off (--sandbox-off, from the
 // core) starts its agent with the real launcher outside any sandbox, its own sandbox as the owner set it, as it would
-// without Smolcorp. With the switch back on in the config's file as it starts, it starts in its sandbox as before.
+// without Smolcorp. With the switch back on in the config's file as it starts, it starts in its sandbox as before, in
+// a folder that holds no repo; in a repo it is refused before anything starts (sandboxOnAgainWords).
 // Stand-ins only: a stand-in agent, secret, fence and app (launchersandbox_darwin_test.go).
 func TestOnAMacWithTheSandboxOffAPlainHiresAgentStartsAsWithoutSmolcorp(t *testing.T) {
 	macSandboxHere(t)
@@ -27,29 +28,44 @@ func TestOnAMacWithTheSandboxOffAPlainHiresAgentStartsAsWithoutSmolcorp(t *testi
 		fileOff             bool
 		secret, args        string // what the agent found, and what it was started with
 		geminiSandbox       string
+		inRepo              bool // its folder a repo's top: refused, the agent never run
 	}{
 		// Its own sandbox left as the owner set it: no words, GEMINI_SANDBOX as inherited.
-		{"Gemini CLI, the switch off", "gemini", "0.9.0", true, "read", "", "true"},
-		{"Codex, the switch off", "codex", "codex-cli 0.46.0", true, "read", "", "true"},
+		{"Gemini CLI, the switch off", "gemini", "0.9.0", true, "read", "", "true", false},
+		{"Codex, the switch off", "codex", "codex-cli 0.46.0", true, "read", "", "true", false},
 		// Not asked for its version: nothing of its own sandbox is switched off, so an old one starts too.
-		{"an old Codex, the switch off", "codex", "codex-cli 0.19.9", true, "read", "", "true"},
+		{"an old Codex, the switch off", "codex", "codex-cli 0.19.9", true, "read", "", "true", false},
 		// The core said off at the hire, but the switch reads on again as it starts: in its sandbox, as before. Claude
 		// Code's, the one plain hire that starts in a Mac's sandbox in 1.26.0 (FXPLANTSTERM's notonamac.go: a Codex is
 		// refused there, TestOnAMacTheLauncherRefusesEveryAgentButClaudeCodeBeforeItStarts).
-		{"Claude Code, the switch on again", "claude", "2.1.300 (Claude Code)", false, "denied", `--settings {"sandbox":{"enabled":false}}`, "true"},
+		{"Claude Code, the switch on again", "claude", "2.1.300 (Claude Code)", false, "denied", `--settings {"sandbox":{"enabled":false}}`, "true", false},
+		// The same in a repo (RT126STACKP3 N1): the office made it no worktree, so in its sandbox it would work in the
+		// owner's checkout, which ruling (W) keeps every sandboxed plain hire out of. Its launcher refuses it, says why,
+		// and makes nothing of a desk.
+		{"Claude Code, the switch on again, in a repo", "claude", "2.1.300 (Claude Code)", false, "", "", "", true},
 	} {
 		t.Run(c.row, func(t *testing.T) {
 			bin, folder, sockets, files := plainProbeAgent(t, c.agent, c.version), t.TempDir(), shortDeskSockets(t), t.TempDir()
+			if c.inRepo {
+				standInOwnersGit(t, folder, "init", "-q")
+			}
 			config := filepath.Join(files, "config.json")
 			writeFile(t, config, map[bool]string{true: `{"sandboxOff": true}`, false: `{}`}[c.fileOff])
 			office := string(must(json.Marshal(map[string]string{"Config": config, "HookKey": filepath.Join(files, "hook-key")})))
 			env := []string{testDeskSocketsVariable + "=" + sockets, testHookKeyVariable + "=fake-hook-key-1", testSecretVariable + "=1",
 				"SMOLCORP_PORT=" + strconv.Itoa(port), "GEMINI_SANDBOX=true", launcherStandInOfficeVariable + "=" + office}
 			probe, said := runPlainLauncher(t, []string{"--hire", token, "--sandbox-off", c.agent}, bin, folder, env...)
-			if probe["secret"] != c.secret {
+			switch {
+			case c.inRepo:
+				if !strings.Contains(said, plainHireSandboxOnAgain) {
+					t.Errorf("the launcher said %q, want its refusal %q", said, plainHireSandboxOnAgain)
+				}
+				if _, err := os.Lstat(filepath.Join(folder, "probe")); !os.IsNotExist(err) {
+					t.Errorf("the agent ran (its probe: %v): %q", err, probe)
+				}
+			case probe["secret"] != c.secret:
 				t.Fatalf("the agent found the secret %q, want %q (the launcher said %q)", probe["secret"], c.secret, said)
-			}
-			if probe["args"] != c.args || probe["gemini-sandbox"] != c.geminiSandbox {
+			case probe["args"] != c.args || probe["gemini-sandbox"] != c.geminiSandbox:
 				t.Errorf("its own sandbox: started with %q and GEMINI_SANDBOX %q, want %q and %q", probe["args"], probe["gemini-sandbox"], c.args, c.geminiSandbox)
 			}
 			if left, _ := filepath.Glob(filepath.Join(sockets, "*")); len(left) != 0 {

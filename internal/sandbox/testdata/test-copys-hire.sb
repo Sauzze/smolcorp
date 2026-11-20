@@ -39,7 +39,7 @@
 (allow file-write* file-link (subpath "/Users/ada/Projects/app/.git")) ; the rest of the shared .git
 (allow file-read-data file-read-xattr file-write* file-link (subpath "/private/tmp/smolcorp-501/h1")) ; its own socket folder
 (allow file-read-data file-read-xattr (literal "/Users/ada/Projects/smolcorp/.dev/support/hire-guard.json")) ; the guard file: the guard reads it
-(allow file-read-data file-read-xattr (literal "/Users/ada/Projects/smolcorp/.dev/support/nightshift.json")) ; the night shift's jobs: read only, as the guard file
+(allow file-read-data file-read-xattr (literal "/Users/ada/Projects/smolcorp/.dev/support/nightshift.json")) ; a file only the core writes: read only, as the guard file
 (allow file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/Projects/smolcorp/\\.dev/support/hires/h1/[^/]*\\.md$")) ; its status and report
 (allow file-read-data file-read-xattr (regex "^/Users/ada/Projects/smolcorp/\\.dev/support/hires/h1/BRIEF[^/]*\\.md$")) ; its brief and its fence
 (allow file-read-data file-read-xattr (regex "^/Users/ada/Projects/smolcorp/\\.dev/support/hires/h1/settings\\.json$")) ; its brief and its fence

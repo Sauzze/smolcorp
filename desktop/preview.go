@@ -645,7 +645,7 @@ func (d *Deck) declarePreview(by string, signer *Hire, ask previewAsk) (int, any
 		}
 		own := d.hireDesk(*signer)
 		if ask.hire != "" {
-			if h, refused := findWatchHire(ask.hire, readRegistry(registryPath(), false).hires); refused != nil || h.ID != signer.ID {
+			if h, refused := d.hireNamed(ask.hire); refused != nil || h.ID != signer.ID {
 				return http.StatusForbidden, previewHireOwnOnly
 			}
 		}
@@ -659,7 +659,7 @@ func (d *Deck) declarePreview(by string, signer *Hire, ask previewAsk) (int, any
 	case (ask.session == "") == (ask.hire == ""):
 		return http.StatusBadRequest, previewWhichDesk
 	case ask.hire != "":
-		h, refused := findWatchHire(ask.hire, readRegistry(registryPath(), false).hires)
+		h, refused := d.hireNamed(ask.hire)
 		if refused != nil {
 			return refused.status, refused.message
 		}

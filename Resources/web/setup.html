@@ -4288,13 +4288,23 @@
     if (!r) return drawEasyRoles(null);
     const roles = r.roles;
     const agentOf = (id) => r.agents.find((a) => a.id === id) || r.agents[0];
+    // On a Mac whose hires start in their sandbox, the office asks which project first and tells the hire, so its first
+    // reply asks only its own questions (FXPICKEDPROJECT); one started in a terminal still asks which project itself.
+    const picked = !!state.hiresSandboxed;
     $('roles-hint').textContent = state.launcher && !(state.hiring && state.hiring.canHire)
       ? 'Start one in a terminal with the command on its card. Its first reply only asks you its questions, starting with whether '
         + "the folder you started it in is the one, and it waits for your answers before it works on its instructions."
+      : state.launcher && picked
+      ? 'Hold a free desk in the office and pick a role to hire it: the office asks which project first, so its first reply only '
+        + 'asks you its own questions. Or start one in a terminal with the command on its card: its first reply then asks which '
+        + 'project to work on too. Either way, it waits for your answers before it works on its instructions.'
       : state.launcher
       ? 'Hold a free desk in the office and pick a role to hire it, or start one in a terminal with the command on its card. '
         + 'Its first reply only asks you which project to work on and its own questions, and it waits for your answers before '
         + 'it works on its instructions.'
+      : picked
+      ? 'Hold a free desk in the office and pick a role to hire it, or Anyone for a regular hire. Its first reply only asks you its '
+        + 'own questions: the office asks which project first. It waits for your answers before it works on its instructions.'
       : 'Hold a free desk in the office and pick a role to hire it, or Anyone for a regular hire. Its first reply only asks you '
         + "which project to work on and its own questions, and it waits for your answers before it works on its instructions.";
     $('role-shipped').hidden = r.shipped.every((s) => roles.some((role) => role.id === s.id));
@@ -4401,7 +4411,10 @@
       const said = document.createElement('p');
       said.className = 'hint';
       if (agent.starts) {
-        said.textContent = 'Its first reply only asks you which project to work on, then these, one per line:';
+        said.textContent = !state.hiresSandboxed ? 'Its first reply only asks you which project to work on, then these, one per line:'
+          : state.launcher ? 'Its first reply only asks you these, one per line (the office asks which project first; started in a '
+            + 'terminal, it asks that first itself):'
+          : 'Its first reply only asks you these, one per line (the office asks which project first):';
         const questions = document.createElement('textarea');
         questions.className = 'questions';
         questions.value = (role.questions || []).join('\n');

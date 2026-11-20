@@ -17,8 +17,8 @@ import (
 // pass-over, each does, at every start. A key with a second name there is still found by its own name, in the support
 // folder, walked whole, and refuses the start. A Mac's Policy, from the stand-in tree's own paths.
 func TestTheLinkCheckPassesOverTheOwnersAppFoldersAndStillFindsAKeysSecondName(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("a Mac's Policy needs a Mac's paths")
+	if runtime.GOOS != "darwin" {
+		t.Skip("a Mac's Policy needs a Mac's paths: off a Mac, /tmp isn't /private/tmp")
 	}
 	tr := newLinkTree(t)
 	pl := tr.places()

@@ -42,6 +42,9 @@ type engineRequest struct {
 	Role   Role
 	How    roleStart
 	Folder string
+	// Picked: the project the office picked for it in the folder for hires, by its name there (hirepick.go), which
+	// it is told it works on (FXPICKEDPROJECT); "" for none picked.
+	Picked string
 	// The account: a config folder, the default account, or neither (none named).
 	ConfigDir      string
 	DefaultAccount bool
@@ -106,7 +109,7 @@ func hireBrief(r engineRequest, place hirePlace, hireID string, now time.Time) (
 		managed = hireFolder(supportDir, hireID)
 	}
 	return makeBrief(briefRequest{role: r.Role, library: editableBriefs(bundledBriefs(), briefTemplatesDir()), folder: place.Folder,
-		pinned: r.How == hiredAtPinnedDesk, desk: r.Desk, answers: r.Answers, task: r.Task, managed: managed, date: now,
+		pinned: r.How == hiredAtPinnedDesk, picked: r.pickedIn(place), desk: r.Desk, answers: r.Answers, task: r.Task, managed: managed, date: now,
 		kept: briefsKeptDir(), write: true})
 }
 
@@ -114,7 +117,7 @@ func hireBrief(r engineRequest, place hirePlace, hireID string, now time.Time) (
 // the brief it was just written, or, for a role on its own instructions, the
 // role's own first message ("" for the path).
 func engineBrief(r engineRequest, place hirePlace, hireID string, now time.Time) (message, brief string, err error) {
-	message = r.Role.firstMessage(place.Folder, r.How)
+	message = r.Role.firstMessageIn(place.Folder, r.How, r.pickedIn(place))
 	if r.Answers != nil {
 		message = r.Role.firstMessageAnswered(place.Folder, r.Answers)
 	}
@@ -126,6 +129,15 @@ func engineBrief(r engineRequest, place hirePlace, hireID string, now time.Time)
 		message, brief = made.firstMessage, made.names.brief
 	}
 	return message, brief, nil
+}
+
+// pickedIn is the project the office picked for this hire, with the branch of its own worktree of it in place, or
+// the zero value for none picked.
+func (r engineRequest) pickedIn(place hirePlace) pickedStart {
+	if r.Picked == "" {
+		return pickedStart{}
+	}
+	return pickedStart{project: r.Picked, branch: place.Branch}
 }
 
 // briefDesk is the desk a hire's brief is named for: one held on the ground floor, or none.

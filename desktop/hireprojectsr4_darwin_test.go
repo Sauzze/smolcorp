@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// FXHIREPROJECTSR4 (SIERRA's ruling of 18 Nov, "a hire writes only its own project folder; one hire per repo") under
+// FXHIREPROJECTSR4 (the owner's ruling of 18 Nov, "a hire writes only its own project folder; one hire per repo") under
 // the real profile, with stand-ins only. On a Mac with the sandbox on, no desk's place is the projects folder, or a
 // folder that holds it:
 //   - the office's hire into the folder for hires asks which project first, hires nobody until one is picked, and goes

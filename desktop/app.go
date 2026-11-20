@@ -53,6 +53,8 @@ func RunApp() int {
 	// what the last update set aside goes, now nothing runs it.
 	listenForMakeWay()
 	removeOldPrograms()
+	// What a clone left in the support folder when the last run stopped in the middle of one (gmproject.go).
+	clearProjectStaging()
 	deck := NewDeck()
 	refreshHooks()
 	deck.refreshAccountHooks()
@@ -127,6 +129,8 @@ func RunServer() int {
 	// what the last update set aside goes, now nothing runs it.
 	listenForMakeWay()
 	removeOldPrograms()
+	// What a clone left in the support folder when the last run stopped in the middle of one (gmproject.go).
+	clearProjectStaging()
 	deck := NewDeck()
 	refreshHooks()
 	deck.refreshAccountHooks()

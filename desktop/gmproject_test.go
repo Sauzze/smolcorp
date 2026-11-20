@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -146,7 +147,9 @@ func heldGitStandIn(t *testing.T, hold bool) (base string, held <-chan struct{},
 		t.Fatal(err)
 	}
 	t.Setenv("GIT_SSL_CAINFO", ca)
-	t.Setenv("HOME", homeDir) // the core's git reads nothing of the owner's home here (curl's .netrc, say)
+	// The test's git reads nothing of the owner's real home (curl's .netrc, say). In the app it does: git's curl
+	// reads the owner's ~/.netrc, which every desk can read anyway.
+	t.Setenv("HOME", homeDir)
 	return server.URL, asked, release
 }
 
@@ -463,6 +466,93 @@ func TestTheLinkCheckPassesOverTheProjectStagingFolderAlone(t *testing.T) {
 	} {
 		if got := gmProjectStagingSkipped([]string{support, other, ""}, folder); got != want {
 			t.Errorf("%s: %v, want %v", folder, got, want)
+		}
+	}
+}
+
+// RT126FIXREVIEW-MAKEPROJECTR1 O2: what a clone left in <support>/project-staging when Smolcorp stopped in the middle
+// of it is taken away at the next start: each clone-* folder, nothing else there. Each start (the app's, smolcorp
+// serve's and the Mac app's engine) does it once it holds the instance lock, before the deck is made.
+func TestAStartTakesAwayWhatAStoppedCloneLeft(t *testing.T) {
+	root := filepath.Join(supportDir, gmProjectStagingName)
+	left := filepath.Join(root, "clone-1234", "site", ".git")
+	if err := os.MkdirAll(left, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(left, "config"), []byte("[core]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(root, "not-a-clone")
+	if err := os.WriteFile(other, []byte("kept"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	clearProjectStaging()
+	if _, err := os.Lstat(filepath.Join(root, "clone-1234")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the stopped clone is still there: %v", err)
+	}
+	if _, err := os.Lstat(other); err != nil {
+		t.Errorf("something that isn't a clone went too: %v", err)
+	}
+	for file, entries := range map[string][]string{
+		"app.go":         {"func RunApp() int {", "func RunServer() int {"},
+		"core_darwin.go": {"func RunCore(args []string, in io.Reader, out, errs io.Writer) int {"},
+	} {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			body, _, _ := strings.Cut(string(data)[max(strings.Index(string(data), entry), 0):], "\n}\n")
+			lock := max(strings.Index(body, "acquire()"), strings.Index(body, "appHoldsInstance()"))
+			cleared, made := strings.Index(body, "\tclearProjectStaging()\n"), strings.Index(body, "NewDeck()")
+			if !strings.HasPrefix(body, entry) || lock < 0 || cleared < lock || made < cleared {
+				t.Errorf("%s: %s doesn't clear the staging folder after the instance lock and before the deck", file, entry)
+			}
+		}
+	}
+}
+
+// RT126FIXREVIEW-MAKEPROJECTR1 O3: a projects folder on another disk than Smolcorp's own folder is refused before the
+// clone starts, in the words the move in would give after it: git is never asked, and nothing is left behind. The
+// look itself compares the disks: one folder's with another's on the same disk, and (not on Windows, which leaves it
+// to the move) with /dev's, another file system.
+func TestACloneOntoAnotherDiskIsRefusedBeforeItRuns(t *testing.T) {
+	d, projects, gm, _ := projectDeck(t)
+	base, held, _ := heldGitStandIn(t, true)
+	saved := gmProjectOneDisk
+	gmProjectOneDisk = func(*projectsPlace, string) (bool, error) { return false, nil }
+	t.Cleanup(func() { gmProjectOneDisk = saved })
+	code, text := askProject(t, d, callerGM, gm, "", map[string]any{"name": "site", "clone": base + "/site.git"})
+	want := "Smolcorp clones in its own folder first, then moves the clone in, and " + projects +
+		" is on another disk, so it can't: ask the owner to clone it there."
+	if code != http.StatusConflict || text != want {
+		t.Errorf("a clone onto another disk: %d %q\nwant 409 %q", code, text, want)
+	}
+	select {
+	case <-held:
+		t.Error("git was asked for the clone all the same")
+	default:
+	}
+	projectsHold(t, projects, "app")
+	if entries, _ := os.ReadDir(filepath.Join(supportDir, gmProjectStagingName)); len(entries) != 0 {
+		t.Errorf("the refused clone left %v in staging", entries)
+	}
+	if lines := projectLines(d); len(lines) != 0 {
+		t.Errorf("the refused clone wrote the office's line: %+v", lines)
+	}
+
+	place, err := openProjectsPlace(projects)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer place.close()
+	if same, err := saved(place, filepath.Join(projects, "app")); !same || err != nil {
+		t.Errorf("a folder inside the projects folder: same disk %v, %v", same, err)
+	}
+	if runtime.GOOS != "windows" {
+		if same, err := saved(place, "/dev"); same || err != nil {
+			t.Errorf("/dev: same disk %v, %v", same, err)
 		}
 	}
 }

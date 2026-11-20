@@ -1543,7 +1543,7 @@ func TestReviewUnicode17SpellingsOfADeniedPlace(t *testing.T) {
 		}{{"/.ssh/id_ed25519", Read}, {"/.zshrc", Write}, {"/Library/Application Support/AgentDeck/setup-key", Read}, {"/p-hires/h2/main.go", Write}} {
 			plain, _ := p.Decide(c.homeName+at.rest, at.op)
 			other, row := p.Decide(c.other+at.rest, at.op)
-			t.Logf("%s: %v %s: plainly %v, other spelling %v (%q)", c.name, at.op, at.rest, plain, other, row.Row)
+			t.Logf("%s: %v %s → plainly %v, other spelling %v (%q)", c.name, at.op, at.rest, plain, other, row.Row)
 			if plain != Deny || other != Deny {
 				t.Errorf("%s: %v %s: plainly %v, other spelling %v by %q; want both deny", c.name, at.op, at.rest, plain, other, row.Row)
 			}

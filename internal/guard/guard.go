@@ -451,6 +451,10 @@ const guardFile = "hire-guard"
 // phones.json too, and is refused for that file (phonesFile), not for this one.
 const nightFile = "nightshift.json"
 
+// nightRule is the rule a refusal for nightFile names: no feature, since a hire reads it and the night shift is off in
+// this version (FXPOLISHA, RT126FIXREVIEW-DORMANTOFF's O4). The command, which names the file, is shown as it is.
+const nightRule = "a file only Smolcorp writes"
+
 // phonesFile is the paired phones (desktop/access.go). Off a Mac it holds each phone's signing secret as it is
 // (KeyHash) and its web-push secret, so reading it is the harm, as with the setup key: written out anywhere in the
 // line it is refused as always says, reading included, and so is a pattern that fills it in (ph*s.json; *.json where
@@ -568,7 +572,7 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 			return &Refusal{Group: "guard", Rule: guardFile, Command: strings.TrimPrefix(words[0], unreadable)}
 		}
 		if namesNightFile(words[:1]) {
-			return &Refusal{Group: "guard", Rule: nightFile, Command: strings.TrimPrefix(words[0], unreadable)}
+			return &Refusal{Group: "guard", Rule: nightRule, Command: strings.TrimPrefix(words[0], unreadable)}
 		}
 		if namesFence(words[:1]) {
 			return &Refusal{Group: "guard", Rule: fenceRule, Command: strings.TrimPrefix(words[0], unreadable)}
@@ -602,7 +606,7 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 				return &Refusal{Group: "guard", Rule: guardFile, Command: "> " + strings.TrimPrefix(w, unreadable)}
 			}
 			if namesNightFile(simple{w}) {
-				return &Refusal{Group: "guard", Rule: nightFile, Command: "> " + strings.TrimPrefix(w, unreadable)}
+				return &Refusal{Group: "guard", Rule: nightRule, Command: "> " + strings.TrimPrefix(w, unreadable)}
 			}
 			if namesFence(simple{w}) {
 				return &Refusal{Group: "guard", Rule: fenceRule, Command: "> " + strings.TrimPrefix(w, unreadable)}
@@ -638,7 +642,7 @@ func checkCommand(words simple, groups []Group, depth int, pess, ps bool) *Refus
 		return &Refusal{Group: "guard", Rule: guardFile, Command: strings.Join(words, " ")}
 	}
 	if namesNightFile(words) && !readsNightFile(name, args, rawArgs) {
-		return &Refusal{Group: "guard", Rule: nightFile, Command: strings.Join(words, " ")}
+		return &Refusal{Group: "guard", Rule: nightRule, Command: strings.Join(words, " ")}
 	}
 	// Claude Code's settings, the same way: the fence of a hire in T3 Code is its worktree's own.
 	if namesFence(words) && !readsKept(name, args, rawArgs) {

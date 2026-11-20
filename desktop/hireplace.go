@@ -228,9 +228,7 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 	}
 	place := hirePlace{Folder: r.Folder, Ports: ports}
 	if repo != "" && r.Worktree {
-		// Both parts are slugs: the ID is never trusted to be a safe path part. A plain desk's id is told by what
-		// follows its "plain-" (plainDeskIDNew), so two plain hires of one repo don't get one name (FXHIREPROJECTSR8).
-		name := hireSlug(r.Name) + "-" + firstRunes(hireSlug(strings.TrimPrefix(r.HireID, "plain-")), 6)
+		name := hireWorktreeName(r.Name, r.HireID)
 		parent := hiresFolder(repo, o.Worktrees)
 		path, branch := filepath.Join(parent, name), hireBranch(r.HireID, name)
 		// A scoped GM's hire (FXGMSCOPEPINR1): git is never driven by the folder's path again once it was checked,
@@ -324,6 +322,14 @@ func prepareHire(r hireRequest, o hirePlaceOptions) (hirePlace, error) {
 // as in the worktree's name; the core's IDs are 12 lower-case hex digits, which a slug keeps as they are (a desk's
 // Places.OwnID must be the same, or its view lets it write no branch).
 func hireBranch(id, name string) string { return sandbox.HireBranch(hireSlug(id), name) }
+
+// hireWorktreeName is the name of hire id's worktree, named for name (a role's id, or its agent's), and the last part
+// of its branch (hireBranch). Both parts are slugs: the ID is never trusted to be a safe path part. A plain desk's id
+// is told by what follows its "plain-" (plainDeskIDNew), so two plain hires of one repo don't get one name
+// (FXHIREPROJECTSR8). A plain hire's launcher checks the branch it is told by it (parseRun).
+func hireWorktreeName(name, id string) string {
+	return hireSlug(name) + "-" + firstRunes(hireSlug(strings.TrimPrefix(id, "plain-")), 6)
+}
 
 // hiresFolder is where the worktrees of a repo's hires are made: beside the
 // repo, or under worktrees when that is set.

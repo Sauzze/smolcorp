@@ -24,7 +24,7 @@ func restartedMessage(h Hire) string {
 	text := "Smolcorp started you again, this time in its sandbox, in the same folder and on the same branch as before. " +
 		"Your earlier conversation isn't here, so look at the work so far (git status, git log) before going on."
 	if h.Brief != "" {
-		text += " Your brief is " + h.Brief + "."
+		text += " Your brief is " + shownInWords(h.Brief) + "." // on one line, whatever its folder's name (FXPICKEDPROJECTR3, B1)
 	}
 	return text
 }

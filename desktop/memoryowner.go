@@ -46,6 +46,8 @@ const (
 	memoryOwnerKeptFull  = "Your General Manager already keeps 200 notes. Forget some before you keep this one."
 	memoryOwnerIndexFull = "Your General Manager's notes are too long to read in one go. Forget some before you keep this one."
 	memoryOwnerUnchanged = "Nothing changed: use Keep instead."
+	// A note Smolcorp's checks refuse as it is has no Keep (FXMEMKEEPR2 O1): Setup's card says "Edit it, or drop it."
+	memoryOwnerUnchangedRefused = "Nothing changed, and Smolcorp's checks refuse this note as it is: change something before you keep it, or drop it."
 
 	// How the owner's refusal opens when the store won't take a note for what it says (FXMEMKEEPR2 O1): a Keep's, on
 	// the GM's words, and an Edit's, on the owner's own. memoryRefused's "Memory can't keep this note" stays the GM's.
@@ -212,6 +214,8 @@ func memoryOwnerAnswer(err error, lead string, done map[string]any) (int, any) {
 		return http.StatusConflict, memoryOwnerIndexFull
 	case errors.Is(err, errMemoryUnchanged):
 		return http.StatusBadRequest, memoryOwnerUnchanged
+	case errors.Is(err, errMemoryUnchangedRefused):
+		return http.StatusBadRequest, memoryOwnerUnchangedRefused
 	case errors.As(err, &refused):
 		return http.StatusBadRequest, memoryOwnerRefusal(lead, refused.reason)
 	case recordsRefusal() != "":

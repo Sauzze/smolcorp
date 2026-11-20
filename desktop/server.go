@@ -2401,6 +2401,9 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			return
 		}
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		// The team as `gm team` reads it, for the hires there that keep their own nickname (keepTheirNicknames).
+		live, hires := d.frontDeskLive(), readRegistry(registryPath(), false).hires
+		rows := buildTeam(hires, live, 0, func(string) string { return "" })
 		d.mu.Lock()
 		var places []namePlace
 		for _, s := range d.sessions.All() {
@@ -2408,7 +2411,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 		}
 		layout := config.Layout
 		layout.Room.Team = maps.Clone(layout.Room.Team)
-		project, name, refused := setNickname(&layout, body, places, config.everyPin())
+		project, name, refused := setNickname(&layout, body, places, config.everyPin(), r.heldTo)
 		if refused == nil {
 			config.Layout = layout
 			config.save()
@@ -2419,7 +2422,11 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 			writeStatus(w)(refused.status, refused.message)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"project": project, "nickname": name})
+		answer := map[string]string{"project": project, "nickname": name}
+		if note := nicknameKeptNote(keepTheirNicknames(project, rows, hires, live), r.heldTo != nil); note != "" {
+			answer["note"] = note
+		}
+		writeJSON(w, http.StatusOK, answer)
 
 	// The sandbox's switch and each desk's tag (sandboxswitch.go): the page's alone (routes.json, AQ1).
 	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && path == "/setup/sandbox":
@@ -2450,7 +2457,7 @@ func (rt *router) setup(w http.ResponseWriter, r *request) {
 	// Who may write to whom (routes.json: gm and page).
 	case r.Method == http.MethodPost && path == "/setup/gm/contacts":
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
-		pairs, refused := setContacts(registryPath(), body)
+		pairs, refused := setContacts(registryPath(), body, rt.deck.shownNames(readRegistry(registryPath(), false).hires))
 		if refused != nil {
 			writeStatus(w)(refused.status, refused.message)
 			return
@@ -2645,6 +2652,10 @@ func (rt *router) setupStateFor(who caller) map[string]any {
 		"manager": d.managerState(),
 		// Where hires open: the terminals here that can open them, and tmux if it's there.
 		"hiring": d.hireState(apiKey),
+		// Whether a role hired now starts in its sandbox (on a Mac, with the switch on): the office then asks which
+		// project first and tells the hire, so Setup's roles hints say its first reply asks only its own questions
+		// (FXPICKEDPROJECT).
+		"hiresSandboxed": d.hiresSandboxed(),
 		// The roles, those that come with the app to go back to, and what a
 		// role can be: its agent, whether that agent has an effort and takes a
 		// first message, its badge, and how long each part can be.

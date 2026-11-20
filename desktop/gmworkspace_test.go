@@ -55,7 +55,7 @@ func TestTheGMInTheProjectsFolderWorksInAWorkspaceOfItsOwn(t *testing.T) {
 		t.Errorf("its row: %+v", row)
 	}
 	// Its start words say where it writes, its workspace and its plans folder, with the real paths, and what to tell
-	// the owner (SIERRA's ruling on D1: the owner knows where plans live).
+	// the owner (the owner's ruling on D1: the owner knows where plans live).
 	plans := filepath.Join(request.Folder, ".smolcorp", "plans", gm.ID)
 	for _, want := range []string{"You read the projects in " + request.Folder, "Your workspace is " + workspace + ":",
 		"except your plan files, which Claude Code keeps in " + plans + ".",

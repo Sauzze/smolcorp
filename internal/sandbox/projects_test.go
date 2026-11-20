@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// FXHIREPROJECTS (RT126FIXREVIEW-GMROOT's sibling repo; SIERRA's option (a)): in the folder for hires (~/Projects by
-// default), a desk writes only its own place and its repo's shared .git. Every other repo there, its .git (hooks,
-// config) and its sources, and a repo made there later, are its to read and never to write. As data, on the made-up
-// Mac of policy_test.go; desktop's hireprojects_darwin_test.go runs it under the real profile.
+// FXHIREPROJECTS (RT126FIXREVIEW-GMROOT's sibling repo; the owner's ruling, option (a)): in the folder for hires
+// (~/Projects by default), a desk writes only its own place and its repo's shared .git. Every other repo there, its
+// .git (hooks, config) and its sources, and a repo made there later, are its to read and never to write. As data, on
+// the made-up Mac of policy_test.go; desktop's hireprojects_darwin_test.go runs it under the real profile.
 
 const (
 	lib       = projects + "/lib"
@@ -146,9 +146,9 @@ func TestEachLayoutOfTheProjectsFolderKeepsADeskToItsOwnPlaceThere(t *testing.T)
 }
 
 // A desk whose place is the projects folder, or holds it, or is the home folder or holds it, doesn't start in its
-// sandbox on a Mac (FXHIREPROJECTSR4, SIERRA's ruling of 18 Nov: a hire writes only its own project folder): its place
-// would be every repo there. The Policy refuses it whatever route made it, the projects folder itself a repo and the
-// desk at its checkout too. Elsewhere it gets no row, its place all of it, as before.
+// sandbox on a Mac (FXHIREPROJECTSR4, the owner's ruling of 18 Nov: a hire writes only its own project folder): its
+// place would be every repo there. The Policy refuses it whatever route made it, the projects folder itself a repo and
+// the desk at its checkout too. Elsewhere it gets no row, its place all of it, as before.
 func TestADeskWhosePlaceIsTheProjectsFolderOrHoldsItIsRefusedOnAMac(t *testing.T) {
 	// A support folder on another disk, so a place at home or above doesn't hold it: there, as before, a place that
 	// holds a support folder is refused for that first (ErrRootHasSupport).

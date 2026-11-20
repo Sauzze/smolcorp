@@ -67,10 +67,12 @@ var linkCheckSkipped = map[string]string{
 }
 
 // accountFoldersSkipped are the folders in an account folder the link check passes over: its transcripts, its
-// plugins and its file history, each of which can hold tens of thousands of files. A submodule's objects are passed
-// over too: the repo's own are the desk's to write anyway. A transcript is read-denied, so a file the check would
-// replace with a second name here refuses the start, as one with a name in a linkCheckSkipped place does.
-var accountFoldersSkipped = []string{"projects", "plugins", "file-history"}
+// plugins, its file history, and the other stores Claude Code adds to at every session (its to-do lists, shell
+// snapshots, debug logs and hooks' environments: FXPOLISHA), each of which can hold tens of thousands of files. A
+// submodule's objects are passed over too: the repo's own are the desk's to write anyway. A transcript is
+// read-denied, so a file the check would replace with a second name here refuses the start, as one with a name in a
+// linkCheckSkipped place does.
+var accountFoldersSkipped = []string{"projects", "plugins", "file-history", "todos", "shell-snapshots", "debug", "session-env"}
 
 // gmWorkspaceSkipped is whether folder is a GM's workspace in a support folder, <support>/hires/<id>/work (FXGMROOT),
 // which the link check passes over (FXGMROOTR1 N1): it is the GM's own working folder, where a tool's hard links

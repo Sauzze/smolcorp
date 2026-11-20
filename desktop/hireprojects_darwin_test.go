@@ -13,11 +13,11 @@ import (
 	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
-// FXHIREPROJECTS (RT126FIXREVIEW-GMROOT's sibling repo, a 1.26.0 release blocker; SIERRA's option (a)) under the real
-// profile, with stand-ins only: FXGMROOT's default layout (gmroot_darwin_test.go), the folder for hires set in Setup,
-// and no GM open. A hire in app-hires/h1 writes its own worktree and its repo's shared .git, and none of the sibling
-// repo lib: its hooks, its config, its sources. Nor a repo made there after its start. The owner's `git checkout` in
-// lib runs no hook the hire tried to plant.
+// FXHIREPROJECTS (RT126FIXREVIEW-GMROOT's sibling repo, a 1.26.0 release blocker; the owner's ruling, option (a)) under
+// the real profile, with stand-ins only: FXGMROOT's default layout (gmroot_darwin_test.go), the folder for hires set in
+// Setup, and no GM open. A hire in app-hires/h1 writes its own worktree and its repo's shared .git, and none of the
+// sibling repo lib: its hooks, its config, its sources. Nor a repo made there after its start. The owner's `git
+// checkout` in lib runs no hook the hire tried to plant.
 
 // newHireProjectsLayout is the default layout with the folder for hires set in Setup and only the hire open.
 func newHireProjectsLayout(t *testing.T) gmRootLayout {

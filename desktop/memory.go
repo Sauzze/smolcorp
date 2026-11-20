@@ -92,7 +92,7 @@ const (
 
 // Where a note's words came from (PL126M "Provenance"): the owner, through Smolcorp or in the GM's terminal (MEM3's
 // ledger, quoted); the GM's own observation (a file:line or a command), for a fact alone; or the owner's own words,
-// typed in Setup or on the phone.
+// typed in Setup.
 const (
 	memoryFromSmolcorp = string(ownerViaSmolcorp)
 	memoryFromTerminal = string(ownerViaTerminal)
@@ -156,6 +156,9 @@ var (
 	errMemoryIndexFull   = errors.New("the index the GM reads would be longer than 8 KB: delete or merge some notes first")
 	errMemoryNameTaken   = errors.New("another note already has this name")
 	errMemoryUnchanged   = errors.New("the edit changes nothing in the note")
+	// errMemoryUnchangedRefused is an edit that changes nothing in a note today's checks refuse, which has no Keep
+	// (FXMEMKEEPR2 O1): its own words, never "use Keep instead".
+	errMemoryUnchangedRefused = errors.New("the edit changes nothing in a note the checks refuse")
 )
 
 // memoryIDShape is a note's id, as newID makes it: its file's name, so nothing else is ever opened.
@@ -389,7 +392,9 @@ func (m *gmMemory) keep(id, shown string) error {
 // words replaced with the owner's own, checked again as a new note is, and kept in the same step. The note gets a new
 // id and file; the GM's words go as a removal takes a note away, under a new record key, so a manifest copied from
 // before never brings them back. A name another note already has is refused (errMemoryNameTaken), and so is an edit
-// that changes nothing (errMemoryUnchanged, FXMEMKEEPR1): it would only make the GM's words the owner's.
+// that changes nothing (errMemoryUnchanged, FXMEMKEEPR1): it would only make the GM's words the owner's. Where the
+// waiting note fails today's checks (its source alone, say), Setup offers no Keep, so that refusal is
+// errMemoryUnchangedRefused.
 func (m *gmMemory) keepEdited(id, shown string, entry memoryEntry, now time.Time) (gmNote, error) {
 	if refusal := recordsRefusal(); refusal != "" {
 		return gmNote{}, errors.New(refusal)
@@ -409,6 +414,8 @@ func (m *gmMemory) keepEdited(id, shown string, entry memoryEntry, now time.Time
 		return gmNote{}, errMemoryNotFound
 	case !constantTimeEqual(m.notes[i].SHA256, shown):
 		return gmNote{}, errMemoryChanged
+	case m.notes[i].entry() == entry && memoryNoteRefusal(m.notes[i]) != "":
+		return gmNote{}, errMemoryUnchangedRefused
 	case m.notes[i].entry() == entry:
 		return gmNote{}, errMemoryUnchanged
 	case m.count(memoryKept) >= memoryKeptMost:

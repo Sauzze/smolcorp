@@ -9,7 +9,7 @@ func (d *Deck) managedHire(roleID, folder string, terminal hireOpener, hasTermin
 	return 0, "", false
 }
 
-func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int, extra *setupHire) (int, string, bool) {
+func (d *Deck) managedHireWith(roleID, folder, picked string, terminal hireOpener, hasTerminal bool, held, floor int, extra *setupHire) (int, string, bool) {
 	return 0, "", false
 }
 

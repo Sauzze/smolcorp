@@ -169,6 +169,8 @@ func (d *Deck) gmProject(w http.ResponseWriter, r *request) {
 	}
 	defer place.close()
 	already := "There's already something called " + name + " in " + projects + ": pick another name."
+	acrossDisks := "Smolcorp clones in its own folder first, then moves the clone in, and " + projects +
+		" is on another disk, so it can't: ask the owner to clone it there."
 	// Before a clone's wait, so it isn't for nothing; the make or the move below checks again, in the same step.
 	if err := place.lacks(name); err != nil {
 		if errors.Is(err, fs.ErrExist) {
@@ -190,6 +192,14 @@ func (d *Deck) gmProject(w http.ResponseWriter, r *request) {
 			return
 		}
 		defer os.RemoveAll(staging) // the core's own folder: what's left of a clone that failed or wasn't moved in
+		// Two disks are refused now, not after a clone of up to 10 minutes that the move in would refuse anyway
+		// (FXMAKEPROJECTR1 O3). A look that fails leaves it to the move.
+		if same, err := gmProjectOneDisk(place, staging); err != nil {
+			log.Printf("gm project: %v", err)
+		} else if !same {
+			reply(http.StatusConflict, acrossDisks)
+			return
+		}
 		clone := filepath.Join(staging, name)
 		ctx, cancel := context.WithTimeout(context.Background(), gmProjectCloneMost)
 		err = gmProjectClone(ctx, clone, address)
@@ -211,8 +221,7 @@ func (d *Deck) gmProject(w http.ResponseWriter, r *request) {
 		reply(http.StatusConflict, already)
 		return
 	case made != nil && movedAcrossDisks(made):
-		reply(http.StatusConflict, "Smolcorp clones in its own folder first, then moves the clone in, and "+projects+
-			" is on another disk, so it can't: ask the owner to clone it there.")
+		reply(http.StatusConflict, acrossDisks)
 		return
 	case made != nil:
 		log.Printf("gm project: %v", made)
@@ -245,6 +254,30 @@ func gmProjectStaging() (string, error) {
 		return "", err
 	}
 	return os.MkdirTemp(root, "clone-")
+}
+
+// gmProjectOneDisk is whether a staging folder is on the projects folder's disk, which moveIn needs
+// (projectsPlace.onDiskOf). A variable, for the tests.
+var gmProjectOneDisk = (*projectsPlace).onDiskOf
+
+// clearProjectStaging takes away what clones left in <support>/project-staging when Smolcorp stopped in the middle of
+// one (a crash, a power cut): each clone-* folder there (FXMAKEPROJECTR1 O2). Only the core writes there
+// (gmProjectStaging). Called at start-up, after this copy tried for the support folder's instance lock, before the
+// deck is made: no clone of a running copy's is under way in it then. A start that couldn't take the lock goes on
+// without it (app.go), and a clone in flight there would only fail at its move.
+func clearProjectStaging() {
+	root := filepath.Join(supportDir, gmProjectStagingName)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "clone-") {
+			if err := os.RemoveAll(filepath.Join(root, e.Name())); err != nil {
+				log.Printf("gm project: %v", err)
+			}
+		}
+	}
 }
 
 // gmProjectStagingSkipped is whether folder is a support folder's project-staging folder, which the link check

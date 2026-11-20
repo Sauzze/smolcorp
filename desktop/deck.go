@@ -256,6 +256,7 @@ func NewDeck() *Deck {
 		},
 		func() []Hire { return readRegistry(registry, false).hires },
 		d.events.append, d.events.snapshot())
+	d.watchers.shown = d.shownNames
 	// The app's own watches: wanted while the manager and the setting are on; a question is a session asking in a folder.
 	d.watchers.setBuiltins(func() bool {
 		d.mu.Lock()

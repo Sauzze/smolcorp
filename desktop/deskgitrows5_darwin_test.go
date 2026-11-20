@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// FXGITROWS2R5 (SIERRA's item for the owner): a hire in its sandbox in a worktree of its own is told plainly, in its
+// FXGITROWS2R5 (the owner's ruling): a hire in its sandbox in a worktree of its own is told plainly, in its
 // start words, which branches are its own, that other branches, tags and git stash aren't open to it, and what to do
 // instead, with the stand-in start-only runner of desksandbox_test.go. Its sentence ends the start words' last
 // paragraph, so FXHIREPROJECTS' sentence on the projects folder joins it in front (deskStartWords).

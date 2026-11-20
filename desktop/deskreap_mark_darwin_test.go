@@ -359,8 +359,12 @@ func TestADeskMadeBeforeMarksWhoseMarkFolderCameMeanwhileIsRefused(t *testing.T)
 		t.Fatal(err)
 	}
 	profile := filepath.Join(own, "sandbox.sb")
-	if err := s.prepareProfile(profile, deskServices(s.places, deskSocketPath(s.at.ID, 0))); err == nil {
+	err = s.prepareProfile(profile, deskServices(s.places, deskSocketPath(s.at.ID, 0)))
+	if err == nil {
 		t.Error("the start went on with another mark in the desk's mark folder")
+	} else if why := err.Error(); !strings.Contains(why, "its mark folder holds another, "+other) || strings.Contains(why, "<nil>") {
+		// FXPOLISHA (RT126FIXREVIEW-FIREREAPR7's O2): the reason names the mark it found, never "<nil>".
+		t.Errorf("the refusal's reason: %q, want it to name %s", why, other)
 	}
 	if !planted {
 		t.Fatal("the start didn't look") // else the row shows nothing

@@ -373,6 +373,39 @@ func TestAnEditThatChangesNothingIsRefused(t *testing.T) {
 	}
 }
 
+// RT126FIXREVIEW-MEMKEEPR2 O1: a waiting note whose source alone fails today's checks has no Keep in Setup, so an
+// edit that changes nothing there gets its own words, never "use Keep instead". The note still waits as it was.
+func TestAnUnchangedEditOfARefusedNoteIsNotToldToKeepIt(t *testing.T) {
+	d, gm, _ := memoryDeck(t)
+	id := proposeAsGM(t, d, gm, docsFact)
+	shown := waitingShown(t, d, id)
+	// Today's checks refuse what it quotes, not its words: the edit form's fields, unchanged, would pass.
+	d.memory.mu.Lock()
+	for i := range d.memory.notes {
+		if d.memory.notes[i].ID == id {
+			d.memory.notes[i].Source.Quote = "mail ada@example.com"
+		}
+	}
+	d.memory.mu.Unlock()
+	refused := waitingShown(t, d, id)
+	if refused.Refused == "" {
+		t.Fatal("the note's source isn't refused: the row needs one that is")
+	}
+	data, _ := json.Marshal(map[string]string{"id": id, "shown": shown.Shown, "name": shown.Name, "description": shown.Description,
+		"type": shown.Type, "body": shown.Body})
+	code, text := memoryAsk(t, d, callerPage, "", "", "POST", memoryEditPath, string(data))
+	const want = "Nothing changed, and Smolcorp's checks refuse this note as it is: change something before you keep it, or drop it."
+	if code != http.StatusBadRequest || text != want || strings.Contains(text, "Keep") {
+		t.Errorf("an unchanged edit of a refused note: %d %q\nwant 400 %q", code, text, want)
+	}
+	if again := waitingShown(t, d, id); again.Shown != shown.Shown || again.From != memoryFromSeen {
+		t.Errorf("the refused edit changed the proposal: %+v", again)
+	}
+	if names := keptNames(d); len(names) != 0 {
+		t.Errorf("a refused edit kept: %q", names)
+	}
+}
+
 // FXMEMKEEPR2 O1: what the store refuses for what a note says reaches the owner in Setup's words: its own lead-in
 // (an Edit's "your version", a Keep's "this note"), each field named as the edit form labels it, and one colon. An
 // empty field and an e-mail address on an edit, then a Keep on a waiting note that today's checks refuse, and the

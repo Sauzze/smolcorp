@@ -370,10 +370,10 @@ func runOutSetupAsks(d *Deck) {
 	}
 }
 
-// Where no phone can open Setup, the page says what to do instead (SIERRA's interim rule): the safe way back in names
-// Smolcorp's real folder on Linux and on Windows (appdirs), and phones.json; it never says to read a key. The locked
-// note off a Mac offers the tap, and keeps the Mac's words as they were. docs/windows-linux.md says the way back in word
-// for word.
+// Where no phone can open Setup, the page says what to do instead (the owner's interim rule): the safe way back in
+// names Smolcorp's real folder on Linux and on Windows (appdirs), and phones.json; it never says to read a key. The
+// locked note off a Mac offers the tap, and keeps the Mac's words as they were. docs/windows-linux.md says the way back
+// in word for word.
 func TestTheWayBackInWithoutAPhoneNamesTheRealFolderAndNoKey(t *testing.T) {
 	page := pageSource(t, "setup.html")
 	way := pageLine(t, page, "const OFF_MAC_WAY_OUT = ")

@@ -71,6 +71,8 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 	host = bridge
 	// Hires' windows open in Terminal, iTerm2 or Ghostty, through the app.
 	useMacOpeners(bridge)
+	// What a clone left in the support folder when the last run stopped in the middle of one (gmproject.go).
+	clearProjectStaging()
 	deck := NewDeck()
 	// The other Claude accounts you confirmed, whose entries the Swift engine may have written (HOOKREFRESH1).
 	deck.refreshAccountHooks()

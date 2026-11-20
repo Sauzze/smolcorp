@@ -77,8 +77,8 @@ const refKeeper = ".smolcorp-keep"
 
 // gitRows2 adds FXGITROWS2's rows for the shared .git git, on a Mac.
 //
-// packed-refs after them (SIERRA's D1 (b) ruling): packed-refs and packed-refs.new are the base branches' rows, so no
-// desk rewrites packed-refs, and so moves no packed ref, a branch of another desk's, the owner's or its own; its own
+// packed-refs after them (the owner's D1 (b) ruling): packed-refs and packed-refs.new are the base branches' rows, so
+// no desk rewrites packed-refs, and so moves no packed ref, a branch of another desk's, the owner's or its own; its own
 // commits write loose refs. packed-refs.lock stays the desk's: its own commit, rebase and branch deletion take it, and
 // while a desk holds it the owner's `git pack-refs`, `gc` and branch deletions wait, then fail (a stop, never a move).
 // Git never renames packed-refs.lock onto anything (it renames packed-refs.new), so what a desk writes in it is never
@@ -782,12 +782,16 @@ func (p *Policy) linkWay(place string, missing bool) (end, via string, err error
 // through it leads elsewhere (FXGITROWS2R9, RT126FIXREVIEW-GITROWS2R8's B1): it is under a place Smolcorp gives some desk
 // (anyDesks); or the desk's Policy lets it write the link or its folder, or move a folder above them, and the folder
 // that holds that name lets this user write in it (userWrites: where the owner can't, at / or in a folder of root's,
-// no desk can either).
+// no desk can either). A link whose Move and Link the Policy denies (git-lfs's store, `$G/lfs`) is no desk's to
+// change, though what is below it is the desk's to write: no desk removes it, renames it away or makes a link at its
+// name (RT126FIXREVIEW-GITROWS2R9's O1).
 func (p *Policy) linkChangeable(at string) bool {
 	if p.anyDesks(at) {
 		return true
 	}
-	if v, _ := p.Decide(at, Write); v != Deny && userWrites(path.Dir(at)) {
+	move, _ := p.Decide(at, Move)
+	link, _ := p.Decide(at, Link)
+	if v, _ := p.Decide(at, Write); v != Deny && (move != Deny || link != Deny) && userWrites(path.Dir(at)) {
 		return true
 	}
 	for folder, op := path.Dir(at), Write; folder != path.Dir(folder); folder, op = path.Dir(folder), Move {
@@ -898,6 +902,12 @@ func (p *Policy) way(at, ref, to string, top bool) error {
 			return refuse("")
 		case strings.HasPrefix(next, "refs/") && strings.HasPrefix(place, p.git+"/refs/"):
 			if v, _ := p.Decide(place, Write); v != Deny {
+				return refuse(next)
+			}
+			// A held branch whose way goes into another desk's branches (RT126FIXREVIEW-GITROWS2R9's O3, SYMX): that
+			// desk would move it with its next commit, and this desk's start is the first to see it. A worktree's HEAD
+			// on its own desk's branch, and a desk's own symbolic ref among its own branches, are that desk's.
+			if strings.HasPrefix(ref, "refs/") && !p.anyDesks(at) && p.anyDesks(place) {
 				return refuse(next)
 			}
 		case !top || !strings.HasPrefix(place, p.git+"/") || strings.HasPrefix(next, "worktrees/") ||

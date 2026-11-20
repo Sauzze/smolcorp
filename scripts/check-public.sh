@@ -1,8 +1,9 @@
 #!/bin/bash
 # Fails if what's committed holds something that must never be public: an
 # Anthropic API key, an AWS access key ID or secret key, a name or path from the
-# maintainer's own machine, or the folders of notes and briefs a personal build
-# keeps beside the code. A test that needs a key-shaped string puts it together
+# maintainer's own machine, the folders of notes and briefs a personal build
+# keeps beside the code, or, in a line added since the release base, a name of
+# the team that builds it. A test that needs a key-shaped string puts it together
 # when it runs ("AKIA" + "FAKE…"), so no file holds one whole.
 #
 #   scripts/check-public.sh
@@ -20,7 +21,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 git ls-files -z | python3 -I -c '
-import hashlib, re, sys
+import hashlib, os, re, subprocess, sys
 
 SALT = "smolcorp-public-check:"
 FORBIDDEN = set("""
@@ -126,6 +127,44 @@ for name in [n for n in all_names if re.match(r"desktop/summary[^/]*\.go$", n) a
         if GO_LOGGING.search(line.split("//", 1)[0]):
             problems.append(f"{name}:{number}: logging in Summary")
 
+# Nor does a line added since the release base name the team that builds Smolcorp: each name is a whole word in
+# capitals (a word in small letters, or one inside a longer name, is another word), listed only as its SHA-256 with
+# its own prefix, as the names above are. The base is a tree (SMOLCORP_RELEASE_BASE, or the one below: the signed
+# 1.26 base), and an added line is one the diff from it to the files here adds. A clone without that tree (a shallow
+# one) says so and checks the rest.
+TEAM_SALT = "smolcorp-team-check:"
+TEAM = set("""
+1145fd2c3199bfa9ce66190ba34516d4009f3315073546c0eb25bf21b663c4c9
+355350f2e61ebe0de36fb892524a7f4f8571d90edb9269a2a7e2e8deab9287c9
+018eb287160bf04c8d1f88895da0225e6612135c64cfb1d345f067a1f6e80eb4
+b7d10a7ebddba0209e7aa2e61313175930487c7aa27b73547e7396766ed3ff49
+2f44115804f65bfe999c5a3add3d5401305a02e6eba40934155eac5d149cb69f
+7e3c4b6a9c022d8ed2402029bcb4438c4585727cdf7ef1b72c9fe0c1c3cf6c08
+""".split())
+RELEASE_BASE = os.environ.get("SMOLCORP_RELEASE_BASE") or "cf9905c004436821c52bbb41cb47093a9f124d4f"
+notes = []
+if subprocess.run(["git", "cat-file", "-e", RELEASE_BASE + "^{tree}"], stderr=subprocess.DEVNULL).returncode != 0:
+    notes.append(f"Note: the release base {RELEASE_BASE} is not in this clone, so the added lines were not checked for the team names.")
+else:
+    diff = subprocess.run(["git", "-c", "core.quotePath=false", "diff", "--no-ext-diff", "--no-textconv", "--no-color",
+                           "--src-prefix=a/", "--dst-prefix=b/", "-M", "-U0", RELEASE_BASE, "--"],
+                          stdout=subprocess.PIPE, check=True).stdout.decode("utf-8", "replace")
+    name, number, hunk = "", 0, False
+    for line in diff.split("\n"):
+        if line.startswith("diff --git "):
+            hunk = False
+        elif not hunk and line.startswith("+++ "):
+            name = line[6:] if line.startswith("+++ b/") else line[4:]
+        elif line.startswith("@@ "):
+            number, hunk = int(re.match(r"@@ -\S+ \+(\d+)", line).group(1)), True
+        elif hunk and line.startswith("+"):
+            if any(word.isupper() and word.isalpha() and hashlib.sha256((TEAM_SALT + word).encode()).hexdigest() in TEAM
+                   for word in re.findall(r"\w+", line[1:], re.ASCII)):
+                problems.append(f"{name}:{number}: a name of the team in a line added since the release base")
+            number += 1
+
+for note in notes:
+    print(note)
 if problems:
     print("Not for a public repository:")
     for problem in problems:

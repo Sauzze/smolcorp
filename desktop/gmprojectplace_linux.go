@@ -54,5 +54,17 @@ func (p *projectsPlace) moveIn(from, name string) error {
 	return unix.Renameat(unix.AT_FDCWD, from, p.fd, name)
 }
 
+// onDiskOf is whether dir is on the folder's disk (their st_dev), so a move from it can't fail for two disks.
+func (p *projectsPlace) onDiskOf(dir string) (bool, error) {
+	var held, other unix.Stat_t
+	if err := unix.Fstat(p.fd, &held); err != nil {
+		return false, err
+	}
+	if err := unix.Stat(dir, &other); err != nil {
+		return false, &os.PathError{Op: "stat", Path: dir, Err: err}
+	}
+	return held.Dev == other.Dev, nil
+}
+
 // movedAcrossDisks is whether moveIn failed because the staging folder and the projects folder are on two disks.
 func movedAcrossDisks(err error) bool { return errors.Is(err, unix.EXDEV) }

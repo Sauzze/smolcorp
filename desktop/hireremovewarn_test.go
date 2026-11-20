@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-// FXWINWORKTREER1 (VICTOR's ruling on FXWINWORKTREE §2 and §7) and FXWINWORKTREER2 (the R1 review's B1): the fire's
+// FXWINWORKTREER1 (the owner's ruling on FXWINWORKTREE §2 and §7) and FXWINWORKTREER2 (the R1 review's B1): the fire's
 // exact looks at a clean tree read git's standard output apart from its standard error. The branch it has checked out
 // and its submodules' list are standard output alone, so a warning beside them changes nothing. Its status isn't: git
 // says it couldn't open a folder (a path too long, a folder the owner can't read) only on standard error, with exit 0,
@@ -369,5 +369,28 @@ esac`)
 	keptWhole(t, repo, path, "hire/w-big", filepath.Join("sub", "a.txt"))
 	if text := logged.String(); !strings.Contains(text, errGitTooBig.Error()) || !strings.Contains(text, "w-big is kept") {
 		t.Errorf("the log doesn't say the status was too big, and the tree kept:\n%s", text)
+	}
+}
+
+// FXPOLISHA (RT126FIXREVIEW-WINWORKTREER4's O1): git's listing of a clean tree's index, at exit 0, whose last record
+// it didn't end (cut short) keeps the tree, saying so: the fire's look reads the records as they come, and only the
+// listing's end (gitRecords.end) can tell that a last record never came whole. Real git always ends its records; a
+// stand-in git answers the listing with one record and no NUL after it.
+func TestAListingOfACleanTreesIndexCutShortKeepsIt(t *testing.T) {
+	id := strings.Repeat("a", 40)
+	for _, tree := range cleanTrees {
+		t.Run(tree.name, func(t *testing.T) {
+			c := tree.make(t)
+			gitStandInBeside(t, `case " $* " in *" ls-files "*) printf '100644 `+id+` 0\ta.txt'; exit 0;; esac`)
+			logged := logOf(t)
+			if c.remove() {
+				t.Error("a worktree whose index git listed cut short was removed")
+			}
+			keptWhole(t, c.repo, c.tree, c.branch, c.file)
+			if text := logged.String(); !strings.Contains(text, filepath.Base(c.tree)+" is kept") ||
+				!strings.Contains(text, "git's listing ends in the middle of a record") {
+				t.Errorf("the log doesn't say the listing was cut short:\n%s", text)
+			}
+		})
 	}
 }

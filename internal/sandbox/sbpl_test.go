@@ -178,8 +178,8 @@ func TestARowAddedToThePolicyOnlyAddsLinesToTheProfile(t *testing.T) {
 		after := profileSections(profile)
 
 		// NS1: one line more, and only that.
-		night := `(allow file-read-data file-read-xattr (literal "` + s.pl.Support + `/nightshift.json")) ; the night shift's jobs: read only, as the guard file`
-		before := profileSections(profileWithout(t, p, svc, func(r Rule) bool { return r.Row == "the night shift's jobs: read only, as the guard file" }))
+		night := `(allow file-read-data file-read-xattr (literal "` + s.pl.Support + `/nightshift.json")) ; a file only the core writes: read only, as the guard file`
+		before := profileSections(profileWithout(t, p, svc, func(r Rule) bool { return r.Row == "a file only the core writes: read only, as the guard file" }))
 		if n := strings.Count(profile, "nightshift.json"); n != 1 {
 			t.Errorf("%s: %d lines name nightshift.json, want only its read-only exception", s.name, n)
 		}
@@ -934,5 +934,26 @@ func TestServicesAProfileCantSayAreRefused(t *testing.T) {
 	}
 	if _, err := p.Profile(good, good); !errors.Is(err, ErrListed) {
 		t.Errorf("two Services: %v", err)
+	}
+}
+
+// FXPOLISHA (RT126FIXREVIEW-DORMANTOFF's O4): a desk's profile, which the desk reads, names no feature this version
+// leaves off, in any of its rows' words: the night shift's jobs file is held as before, under a row that doesn't say
+// what it is for.
+func TestNoDesksProfileNamesAFeatureThisVersionLeavesOff(t *testing.T) {
+	for _, s := range profileSetups() {
+		profile, err := mustNew(t, s.pl).Profile(goldenServices(s.pl))
+		if err != nil {
+			t.Fatalf("%s: %v", s.name, err)
+		}
+		lower := strings.ToLower(profile)
+		for _, phrase := range []string{"night shift", "night job", "company template", "hire plan", "paired mac", "other macs", "photo", "spend"} {
+			if strings.Contains(lower, phrase) {
+				t.Errorf("%s's profile says %q", s.name, phrase)
+			}
+		}
+		if !strings.Contains(profile, `/nightshift.json")) ; a file only the core writes: read only, as the guard file`) {
+			t.Errorf("%s's profile doesn't hold the jobs file read only as before", s.name)
+		}
 	}
 }

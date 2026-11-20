@@ -49,5 +49,9 @@ func (p *projectsPlace) moveIn(from, name string) error {
 	return windows.MoveFileEx(src, dst, 0)
 }
 
+// onDiskOf is true here: Windows has no st_dev to compare, and moveIn's ERROR_NOT_SAME_DEVICE still refuses two
+// disks, after the clone.
+func (p *projectsPlace) onDiskOf(string) (bool, error) { return true, nil }
+
 // movedAcrossDisks is whether moveIn failed because the staging folder and the projects folder are on two disks.
 func movedAcrossDisks(err error) bool { return errors.Is(err, windows.ERROR_NOT_SAME_DEVICE) }

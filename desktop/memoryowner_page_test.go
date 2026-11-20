@@ -1,9 +1,13 @@
 package desktop
 
 import (
+	"encoding/json"
+	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -108,6 +112,7 @@ console.log(JSON.stringify([form.tag, texts(form).includes(held), buttons(form),
 func TestTheBadgeAsksNoMoreOnceRefused(t *testing.T) {
 	script := `
 let preview = false, asked = 0, answers = [null, { ok: false }];
+const givenKey = '';
 const document = { hidden: false };
 const badge = { hidden: false, textContent: '' };
 const $ = () => badge, clearInterval = () => {};
@@ -122,6 +127,67 @@ const get = async () => { asked++; return answers.shift() || { ok: true, json: a
 })();`
 	if got := memoryNode(t, script); got != `[2,true]` {
 		t.Errorf("got %s, want [2,true]: asked twice, the badge hidden", got)
+	}
+}
+
+// FXSTACKG's G10 open item: Windows' own office window (its key handed in-process, givenKey) shows the badge's count,
+// but /act's settings refuses that window's device, so there the badge is no button: it says where Setup is, and a
+// tap sends nothing. A window with no key handed in-process (the Mac's, a browser's on this computer) keeps the tap.
+// deck.html's own lines run on a stand-in page. RT126POLISHB O3: there it looks disabled (its disabled style is muted:
+// no shadow, softer colours than the button's), and its own words say where Setup is, seen without hovering.
+// RT126POLISHBR1 O1: those words are the hint there, so they're as readable as text must be, 4.5:1 on the badge.
+func TestTheBadgeInWindowsOwnWindowSaysWhereSetupIsAndTapsNothing(t *testing.T) {
+	rule := func(selector string) string {
+		t.Helper()
+		return memoryPagePart(t, "deck.html", "  "+selector+" {", "}\n")
+	}
+	button, off := rule(".memory-badge"), rule(".memory-badge:disabled")
+	for _, muted := range []string{"box-shadow: none;", "color: #605c55;", "background: #e8e4db;", "border-color: #b8b2a6;"} {
+		if !strings.Contains(off, muted) || strings.Contains(button, muted) {
+			t.Errorf("the disabled badge isn't muted (%q): %s", muted, off)
+		}
+	}
+	value := func(property string) string {
+		if m := regexp.MustCompile(`(?:^|[ ;{])` + property + `: (#[0-9a-f]{6});`).FindStringSubmatch(off); m != nil {
+			return m[1]
+		}
+		t.Fatalf("the disabled badge has no %s: %s", property, off)
+		return ""
+	}
+	if ratio := contrastRatio(t, value("color"), value("background")); ratio < 4.5 {
+		t.Errorf("the disabled badge's words are %.2f:1 on its background, want 4.5:1 at least", ratio)
+	}
+	lines := memoryPagePart(t, "deck.html", "  const MEMORY_EVERY = 30_000;", "\n  });\n")
+	quoted, err := json.Marshal(lines) // a JS string as it is: the lines hold template literals of their own
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := `
+const page = (givenKey) => {
+  const badge = { hidden: true, disabled: false, textContent: '', title: 'the page title', on: {} };
+  badge.addEventListener = (kind, fn) => { badge.on[kind] = fn; };
+  const posted = [];
+  const made = new Function('givenKey', '$', 'get', 'post', 'tick', 'flash', 'preview', 'document', 'clearInterval',
+    lines + '\nreturn { checkMemory };')(givenKey, () => badge, async () => ({ ok: true, json: async () => ({ waiting: 2 }) }),
+    async (path, body) => { posted.push([path, body]); return { status: 204 }; }, () => {}, () => {}, false, { hidden: false }, () => {});
+  return { badge, posted, ...made };
+};
+const lines = ` + string(quoted) + `;
+(async () => {
+  const out = {};
+  for (const [name, key] of [['windows', 'k'], ['own', '']]) {
+    const p = page(key);
+    await p.checkMemory();
+    await p.badge.on.click();
+    out[name] = [p.badge.hidden, p.badge.textContent, p.badge.disabled, p.badge.title, p.posted];
+  }
+  console.log(JSON.stringify(out));
+})().catch((e) => { console.error(e); process.exit(1); });`
+	want := `{"windows":[false,"📝 2 notes to review in Setup, from the tray icon",true,"Your General Manager suggested notes to remember. Keep, edit or drop them ` +
+		`in Setup: choose Open Setup… from Smolcorp's tray icon.",[]],` +
+		`"own":[false,"📝 2 notes to review",false,"the page title",[["/act",{"action":"settings"}]]]}`
+	if got := memoryNode(t, script); got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
 	}
 }
 
@@ -145,4 +211,28 @@ console.log(JSON.stringify(out));`
 	if got := memoryNode(t, script); got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
+}
+
+// contrastRatio is WCAG's contrast between two colours written #rrggbb: (the lighter's luminance + 0.05) over the
+// darker's.
+func contrastRatio(t *testing.T, one, other string) float64 {
+	t.Helper()
+	luminance := func(hex string) float64 {
+		var rgb [3]float64
+		for i := range rgb {
+			var v int
+			if _, err := fmt.Sscanf(hex[1+2*i:3+2*i], "%02x", &v); err != nil || len(hex) != 7 {
+				t.Fatalf("not a #rrggbb colour: %q", hex)
+			}
+			c := float64(v) / 255
+			if c <= 0.03928 {
+				rgb[i] = c / 12.92
+			} else {
+				rgb[i] = math.Pow((c+0.055)/1.055, 2.4)
+			}
+		}
+		return 0.2126*rgb[0] + 0.7152*rgb[1] + 0.0722*rgb[2]
+	}
+	a, b := luminance(one), luminance(other)
+	return (max(a, b) + 0.05) / (min(a, b) + 0.05)
 }

@@ -293,8 +293,11 @@ func deskMarkAfterProfile(own, mark string) error {
 			log.Printf("sandbox: desk %s's mark: %v", filepath.Base(own), err)
 			return nil // no mark, as with something of it running
 		}
-		if again != nil || there != mark {
-			return fmt.Errorf("its mark couldn't be made (%v), and its mark folder holds another: %v", err, again)
+		if again != nil {
+			return fmt.Errorf("its mark couldn't be made (%v), and its mark folder is there but can't be read: %v", err, again)
+		}
+		if there != mark {
+			return fmt.Errorf("its mark couldn't be made (%v), and its mark folder holds another, %s", err, there)
 		}
 	}
 	log.Printf("sandbox: desk %s, made before marks, has one now: nothing of it was running", filepath.Base(own))

@@ -168,7 +168,7 @@ func TestOnAMacGitLFSsFolderItselfIsHeldAndWhatIsInItIsTheDesks(t *testing.T) {
 			t.Errorf("writing %s: denied (%s), want it the desk's", at, row.Row)
 		}
 	}
-	if !slices.Contains(p.Hold(), lfs) {
+	if !slices.Contains(p.Hold(), spell(pl.GOOS, lfs)) {
 		t.Errorf("Hold() %q doesn't make $G/lfs", p.Hold())
 	}
 }

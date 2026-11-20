@@ -38,7 +38,7 @@
 (allow file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/\\.ssh/config$")) ; ssh files that aren't keys
 (allow file-read-data file-read-xattr file-write* file-link (subpath "/private/tmp/smolcorp-501/h1")) ; its own socket folder
 (allow file-read-data file-read-xattr (literal "/Users/ada/Library/Application Support/AgentDeck/hire-guard.json")) ; the guard file: the guard reads it
-(allow file-read-data file-read-xattr (literal "/Users/ada/Library/Application Support/AgentDeck/nightshift.json")) ; the night shift's jobs: read only, as the guard file
+(allow file-read-data file-read-xattr (literal "/Users/ada/Library/Application Support/AgentDeck/nightshift.json")) ; a file only the core writes: read only, as the guard file
 (allow file-read-data file-read-xattr file-write* file-link (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/[^/]*\\.md$")) ; its status and report
 (allow file-read-data file-read-xattr (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/BRIEF[^/]*\\.md$")) ; its brief and its fence
 (allow file-read-data file-read-xattr (regex "^/Users/ada/Library/Application Support/AgentDeck/hires/h1/settings\\.json$")) ; its brief and its fence

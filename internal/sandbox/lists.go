@@ -15,19 +15,20 @@ import (
 //
 // The Mach and IOKit lists start from Claude Code's own Seatbelt profile (the plan's source, read from its 2.1
 // program), less what §A3.1 keeps off (WindowServer, the pasteboard, LaunchServices, TCC, audio, the camera, screen
-// capture, CoreSimulator, Spotlight, Apple Events), plus what §A3.1 names (FSEvents, configd, cfprefsd). User lookup
-// is proven needed here (P126SBXb S4). cfprefsd's user side is off since FXPLANTSTERM: it wrote a named domain's plist
-// in the owner's real ~/Library/Preferences for a desk, a Seatbelt deny of that folder notwithstanding. Its system side
-// is off too since FXPLANTSTERMR4: root's daemon, which writes the any-user and system domains, and which no desk needs.
+// capture, CoreSimulator, Spotlight, Apple Events), plus what §A3.1 names (FSEvents, configd, cfprefsd). User lookup is
+// proven needed here (P126SBXb S4). cfprefsd's user side is off since FXPLANTSTERM: it wrote a named domain's plist in
+// the owner's real ~/Library/Preferences for a desk, a Seatbelt deny of that folder notwithstanding. Its system side is
+// off too since FXPLANTSTERMR4: root's daemon, which writes the any-user and system domains, and which no desk needs.
 // With neither, CFPreferences in a desk reads and writes the preference files itself, as the desk: it reads what the
 // desk may read (the owner's preferences, as `cat` would), and a write meets the desk's own file rules, the Policy's
 // row over ~/Library/Preferences and root's /Library/Preferences. git, node, python, go, clang, swift, xcodebuild,
 // security and codesign ran the same with and without each on this Mac (FXPLANTSTERM's and FXPLANTSTERMR4's reports);
-// the normal-work rows that need headless Chrome, cargo or swift test run only on the Mac Studio and in CI. Keychains are found without it: `security` reads its search list from its plist
-// itself (TestOnAMacADesksClaudeSavesNoSignInAndStillFindsItsKeychains). M5's normal-work list (escape2_darwin_test.go)
-// runs under both lists as they are: on this Mac a commit signed through the SSH agent and a push, npm, pnpm, bun, go
-// test, pip in a venv and swift build need nothing more (cargo and swift test run in CI's Mac sandbox job). Headless
-// Chrome needs the WindowServer's and LaunchServices' services, which stay off.
+// the normal-work rows that need headless Chrome, cargo or swift test run only on the Mac Studio and in CI. Keychains
+// are found without either: `security` reads its search list from its plist itself
+// (TestOnAMacADesksClaudeSavesNoSignInAndStillFindsItsKeychains). M5's normal-work list (escape2_darwin_test.go) runs
+// under both lists as they are: on this Mac a commit signed through the SSH agent and a push, npm, pnpm, bun, go test,
+// pip in a venv and swift build need nothing more (cargo and swift test run in CI's Mac sandbox job). Headless Chrome
+// needs the WindowServer's and LaunchServices' services, which stay off.
 //
 // That settles the Mach list (without it the signed commit and git pull fail), not the IOKit list: no normal-work row
 // needs any IOKit entry. Every row passes with no IOKit class at all (TestOnAMacNormalWorkNeedsNoIOKitClass, which CI's

@@ -567,6 +567,9 @@ type briefContext struct {
 	// Started in a desk's own project, so it asks you to confirm that one
 	// rather than which project to work on.
 	pinned bool
+	// The project the office picked for it, which it is told it works on rather than asked which (FXPICKEDPROJECT);
+	// the zero value for none.
+	picked pickedStart
 	// The answers to the role's questions, in their order; nil when the agent asks them itself, first.
 	answers    []string
 	date       time.Time
@@ -648,6 +651,44 @@ func tildePath(path string) string {
 	return path
 }
 
+// breaksWords is whether r, in a folder's path or a project's name, could break a line of what a hire is told: a
+// control character (a line end, an escape), or a line or paragraph separator (FXPICKEDPROJECTR1, B1).
+func breaksWords(r rune) bool { return unicode.IsControl(r) || r == '\u2028' || r == '\u2029' }
+
+// reordersWords is whether r is a bidi control, which can make a path look other than it is where it's shown:
+// U+202A–U+202E (embeddings and overrides) and U+2066–U+2069 (isolates). Not a joiner or another format character,
+// which ordinary emoji names hold (FXPICKEDPROJECTR2, O1). It doesn't break a line, so the picker still lists a
+// name with one: only what a hire is told shows it escaped.
+func reordersWords(r rune) bool {
+	return r >= '\u202a' && r <= '\u202e' || r >= '\u2066' && r <= '\u2069'
+}
+
+// escapedInWords is whether r is written escaped where a hire is told a path or a name: it could break a line
+// (breaksWords) or reorder how the line looks (reordersWords).
+func escapedInWords(r rune) bool { return breaksWords(r) || reordersWords(r) }
+
+// shownInWords is text, a folder's path or a project's name, as a hire's first message, start words or brief shows
+// it: each character that could break a line or reorder it (escapedInWords) written escaped, as Go writes it (\n,
+// \x1b, \u202e), so a folder's name stays on its own line, whatever route the hire came by (FXPICKEDPROJECTR1, B1).
+func shownInWords(text string) string {
+	if !strings.ContainsFunc(text, escapedInWords) {
+		return text
+	}
+	var shown strings.Builder
+	for _, r := range text {
+		if escapedInWords(r) {
+			quoted := strconv.QuoteRune(r)
+			shown.WriteString(quoted[1 : len(quoted)-1])
+		} else {
+			shown.WriteRune(r)
+		}
+	}
+	return shown.String()
+}
+
+// toldPath is path as a hire is told it: with ~ for your home folder (tildePath), escaped (shownInWords).
+func toldPath(path string) string { return shownInWords(tildePath(path)) }
+
 // briefSource is where the role's brief comes from: the one it was kept with, or its default.
 func (r Role) briefSource() RoleBrief {
 	if r.Brief != nil {
@@ -705,8 +746,8 @@ func (r Role) renderBrief(template string, context briefContext) (string, error)
 	}
 	values["role"] = r.Name
 	values["date"] = context.date.Format("2006-01-02")
-	values["project_folder"] = tildePath(context.folder)
-	values["branch"] = briefBranch(context.folder)
+	values["project_folder"] = toldPath(context.folder)
+	values["branch"] = shownInWords(briefBranch(context.folder)) // git allows U+2028 in a name (FXPICKEDPROJECTR2)
 	values["agent"] = agent.Name()
 	values["model"] = r.Model
 	values["effort"] = ""
@@ -714,11 +755,11 @@ func (r Role) renderBrief(template string, context briefContext) (string, error)
 		values["effort"] = r.Effort
 	}
 	values["approval"] = briefApproval
-	values["brief_file"] = tildePath(context.briefFile)
-	values["status_file"] = tildePath(context.statusFile)
+	values["brief_file"] = toldPath(context.briefFile)
+	values["status_file"] = toldPath(context.statusFile)
 	values["report_file"] = ""
 	if context.reportFile != "" {
-		values["report_file"] = tildePath(context.reportFile)
+		values["report_file"] = toldPath(context.reportFile)
 	}
 	done, ok := parsed.values["done_signal"]
 	if !briefIsSet(done, ok) {
@@ -729,27 +770,37 @@ func (r Role) renderBrief(template string, context briefContext) (string, error)
 	} else {
 		values["read_only"] = "false"
 	}
-	values["job"] = r.briefJob(context, tildePath(context.statusFile))
+	values["job"] = r.briefJob(context, toldPath(context.statusFile))
 	return resolveBrief(parsed.body, briefKnown(parsed.values), values)
 }
 
 // briefJob is "The job": the role's questions with your answers, or, with none
 // given, the questions the agent asks you first, as a hire always has.
 func (r Role) briefJob(context briefContext, statusFile string) string {
-	shown := tildePath(context.folder)
+	shown := toldPath(context.folder)
 	if task := briefTask(context.task); task != "" {
 		return "The task, from whoever hired you:\n\n" + task
 	}
 	if context.answers == nil {
-		project := "Which project should you work on: a folder on this computer, or a GitHub repository?"
-		if context.pinned {
-			project = "You've started in " + shown + ", this desk's project. Is that the one to work on?"
+		// Its project picked by the office, it is told that one and asks only its role's own questions, or none.
+		told, asked := "", []string{}
+		if context.picked.project != "" {
+			told = context.picked.words(shown) + "\n\n"
+			if len(r.Questions) == 0 {
+				return told + "Before anything else, ask the user what to do in your first reply, and wait for their answer. " +
+					"Don't read code, run commands or start work until they've answered."
+			}
+		} else {
+			project := "Which project should you work on: a folder on this computer, or a GitHub repository?"
+			if context.pinned {
+				project = "You've started in " + shown + ", this desk's project. Is that the one to work on?"
+			}
+			asked = append(asked, "1. "+project)
 		}
-		asked := []string{"1. " + project}
-		for i, question := range r.Questions {
-			asked = append(asked, strconv.Itoa(i+2)+". "+question)
+		for _, question := range r.Questions {
+			asked = append(asked, strconv.Itoa(len(asked)+1)+". "+question)
 		}
-		return "Before anything else, ask the user these questions in your first reply, all together, and wait for " +
+		return told + "Before anything else, ask the user these questions in your first reply, all together, and wait for " +
 			"their answers. Don't read code, run commands or start work until they've answered.\n\n" + strings.Join(asked, "\n") + "\n\n" +
 			"Once they've answered, write each question with its answer at the top of `" + statusFile + "`, then start."
 	}
@@ -770,7 +821,7 @@ func (r Role) briefJob(context briefContext, statusFile string) string {
 // briefMessage is what the agent is first told when its brief is written: to
 // read it, then to ask its questions first or, answered already, to start.
 func (r Role) briefMessage(path string, asks bool) string {
-	shown := "`" + tildePath(path) + "`"
+	shown := "`" + toldPath(path) + "`"
 	if asks {
 		return "Read " + shown + " and follow it: it's your brief, as my " + r.Name + ". As it says, your first reply must only ask me its " +
 			"questions, all together; wait for my answers before you read code or run commands."
@@ -797,7 +848,7 @@ func (r Role) firstMessageAnswered(folder string, answers []string) string {
 	if r.Instructions != "" {
 		then = "As my " + r.Name + ": " + r.Instructions
 	}
-	text := "You've started in " + tildePath(folder) + ", the project to work on."
+	text := "You've started in " + toldPath(folder) + ", the project to work on."
 	if len(answered) > 0 {
 		text += " I've answered your questions already:\n\n" + strings.Join(answered, "\n")
 	}
@@ -942,7 +993,9 @@ type briefRequest struct {
 	library briefLibrary
 	folder  string
 	pinned  bool
-	desk    *int
+	// The project the office picked for it (FXPICKEDPROJECT), or the zero value.
+	picked pickedStart
+	desk   *int
 	// nil when the agent asks its questions itself.
 	answers []string
 	task    string
@@ -971,7 +1024,7 @@ func makeBrief(r briefRequest) (*briefMade, error) {
 	text := ""
 	render := func(names briefNamesOf) (string, error) {
 		var err error
-		text, err = r.role.renderBrief(template, briefContext{folder: r.folder, pinned: r.pinned, answers: r.answers, date: r.date,
+		text, err = r.role.renderBrief(template, briefContext{folder: r.folder, pinned: r.pinned, picked: r.picked, answers: r.answers, date: r.date,
 			briefFile: names.brief, statusFile: names.status, reportFile: names.report, task: r.task})
 		if err == nil && r.write {
 			text += briefSandboxTools(runtime.GOOS, desksSandboxedHere) // after resolveBrief's one line end, so a blank line comes before it

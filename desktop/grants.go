@@ -642,14 +642,17 @@ func (s *grantStore) asksAnswer(now float64) []map[string]any {
 // answer is POST /grants/answer?id=<ask>&answer=yes|no from a paired phone over Tailscale or the Mac app's office
 // window, each with its key, and POST /setup/grants/answer from the setup page, with its cookie. Never the office in
 // a browser (its key is in the browser's history) nor any window off a Mac, nor the paired device the Windows window
-// holds (its key is in a file here): accessOwnerTap. No other caller reaches an answer: the route tables keep the
-// GM's token, a hire's key and a tool's setup key out, an MCP key and a night job have no way to it, and
-// grantStore.answer refuses all of them again.
+// holds (its key is in this run's memory alone, but it's a window off a Mac): accessOwnerTap. No other caller reaches
+// an answer: the route tables keep the GM's token, a hire's key and a tool's setup key out, an MCP key and a night job
+// have no way to it, and grantStore.answer refuses all of them again.
 func init() {
 	refusal := func(d *Deck) string {
 		// While spend asks are off (dormant.go), GET /grants carries only a setup page's asks, and says nothing of
-		// the owner's OK for a command.
+		// the owner's OK for a command. On a Mac, the office's window reads it too (accessOwnerTap).
 		if !spendAsksOn {
+			if d.macHost() != nil {
+				return "Only your paired phone, over Tailscale's HTTPS address, and the office's window on your Mac read this."
+			}
 			return "Only your paired phone, over Tailscale's HTTPS address, reads this."
 		}
 		if d.macHost() != nil {

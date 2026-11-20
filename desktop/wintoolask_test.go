@@ -331,8 +331,14 @@ func TestWithoutItsOwnWindowATerminalsAskIsRefusedAsBefore(t *testing.T) {
 		t.Errorf("Linux's words promise the phone, which never answers a terminal's ask: %q", words)
 	}
 	// The demo's page says the same (TAPASKFINAL's N2): Linux has no window to say yes in, and the phone isn't one.
+	// A heading renamed or moved fails here, with words, rather than panicking and stopping the package's other rows
+	// (RT126FIXREVIEW-TAPASKFINALR1 O3).
 	demo := repoText(t, "docs", "demo.md")
-	run := demo[strings.Index(demo, "## Run it"):strings.Index(demo, "## What happens")]
+	from, to := strings.Index(demo, "## Run it"), strings.Index(demo, "## What happens")
+	if from < 0 || to < from {
+		t.Fatalf(`docs/demo.md no longer has "## Run it" then "## What happens" (at %d and %d): update this row`, from, to)
+	}
+	run := demo[from:to]
 	mustSay(t, "docs/demo.md", run, "On a Mac, and on Windows with the WebView2 Runtime.",
 		"On Linux there's no window of Smolcorp's own to say yes in, so the demo says so and stops")
 	if strings.Contains(run, "phone") {

@@ -99,6 +99,9 @@ type watch struct {
 	Builtin string
 	// A built-in's hire (its id).
 	Hire string
+	// file: the project a held GM's scope held it to when it was set (gmScope.root), "" for the owner's and an
+	// unheld GM's. Such a watch reads only while its path still resolves to Target as kept (checkWatches).
+	Held string
 }
 
 // active is whether it still watches: fired once, it is done (and kept, fired, till taken away) unless it repeats.
@@ -124,6 +127,7 @@ type watchFields struct {
 	LastEvent int64   `json:"lastEvent"`
 	Builtin   string  `json:"builtin"`
 	Hire      string  `json:"hire"`
+	Held      string  `json:"held"`
 }
 
 func (w watch) MarshalJSON() ([]byte, error) { return json.Marshal(watchFields(w)) }
@@ -141,7 +145,7 @@ func (w *watch) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("a watch needs an id and a kind")
 	}
 	for key, into := range map[string]any{
-		"target": &out.Target, "pattern": &out.Pattern, "folder": &out.Folder, "by": &out.By, "builtin": &out.Builtin, "hire": &out.Hire,
+		"target": &out.Target, "pattern": &out.Pattern, "folder": &out.Folder, "by": &out.By, "builtin": &out.Builtin, "hire": &out.Hire, "held": &out.Held,
 		"minutes": &out.Minutes, "createdAt": &out.CreatedAt, "firedAt": &out.FiredAt, "due": &out.Due,
 		"fired": &out.Fired, "offset": &out.Offset, "lastEvent": &out.LastEvent, "inode": &out.Inode, "tail": &out.Tail, "repeat": &out.Repeats,
 	} {
@@ -181,6 +185,9 @@ type watchers struct {
 	// Both are called with w.mu let go.
 	roots func() []string
 	hires func() []Hire
+	// shown is the name `gm team` shows for each of those hires (Deck.shownNames), which a watch finds a hire by too;
+	// called with w.mu let go (nil: none).
+	shown func([]Hire) map[string]string
 	// log adds a line to the event log (the GM's inbox).
 	log   func(eventEntry) eventEntry
 	now   func() time.Time
@@ -199,6 +206,8 @@ type watchers struct {
 	doneSince   []string
 	// builtinsOn is whether the app's own watches are wanted now (nil: no).
 	builtinsOn func() bool
+	// unplain is each STATUS.md the last sync gave no built-in for a link on its way, logged once (sayUnplain).
+	unplain map[string]bool
 }
 
 func newWatchers(folder, home string, roots func() []string, hires func() []Hire, log func(eventEntry) eventEntry, seed []eventEntry) *watchers {
@@ -226,8 +235,9 @@ func randomWatchID() string {
 
 // ---- Setting and taking away
 
-// add is POST /setup/gm/watch. by is "gm" or "owner".
-func (w *watchers) add(given map[string]any, by string) (watch, *refusal) {
+// add is POST /setup/gm/watch. by is "gm" or "owner". held is the scope a GM held to one project is held to, as its
+// gate checked the request (request.heldTo); nil for the owner and an unheld GM.
+func (w *watchers) add(given map[string]any, by string, held *gmScope) (watch, *refusal) {
 	text := func(key string) string { s, _ := given[key].(string); return oneLineLimit(s, watchTextMost) }
 	kind := strings.ToLower(text("kind"))
 	if !slices.Contains(watchKinds, kind) {
@@ -253,7 +263,7 @@ func (w *watchers) add(given map[string]any, by string) (watch, *refusal) {
 		path := expandTilde(made.Target, w.home())
 		if !filepath.IsAbs(path) && text("hire") != "" {
 			// A short path is inside the hire's folder.
-			hire, refused := findWatchHire(text("hire"), w.hires())
+			hire, refused := w.findHire(text("hire"))
 			if refused != nil {
 				return watch{}, refused
 			}
@@ -269,6 +279,18 @@ func (w *watchers) add(given map[string]any, by string) (watch, *refusal) {
 		inside, base, ok := watchInsideRoot(path, w.roots(), w.home())
 		if !ok {
 			return watch{}, &refusal{http.StatusForbidden, "Only files inside a hire's folder or the hires folder can be watched."}
+		}
+		// A held GM's file is checked again as resolved here, the path that is kept: its gate followed the links once,
+		// and one on the way (a link, or a folder made a link) can be swapped between the two (RT126POLISHBR2 N1).
+		if held != nil {
+			if !held.covers(inside) {
+				return watch{}, &refusal{http.StatusForbidden, "This General Manager " + held.watchesOnly()}
+			}
+			made.Held = held.root // kept with the watch, so it stays held after a restart too
+			// Its file is opened through a folder the GM's desks can't rename, here as at each look (watchOpenBase).
+			if base, ok = watchOpenBase(made, inside, base); !ok {
+				return watch{}, &refusal{http.StatusForbidden, "This General Manager " + held.watchesOnly()}
+			}
 		}
 		if hardLinked(base, inside) {
 			// A second name for a file that may be somewhere else (a key, say) isn't a file of the hire's.
@@ -294,7 +316,7 @@ func (w *watchers) add(given map[string]any, by string) (watch, *refusal) {
 			return watch{}, &refusal{http.StatusBadRequest, "Say how many \"minutes\" (a year at most)."}
 		}
 		made.Minutes = minutes
-		hire, refused := findWatchHire(made.Target, w.hires())
+		hire, refused := w.findHire(made.Target)
 		if refused != nil {
 			return watch{}, refused
 		}
@@ -306,7 +328,7 @@ func (w *watchers) add(given map[string]any, by string) (watch, *refusal) {
 		made.LastEvent = w.latest[made.Target].ID
 		w.mu.Unlock()
 	case "exit":
-		hire, refused := findWatchHire(made.Target, w.hires())
+		hire, refused := w.findHire(made.Target)
 		if refused != nil {
 			return watch{}, refused
 		}
@@ -423,10 +445,21 @@ func (w *watchers) get(id string) (watch, bool) {
 	return w.all[i], true
 }
 
+// findHire is findWatchHire over the registry's hires, with the names `gm team` shows for them.
+func (w *watchers) findHire(name string) (Hire, *refusal) {
+	hires := w.hires()
+	var shown map[string]string
+	if w.shown != nil {
+		shown = w.shown(hires)
+	}
+	return findWatchHire(name, hires, shown)
+}
+
 // findWatchHire is the hire a name means: its id, or its nickname or name (an
-// open one first). The GM is never one (Watchers.find; its words, not
-// findHire's).
-func findWatchHire(name string, all []Hire) (Hire, *refusal) {
+// open one first), else the name `gm team` shows for a hire with no nickname
+// of its own (shown, as findHire takes it). The GM is never one
+// (Watchers.find; its words, not findHire's).
+func findWatchHire(name string, all []Hire, shown map[string]string) (Hire, *refusal) {
 	asked := strings.ToLower(strings.TrimFunc(name, func(r rune) bool { return r == '\t' || unicode.Is(unicode.Zs, r) }))
 	if asked == "" {
 		return Hire{}, &refusal{http.StatusBadRequest, "Say whom, as \"target\"."}
@@ -451,6 +484,9 @@ func findWatchHire(name string, all []Hire) (Hire, *refusal) {
 		if len(open) > 0 {
 			found = open
 		}
+	}
+	if len(found) == 0 {
+		found = shownMatch(asked, all, shown, func(h Hire) bool { return h.Role == gmRole })
 	}
 	if len(found) == 0 {
 		return Hire{}, &refusal{http.StatusNotFound, "There's no hire called " + name + "."}
@@ -495,7 +531,9 @@ func watchRoots(hires []Hire, hiresDir string) []string {
 // roots, else false. A root that is the home folder, or above it, is too broad
 // to be a hire's folder and counts for nothing. Never a secrets file or a keys
 // folder, whatever folder it is in. Looked at again at every read, so a link
-// swapped in later doesn't lead out (Watchers.inside).
+// swapped in later doesn't lead out of every root (Watchers.inside). It can
+// still lead from one root into another: a held GM's watch keeps to its own
+// path for that (checkWatches).
 func watchInside(path string, roots []string, home string) (string, bool) {
 	resolved, _, ok := watchInsideRoot(path, roots, home)
 	return resolved, ok
@@ -732,9 +770,29 @@ func checkWatches(watches []watch, roots []string, hires []Hire, home string, la
 		before := x
 		switch x.Kind {
 		case "file":
-			// The path is checked again each time: a link swapped in since doesn't lead out.
+			// The path is checked again each time: a link swapped in since doesn't lead out of every root. It can
+			// lead into another hire's root, though.
 			path, base, ok := watchInsideRoot(x.Target, roots, home)
 			if !ok {
+				break
+			}
+			// So a held GM's watch reads only while its path, kept plain when it was set, still resolves to itself.
+			// Any difference is a link put on the way since, maybe to a folder outside the project: nothing is read
+			// and nothing fires. A part not there then that comes as a plain folder or file keeps the path the same.
+			// The app's own watches the same: their path was plain at the sync, and a link put down since, before
+			// this look, would lead to another root's STATUS.md (RT126WATCHHELDR2 N1).
+			if (x.Held != "" || x.Builtin != "") && path != x.Target {
+				break
+			}
+			// A held watch reads only while the GM is still held to its project, or to a folder that holds it: once
+			// the owner holds the GM elsewhere, or not at all, it stops, and the GM can set it again (RT126WATCHHELDR1
+			// O2).
+			if x.Held != "" {
+				if now := gmOf(hires).Scope; now == "" || !within(now, x.Held) {
+					break
+				}
+			}
+			if base, ok = watchOpenBase(x, path, base); !ok {
 				break
 			}
 			look := lookAtFile(base, path, x.Offset, x.Inode, x.Tail)
@@ -869,8 +927,9 @@ func (w *watchers) apply(fires []watchFire, updated []watch) {
 // ---- Reading files
 
 // openPlainFile opens path (already made plain by watchInsideRoot) through
-// base, the hire's folder it was found in, or gives nil when what was opened
-// isn't a plain file with one name that is the file at path. Opening through an
+// base, the hire's folder it was found in (for a held GM's watch, the folder
+// watchOpenBase chose), or gives nil when what was opened isn't a plain file
+// with one name that is the file at path. Opening through an
 // os.Root walks the path one part at a time and refuses any part that leads
 // out of base, so a folder swapped for a link at any moment can't lead to a
 // file outside it (~/.ssh, the support folder). After the open, the file is
@@ -888,6 +947,28 @@ func openPlainFile(base, path string) (*os.File, os.FileInfo) {
 	}
 	f.Close()
 	return nil, nil
+}
+
+// watchOpenBase is the folder x's file, at path (found in the root base), is opened through. The owner's and an
+// unheld GM's: base. A held GM's: a folder its desks can't rename, as base may be (a hire registered at a folder
+// inside the project, say), so that it can't be made a link to another hire's folder between the look's check and
+// its open and put back (RT126WATCHHELDR1 N1). That's the project it was held to when path is below it, else the
+// top of the project's worktree that holds it (its registration, read as files, no git), whose parent is the
+// fenced hires folder. openPlainFile's walk from there refuses any link on the way. False when there's none.
+func watchOpenBase(x watch, path, base string) (string, bool) {
+	if x.Held == "" {
+		return base, true
+	}
+	if path != x.Held && within(x.Held, path) {
+		return x.Held, true
+	}
+	held := gmScope{root: x.Held}
+	for dir := filepath.Dir(path); filepath.Dir(dir) != dir; dir = filepath.Dir(dir) {
+		if held.registered(dir) {
+			return dir, true
+		}
+	}
+	return "", false
 }
 
 // openWatchedIn opens path for a look through the folder base: nothing outside
@@ -1116,7 +1197,7 @@ func (rt *router) watchRoutes(w http.ResponseWriter, r *request, path string) {
 		if r.caller == callerGM {
 			by = "gm"
 		}
-		made, refused := d.watchers.add(given, by)
+		made, refused := d.watchers.add(given, by, r.heldTo)
 		if refused != nil {
 			writeStatus(w)(refused.status, refused.message)
 			return

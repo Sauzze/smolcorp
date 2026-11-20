@@ -3,6 +3,7 @@ package desktop
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,6 +101,10 @@ type launcherRun struct {
 	// For an office's plain hire on a Mac (hire.go, ruling (W)): the desk the office made its worktree for, whose
 	// sandbox the launcher makes (newLauncherSandboxAt). "" for a new one.
 	desk string
+	// For such a hire of a role, the project the office picked for it, by its name in the folder for hires, and its
+	// own worktree's branch ("" for a project that isn't a repo): it is told that project rather than asked which
+	// (FXPICKEDPROJECT). "" for none picked.
+	project, branch string
 	// For a plain hire of Claude Code (hire.go) on an account other than ~/.claude: that account's folder, from
 	// setup's confirmed list. See plainHireEnv.
 	claudeConfig string
@@ -114,8 +119,8 @@ type launcherRun struct {
 }
 
 // parseRun reads `smolcorp run`'s arguments: [--hire <token> [--hire-id <id> |
-// [--desk <desk>] [--claude-config <folder>]] [--pinned] [--sandbox-off] [--agent <agent>]] then
-// <agent> [arguments], or --role <id>.
+// [--desk <desk> [--project <name> [--branch <branch>]]] [--claude-config <folder>]] [--pinned] [--sandbox-off]
+// [--agent <agent>]] then <agent> [arguments], or --role <id>.
 func parseRun(args []string) (*launcherRun, error) {
 	run := &launcherRun{}
 	if len(args) >= 2 && args[0] == "--hire" {
@@ -134,6 +139,16 @@ func parseRun(args []string) (*launcherRun, error) {
 				return nil, errors.New("not a plain hire's desk")
 			}
 			run.desk, args = args[1], args[2:]
+			if len(args) >= 2 && args[0] == "--project" {
+				if !plainProjectName(args[1]) {
+					return nil, errors.New("not a project's name")
+				}
+				run.project, args = args[1], args[2:]
+				if len(args) >= 2 && args[0] == "--branch" {
+					// Checked against its role's once that's read, below.
+					run.branch, args = args[1], args[2:]
+				}
+			}
 		}
 		if len(args) >= 2 && args[0] == "--claude-config" {
 			// The app's own word for a plain hire's account, a full path: an engine hire's comes with its start settings.
@@ -173,6 +188,11 @@ func parseRun(args []string) (*launcherRun, error) {
 	default:
 		run.command = args
 	}
+	// A branch told is the one prepareHire made for this desk's hire of this role, named as it names it, whatever the
+	// role's id (FXPICKEDPROJECTR1, B2): hire/<desk>/<role>-<desk's 6>.
+	if run.branch != "" && (run.role == "" || run.branch != hireBranch(run.desk, hireWorktreeName(run.role, run.desk))) {
+		return nil, errors.New("not this desk's branch")
+	}
 	return run, nil
 }
 
@@ -193,16 +213,57 @@ func (run *launcherRun) sandboxed() bool {
 // longer says off), it would start in its sandbox, but it has no desk of its own (--desk): the office made no worktree
 // for it, so in a repo it would be sandboxed in the owner's checkout, which ruling (W) (FXHIREPROJECTSR7) keeps every
 // sandboxed plain hire out of. It never starts outside the sandbox either. A folder git finds no repo in it works in
-// itself, as ruling (W) keeps for one (its start still refuses one that holds a repo, or the projects folder); when
-// git can't say, it is taken as a repo. The GM's place is its own, with or without the switch.
+// itself, as ruling (W) keeps for one (its start still refuses one that holds a repo, or the projects folder); any
+// other answer is taken as a repo (gitFindsNoRepo). The GM's place is its own, with or without the switch.
 func (run *launcherRun) sandboxOnAgainWords(sandboxed bool, folder string) string {
 	if !sandboxed || !run.sandboxOff || run.desk != "" || run.role == gmRole {
 		return ""
 	}
-	if status, _, ran := runGit(folder, "rev-parse", "--show-toplevel"); ran && status != 0 {
+	if gitFindsNoRepo(folder) {
 		return "" // in no repo
 	}
 	return plainHireSandboxOnAgain
+}
+
+// gitNoRepoWords are git's own words when it finds no repo in a folder or any folder above it (in git's own
+// language, LC_ALL=C). A .git file naming no git folder says "not a git repository: <path>", and a stop at another
+// file system's mount "(or any parent up to mount point …)": neither is these words.
+const gitNoRepoWords = "fatal: not a git repository (or any of the parent directories)"
+
+// gitFindsNoRepo is whether git finds folder in no repo, by the launcher's refusal's own read (FXSTACKFIX5R1,
+// RT126STACKFIX5 N1, O1, O2). It is a read as every other is (gitReadArgs, gitReadEnv, the owner's trusted folders),
+// but it looks as far up as a repo goes: a launcher runs with its terminal's environment, and a ceiling there
+// (GIT_CEILING_DIRECTORIES) has git answer "not a git repository" for a folder inside one, so this read drops it; and
+// git stops at another file system's mount unless GIT_DISCOVERY_ACROSS_FILESYSTEM=1, so this read sets it. The
+// terminal's GIT_TRACE settings are dropped too: their lines would come before git's own words (RT126STACKFIX5R1 O3).
+// Only gitNoRepoWords, with git's exit 128, count as no repo; any other failure is taken as a repo: one git refuses as
+// another account's (GIT_TEST_ASSUME_DIFFERENT_OWNER is kept, gitConfigNames), a .git file naming no git folder, git
+// missing, too slow or saying too much. A hire's own tree is a repo, and git isn't run there outside its sandbox.
+// Only this read: every other one keeps the owner's ceiling, so that, at a folder hired into, a start's own read of
+// the repo (deskGitPlaces) takes a repo the owner hid from git for none, and the sandbox's rows hold its .git whole.
+func gitFindsNoRepo(folder string) bool {
+	args := []string{"rev-parse", "--show-toplevel"}
+	if _, mine := deskGitForAs(folder, args); mine {
+		return false
+	}
+	git, err := exec.LookPath("git")
+	if err != nil {
+		return false
+	}
+	env := slices.DeleteFunc(gitReadEnv(os.Environ(), gitHere().owner), func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		name = strings.ToUpper(name)
+		return name == "GIT_CEILING_DIRECTORIES" || name == "GIT_DISCOVERY_ACROSS_FILESYSTEM" || name == "LC_ALL" ||
+			strings.HasPrefix(name, "GIT_TRACE")
+	})
+	env = append(env, "GIT_DISCOVERY_ACROSS_FILESYSTEM=1", "LC_ALL=C")
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	var stdout, stderr gitOutput
+	err = deskRun(ctx, "", folder, env, &stdout, &stderr, git, append(append([]string{"-C", folder}, gitReadArgs...), args...)...)
+	var exit *exec.ExitError
+	return errors.As(err, &exit) && ctx.Err() == nil && !stdout.over && !stderr.over && exit.ExitCode() == 128 &&
+		strings.HasPrefix(strings.TrimSpace(stderr.String()), gitNoRepoWords)
 }
 
 // plainHireSandboxOnAgain is a plain hire's launcher's words when the sandbox was turned on again between its hire
@@ -244,10 +305,6 @@ func launch(run *launcherRun) int {
 		}
 	}
 	if run.role != "" {
-		how := startedHere
-		if run.hire != "" {
-			how = map[bool]roleStart{true: hiredAtPinnedDesk, false: hiredIntoGeneralFolder}[run.pinned]
-		}
 		message := ""
 		if startEnv != nil {
 			message = startEnv.Message
@@ -256,7 +313,7 @@ func launch(run *launcherRun) int {
 		if run.role == gmRole && launcherSandboxes && run.hire != "" && run.hireID == "" && !sandboxed {
 			told = append(told, gmSandboxOffLine) // told it starts outside its sandbox, as the engine's GM is (§A5.2, AQ1)
 		}
-		found, err := roleArguments(run.role, folder, how, message, told...)
+		found, err := run.roleStartArguments(folder, message, told...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "smolcorp: %v\n", err)
 			return 2
@@ -587,11 +644,29 @@ func sameAgentAsHired(run *launcherRun, agent string) error {
 	return fmt.Errorf("the role's agent was changed to %s after it was hired, and only %s was checked. Hire it again", agent, run.agent)
 }
 
+// roleStartArguments are the agent and its arguments for run's role, started in folder as its hire came to start
+// there: from a terminal, at a pinned desk, into the folder for hires, or into the project the office picked for it.
+// message, unless it's empty, is its first message instead of the role's own (roleArguments). told are lines added at
+// its end.
+func (run *launcherRun) roleStartArguments(folder, message string, told ...string) ([]string, error) {
+	how := startedHere
+	if run.hire != "" {
+		how = map[bool]roleStart{true: hiredAtPinnedDesk, false: hiredIntoGeneralFolder}[run.pinned]
+	}
+	return roleArgumentsIn(run.role, folder, how, pickedStart{project: run.project, branch: run.branch}, message, told...)
+}
+
 // roleArguments are the agent and its arguments for the role with the id
 // given, as set up on the setup page, started in folder as how says. message,
 // unless it's empty, is its first message instead of the role's own: the one
 // the app made with the hire's brief. told are lines added at its end.
 func roleArguments(id, folder string, how roleStart, message string, told ...string) ([]string, error) {
+	return roleArgumentsIn(id, folder, how, pickedStart{}, message, told...)
+}
+
+// roleArgumentsIn is roleArguments for a hire whose project the office picked, when picked names one: the role's own
+// first message tells it so (Role.firstMessageIn).
+func roleArgumentsIn(id, folder string, how roleStart, picked pickedStart, message string, told ...string) ([]string, error) {
 	roles := loadConfig().Roles
 	for _, role := range roles {
 		if role.ID == id {
@@ -601,7 +676,7 @@ func roleArguments(id, folder string, how roleStart, message string, told ...str
 				return nil, errors.New(acpNotHiredYet)
 			}
 			if message == "" {
-				message = role.firstMessage(folder, how)
+				message = role.firstMessageIn(folder, how, picked)
 			}
 			for _, line := range told {
 				message += " " + line

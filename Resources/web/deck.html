@@ -91,6 +91,8 @@
     font: 600 12px/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; cursor: pointer;
     color: #1f2129; background: #f4f1ea; border: 2px solid #1f2129; border-radius: 999px; box-shadow: 0 2px 0 #1f2129; }
   .memory-badge[hidden] { display: none; }
+  /* In Windows' own window it's no button (see checkMemory): muted, flat, and its words say where Setup is. */
+  .memory-badge:disabled { cursor: default; color: #605c55; background: #e8e4db; border-color: #b8b2a6; box-shadow: none; }
   .waiting-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid rgba(31,33,41,.12); }
   .waiting-row:first-of-type { border-top: 0; }
   .waiting-who { flex: 1; min-width: 0; font-size: 13px; line-height: 1.3; }
@@ -2242,11 +2244,14 @@
    * The General Manager's notes waiting for you (memoryowner.go): a count alone, in the office's own window, every
    * MEMORY_EVERY ms while it's in sight. A tap opens Setup, as ⚙︎ does. Anywhere else the computer says no, and the
    * badge stays hidden for good: neither the timer nor coming back in sight asks again (memoryRefused). Windows' own
-   * office window gets the count too, as at every window-only route (FXTALKFIX).
+   * office window gets the count too, as at every window-only route (FXTALKFIX), but not the tap: /act's settings
+   * isn't that window's (its key handed in-process, givenKey). There the badge is muted and says where Setup is in its
+   * own words, seen without hovering, and a tap does nothing, rather than look like a button that doesn't work.
    */
   const MEMORY_EVERY = 30_000;
   let memoryTimer = null;
   let memoryRefused = false;
+  const memoryTapHere = !givenKey;
 
   async function checkMemory() {
     if (preview || memoryRefused || document.hidden) return;
@@ -2259,11 +2264,18 @@
       return;
     }
     const n = await res.json().then((data) => data.waiting).catch(() => 0);
-    $('memory-badge').textContent = n === 1 ? '📝 1 note to review' : `📝 ${n} notes to review`;
+    const count = n === 1 ? '📝 1 note to review' : `📝 ${n} notes to review`;
+    $('memory-badge').textContent = memoryTapHere ? count : `${count} in Setup, from the tray icon`;
     $('memory-badge').hidden = !(n > 0);
+  }
+  if (!memoryTapHere) {
+    $('memory-badge').disabled = true;
+    $('memory-badge').title = 'Your General Manager suggested notes to remember. Keep, edit or drop them in Setup: '
+      + "choose Open Setup… from Smolcorp's tray icon.";
   }
   // Setup opens as from ⚙︎ in this window: Smolcorp's own Settings on a Mac, Setup in the browser elsewhere.
   $('memory-badge').addEventListener('click', async () => {
+    if (!memoryTapHere) return;
     tick();
     const res = await post('/act', { action: 'settings' });
     if (res && res.status === 502) flash((await res.text()) || 'Could not open your browser');

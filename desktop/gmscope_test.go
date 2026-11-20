@@ -365,7 +365,7 @@ func TestAScopedGMReachesOnlyItsOwnHiresAfterARestartToo(t *testing.T) {
 	d.config.Pins[1] = &elsewhere // the owner's pin
 	upstairs := filepath.Join(homeDir, "upstairs")
 	d.config.FloorPins = floorPinList{{Floor: 2, Desk: 4, Folder: upstairs}} // and one on 3F
-	owners, refused := d.watchers.add(map[string]any{"kind": "time", "target": "tea", "minutes": 5.0}, "owner")
+	owners, refused := d.watchers.add(map[string]any{"kind": "time", "target": "tea", "minutes": 5.0}, "owner", nil)
 	if refused != nil {
 		t.Fatal(refused.message)
 	}

@@ -502,7 +502,7 @@ func TestOffAMacNoTerminalIsGivenAKey(t *testing.T) {
 		t.Fatalf("a tool's ask off a Mac: %d %v", code, said)
 	}
 	w := serve(t, d, call{method: "POST", target: terminalAskPath + "?kind=tool", host: "localhost:7710", from: thisComputer, headers: map[string]string{setupHeader: "1"}})
-	if !strings.Contains(w.Body.String(), "window of Smolcorp's own") || !strings.Contains(w.Body.String(), "browser can't") ||
+	if !strings.Contains(w.Body.String(), terminalAskOffHere()) || !strings.Contains(w.Body.String(), "browser can't") ||
 		strings.Contains(w.Body.String(), "phone") {
 		t.Errorf("the terminal is told %q", w.Body)
 	}

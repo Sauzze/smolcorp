@@ -271,3 +271,75 @@ func TestUnderTheMacAppAGMFireOfASessionTheOwnerStartedOffersTheOfficeWhereTheAp
 		t.Errorf("a refused fire ended a session: %d left", sessions)
 	}
 }
+
+// RT126FIXREVIEW-GMNICKR1 O1: a hire with no nickname of its own in the registry is found by the name `gm team` shows
+// for it, the office's, everywhere a hire is named: mail, contacts, a watch. A name that found a hire before still
+// finds that one: Janitor's desk called "Rev" in the office doesn't take Rev's mail.
+func TestAHireWithNoNicknameIsFoundByTheNameGMTeamShows(t *testing.T) {
+	d := newTestDeck(t)
+	managerOn(d)
+	gm, _ := withGMAndAHire(t, d) // Rev (a1b2c3), Janitor (d4e5f6, no nickname) in /work/api, Bob fired
+	sessionAt(d, "s2", "/work/api", "other:/dev/ttys002")
+	if status, text := gmPost(t, d, gm, "/setup/gm/nickname", `{"folder":"/work/api","name":"Jan"}`); status != http.StatusOK {
+		t.Fatalf("nickname: %d %q", status, text)
+	}
+	if got := gmTeamNicknames(t, d, gm)["d4e5f6"]; got != "Jan" {
+		t.Fatalf("gm team shows %q for Janitor, want Jan", got)
+	}
+	if dest, refused := d.mailTarget("jan"); refused != nil || dest.ID != "d4e5f6" {
+		t.Errorf("mail to Jan: %+v %+v", dest, refused)
+	}
+	if status, text := gmPost(t, d, gm, "/setup/gm/contacts", `{"from":"Jan","to":"Rev","oneWay":true}`); status != http.StatusOK ||
+		!strings.Contains(text, `"from":"d4e5f6"`) || !strings.Contains(text, `"to":"a1b2c3"`) {
+		t.Errorf("contacts Jan to Rev: %d %q", status, text)
+	}
+	if status, text := gmPost(t, d, gm, "/setup/gm/watch", `{"kind":"exit","target":"Jan"}`); status != http.StatusOK ||
+		!strings.Contains(text, `"target":"d4e5f6"`) {
+		t.Errorf("a watch on Jan: %d %q", status, text)
+	}
+	if h, refused := d.hireNamed("Jan"); refused != nil || h.ID != "d4e5f6" {
+		t.Errorf("a preview's hire Jan: %+v %+v", h, refused)
+	}
+	// The registry's names come first.
+	gmPost(t, d, gm, "/setup/gm/nickname", `{"folder":"/work/api","name":"Rev"}`)
+	if dest, refused := d.mailTarget("Rev"); refused != nil || dest.ID != "a1b2c3" {
+		t.Errorf("mail to Rev, with Janitor's desk called Rev too: %+v %+v", dest, refused)
+	}
+	if dest, refused := d.mailTarget("Janitor"); refused != nil || dest.ID != "d4e5f6" {
+		t.Errorf("mail to Janitor: %+v %+v", dest, refused)
+	}
+}
+
+// RT126FIXREVIEW-GMNICKR1 O2: `gm nickname` on the folder of a hire with a nickname of its own renames only its desk
+// in the office: `gm team` keeps the registry's, so the answer says so, and where a hire is renamed. The registry
+// names a hire by its id, in up to 40 characters, and a folder can hold several sessions: the folder can't rename it.
+// A folder whose hire has none, as Janitor's, gets no note.
+func TestGMNicknameOnANicknamedHiresFolderSaysWhereToRenameIt(t *testing.T) {
+	d := newTestDeck(t)
+	managerOn(d)
+	gm, _ := withGMAndAHire(t, d)
+	sessionAt(d, "s2", "/work/api", "other:/dev/ttys002")
+	sessionAt(d, "s3", "/work/app-wt/rev", "other:/dev/ttys003")
+	var answer map[string]string
+	status, text := gmPost(t, d, gm, "/setup/gm/nickname", `{"folder":"/work/app-wt/rev","name":"Revvy"}`)
+	if status != http.StatusOK || json.Unmarshal([]byte(text), &answer) != nil {
+		t.Fatalf("nickname: %d %q", status, text)
+	}
+	const note = "Only the office's name for the desk changed: Rev keeps its own nickname from the registry, which gm team, " +
+		"mail and the gm commands go by. To rename a hire, change its nickname in the registry (POST /setup/gm/registry " +
+		"with its id and nickname)."
+	if answer["note"] != note || answer["nickname"] != "Revvy" {
+		t.Errorf("the answer: %q\nwant the note %q", answer, note)
+	}
+	if got := gmTeamNicknames(t, d, gm)["a1b2c3"]; got != "Rev" {
+		t.Errorf("gm team shows %q, the registry's nickname is Rev", got)
+	}
+	answer = nil
+	status, text = gmPost(t, d, gm, "/setup/gm/nickname", `{"folder":"/work/api","name":"Jan"}`)
+	if status != http.StatusOK || json.Unmarshal([]byte(text), &answer) != nil || answer["note"] != "" {
+		t.Errorf("a hire with no nickname of its own: %d %q", status, text)
+	}
+	if got := nicknameKeptNote([]string{"Rev", "Ada", "Bo"}, false); !strings.Contains(got, ": Rev, Ada and Bo keep their own nicknames from the registry,") {
+		t.Errorf("three hires: %q", got)
+	}
+}

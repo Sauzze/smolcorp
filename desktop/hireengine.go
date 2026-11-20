@@ -506,11 +506,12 @@ func watchManagedHire(hire Hire, testPort int, o engineOptions) {
 // they did). held is the desk chosen (-1 for none) on floor, where the hire's session
 // is seated when it appears. The lock is let go while the engine works.
 func (d *Deck) managedHire(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int) (status int, message string, handled bool) {
-	return d.managedHireWith(roleID, folder, terminal, hasTerminal, held, floor, nil)
+	return d.managedHireWith(roleID, folder, "", terminal, hasTerminal, held, floor, nil)
 }
 
-// managedHireWith is managedHire with what setup's own hire says besides, or nil.
-func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTerminal bool, held, floor int, extra *setupHire) (status int, message string, handled bool) {
+// managedHireWith is managedHire with the project the office picked for it in the folder for hires, by its name there
+// (folder is then that project; "" for none picked), and what setup's own hire says besides, or nil.
+func (d *Deck) managedHireWith(roleID, folder, picked string, terminal hireOpener, hasTerminal bool, held, floor int, extra *setupHire) (status int, message string, handled bool) {
 	i := slices.IndexFunc(d.config.Roles, func(r Role) bool { return r.ID == roleID })
 	if i < 0 {
 		return 0, "", false
@@ -532,7 +533,7 @@ func (d *Deck) managedHireWith(roleID, folder string, terminal hireOpener, hasTe
 			return err
 		}
 	}
-	request := engineRequest{Role: role, How: how, Folder: folder, DefaultAccount: true, TestPort: testPort, Desk: briefDesk(held, floor)}
+	request := engineRequest{Role: role, How: how, Folder: folder, Picked: picked, DefaultAccount: true, TestPort: testPort, Desk: briefDesk(held, floor)}
 	// The accounts' settings and transcripts are denied to the hire, every saved folder's, even one no hire may
 	// work on: the saved list is copied here, and its folders are looked in once the lock is let go (claudeaccounts.go).
 	savedAccounts := slices.Clone(d.config.ClaudeProfiles)

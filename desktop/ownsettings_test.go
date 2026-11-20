@@ -444,7 +444,7 @@ func requireOnlyTheAppHasTheSettingsWindow(t *testing.T) {
 // listed, so the entry can't outlive it.
 var setupReachableGaps = map[string]string{}
 
-// The row SIERRA asked for: Setup is reachable after a phone is paired, on every platform, so a way in can't ship
+// The row the owner asked for: Setup is reachable after a phone is paired, on every platform, so a way in can't ship
 // with its server half and no page again. For each platform it opens Setup as that platform's menu does, then does
 // what the page (or the Mac app's window) does with what was opened, and reads and changes Setup with the session it
 // got. In-process, so it runs on Mac, Linux and Windows CI alike; at #tap the page's half is setup.html's own start,

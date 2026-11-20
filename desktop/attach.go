@@ -137,14 +137,28 @@ func attachCommand(r attachRequest) (attaching, error) {
 	return attachClient(tmux.program, guard, args...)
 }
 
-// attachedDesk is the desk asked for: by its id, else by its name or nickname when one desk alone has it. A desk
-// that was fired, or failed, isn't shown.
+// attachedDesk is the desk asked for: by its id, else by its name or nickname when one desk alone has it, else, for a
+// hire with no nickname of its own, by the office's name for its desk (FXGMNICKR1 O1). This command runs outside the
+// app, with no sessions to look at: the office's name is the saved layout's for where the hire started, as `gm team`
+// shows it for a hire away from its desk (nameRows). A desk that was fired, or failed, isn't shown.
 func attachedDesk(asked string) (Hire, error) {
 	hires := readRegistry(registryPath(), false).hires
 	i := slices.IndexFunc(hires, func(h Hire) bool { return h.ID == asked })
-	if i < 0 {
+	var team map[string]TeamMember
+	for _, byOffice := range []bool{false, true} {
+		if i >= 0 {
+			break
+		}
+		if byOffice {
+			team = savedConfig().Layout.Room.Team
+		}
 		for j, h := range hires {
-			if h.State != "fired" && h.State != "failed" && (strings.EqualFold(h.Name, asked) || strings.EqualFold(h.Nickname, asked)) {
+			named := strings.EqualFold(h.Name, asked) || strings.EqualFold(h.Nickname, asked)
+			if byOffice {
+				office := officeName(team, startedIn(h))
+				named = h.Nickname == "" && office != "" && strings.EqualFold(office, asked)
+			}
+			if h.State != "fired" && h.State != "failed" && named {
 				if i >= 0 {
 					return Hire{}, fmt.Errorf("more than one desk is called %s: name it by its id", asked)
 				}

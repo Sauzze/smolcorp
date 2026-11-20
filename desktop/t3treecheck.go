@@ -154,7 +154,7 @@ func t3WorktreeConfigIsData(ctx context.Context, h Hire, t deskTree) string {
 	case err != nil || !info.Mode().IsRegular():
 		return "its config.worktree isn't a plain file"
 	}
-	out, status, err := t3TreeGit(ctx, h, t, gitReadEnv(os.Environ(), nil), gitReadArgs, "config", "--file", file, "--list", "-z")
+	out, status, err := t3TreeGit(ctx, h, t, gitReadEnv(os.Environ(), nil), gitReadArgs, nil, "config", "--file", file, "--list", "-z")
 	if err != nil || status != 0 {
 		return "its config.worktree couldn't be read"
 	}
@@ -171,7 +171,7 @@ func t3HooksAreTheBase(ctx context.Context, h Hire, t deskTree) string {
 	env := slices.DeleteFunc(gitReadEnv(os.Environ(), nil), func(kv string) bool {
 		return strings.HasPrefix(kv, "GIT_CONFIG_GLOBAL=") || strings.HasPrefix(kv, "GIT_CONFIG_NOSYSTEM=")
 	})
-	out, status, err := t3TreeGit(ctx, h, t, env, []string{"--no-pager"}, "config", "--get", "core.hooksPath")
+	out, status, err := t3TreeGit(ctx, h, t, env, []string{"--no-pager"}, nil, "config", "--get", "core.hooksPath")
 	switch {
 	case err == nil && status == 1:
 		return "" // none: the repo's own hooks folder, in its shared git folder
@@ -288,20 +288,33 @@ func t3BaseFiles(ctx context.Context, h Hire, t deskTree, base, shown string) (m
 	// ls-tree reads the base branch's objects, no file of the worktree, so no filter or hook can run: it runs with
 	// gitstate's guards, in the hire's sandbox when it has one, as the rev-parse above does. Not through deskGit,
 	// whose desk with no sandbox runs only what reads no file at all or goes through the core's folder (FXGITSTATECFGR1).
-	out, status, err := t3TreeGit(ctx, h, t, gitReadEnv(os.Environ(), gitHere().owner), gitReadArgs, "ls-tree", "-r", "-z", tree)
-	if err != nil || status != 0 {
-		return nil, "the hooks folder your config names (" + shown + ") couldn't be read from " + base
-	}
-	for _, record := range strings.Split(out, "\x00") {
-		meta, path, found := strings.Cut(record, "\t")
+	// Its records are read as they come (FXPOLISHA, RT126FIXREVIEW-WINWORKTREER4's O2): a folder named at the worktree's
+	// top is the whole tree, whose listing passes gitOutput's cap in a big repo. A folder of more than t3HooksMost files
+	// is never handed over (t3SameFiles), so the listing stops there, and the words say so.
+	records := &gitRecords{sep: 0, each: func(record []byte) error {
+		meta, path, found := strings.Cut(string(record), "\t")
 		fields := strings.Fields(meta)
 		if !found || len(fields) != 3 {
-			continue
+			return nil
+		}
+		if len(files) == t3HooksMost {
+			return errT3TooMany
 		}
 		files[path] = t3BaseFile{object: fields[2], link: fields[0] == "120000"}
+		return nil
+	}}
+	_, status, err := t3TreeGit(ctx, h, t, gitReadEnv(os.Environ(), gitHere().owner), gitReadArgs, records, "ls-tree", "-r", "-z", tree)
+	switch end := records.end(); {
+	case errors.Is(end, errT3TooMany):
+		return nil, fmt.Sprintf("the hooks folder your config names (%s) has more than %d files on %s, more than Take over can compare", shown, t3HooksMost, base)
+	case end != nil || err != nil || status != 0:
+		return nil, "the hooks folder your config names (" + shown + ") couldn't be read from " + base
 	}
 	return files, ""
 }
+
+// errT3TooMany stops t3BaseFiles' listing past t3HooksMost files.
+var errT3TooMany = errors.New("more files than a hooks folder handed over holds")
 
 // t3SameFiles is why the folder dir on disk isn't base's files, "" when every file in it is one of them by content:
 // read through a handle on the folder that follows no link, so what is hashed is what git would run.
@@ -370,8 +383,9 @@ func t3BlobID(root *os.Root, name string, length int) (string, error) {
 }
 
 // t3TreeGit is git with global options and args in h's worktree (t), the repo named, in h's sandbox when it has one,
-// with env: its standard output and error, and its status.
-func t3TreeGit(ctx context.Context, h Hire, t deskTree, env, global []string, args ...string) (string, int, error) {
+// with env: its standard output and error, and its status. With to, its standard output goes there as it comes, and
+// only its standard error is answered.
+func t3TreeGit(ctx context.Context, h Hire, t deskTree, env, global []string, to io.Writer, args ...string) (string, int, error) {
 	if !gitVersionAtLeast(gitHere().version, 2, 32) {
 		return "", 0, errors.New("the git on this computer is missing, or older than 2.32")
 	}
@@ -381,7 +395,11 @@ func t3TreeGit(ctx context.Context, h Hire, t deskTree, env, global []string, ar
 	}
 	env = append(slices.Clip(env), "GIT_DIR="+t.gitDir, "GIT_WORK_TREE="+t.top)
 	var out gitOutput
-	err = deskRun(ctx, h.ID, t.top, env, &out, &out, git, append(slices.Clone(global), args...)...)
+	var stdout io.Writer = &out
+	if to != nil {
+		stdout = to
+	}
+	err = deskRun(ctx, h.ID, t.top, env, stdout, &out, git, append(slices.Clone(global), args...)...)
 	var exit *exec.ExitError
 	switch {
 	case out.over:

@@ -4,10 +4,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Sauzze/smolcorp/internal/disclaim"
+	"github.com/Sauzze/smolcorp/internal/sandbox"
 )
 
 // FXSTACKG G22: one plain-hire question, plainHireSandboxed(cfg) = plainHiresSandboxed && !cfg.SandboxOff, asked by
@@ -169,6 +173,127 @@ func TestALaunchersSandboxAsksThePlainHireQuestion(t *testing.T) {
 	} {
 		if why := c.run.sandboxOnAgainWords(c.sandboxed, c.folder); (why != "") != c.refused {
 			t.Errorf("%s: %q, refused want %v", c.row, why, c.refused)
+		}
+	}
+}
+
+// RT126STACKP3 O1, RT126STACKFIX5 N1 (FXSTACKFIX5R1): a launcher runs with its terminal's environment, and a ceiling
+// there (GIT_CEILING_DIRECTORIES at the repo) makes git answer "not a git repository" for a folder inside it. Only the
+// launcher's refusal looks past it (gitFindsNoRepo): in the repo's sub, a plain hire made with the switch off is still
+// refused when the switch is on again. Every other read keeps the owner's ceiling: under it the launcher finds no repo
+// there, and a start there reads no git folder, so the sandbox's rows hold the hidden .git whole
+// (TestAGMUnderAGitCeilingAtHomeGetsNoWayIntoTheHiddenGitFolder).
+func TestOnlyTheLaunchersRefusalLooksPastATerminalsGitCeiling(t *testing.T) {
+	isolate(t)
+	repo := t.TempDir()
+	standInOwnersGit(t, repo, "init", "-q")
+	sub := filepath.Join(repo, "sub")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	run := launcherRun{hire: strings.Repeat("AB", 16), sandboxOff: true}
+	for _, ceiling := range []bool{false, true} {
+		hires, gitDir := physical(repo)+"-hires", physical(filepath.Join(repo, ".git"))
+		if ceiling {
+			t.Setenv("GIT_CEILING_DIRECTORIES", repo)
+			hires, gitDir = "", ""
+			// The ceiling bites: the terminal's own git sees no repo here.
+			said, err := exec.Command("git", "-C", sub, "rev-parse", "--show-toplevel").CombinedOutput()
+			if err == nil || !strings.Contains(string(said), "not a git repository") {
+				t.Fatalf("the terminal's git under the ceiling: %v %s", err, said)
+			}
+		}
+		if why := run.sandboxOnAgainWords(true, sub); why != plainHireSandboxOnAgain {
+			t.Errorf("a ceiling %v: the launcher's refusal in the repo's sub: %q", ceiling, why)
+		}
+		if checkout, got := launcherRepo(sub, ""); checkout != "" || got != hires {
+			t.Errorf("a ceiling %v: the launcher's repo: %q %q, want \"\" %q", ceiling, checkout, got, hires)
+		}
+		pl := sandbox.Places{Root: physical(sub)}
+		if err := deskGitPlaces(deskAt{ID: "x", Root: sub, Git: runGit}, &pl); err != nil || pl.GitDir != gitDir {
+			t.Errorf("a ceiling %v: the start's git folder %q (%v), want %q", ceiling, pl.GitDir, err, gitDir)
+		}
+	}
+}
+
+// RT126STACKFIX5 O1, O2 (FXSTACKFIX5R1): the launcher's refusal counts only git's own "not a git repository" answer
+// as no repo; any other failure is a repo, and refused. In a repo git refuses as another account's
+// (GIT_TEST_ASSUME_DIFFERENT_OWNER, which reads keep), and in a folder whose .git file names no git folder, it still
+// refuses; in a folder in no repo it doesn't, the terminal in another language, or tracing git, too.
+func TestTheLaunchersRefusalTakesOnlyGitsNoRepoAnswerForNoRepo(t *testing.T) {
+	isolate(t)
+	repo, none, broken := t.TempDir(), t.TempDir(), t.TempDir()
+	standInOwnersGit(t, repo, "init", "-q")
+	sub := filepath.Join(repo, "sub")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(broken, ".git"), []byte("gitdir: "+filepath.Join(none, "gone")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := launcherRun{hire: strings.Repeat("AB", 16), sandboxOff: true}
+	for _, c := range []struct {
+		row     string
+		env     [][2]string
+		folder  string
+		refused bool
+	}{
+		{"a repo git takes for another account's", [][2]string{{"GIT_TEST_ASSUME_DIFFERENT_OWNER", "1"}}, repo, true},
+		{"a .git file that names no git folder", nil, broken, true},
+		{"a repo under the terminal's ceiling", [][2]string{{"GIT_CEILING_DIRECTORIES", repo}}, sub, true},
+		{"in no repo, the terminal in French", [][2]string{{"LC_ALL", "fr_FR.UTF-8"}, {"LANGUAGE", "fr"}}, none, false},
+		// RT126STACKFIX5R1 O3: git's trace lines come before its no-repo words; the refusal's read gives git no trace.
+		{"in no repo, the terminal tracing git", [][2]string{{"GIT_TRACE", "1"}, {"GIT_TRACE_SETUP", "2"}, {"GIT_TRACE2", "1"}}, none, false},
+		{"in no repo", nil, none, false},
+	} {
+		t.Run(c.row, func(t *testing.T) {
+			for _, kv := range c.env {
+				t.Setenv(kv[0], kv[1])
+			}
+			// Git itself fails here, or finds no repo (the stand-in home's git, with the case's environment): none of
+			// these is a read that just works.
+			look := disclaim.Cmd(exec.Command("git", "-C", c.folder, "rev-parse", "--show-toplevel"))
+			look.Env = gmRootEnv()
+			for _, kv := range c.env {
+				look.Env = append(look.Env, kv[0]+"="+kv[1])
+			}
+			if said, err := look.CombinedOutput(); err == nil {
+				t.Fatalf("git: %s, want it to fail", said)
+			}
+			if why := run.sandboxOnAgainWords(true, c.folder); (why == plainHireSandboxOnAgain) != c.refused || (why != "" && why != plainHireSandboxOnAgain) {
+				t.Errorf("%q, refused want %v", why, c.refused)
+			}
+		})
+	}
+}
+
+// RT126STACKFIX5 N1 (FXSTACKFIX5R1), the review's probe: the owner keeps the home folder's dotfiles in a repo at home
+// and hides it from git with GIT_CEILING_DIRECTORIES=$HOME, and a GM starts at ~/gm. Its start reads no git folder
+// there (deskGitPlaces keeps the ceiling), so the sandbox holds that .git whole: no object, no ORIG_HEAD a later
+// `git reset --hard ORIG_HEAD` in the home folder would take.
+func TestAGMUnderAGitCeilingAtHomeGetsNoWayIntoTheHiddenGitFolder(t *testing.T) {
+	isolate(t)
+	home := physical(homeDir)
+	standInOwnersGit(t, home, "init", "-q")
+	gm := filepath.Join(home, "gm")
+	if err := os.MkdirAll(gm, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CEILING_DIRECTORIES", home)
+	pl := sandbox.Places{GOOS: "darwin", Subject: sandbox.GM, Home: home, Support: physical(supportDir), OwnID: "gm1", Root: gm}
+	if err := deskGitPlaces(deskAt{ID: "gm1", GM: true, Root: gm, Git: runGit}, &pl); err != nil || pl.GitDir != "" {
+		t.Fatalf("the GM's git folder under the ceiling: %q (%v), want none", pl.GitDir, err)
+	}
+	p, err := sandbox.New(pl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	git := filepath.Join(home, ".git")
+	for _, at := range []string{filepath.Join(git, "objects", "ab", "cd"), filepath.Join(git, "ORIG_HEAD"),
+		filepath.Join(git, "refs", "heads", "main"), filepath.Join(git, "config")} {
+		if !deniedWrite(p, at) {
+			v, r := p.Decide(at, sandbox.Write)
+			t.Errorf("the GM may write %s: %v by %q", at, v, r.Row)
 		}
 	}
 }

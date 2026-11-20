@@ -572,7 +572,8 @@ func isHookArguments(rest string) bool {
 }
 
 // thisCopysPath is this copy's path as its hooks name it, unquoted: on
-// Windows in its short form, with forward slashes (see shellPath).
+// Windows as windowsHookPath names it, with forward slashes: the path itself,
+// its short form, or the path its double quotes held (see shellPath).
 func thisCopysPath() string {
 	if inside, found := strings.CutPrefix(shellPath(commandLineProgram()), `'`); found {
 		path, _ := unquoteSingle(inside)

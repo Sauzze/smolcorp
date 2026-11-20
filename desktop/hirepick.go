@@ -10,10 +10,10 @@ import (
 	"strings"
 )
 
-// The office's own hire into the folder for hires, on a Mac with the sandbox on (FXHIREPROJECTSR4, SIERRA's ruling of
-// 18 Nov: a hire writes only its own project folder, one hire per repo). A desk in its sandbox never works in the whole
-// projects folder, so the office asks which project first: /act's hire with no project answers with the projects to
-// pick from, and nothing is hired; the hire sent again with the one picked goes into that project's own worktree, as
+// The office's own hire into the folder for hires, on a Mac with the sandbox on (FXHIREPROJECTSR4, the owner's ruling
+// of 18 Nov: a hire writes only its own project folder, one hire per repo). A desk in its sandbox never works in the
+// whole projects folder, so the office asks which project first: /act's hire with no project answers with the projects
+// to pick from, and nothing is hired; the hire sent again with the one picked goes into that project's own worktree, as
 // any other hire. Cancel sends nothing. The sandbox off, and Windows and Linux, which have none, hire as before. A
 // plain hire (on a Mac: a hire with no role, or a Claude Code role with the manager off; Codex, Gemini CLI, OpenCode
 // and Grok are refused there) is asked too, where its launcher starts it in its sandbox (FXHIREPROJECTSR5, N1), and,
@@ -33,6 +33,14 @@ var plainHiresSandboxed = launcherSandboxes
 // (W)), and its launcher as it starts (launcherRun.sandboxed). With the switch off, a plain hire isn't asked which
 // project and goes into the folder as before, as the engine's hire does (hiresSandboxed).
 func plainHireSandboxed(cfg Config) bool { return plainHiresSandboxed && !cfg.SandboxOff }
+
+// plainProjectName is whether name, a project picked in the folder for hires, can go on a plain hire's launcher's
+// command line to be told to its agent (--project): a path within that folder, as hireProjectsIn lists them. A name
+// that can't is only not told: the hire asks which project, as before. One that could break a line is never picked
+// (hireProjectsIn, pickedProject), and is shown escaped if told (shownInWords).
+func plainProjectName(name string) bool {
+	return filepath.IsLocal(filepath.FromSlash(name))
+}
 
 // plainDeskIDShape is a plain hire's desk's id, as plainDeskIDNew makes it: the office's word to its launcher (--desk).
 var plainDeskIDShape = regexp.MustCompile(`^plain-[0-9a-f]{12}$`)
@@ -77,10 +85,15 @@ func pickFor(folder string) string {
 // entry by its path there (clients/acme); a folder that isn't a repo and holds none, at any depth, is a project of
 // its own (notes). A folder that holds repos isn't listed itself, nor is one gitBelow can't look all through (more
 // than gitBelowMost folders, or one it can't read): a hire there would be refused (gitPlaceWords). Never a link,
-// wherever it leads (O3): a hire's place is a folder in the projects folder.
+// wherever it leads (O3): a hire's place is a folder in the projects folder. Never one whose name, or the name of the
+// folder it's in there, holds a character that could break a line of what the hire is told (breaksWords: a line end,
+// an escape), so no such line reaches a hire's first message or brief (FXPICKEDPROJECTR1, B1).
 func hireProjectsIn(folder string) []string {
 	projects := []string{}
 	for _, name := range projectFolders(folder) {
+		if strings.ContainsFunc(name, breaksWords) {
+			continue
+		}
 		at := filepath.Join(folder, name)
 		if isRepoFolder(at) {
 			projects = append(projects, name)
@@ -88,7 +101,7 @@ func hireProjectsIn(folder string) []string {
 		}
 		var repos []string
 		for _, inner := range projectFolders(at) {
-			if isRepoFolder(filepath.Join(at, inner)) {
+			if isRepoFolder(filepath.Join(at, inner)) && !strings.ContainsFunc(inner, breaksWords) {
 				repos = append(repos, name+"/"+inner)
 			}
 		}
@@ -128,8 +141,13 @@ func isRepoFolder(folder string) bool {
 }
 
 // pickedProject is the project picked in folder, the folder for hires, as a path, or why it can't be hired into: one
-// of the projects hireProjectsIn lists there now, by its name there alone.
+// of the projects hireProjectsIn lists there now, by its name there alone. A name that could break a line is refused
+// in words of its own, which don't repeat it (FXPICKEDPROJECTR1, B1).
 func pickedProject(folder, name string) (string, string) {
+	if strings.ContainsFunc(name, breaksWords) {
+		return "", "That project's name has a line break or another control character in it, so a hire can't be told it. " +
+			"Rename its folder in your projects folder, " + tildePath(folder) + ", then hire again."
+	}
 	if !slices.Contains(hireProjectsIn(folder), name) {
 		return "", "There's no project called " + name + " in your projects folder, " + tildePath(folder) + ", now. Hire again to pick another."
 	}

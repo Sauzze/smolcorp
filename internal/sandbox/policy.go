@@ -279,9 +279,9 @@ type Places struct {
 	GMStart, GMStartPlans string
 	// Projects is the folder for hires (Setup's, ~/Projects by default), which holds the owner's repos, their hires'
 	// worktrees and the owner's checkouts: a desk writes there only its own place and its repo's shared .git
-	// (FXHIREPROJECTS, SIERRA's option (a)). "" for none set, and for a GM with GMProjects, which holds it already. On
-	// a Mac no desk's place is the projects folder, or holds it (ErrProjectsWhole, FXHIREPROJECTSR4); elsewhere such a
-	// desk gets no row: its place is all of it.
+	// (FXHIREPROJECTS, the owner's ruling, option (a)). "" for none set, and for a GM with GMProjects, which holds it
+	// already. On a Mac no desk's place is the projects folder, or holds it (ErrProjectsWhole, FXHIREPROJECTSR4);
+	// elsewhere such a desk gets no row: its place is all of it.
 	Projects string
 	// ProjectsLinks are the links on the way to Projects as Setup spells it, each where the kernel meets it
 	// (FXHIREPROJECTSR3, RT126FIXREVIEW-HIREPROJECTSR2 N2): no desk removes, replaces or renames one, so none points a
@@ -426,8 +426,8 @@ var (
 	// the home folder (FXHIREPROJECTS); or links on the way to it given without one (FXHIREPROJECTSR3).
 	ErrProjects = errors.New("sandbox: the projects folder is in a support folder, holds the home folder, is given to a GM with projects of its own, or its links come without it")
 	// ErrProjectsWhole is, on a Mac, a desk whose place is the projects folder or holds it, or is the home folder or
-	// holds it (FXHIREPROJECTSR4, SIERRA's ruling of 18 Nov: a hire writes only its own project folder). Its place would
-	// be every repo of the owner's, which no row can keep it to one of: it doesn't start in its sandbox.
+	// holds it (FXHIREPROJECTSR4, the owner's ruling of 18 Nov: a hire writes only its own project folder). Its place
+	// would be every repo of the owner's, which no row can keep it to one of: it doesn't start in its sandbox.
 	ErrProjectsWhole = errors.New("sandbox: a desk's place is the projects folder or the home folder, or holds one")
 	// ErrGitBelow is a git folder given in GitBelow that isn't a .git strictly below the desk's place (FXHIREPROJECTSR6).
 	ErrGitBelow = errors.New("sandbox: a git folder below a desk's place isn't a .git strictly below it")
@@ -547,6 +547,9 @@ const (
 	rowAgentLinks = "no links in a hired agent's folder"
 	rowKeychains  = "plants the owner's programs run later: the keychains"
 )
+
+// rowAccounts is the row of the account folders, `~/.claude` and the other accounts': read, never written.
+const rowAccounts = "the account folders"
 
 // terminalPlaces are, in the home folder, what the terminals Smolcorp opens (Terminal, iTerm2, Ghostty:
 // TerminalDrivers.swift's Openers) and drives (WezTerm, kitty) read when a window starts: the preferences, where
@@ -736,7 +739,7 @@ func build(pl Places) (*Policy, error) {
 			}
 		}
 	}
-	// On a Mac, no desk's place is the projects folder or the home folder, or holds one (FXHIREPROJECTSR4, SIERRA's
+	// On a Mac, no desk's place is the projects folder or the home folder, or holds one (FXHIREPROJECTSR4, the owner's
 	// ruling of 18 Nov: a hire writes only its own project folder, one hire per repo). Its place would be every repo
 	// there, their git folders and their nested and later repos, which no row can keep it to one of: the core refuses
 	// such a hire at its hire, and this is the backstop, whatever route made it (a place that holds a support folder,
@@ -862,9 +865,10 @@ func build(pl Places) (*Policy, error) {
 		// (Gemini's project memory), what a folder renamed in carries (Grok's grants, a checkpoints' git), and a link
 		// the owner's agent writes through (Codex's installation_id). OpenCode's data, cache and state, and the skills
 		// in ~/.agents, are held the same way (FXPLANTSTERMR3). So Codex, Gemini CLI, OpenCode and Grok can't write
-		// their own state in a desk, which they need to start: in 1.26.0 their hires are refused on a Mac, in words,
-		// before a window opens (the owner's rulings; desktop's notonamac.go), and no row here opens a place for them. A
-		// home of their own in each desk comes in 1.26.1. Linux's view and Windows' jail come with their sandboxes.
+		// their own state in a desk: Codex, Gemini CLI and OpenCode need it to start, and Grok would lose its sessions
+		// and sign-in refresh. In 1.26.0 their hires are refused on a Mac, in words, before a window opens (the owner's
+		// rulings; desktop's notonamac.go), and no row here opens a place for them. A home of their own in each desk
+		// comes in 1.26.1. Linux's view and Windows' jail come with their sandboxes.
 		for _, folder := range terminalPlaces {
 			b.add(Rule{Row: rowTerminals, Path: join(home, folder), Below: true, Write: Deny})
 		}
@@ -891,7 +895,7 @@ func build(pl Places) (*Policy, error) {
 		b.add(Rule{Row: rowKeychains, Path: join(home, "Library/Keychains"), Below: true, Write: Deny})
 	}
 	for _, account := range append([]string{join(home, ".claude")}, pl.Accounts...) {
-		b.add(Rule{Row: "the account folders", Path: account, Below: true, Read: Allow, Write: Deny})
+		b.add(Rule{Row: rowAccounts, Path: account, Below: true, Read: Allow, Write: Deny})
 		for _, secret := range []string{"ide", ".credentials.json", "history.jsonl", "projects", "sessions"} {
 			r := Rule{Row: "the account folders' tokens and history", Path: join(account, secret), Below: true, Read: Deny, Write: Deny}
 			if strings.Contains(secret, ".") {
@@ -1013,12 +1017,13 @@ func build(pl Places) (*Policy, error) {
 	if pl.Checkout != "" && key(goos, pl.Checkout) != key(goos, pl.Root) {
 		b.add(Rule{Row: rowCheckout, Path: pl.Checkout, Below: true, Write: Deny, Wide: true})
 	}
-	// The folder for hires (FXHIREPROJECTS, RT126FIXREVIEW-GMROOT's sibling repo; SIERRA's option (a)): ~/Projects by
-	// default, which holds every repo of the owner's, their shared .git (hooks, config) and other desks' worktrees, and
-	// any repo made there later. A desk writes there only its own place and its repo's shared .git, whose own rows still
-	// hold its shared places, as before; it reads all of it, as before. The folders above it are held as a desk's
-	// place's are: not moved, removed or linked (denyAbove), nor their mode, flags or ACL changed. A desk whose place is
-	// the projects folder, or holds it, gets none of this: its place is all of it (off a Mac; a Mac refuses it above).
+	// The folder for hires (FXHIREPROJECTS, RT126FIXREVIEW-GMROOT's sibling repo; the owner's ruling, option (a)):
+	// ~/Projects by default, which holds every repo of the owner's, their shared .git (hooks, config) and other desks'
+	// worktrees, and any repo made there later. A desk writes there only its own place and its repo's shared .git, whose
+	// own rows still hold its shared places, as before; it reads all of it, as before. The folders above it are held as a
+	// desk's place's are: not moved, removed or linked (denyAbove), nor their mode, flags or ACL changed. A desk whose
+	// place is the projects folder, or holds it, gets none of this: its place is all of it (off a Mac; a Mac refuses it
+	// above).
 	root := key(goos, pl.Root)
 	projectsRows := func(folder string) {
 		b.add(Rule{Row: rowProjects, Path: folder, Below: true, Write: Deny, Wide: true})
@@ -1233,7 +1238,9 @@ func build(pl Places) (*Policy, error) {
 	// The night shift's jobs (NS1), kept as the guard file is: a hire or the GM may read them (they hold no secret, and
 	// the guard lets its readers name the file), only the core writes them, and an approval a desk wrote would start
 	// hires overnight. The copy the core sets aside unread (nightshift.json.bad) has no exception.
-	b.add(Rule{Row: "the night shift's jobs: read only, as the guard file", Path: join(support, "nightshift.json"), Read: Allow, Opens: opens})
+	// Its row names no feature (FXPOLISHA, RT126FIXREVIEW-DORMANTOFF's O4): a desk reads it in its profile, and the night
+	// shift is off in this version.
+	b.add(Rule{Row: "a file only the core writes: read only, as the guard file", Path: join(support, "nightshift.json"), Read: Allow, Opens: opens})
 	own := join(support, "hires", pl.OwnID)
 	b.add(Rule{Row: "its status and report", Path: own, Tail: "*.md", Read: Allow, Write: Allow, Opens: opens})
 	for _, tail := range []string{"BRIEF*.md", "settings.json", "sandbox.sb"} {

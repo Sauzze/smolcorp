@@ -82,9 +82,11 @@ func gmScopeNow() string { return gmNow().Scope }
 
 // gmNow is the GM whose token works now, a zero Hire for none: the open GM hired last, as each GM's hire
 // makes a new token and takes the older one's place.
-func gmNow() Hire {
+func gmNow() Hire { return gmOf(officeHires()) }
+
+// gmOf is gmNow among hires, a registry as read.
+func gmOf(hires []Hire) Hire {
 	var newest *Hire
-	hires := officeHires()
 	for i := range hires {
 		if gmHired(hires[i]) && (newest == nil || hires[i].Started >= newest.Started) {
 			newest = &hires[i]
@@ -266,6 +268,16 @@ func (s gmScope) hiresOnly() string {
 	return "hires only into " + s.root + " or the top of one of its worktrees, a folder that is there."
 }
 
+// watchesOnly is a held GM's refusal of a watch: at the gate, and at the route for a file it resolved itself.
+func (s gmScope) watchesOnly() string {
+	return "watches only its own hires and the files in " + s.root + "."
+}
+
+// namesOnly is a held GM's refusal of a nickname: at the gate, and at the route for the folder as checked.
+func (s gmScope) namesOnly() string {
+	return "names only who works in " + s.root + " or its worktrees."
+}
+
 // pinned is whether a desk's pin, as config.json keeps it, is held.
 func (s gmScope) pinned(pin string) bool {
 	folder, _ := existingFolder(pin)
@@ -321,10 +333,11 @@ func (s gmScope) hasHire(h Hire) bool {
 	return h.Role != gmRole && s.holds(h.Folder) && (h.Worktree == "" || s.holds(h.Worktree))
 }
 
-// named is the hire a name stands for, as the routes find it (by id, nickname or name), if it's one of the GM's.
-func (s gmScope) named(name string) bool {
-	h, refused := findHire(name, readRegistry(registryPath(), false).hires)
-	return refused == nil && s.hasHire(h)
+// named is the hire a name stands for, as the routes find it (by id, nickname or name, or the name `gm team` shows:
+// shown), and whether it's one of the GM's.
+func (s gmScope) named(name string, shown map[string]string) (Hire, bool) {
+	h, refused := findHire(name, readRegistry(registryPath(), false).hires, shown)
+	return h, refused == nil && s.hasHire(h)
 }
 
 // gmScopeHolds is whether a request to method is held to gm's scope: a GM with one, and anything but a read.
@@ -357,6 +370,21 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 		return http.StatusForbidden, "This General Manager " + text, body
 	}
 	text := func(key string) string { v, _ := asked[key].(string); return v }
+	// A name given as key, if it is text and not blank, as the routes trim a name (mailAsked). Only such a name is looked
+	// up and written back as the hire it found: a name missing, null, not text or blank is never filled in with a hire
+	// nobody named, so the route gives its own answer to it (RT126POLISHBR1 B1).
+	givenName := func(key string) (string, bool) {
+		v, isText := asked[key].(string)
+		return v, isText && mailAsked(v) != ""
+	}
+	// The names `gm team` shows, as the routes find a hire by them too (Deck.shownNames): worked out once, if asked.
+	var names map[string]string
+	shown := func() map[string]string {
+		if names == nil {
+			names = d.shownNames(readRegistry(registryPath(), false).hires)
+		}
+		return names
+	}
 	post := method == http.MethodPost
 	switch {
 	case post && path == "/setup/gm/hire":
@@ -400,17 +428,53 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 		// again, and the hire's place once more, and each must still be this folder, held (gates.go hands on s).
 		asked["folder"] = real
 	case post && path == "/setup/gm/send":
-		if to := mailAsked(text("to")); to != "gm" && to != "the gm" && !s.named(text("to")) {
+		to, given := givenName("to")
+		if !given {
+			break // the route answers its own 400 (Send {to, text, id}), as mailSend leaves a blank name out
+		}
+		if a := mailAsked(to); a == "gm" || a == "the gm" {
+			break // the route says mail never goes into the GM's own session
+		}
+		// Found as the route finds it (mailTarget): the office's names only when no bot has the name.
+		bots := d.botsNamed(to)
+		var names map[string]string
+		if len(bots) == 0 {
+			names = shown()
+		}
+		h, ours := s.named(to, names)
+		if !ours {
 			return refuse("writes only to its own hires" + where + ".")
 		}
+		if len(bots) > 0 {
+			// The route's own answer, as it gave it before: never a bot, never the hire in its place.
+			return http.StatusConflict, mailMoreThanOne, body
+		}
+		// The route is given the hire as checked, by its id, never the name sent: the office's names can change in
+		// between, and a held GM changes them (RT126POLISHB N1), as the folder routes are given the folder as checked.
+		asked["to"] = h.ID
 	case post && (path == "/setup/gm/brief" || path == "/setup/gm/fire"):
 		if h, found := hireByID(text("id")); !found || !s.hasHire(h) {
 			return refuse("briefs and fires only its own hires" + where + ".")
 		}
 	case post && path == "/setup/gm/contacts":
-		if !s.named(text("from")) || !s.named(text("to")) {
+		fromName, fromGiven := givenName("from")
+		toName, toGiven := givenName("to")
+		_, fromText := asked["from"].(string)
+		_, toText := asked["to"].(string)
+		if !fromText || !toText {
+			break // missing, null or not text: the route answers its own 400 (setContacts) before it finds anyone
+		}
+		if !fromGiven || !toGiven {
+			// Blank: the route would look that up as a name (findHire), a hire nobody named. Its own 400 instead.
+			return http.StatusBadRequest, contactsShape, body
+		}
+		from, fromOurs := s.named(fromName, shown())
+		to, toOurs := s.named(toName, shown())
+		if !fromOurs || !toOurs {
 			return refuse("pairs only its own hires" + where + ".")
 		}
+		// The route pairs the hires as checked, by their ids, never the names sent (as at send).
+		asked["from"], asked["to"] = from.ID, to.ID
 	case post && path == "/setup/gm/nickname":
 		var given struct {
 			Folder *string `json:"folder"`
@@ -418,11 +482,11 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 		}
 		_ = json.Unmarshal(raw, &given)
 		if given.Folder == nil {
-			return refuse("names only who works" + where + " or its worktrees.")
+			return refuse(s.namesOnly())
 		}
 		real, held := s.place(strings.TrimSpace(*given.Folder))
 		if !held {
-			return refuse("names only who works" + where + " or its worktrees.")
+			return refuse(s.namesOnly())
 		}
 		// The route names whoever works in the folder as checked, links followed, never the words it was sent.
 		given.Folder = &real
@@ -454,26 +518,33 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 		// Read as the route reads it (watchers.add): the hire by id, nickname or name; a file by its full path,
 		// or a path inside a hire's folder.
 		line := func(key string) string { return oneLineLimit(text(key), watchTextMost) }
+		// The route is given each hire as checked, by its id, never the name sent (as at send).
 		hires := readRegistry(registryPath(), false).hires
-		ours := func(name string) bool {
-			h, refused := findWatchHire(name, hires)
-			return refused == nil && s.hasHire(h)
+		ours := func(key string) (Hire, bool) {
+			h, refused := findWatchHire(line(key), hires, shown())
+			if refused != nil || !s.hasHire(h) {
+				return h, false
+			}
+			asked[key] = h.ID
+			return h, true
 		}
 		ok := true
 		switch strings.ToLower(line("kind")) {
 		case "idle", "exit":
-			ok = ours(line("target"))
+			_, ok = ours("target")
 		case "file":
 			file := expandTilde(line("target"), homeDir)
 			if !filepath.IsAbs(file) && line("hire") != "" {
-				h, refused := findWatchHire(line("hire"), hires)
-				ok = refused == nil && s.hasHire(h)
+				var h Hire
+				h, ok = ours("hire")
 				file = filepath.Join(cmpOr(h.Worktree, h.Folder), file)
 			}
+			// The route resolves the path again, and checks what it found against the scope too (watchers.add): a
+			// link on the way can be swapped in between (RT126POLISHBR2 N1).
 			ok = ok && s.covers(file)
 		}
 		if !ok {
-			return refuse("watches only its own hires and the files" + where + ".")
+			return refuse(s.watchesOnly())
 		}
 	case (post || method == http.MethodDelete) && path == "/setup/gm/unwatch":
 		id := text("id")
@@ -504,10 +575,13 @@ func (d *Deck) gmScopeRefusal(gm Hire, method, path string, query url.Values, ra
 		}
 	case post && path == "/setup/preview":
 		// Named as a hire, one of its own: never a desk by its session id, which could be anyone's.
-		h, refused := findWatchHire(text("hire"), readRegistry(registryPath(), false).hires)
+		h, refused := d.hireNamed(text("hire"))
 		if text("session") != "" || refused != nil || !s.hasHire(h) {
 			return refuse("sets the preview only of its own hires" + where + ", named as \"hire\".")
 		}
+		// The route is given the hire as checked, by its id, never the name sent (as at send): hireNamed reads the
+		// office's names too, which a held GM changes (RT126POLISHBR1 N1). A blank name was refused just above.
+		asked["hire"] = h.ID
 	case post && path == gmProjectPath:
 		return refuse("works only" + where + ": it doesn't start new project folders.")
 	case post && (path == "/setup/gm/tile" || path == "/setup/gm/screen"):

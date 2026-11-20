@@ -283,12 +283,12 @@ func refPlaceRefusal(e *sandbox.RefPlaceError) string {
 // owner's words, as a sentence's start (ownLinkRefusal; RT126FIXREVIEW-GITROWS2R8's O1 for hooks, lfs and the rest).
 var gitReadsThrough = map[string]string{
 	"hooks":           "Git runs the hooks it finds there",
-	"config":          "Git reads there this repository's settings, which can name programs for it to run",
-	"config.worktree": "Git reads there this repository's settings, which can name programs for it to run",
+	"config":          "Git reads this repository's settings there, and they can name programs for it to run",
+	"config.worktree": "Git reads this repository's settings there, and they can name programs for it to run",
 	"info":            "Git reads this repository's own ignore and attributes rules there",
 	"rr-cache":        "Git reads the conflict resolutions it reuses in a merge (rerere) there",
-	"MERGE_AUTOSTASH": "Git takes from there the changes it puts back into your files when a merge ends",
-	"FETCH_HEAD":      "Git reads there what your last fetch brought, which git merge FETCH_HEAD takes",
+	"MERGE_AUTOSTASH": "When a merge ends, git puts the changes it keeps there back into your files",
+	"FETCH_HEAD":      "Git reads the result of your last fetch there, and git merge FETCH_HEAD merges it",
 	"lfs":             "Git reads the large files git-lfs keeps there",
 }
 
@@ -356,11 +356,29 @@ func ownHardRefusal(e *sandbox.RefPlaceError) string {
 
 // homeTooBig is the owner's words for a start refused because a folder of theirs that desks can't change was too big
 // to look through for links (sandbox.HomeTooBigError, FXPLANTSTERMR4): where the look stopped, and what to do there.
-// Updating Smolcorp wouldn't help.
+// Updating Smolcorp wouldn't help. The count is the folder's own, said to be, when the look stopped in a folder inside
+// it (RT126POLISHAR2's O2), or, for the folders looked through on one budget together, all of theirs (InAll): the folder
+// named may hold far fewer. What to do fits the folder: old sessions, caches and logs fill a store, but in Claude
+// Code's skills, commands, agents and hooks (Loaded), it is mostly what a skill brings with it, looked through wherever
+// it is kept if a link leads there, so moving it out and linking it back wouldn't help (RT126POLISHAR1's and
+// RT126POLISHAR2's O1).
 func homeTooBig(e *sandbox.HomeTooBigError) string {
+	count := "after " + groupedCount(e.Most) + " files and folders"
+	switch {
+	case e.InAll:
+		count = "after looking through " + groupedCount(e.Most) + " files and folders in all"
+	case e.Inside != e.Folder:
+		count += " in " + tildePath(e.Folder)
+	}
+	todo := "Delete or move out what you no longer need there (old sessions, caches, logs)"
+	if e.Loaded {
+		todo = "It looks through all of your skills, commands, agents and hooks, and wherever a link in them leads, a " +
+			"skill's own dependencies included (a node_modules folder, a Python venv). Remove what you don't need, or keep " +
+			"it somewhere no link in " + tildePath(e.Account) + " leads"
+	}
 	return "Smolcorp didn't start this hire. At each start it looks for links in the folders of yours that hires can't " +
-		"change, and it stopped in " + tildePath(e.Inside) + " after " + groupedCount(e.Most) + " files and folders, the most it " +
-		"looks through. Delete or move out what you no longer need there (old sessions, caches, logs), then start the hire again."
+		"change, and it stopped in " + tildePath(e.Inside) + " " + count + ", the most it " +
+		"looks through. " + todo + ", then start the hire again."
 }
 
 // groupedCount is n with a comma between each group of three digits, as English writes a count.
@@ -707,21 +725,23 @@ func linkFixedInFolder(folder, link fs.FileInfo) bool {
 // a desk elsewhere, that the folder is read-only to it but its repo's git data (FXHIREPROJECTSR3, N3).
 func deskProjectsWords(root string, worktree bool) string {
 	projects, root := hireProjectsFolder(), physical(root)
-	switch {
-	case projects == "" || inside(root, projects):
+	if projects == "" || inside(root, projects) {
 		return ""
-	case !inside(projects, root): // its worktree is elsewhere (Setup's folder for worktrees)
-		return "Your projects folder, " + projects + ", is read-only to you, apart from your repository's git data."
+	}
+	shown := shownInWords(projects) // on one line, whatever its name (FXPICKEDPROJECTR2, B1)
+	// Its worktree is elsewhere (Setup's folder for worktrees).
+	if !inside(projects, root) {
+		return "Your projects folder, " + shown + ", is read-only to you, apart from your repository's git data."
 	}
 	own := "your own worktree"
 	if !worktree {
 		own = "the folder you work in"
 	}
-	return "Your projects folder is " + projects + ". You can change files only in " + own + " here; other projects are read-only."
+	return "Your projects folder is " + shown + ". You can change files only in " + own + " here; other projects are read-only."
 }
 
 // wholeProjectsWords say why a desk whose place is root can't work there in its sandbox on a Mac, or "" when it can
-// (FXHIREPROJECTSR4, SIERRA's ruling of 18 Nov: a hire writes only its own project folder): root is the folder for
+// (FXHIREPROJECTSR4, the owner's ruling of 18 Nov: a hire writes only its own project folder): root is the folder for
 // hires, or holds it, or is the home folder, or holds it. At its hire (by Setup or the GM: the office asks which project
 // first) it is told to give a project's folder; at a start (started), a desk hired so before, to be fired and hired
 // again into one, by whichever way (FXHIREPROJECTSR5, N2).

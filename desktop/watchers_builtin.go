@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"path/filepath"
 	"slices"
@@ -121,6 +122,20 @@ func (w *watchers) syncBuiltins() {
 	}
 }
 
+// sayUnplain logs, once while it lasts, each place's STATUS.md that gets no built-in for a link on its way.
+func (w *watchers) sayUnplain(paths []string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	now := map[string]bool{}
+	for _, path := range paths {
+		if !w.unplain[path] && !now[path] {
+			log.Printf("watchers: no built-in watch on %s: a link is on its way", path)
+		}
+		now[path] = true
+	}
+	w.unplain = now
+}
+
 // wantedBuiltins are the built-in watches the hires at work call for, without
 // their ids (Watchers.sync).
 func (w *watchers) wantedBuiltins(hires []Hire) []watch {
@@ -135,6 +150,7 @@ func (w *watchers) wantedBuiltins(hires []Hire) []watch {
 		return watch{Kind: kind, Builtin: builtin, Hire: h.ID, Target: target, Repeats: true, By: builtinBy}
 	}
 	var wanted []watch
+	var unplain []string
 	for _, h := range live {
 		if h.Role == gmRole {
 			continue
@@ -151,6 +167,14 @@ func (w *watchers) wantedBuiltins(hires []Hire) []watch {
 			if !ok {
 				continue
 			}
+			// Only a path that is plain as written below the hire's place: a link on the way (.team made a link by a
+			// desk, say) could lead to another root's STATUS.md, another hire's or the hires folder (RT126WATCHHELDR1
+			// N2). Links in the place itself are the owner's, and followed. One put down after this sync is caught at
+			// the look: a built-in reads only while its path still resolves to itself (checkWatches, RT126WATCHHELDR2 N1).
+			if path != filepath.Join(plainPath(place), name) {
+				unplain = append(unplain, filepath.Join(place, name))
+				continue
+			}
 			review := built("file", "needs-review", h, path)
 			review.Pattern = builtinReviewPattern
 			status := built("file", "status", h, path)
@@ -163,6 +187,7 @@ func (w *watchers) wantedBuiltins(hires []Hire) []watch {
 		denied.Folder, limit.Folder, limit.Pattern, wait.Minutes = place, place, "^"+eventLimitDetail+"$", builtinWaitMinutes
 		wanted = append(wanted, denied, limit, wait)
 	}
+	w.sayUnplain(unplain)
 	// The digest is the GM's, so it stops when the GM is fired.
 	if i := slices.IndexFunc(live, func(h Hire) bool { return h.Role == gmRole }); i >= 0 {
 		digest := built("time", "digest", live[i], "")
