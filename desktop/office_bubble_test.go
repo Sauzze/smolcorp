@@ -342,7 +342,17 @@ const keys = () => panel().find('talk-key').filter((k) => !['Expand', 'Esc', 'Se
   keys()[2].dispatch('click');
   await settle();
   same([sent.slice(n).filter((s) => s[0] === 'post').map((s) => s[1]), flashed], [['/talk/pick'], [gone]], 'No after it was answered: nothing more, and said');
+  // FXANSWER126: a choice that didn't go stays said in the open bubble, under its input, not only in a passing flash.
+  const notInFront = 'The bubble can\'t see it in front of its terminal, so nothing was pressed: answer it in its own window.';
+  page.post = async (path, params, signal, json) => { sent.push(['post', path, params, json]); return res(409, notInFront); };
+  keys()[0].dispatch('click');
+  await settle();
+  same([panel().find('talk-problem').map((l) => l.textContent), flashed.slice(-1)], [[notInFront], [notInFront]], 'a choice that didn\'t go: said in the bubble');
+  // One that goes clears it.
   page.post = post;
+  keys()[0].dispatch('click');
+  await settle();
+  same(panel().find('talk-problem').map((l) => l.textContent), [], 'a choice that went: nothing left said');
   page.flash = flash;
 
   // The same bubble clicked again closes it; Esc does too.

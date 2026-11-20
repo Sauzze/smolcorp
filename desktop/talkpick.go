@@ -32,6 +32,11 @@ import (
 // read), 409 with the keys' sentence and the desk still asking, so the phone's words still keep out of a live menu.
 // A digit thus never lands in the agent's input box, and an Escape never stops a running tool. Where the screen can't
 // be read at all, the card isn't pickable (talkShowsScreen): the four keys answer it.
+//
+// And its agent: where this computer can't see it in front of its tab (a pane of your own tmux whose own process is
+// the shell that started it, a pane it can't ask), nothing is pressed and the window is told so in plain words
+// (talkNotInFront). A pick never ends the desk, as a key does for an agent gone from its pane (toAgent): an answer
+// that didn't go is said, never a desk that vanishes (FXANSWER126).
 
 const (
 	// A permission prompt's choices on the card: the hooks don't say Claude Code's menu, so only these two (D4).
@@ -42,6 +47,9 @@ const (
 	talkNoChoice   = "Unknown choice"
 	// A question's No, which has no number in its menu: n=no, the agent's Reject.
 	talkNo = "no"
+	// talkNotInFront is a pick on a desk whose agent this computer can't see in front of its terminal: a pane of your
+	// own tmux whose shell started it, say, or one it can't ask. Nothing is pressed, and the desk stays (FXANSWER126).
+	talkNotInFront = "The bubble can't see it in front of its terminal, so nothing was pressed: answer it in its own window."
 )
 
 // errTalkChoiceGone is a desk that stopped asking, or began asking something else, while its pick waited for the key
@@ -382,8 +390,16 @@ func (d *Deck) talkPick(id string, query url.Values) (int, string) {
 	// Asked something else, or nothing, while this waited for the worker: looked at again right before the key, as
 	// the phone's words are, and on the screen, so a digit never lands in the agent's own box and an Escape never
 	// stops its turn or a running tool.
-	gone, unread, looked, menu := false, false, false, talkCantTell
-	status, message := d.toAgent(tab, agent, func(t Tab) error {
+	// Its agent not seen in front of the tab, as toAgent looks, but never ending the desk for it as toAgent does: the
+	// pick presses nothing and says so (away), and the desk stays as it is (FXANSWER126).
+	gone, unread, away, looked, menu := false, false, false, false, talkCantTell
+	status, message := d.inTab(tab, func(t Tab) error {
+		if pane, ok := paneOf(t); ok {
+			if running, known := pane.runs(agent); known && !running {
+				away = true
+				return errTalkChoiceGone
+			}
+		}
 		if !d.talkStillAsks(id, since) {
 			gone = true
 			return errTalkChoiceGone
@@ -391,7 +407,8 @@ func (d *Deck) talkPick(id string, query url.Values) (int, string) {
 		lines, err := talkScreenOf(t, agent)
 		switch {
 		case errors.Is(err, errAgentBehind), errors.Is(err, errAgentGone):
-			return err
+			away = true
+			return errTalkChoiceGone
 		case err != nil:
 			unread = true
 			return errTalkChoiceGone
@@ -403,7 +420,7 @@ func (d *Deck) talkPick(id string, query url.Values) (int, string) {
 		}
 		return t.Press(key)
 	})
-	if gone || unread || looked && menu != talkThisMenu || status >= http.StatusBadRequest {
+	if gone || unread || away || looked && menu != talkThisMenu || status >= http.StatusBadRequest {
 		// A pick that didn't go doesn't count, so the next tap goes.
 		d.mu.Lock()
 		if d.talkPicks[id] == since {
@@ -429,6 +446,8 @@ func (d *Deck) talkPick(id string, query url.Values) (int, string) {
 		}
 		d.mu.Unlock()
 		switch {
+		case away:
+			return http.StatusConflict, talkNotInFront
 		case gone:
 			return http.StatusConflict, choiceGone
 		case unread, looked && menu == talkCantTell:

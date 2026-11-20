@@ -399,14 +399,19 @@ const TALK_BUBBLE = {
       box.replaceChildren(q, ...(keys.children.length ? [keys] : []), ...(small || !shown.length ? [] : [make('div', 'talk-hint', hint)]));
     }
 
-    /** A button tapped: the choice goes, and a No wakes the input. */
+    /**
+     * A button tapped: the choice goes, and a No wakes the input. One that didn't go is said, and in the open bubble it
+     * stays said, under its input, until a choice goes (FXANSWER126): an answer is never lost to a passing flash.
+     */
     async function answer(id, asking, choice) {
       page.tick?.();
       const { path, params } = B.sendOf(id, asking, choice);
       const res = await page.post(path, params);
+      const said = !res ? 'Can\'t reach your computer.' : res.ok ? '' : await B.said(res);
+      if (open && open.id === id) problem(said);
       if (!res) return page.flash?.('Can\'t reach your computer');
       if (!res.ok) {
-        page.flash?.(await B.said(res));
+        page.flash?.(said);
         askingNow = ''; // asked again: it may ask something else now
       } else if (choice.no) {
         cards.set(id, B.answered(cards.get(id), choice));
