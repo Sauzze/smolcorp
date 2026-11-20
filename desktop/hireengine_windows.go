@@ -2,6 +2,8 @@
 
 package desktop
 
+import "time"
+
 // The tmux engine is Linux's. On Windows a role's Claude hire is made by the
 // launcher's engine (hirelauncher.go), behind the beta switch: hireAs asks for
 // it by name, so managedHire here only says the tmux way isn't made.
@@ -9,7 +11,21 @@ func (d *Deck) managedHire(roleID, folder string, terminal hireOpener, hasTermin
 	return 0, "", false
 }
 
+func (d *Deck) managedHireWith(roleID, folder, picked string, terminal hireOpener, hasTerminal bool, held, floor int, extra *setupHire, gitBy ...time.Time) (int, string, bool) {
+	return 0, "", false
+}
+
 type engineOptions struct{}
+
+// hiresSandboxed: no desk starts in a sandbox here yet (FXSETUPHELPNOSANDBOX).
+func (d *Deck) hiresSandboxed() bool { return false }
+
+// hirePlaceWords: no desk starts in a sandbox here, so no place is refused for it (FXHIREPROJECTSR5); never asked, as
+// no plain hire's launcher starts a sandbox here either (plainHiresSandboxed).
+func hirePlaceWords(string, gitRunner) string { return "" }
+
+// worktrees is the folder hires' worktrees are made in: beside the repo here, as there's no engine to set another.
+func (engineOptions) worktrees() string { return "" }
 
 // hireSessionUp: no tmux session of an engine hire's here. A launcher hire's window
 // counts through gmRefusal, which asks the launchers.
@@ -20,3 +36,44 @@ func hireSessionUp(h Hire, testPort int, o engineOptions) bool { return false }
 func (d *Deck) fireTab(tab string, force bool) (int, string, bool) {
 	return d.fireLauncherTab(tab, force)
 }
+
+// detachHireViewers: no hire runs on a tmux server of its own here.
+func detachHireViewers(hire Hire, run func([]string) (string, int, bool)) detached { return detached{} }
+
+// openHireViewer: no hire runs in tmux here.
+func openHireViewer(hire Hire, terminal hireOpener) error { return errUnsupported }
+
+// bridgeCloser and hiresToBackgroundClosing are the Mac app's (hirewindows_close.go): there is no host here.
+type bridgeCloser struct{ h hostBridge }
+
+func hiresToBackgroundClosing(hires []Hire, closer bridgeCloser, run func([]string) (string, int, bool)) []string {
+	return nil
+}
+
+// For the GM's fire route (gmfire.go): a hire here is a launcher's window, never a tmux session.
+func (d *Deck) fireTmuxHire(h Hire, force, keep bool) (kept, note string, err error) {
+	return "", "", &hireRefusal{Status: 409, Message: "Couldn't reach " + calledHire(h) + "'s window, so nothing was changed."}
+}
+
+func ownTmuxTab(Hire, string) bool { return false }
+
+// tmuxDeskRunning: no hire runs on a tmux server of its own here.
+func (d *Deck) tmuxDeskRunning(Hire) (running, known bool) { return false, true }
+
+// ownsHireSocket: no hire runs on a tmux server of its own here, so no socket is one of ours.
+func ownsHireSocket(socket string, testPort int) bool { return false }
+
+// deskSocketID: no desk runs on a tmux server of its own here, in its sandbox or not.
+func deskSocketID(socket string, testPort int) string { return "" }
+
+// deskShapedSocket: no desk has a socket folder here, so no socket is shaped as one's.
+func deskShapedSocket(socket string) bool { return false }
+
+// tmuxFor: no desk runs in tmux here, so a tmux tab is never one's.
+func tmuxFor(socket string) (program, guard string) { return tmuxProgramFor(socket), tmuxUnchecked }
+
+// markRespawnedDesks: no desk runs in tmux here.
+func (d *Deck) markRespawnedDesks() {}
+
+// deskSandboxed: no desk starts in a sandbox on Windows (none in 1.26): each one is tagged "No sandbox on this computer yet."
+const deskSandboxed = false

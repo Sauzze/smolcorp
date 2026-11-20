@@ -6,7 +6,7 @@ import (
 )
 
 // PaneState is what a Claude Code session shows in a captured tmux pane
-// (the text `tmux capture-pane -p` gives). It is a port of the Mac's
+// (the text `tmux capture-pane -p` gives; with its escapes, see panestyle.go). It is a port of the Mac's
 // HireDesk.inputState and HireDesk.promptRefusal (Sources/AgentDeck/
 // HireFire.swift), read from the window's structure and never from its
 // words: a mail text or old output in the scrollback may say "do you want to
@@ -54,6 +54,8 @@ type paneBottom struct {
 	// window ends in one (hasBox); its first line starts with "❯".
 	box    []string
 	hasBox bool
+	// boxStarts: where each line of box starts in the capture, in runes.
+	boxStarts []int
 	// footer: the lines under the box.
 	footer []string
 	// tail: the last lines that have words in them, when there is no box.
@@ -71,22 +73,31 @@ func paneBlank(s string) bool { return paneTrim(s) == "" }
 // paneLines splits on every kind of newline Swift's Character.isNewline
 // knows (\r\n counts as one), keeping empty lines.
 func paneLines(capture string) []string {
-	var lines []string
+	lines, _ := paneLineSpans(capture)
+	return lines
+}
+
+// paneLineSpans is paneLines and where each line starts, counted in runes of
+// capture, so a line's characters can be matched with their styles
+// (paneUnstyle).
+func paneLineSpans(capture string) (lines []string, starts []int) {
 	var cur strings.Builder
 	rs := []rune(capture)
+	start := 0
 	for i := 0; i < len(rs); i++ {
 		switch r := rs[i]; r {
-		case '\r', '\n', '\v', '\f', '\u0085', ' ', ' ':
+		case '\r', '\n', '\v', '\f', '\u0085', '\u2028', '\u2029':
 			if r == '\r' && i+1 < len(rs) && rs[i+1] == '\n' {
 				i++
 			}
-			lines = append(lines, cur.String())
+			lines, starts = append(lines, cur.String()), append(starts, start)
 			cur.Reset()
+			start = i + 1
 		default:
 			cur.WriteRune(r)
 		}
 	}
-	return append(lines, cur.String())
+	return append(lines, cur.String()), append(starts, start)
 }
 
 // paneIsRule: a full-width rule, a long run of "─" and nothing else.
@@ -123,14 +134,14 @@ func paneNumbered(s string) bool {
 	return i > 0 && i+1 < len(rs) && (rs[i] == '.' || rs[i] == ')') && unicode.IsSpace(rs[i+1])
 }
 
-// paneTryPlaceholder: exactly `Try "..."`. A capture has no colours, so any
-// such text on the box's one line counts as the grey placeholder.
+// paneTryPlaceholder: exactly `Try "..."`. A plain capture has no colours, so
+// any such text on the box's one line counts as the grey placeholder.
 func paneTryPlaceholder(s string) bool {
 	return len(s) >= len(`Try ""`) && strings.HasPrefix(s, `Try "`) && strings.HasSuffix(s, `"`)
 }
 
 func paneBottomOf(capture string) paneBottom {
-	lines := paneLines(capture)
+	lines, starts := paneLineSpans(capture)
 	for len(lines) > 0 && paneBlank(lines[len(lines)-1]) {
 		lines = lines[:len(lines)-1]
 	}
@@ -144,16 +155,17 @@ func paneBottomOf(capture string) paneBottom {
 		upper, lower := rules[len(rules)-2], rules[len(rules)-1]
 		footer := lines[lower+1:]
 		var inside []string
-		for _, l := range lines[upper+1 : lower] {
-			if !paneBlank(l) {
-				inside = append(inside, l)
+		var at []int
+		for i := upper + 1; i < lower; i++ {
+			if !paneBlank(lines[i]) {
+				inside, at = append(inside, lines[i]), append(at, starts[i])
 			}
 		}
 		// The box sits at the bottom: a footer of a line or two under it,
 		// not a screenful.
 		if len(footer) <= 3 && len(inside) > 0 {
 			if _, ok := paneAfterSelector(inside[0]); ok {
-				return paneBottom{box: inside, hasBox: true, footer: footer}
+				return paneBottom{box: inside, hasBox: true, boxStarts: at, footer: footer}
 			}
 		}
 	}
@@ -195,8 +207,16 @@ func paneAsking(b paneBottom) bool {
 
 // ReadPaneState says what state the session in a captured pane is in. A
 // failed capture is the caller's to treat as PaneUnknown (an empty string
-// gives it too).
+// gives it too). The capture is plain text, so every character in the box
+// counts as typed; ReadStyledPaneState reads one taken with its escapes.
 func ReadPaneState(capture string) PaneState {
+	return readPaneState(capture, nil)
+}
+
+// readPaneState is ReadPaneState with the style of each rune of capture
+// (paneUnstyle), or nil when they aren't known: then nothing is taken for
+// Claude Code's grey suggestion, as before.
+func readPaneState(capture string, styles []paneCell) PaneState {
 	b := paneBottomOf(capture)
 	if paneAsking(b) {
 		return PaneMenu
@@ -218,6 +238,9 @@ func ReadPaneState(capture string) PaneState {
 	}
 	if allBlank {
 		return PaneUnknown
+	}
+	if paneOnlySuggested(b, styles) {
+		return PaneIdle
 	}
 	if len(b.box) > 1 {
 		return PaneDraft

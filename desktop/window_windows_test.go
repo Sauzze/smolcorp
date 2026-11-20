@@ -14,6 +14,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/jchv/go-webview2"
 	"golang.org/x/sys/windows"
 )
 
@@ -48,7 +49,7 @@ func TestLiveWindow(t *testing.T) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	isolate(t)
-	deck := NewDeck()
+	deck := startDeck(t)
 	router := &router{deck: deck}
 	hits := make(chan string, 256)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +67,7 @@ func TestLiveWindow(t *testing.T) {
 	defer server.CloseClientConnections() // the office's event stream would keep Close waiting
 
 	deck.mu.Lock()
-	key := ensureWindowKey(deck.access.Phones, windowKeyFile)
+	key := ensureWindowKey(deck.access.Phones, &deck.access.windowDeviceKey)
 	deck.mu.Unlock()
 	if os.Getenv("SMOLCORP_LIVE_HELLO") != "" {
 		key = ""
@@ -74,6 +75,7 @@ func TestLiveWindow(t *testing.T) {
 	placeFile := os.Getenv("SMOLCORP_LIVE_STATE")
 	run := windowRun{
 		url:      officeAddress(server.URL, key),
+		script:   windowKeyScript(server.URL, key),
 		fallback: officeAddress(server.URL, ""),
 		onTop:    os.Getenv("SMOLCORP_LIVE_TOP") == "1",
 		icon:     mustIcon(t),
@@ -83,7 +85,7 @@ func TestLiveWindow(t *testing.T) {
 				_ = os.WriteFile(placeFile, []byte(fmt.Sprintf("%d %d %d %d %v", s.X, s.Y, s.Width, s.Height, s.Maximized)), 0o600)
 			}
 		},
-		created: func(hwnd uintptr) {
+		created: func(hwnd uintptr, _ webview2.WebView) {
 			officeWindow.mu.Lock()
 			officeWindow.hwnd = hwnd
 			officeWindow.mu.Unlock()
@@ -140,7 +142,7 @@ func TestLiveOpenTwice(t *testing.T) {
 		t.Skip("set SMOLCORP_LIVE_WINDOW=1 to open the window")
 	}
 	isolate(t)
-	deck := NewDeck()
+	deck := startDeck(t)
 	deck.openOffice()
 	deadline := time.Now().Add(20 * time.Second)
 	var hwnd uintptr

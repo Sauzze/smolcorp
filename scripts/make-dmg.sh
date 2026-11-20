@@ -21,28 +21,40 @@
 
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+# A DMG is a download: made only after every check a release must pass
+# (scripts/release-gate.sh). Run on its own, this runs them all first, and
+# stops if one fails. scripts/release.sh runs this in a subshell after its own
+# gate passed, and then only the files are checked again.
+. scripts/release-gate.sh
 APP="build/Smolcorp.app"
 DMG="build/Smolcorp.dmg"
 VENV="build/dmg-venv"
 DMGBUILD_VERSION="1.6.7"
 
+# Python and pip run isolated: python -I leaves out the caller's PYTHON*
+# settings and user site; pip --isolated leaves out the PIP_* settings and the
+# user's pip config, and PIP_CONFIG_FILE=/dev/null every pip config file, the
+# one a caller's PIP_CONFIG_FILE names (which --isolated still reads) and the
+# machine's too. So no other package index, say, reaches what is installed for
+# dmgbuild. A venv made before that (no made-isolated in it) is made again.
 if [ ! -d "$APP" ]; then
   echo "No $APP to put in the DMG. Run scripts/build-app.sh universal first."
   exit 1
 fi
 
-if ! "$VENV/bin/python" -c "import dmgbuild" 2>/dev/null; then
+if [ ! -f "$VENV/made-isolated" ] || ! "$VENV/bin/python" -I -c "import dmgbuild" 2>/dev/null; then
   echo "Setting up dmgbuild in $VENV (once)…"
   rm -rf "$VENV"
-  python3 -m venv "$VENV"
-  "$VENV/bin/python" -m pip install --quiet --disable-pip-version-check "dmgbuild==$DMGBUILD_VERSION"
+  python3 -I -m venv "$VENV"
+  PIP_CONFIG_FILE=/dev/null "$VENV/bin/python" -I -m pip install --isolated --quiet --disable-pip-version-check "dmgbuild==$DMGBUILD_VERSION"
+  touch "$VENV/made-isolated"
 fi
 
 echo "Making the DMG…"
 RW="build/Smolcorp-rw.dmg"
 rm -f "$DMG" "$RW"
-"$VENV/bin/dmgbuild" -s packaging/macos/dmg/settings.py -D app="$APP" -D format=UDRW "Smolcorp" "$RW" >build/dmg.log 2>&1 || {
+"$VENV/bin/python" -I "$VENV/bin/dmgbuild" -s packaging/macos/dmg/settings.py -D app="$APP" -D format=UDRW "Smolcorp" "$RW" >build/dmg.log 2>&1 || {
   cat build/dmg.log
   echo
   echo "The DMG wasn't made. The messages above say why."

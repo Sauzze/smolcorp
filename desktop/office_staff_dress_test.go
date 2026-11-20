@@ -11,17 +11,14 @@ import (
 // other style they wear what they did. The two functions run in node on a tiny stand-in for their surroundings;
 // without node, only drawPerson's call is checked.
 func TestTheStaffWearTheStyleThatDressesEveryone(t *testing.T) {
-	web, viewer := officeSources(t)
-	for name, src := range map[string]string{"office.js": string(web), "the viewer's office.js": string(viewer)} {
-		if !strings.Contains(src, "person.isStaff ? staffOutfitOf(look, crewDress, person.session.name)") {
-			t.Errorf("%s's drawPerson no longer gives staffOutfitOf the staff member's name", name)
-		}
+	src := string(officeSource(t))
+	if !strings.Contains(src, "person.isStaff ? staffOutfitOf(look, crewDress, person.session.name)") {
+		t.Error("office.js's drawPerson no longer gives staffOutfitOf the staff member's name")
 	}
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is not installed: staffOutfitOf can't be run")
 	}
-	src := string(web)
 	fn := func(head string) string {
 		at := strings.Index(src, head)
 		if at < 0 {

@@ -273,16 +273,21 @@ func TestScreenOnAnOldAppSaysSo(t *testing.T) {
 	}
 }
 
-func TestTokenFileWhenNoEnv(t *testing.T) {
+// No file holds the GM's token (1.26, SK2): a gm-token file an earlier version left is never read or sent, and the
+// CLI says how a GM started by hand gets one.
+func TestATokenFileIsNeverRead(t *testing.T) {
 	app := newFakeApp(t, serve(teamAnswer(t), 200))
 	env := app.env(t, nil)
 	dir, _ := env.SupportDir()
 	os.WriteFile(filepath.Join(dir, "gm-token"), []byte(fakeToken+"\n"), 0o600)
-	if code, _, e := runGM(env, "team"); code != 0 {
+	code, _, e := runGM(env, "team")
+	if code != exitApp || !strings.Contains(e, "smolcorp gm login") || strings.Contains(e, fakeToken) {
 		t.Fatalf("exit %d: %s", code, e)
 	}
-	if got := app.reqs[0].Header.Get("x-smolcorp-gm-token"); got != fakeToken {
-		t.Errorf("token = %q", got)
+	for _, r := range app.reqs {
+		if r.Header.Get("x-smolcorp-gm-token") != "" {
+			t.Errorf("%s %s sent a token", r.Method, r.Path)
+		}
 	}
 }
 
@@ -516,6 +521,48 @@ func TestHireLeavesOutWhatIsNotGiven(t *testing.T) {
 	}
 }
 
+// An old script's --t3 (T797b) gets the app's own plain refusal, here, with no request: only the owner hires into T3
+// Code, from Setup (FXSWEEP3P3R1 N1). No request ever says engine "t3".
+func TestHireIntoT3CodeIsRefusedWithoutARequest(t *testing.T) {
+	app := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"ok":true,"desk":null}`))
+	})
+	code, out, errOut := runGM(app.env(t, withToken()), "hire", "--role", "reviewer", "--t3", "--json")
+	if code != exitApp || out != "" || errOut != "smolcorp gm: "+T3HireRefusal+"\n" || len(app.reqs) != 0 {
+		t.Errorf("exit %d out %q stderr %q, %d requests", code, out, errOut, len(app.reqs))
+	}
+	if _, has := (HireOptions{Role: "reviewer", Floor: -1}).body()["engine"]; has {
+		t.Error("a hire's request names an engine")
+	}
+}
+
+// PR1: the Go app serves POST /setup/gm/hire: `gm hire` prints its answer, and a 404 isn't the "isn't available" text.
+func TestHireAgainstTheGoAppSendsTheRequestAndPrintsTheAnswer(t *testing.T) {
+	status, answer, body := http.StatusOK, `{"ok":true,"desk":3,"session":null}`, []byte(nil)
+	app := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Smolcorp-App", "linux")
+		if r.URL.Path == "/setup/state" { // as the Go app's locked page
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		body, _ = io.ReadAll(r.Body)
+		w.WriteHeader(status)
+		w.Write([]byte(answer))
+	})
+	code, out, _ := runGM(app.env(t, withToken()), "hire", "--role", "janitor")
+	if code != 0 || !strings.Contains(out, "Hired a janitor. At desk 4.") || string(body) != `{"role":"janitor"}` {
+		t.Fatalf("exit %d out %q body %s", code, out, body)
+	}
+	status, answer = http.StatusOK, `{"ok":true,"desk":null,"floor":2,"session":null}` // a floor hire names no desk
+	if code, out, _ := runGM(app.env(t, withToken()), "hire", "--role", "janitor"); code != 0 || strings.Contains(out, "At desk") {
+		t.Errorf("a floor hire: exit %d out %q, want no desk line", code, out)
+	}
+	status, answer = http.StatusNotFound, `{"error":"not found"}`
+	if code, _, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor"); code != exitApp || strings.Contains(errOut, "isn't available") {
+		t.Errorf("a 404: exit %d %q", code, errOut)
+	}
+}
+
 func TestHireRefusalIsPrinted(t *testing.T) {
 	app := newFakeApp(t, serve([]byte("Choose a folder for new hires in setup, on your Mac."), 409))
 	code, _, errOut := runGM(app.env(t, withToken()), "hire", "--role", "janitor")
@@ -601,6 +648,25 @@ func TestFireSaysWhenTheWorktreeWasKept(t *testing.T) {
 	app = fireApp(t, 204, "")
 	if _, out, _ := runGM(app.env(t, withToken()), "fire", team.Team[0].ID); strings.Contains(out, "kept") {
 		t.Errorf("a removed worktree should not say kept: %q", out)
+	}
+}
+
+// Marked fired with no window closed (a hire in a window of its own, fired with force): `gm fire` says so, and why
+// its worktree stayed, never just "Fired".
+func TestFireSaysWhenNoWindowWasClosed(t *testing.T) {
+	var team TeamReply
+	json.Unmarshal(teamAnswer(t), &team)
+	answer := `{"ok":true,"note":"Rex is marked fired, but Smolcorp couldn't find its window, so it wasn't closed. If it's still open, close it there.",` +
+		`"kept":"Its window wasn't closed, so it may still be at work in it.","worktree":"/w/ada","branch":"ada/work"}`
+	app := fireApp(t, 200, answer)
+	code, out, errOut := runGM(app.env(t, withToken()), "fire", team.Team[0].ID, "--force", "--remove-worktree")
+	if code != 0 || errOut != "" {
+		t.Fatalf("exit %d %q", code, errOut)
+	}
+	want := "Rex is marked fired, but Smolcorp couldn't find its window, so it wasn't closed. If it's still open, close it there." +
+		" Its worktree (/w/ada) and branch were kept, not removed: its window wasn't closed, so it may still be at work in it.\n"
+	if out != want {
+		t.Errorf("got %q, want %q", out, want)
 	}
 }
 
@@ -778,15 +844,14 @@ func fakeGoAppHandler(w http.ResponseWriter, r *http.Request) {
 
 // SIERRA 1.24 F-1: each app's wording, told apart by what the server says.
 func TestGMWordingFollowsTheAppThatAnswers(t *testing.T) {
-	const macNoToken = "Allow a GM started by hand"
+	const macNoToken = "smolcorp gm login"
 	mac := newFakeApp(t, fakeMacHandler)
 	goApp := newFakeApp(t, fakeGoAppHandler)
 
-	// No token: the Mac's whole message, with its own temp folder.
+	// No token: the Mac's whole message.
 	macEnv := mac.env(t, nil)
-	dir, _ := macEnv.SupportDir()
 	_, _, errOut := runGM(macEnv, "team")
-	wantMac := "smolcorp gm: no GM token: set $SMOLCORP_GM_TOKEN (a GM hired from Smolcorp has it), or turn on 'Allow a GM started by hand' so gm-token is made in " + dir + ".\n"
+	wantMac := "smolcorp gm: no GM token: set $SMOLCORP_GM_TOKEN (a GM hired from Smolcorp has it), or start your GM with smolcorp gm login, which asks Smolcorp for one in its window.\n"
 	if errOut != wantMac {
 		t.Errorf("Mac, no token: %q, want %q", errOut, wantMac)
 	}
@@ -824,14 +889,14 @@ func TestGMWordingFollowsTheAppThatAnswers(t *testing.T) {
 func TestGMWordingStaysTheMacsWhenTheAppIsUnclear(t *testing.T) {
 	silent := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) })
 	_, _, errOut := runGM(silent.env(t, nil), "team")
-	if !strings.Contains(errOut, "Allow a GM started by hand") {
+	if !strings.Contains(errOut, "smolcorp gm login") {
 		t.Errorf("silent app: %q", errOut)
 	}
 	gone := newFakeApp(t, fakeGoAppHandler)
 	env := gone.env(t, nil)
 	gone.srv.Close()
 	code, _, errOut := runGM(env, "team")
-	if code != exitApp || !strings.Contains(errOut, "Allow a GM started by hand") {
+	if code != exitApp || !strings.Contains(errOut, "smolcorp gm login") {
 		t.Errorf("no app: %d %q", code, errOut)
 	}
 }
@@ -897,9 +962,6 @@ func TestUnservedGMRoutesSayWhatTheGoAppLacks(t *testing.T) {
 		args          []string
 		goMsg, macMsg string
 	}{
-		{[]string{"hire", "--role", "janitor", "--task", "tidy"}, "smolcorp gm: `gm hire` isn't available in Smolcorp on Linux and Windows yet: the owner hires from the office or Setup.\n", "smolcorp gm: Smolcorp answered 404: not found\n"},
-		{[]string{"fire", "Rev"}, "smolcorp gm: `gm fire` isn't available in Smolcorp on Linux and Windows yet.\n", ""},
-		{[]string{"brief", "Rev", "--text", "hi"}, "smolcorp gm: `gm brief` isn't available in Smolcorp on Linux and Windows yet.\n", ""},
 		{[]string{"tile"}, "smolcorp gm: `gm tile` isn't available in Smolcorp on Linux and Windows yet.\n", "smolcorp gm: this Smolcorp can't tile windows yet; update it.\n"},
 		{[]string{"screens"}, "smolcorp gm: `gm screens` isn't available in Smolcorp on Linux and Windows yet.\n", "smolcorp gm: this Smolcorp can't choose a screen yet; update it.\n"},
 		{[]string{"accounts"}, "smolcorp gm: `gm accounts` isn't available in Smolcorp on Linux and Windows yet.\n", "smolcorp gm: this Smolcorp has no accounts route yet; update it.\n"},
@@ -927,11 +989,35 @@ func TestUnservedGMRoutesSayWhatTheGoAppLacks(t *testing.T) {
 	}
 }
 
+// C3 A10: the Go engine under the Mac app says "mac" and words its own 404 for what it doesn't serve: that is
+// what the GM is told, never "Linux and Windows" nor "update it".
+func TestTheGoEngineUnderTheMacSaysWhatItLacksInItsOwnWords(t *testing.T) {
+	team := teamAnswer(t)
+	app := newFakeApp(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Smolcorp-App", "mac")
+		switch r.URL.Path {
+		case "/setup/gm/team":
+			w.Write(team)
+		case "/setup/state":
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			command := strings.TrimPrefix(r.URL.Path, "/setup/gm/")
+			http.Error(w, "`gm "+command+"` isn't available on this engine yet: switch back to the Swift engine to use it.", http.StatusNotFound)
+		}
+	})
+	for _, args := range [][]string{{"tile"}, {"screens"}, {"screen", "1"}} {
+		want := "smolcorp gm: `gm " + args[0] + "` isn't available on this engine yet: switch back to the Swift engine to use it.\n"
+		if code, _, errOut := runGM(app.env(t, withToken()), args...); code != exitApp || errOut != want {
+			t.Errorf("%v: %d %q, want %q", args, code, errOut, want)
+		}
+	}
+}
+
 // T735: the help names which app each fact is for, and the malformed-token line follows the app.
 func TestHelpAndBadTokenNameTheirApp(t *testing.T) {
 	app := newFakeApp(t, serve(teamAnswer(t), 200))
 	_, out, _ := runGM(app.env(t, withToken()), "help")
-	for _, want := range []string{"On Linux and Windows, hire, brief, fire, tile, screens, screen and accounts\naren't served yet.", "on the Mac, ask the owner to rotate it", "hire the GM again from Setup"} {
+	for _, want := range []string{"On Linux and Windows, tile, screens, screen and accounts\naren't served yet.", "on the Mac, and Windows with WebView2,\nask the owner to rotate it", "start a General Manager by hand (Mac, and\n                                Windows with WebView2)", "on Linux, and Windows without WebView2, ask the owner to\nhire the GM again from Setup."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help lacks %q", want)
 		}
@@ -977,5 +1063,18 @@ func TestSessionHeaderIsSentOnlyWhenWellFormed(t *testing.T) {
 	runGM(app.env(t, map[string]string{hireKeyEnv: fakeHireKey, sessionEnv: id}), "send", "Rev", "--text", "x")
 	if got := app.reqs[0].Header.Get("x-smolcorp-session"); got != "" {
 		t.Errorf("a hire sent the session header: %q", got)
+	}
+}
+
+// The GM's help doesn't offer --t3: the app refuses the GM's every hire into T3 Code, so the GM isn't told to try it
+// (FXSWEEP3P3R1 N1, as the cold review RT126SWEEP3FIXP3 recommended). It pinned "--t3 hires" before (MTMUX); nor does it
+// say "Mac only" of T3 Code anywhere.
+func TestHelpDoesNotOfferT3(t *testing.T) {
+	var out bytes.Buffer
+	if code := Run([]string{"help"}, &out, io.Discard); code != 0 {
+		t.Fatalf("help exits %d", code)
+	}
+	if strings.Contains(out.String(), "Mac only") || strings.Contains(out.String(), "--t3") || strings.Contains(out.String(), "T3 Code") {
+		t.Errorf("help says: %s", out.String())
 	}
 }

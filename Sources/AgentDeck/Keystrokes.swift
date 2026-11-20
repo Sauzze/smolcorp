@@ -18,15 +18,15 @@ import ApplicationServices
 ///   the app's process alone from a private source, so they don't count as you.
 /// - the key would land in a plain text field, never a password field or anything else.
 ///
-/// A file is never typed as a path: it's dropped onto the app, or refused. The text itself is never
+/// The text itself is never
 /// logged: the event log gets the app, the action and how it ended. The keys go to that app's
 /// process alone, so they never reach whatever else is in front.
 struct Keystrokes {
-    enum Action: String { case type, press, drop }
+    enum Action: String { case type, press }
 
     /// Why nothing (more) was sent.
     enum Refusal: String, Error, Equatable {
-        case off, noAccessibility, blockedApp, notAllowedApp, returnNotAllowed, wrongApp, fileDialog, userActive, postFailed, badText, tooLong, noDrop, notAFile
+        case off, noAccessibility, blockedApp, notAllowedApp, returnNotAllowed, wrongApp, fileDialog, userActive, postFailed, badText, tooLong
     }
 
     /// How a call ended: `sent` keys went out; `stoppedBy` is why it stopped short, or nil when it finished.
@@ -96,8 +96,6 @@ struct Keystrokes {
         var dialogShowing: (String) -> Bool
         /// Sends one key to that app. Live, it checks once more that the app is still in front.
         var post: (Stroke, String) -> PostResult
-        /// Drops a file onto that app, true if it was done.
-        var drop: (URL, String) -> Bool
         /// A short wait between keys, so the app keeps up and you can take over.
         var pause: () -> Void
         /// The event log: app, action, how it ended. Never the text.
@@ -195,16 +193,6 @@ struct Keystrokes {
         return send([.key(key, modifiers)], .press, bundleID)
     }
 
-    /// Drops the file at `url` onto the app `bundleID`, the way you would drag it from Finder.
-    /// Refused if it isn't a file that exists, or if the drop can't be done.
-    func dropFile(_ url: URL, onto bundleID: String) -> Outcome {
-        guard url.isFileURL, FileManager.default.fileExists(atPath: url.path) else {
-            return finish(.drop, bundleID, Outcome(stoppedBy: .notAFile))
-        }
-        if let why = refusal(for: bundleID) { return finish(.drop, bundleID, Outcome(stoppedBy: why)) }
-        return finish(.drop, bundleID, env.drop(url, bundleID) ? Outcome(sent: 1) : Outcome(stoppedBy: .noDrop))
-    }
-
     // MARK: The checks
 
     /// Why a key to `bundleID` may not go now, or nil if it may. The order matters little, but the
@@ -258,23 +246,12 @@ extension Keystrokes {
             now: { ProcessInfo.processInfo.systemUptime },
             dialogShowing: Live.fileDialogMayBeOpen,
             post: Live.post,
-            drop: { _, _ in false },
             pause: { Thread.sleep(forTimeInterval: 0.012) },
             log: log))
     }
 
     /// The event log line for a change of the allowed apps: the id alone.
     static func appListChange(added: Bool, id: String) -> String { "\(added ? "app allowed" : "app removed"): \(id)" }
-
-    /// Writes one use to the event log. It's used on the main thread, so this hops there.
-    static func logToEvents(_ events: @escaping () -> EventLog) -> (String, Action, String) -> Void {
-        { app, action, result in
-            DispatchQueue.main.async {
-                _ = events().append(EventLog.Entry(at: Date().timeIntervalSince1970 * 1000, kind: .keystroke,
-                                                    detail: "\(action.rawValue) \(app): \(result)"))
-            }
-        }
-    }
 
     /// The apps open now that could be added: name and id, without those already on the list or on the block-list.
     static func runningApps(except listed: [String]) -> [[String: String]] {

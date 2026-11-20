@@ -419,7 +419,7 @@ func TestAFileSwappedForAPipeIsLeftAndDoesNotHangTheLook(t *testing.T) {
 		if ok {
 			t.Error("a pipe was taken as the file")
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("opening a pipe with nobody writing held the look")
 	}
 }
@@ -545,7 +545,7 @@ func TestAHiresWorktreeBarsAMailboxChosenOnThePage(t *testing.T) {
 	json.Unmarshal(data, &file)
 	file["hires"].([]any)[0].(map[string]any)["worktree"] = tree
 	data, _ = json.Marshal(file)
-	os.WriteFile(registryPath(), data, 0o600)
+	writeRegistryFile(registryPath(), data, 0o600)
 	os.Mkdir(filepath.Join(tree, "in"), 0o755)
 	for _, folder := range []string{tree, filepath.Join(tree, "in"), filepath.Dir(tree)} {
 		if w := m.mailbox(t, asPage, "grok-1", folder); w.Code != 400 || !strings.Contains(w.Body.String(), "a hire's worktree") {

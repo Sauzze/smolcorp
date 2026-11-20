@@ -19,6 +19,11 @@ func followSize(terminal pty.Pty, screen *launcherScreen) {
 	}
 }
 
+// consoleCodePage: a Unix terminal has no code page the launcher can read,
+// and whether it draws Ambiguous characters wide is its own setting, so the
+// locale stands in for one (localeCodePage).
+func consoleCodePage() screenCodePage { return localeCodePage(os.Getenv) }
+
 // prepareConsole: a Unix terminal already reads escape sequences.
 func prepareConsole() {}
 

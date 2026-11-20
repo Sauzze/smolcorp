@@ -43,6 +43,7 @@ func setGMState(t *testing.T, id, state string) {
 
 func TestSetupRefusesAGMWhileOneIsWorkingAndFiresNothing(t *testing.T) {
 	for _, state := range []string{"starting", "working", "idle"} {
+		stopDecksOf(t)
 		d, r, gm := gmDeck(t)
 		setGMState(t, gm.ID, state)
 		status, message := d.hireFromSetup("gm")
@@ -71,6 +72,7 @@ func TestSetupHiresAGMWhenTheOldOneIsFiredFailedOrItsSessionIsGone(t *testing.T)
 		state string
 		up    bool
 	}{{"fired", "fired", true}, {"failed", "failed", true}, {"working, session gone", "working", false}, {"idle, session gone", "idle", false}} {
+		stopDecksOf(t)
 		d, r, gm := gmDeck(t)
 		setGMState(t, gm.ID, c.state)
 		r.tmux.up = c.up
@@ -140,6 +142,7 @@ func TestEveryHireRouteRefusesAGMWithTheMacTextWhileOneWorksAndHiresWhenNoneDoes
 		"upstairs": func(d *Deck) (int, string) { return d.hireUpstairs("1", "0", "gm") },
 	}
 	for name, hire := range routes {
+		stopDecksOf(t)
 		d, r, gm := gmDeck(t)
 		setGMState(t, gm.ID, "working")
 		if status, message := hire(d); status != http.StatusConflict || message != macGMWorking {
@@ -167,7 +170,7 @@ func sessionIn(d *Deck, id, cwd string) {
 func TestSetupRefusesAGMWhoseSessionIsGoneWhileASessionWorksInItsWorktree(t *testing.T) {
 	d, r, gm := gmDeck(t)
 	tree, other := t.TempDir(), t.TempDir()
-	if err := updateRegistry(func(f *registryFile) { f.hires[0].State, f.hires[0].Worktree = "working", tree }); err != nil {
+	if err := updateRegistry(func(f *registryFile) { f.hires[0].State, f.hires[0].Worktree = "working", keptPath(tree) }); err != nil {
 		t.Fatal(err)
 	}
 	r.tmux.up = false
@@ -197,7 +200,7 @@ func TestASessionInASubfolderOrASiblingOfAGMsFolderDoesntBlock(t *testing.T) {
 		}
 	}
 	if err := updateRegistry(func(f *registryFile) {
-		f.hires[0].State, f.hires[0].Folder, f.hires[0].Worktree = "working", folder, ""
+		f.hires[0].State, f.hires[0].Folder, f.hires[0].Worktree = "working", keptPath(folder), keptPath("")
 	}); err != nil {
 		t.Fatal(err)
 	}

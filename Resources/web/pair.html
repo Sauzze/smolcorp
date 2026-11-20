@@ -39,8 +39,9 @@
     <button id="go" disabled>Pair</button>
   </form>
   <div class="error" id="error" role="alert"></div>
-  <div class="help">Codes last five minutes and work once.</div>
+  <div class="help">Codes last five minutes and work once. On the Wi-Fi, scan the QR code: a typed code works over Tailscale.</div>
 </main>
+<script src="/sign.js"></script>
 <script>
   const code = document.getElementById('code');
   const go = document.getElementById('go');
@@ -63,9 +64,7 @@
       const res = await fetch('/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: code.value }) });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error);
-      // The key goes in the page's URL, so Add to Home Screen keeps it: the
-      // deck's, or the office's when that's what was opened.
-      location.replace(`${location.pathname}?t=${encodeURIComponent(body.key)}`);
+      openDeck(body.key);
     } catch (err) {
       error.textContent = err.message || 'Could not reach your computer. Are you on the same Wi-Fi?';
       code.value = '';
@@ -73,14 +72,42 @@
     }
   }
 
-  // Opened from the QR code: the code is in the address, so pair straight
-  // away. It comes out of the address first, since it only works once.
-  const scanned = new URLSearchParams(location.search).get('pair');
+  // The deck, or the office when that's what was opened, with the key after #: a browser never sends that
+  // part of an address, and Add to Home Screen keeps it. The deck signs its requests with it (sign.js).
+  function openDeck(key) {
+    location.replace(`${location.pathname}?deck#k=${encodeURIComponent(key)}`);
+  }
+
+  // Scanned: the QR code holds a key after #, which never crossed the network. It comes out of the address
+  // first, since it only works once, and this phone claims it with a request signed with it, sending a part
+  // of its own: its key is made of both, so a photo of the QR code alone isn't it (this request, read off the
+  // Wi-Fi as it goes, would give the rest: keep the QR code to yourself).
+  async function claim(key, again) {
+    try {
+      const part = smolcorpSign.ownPart();
+      const res = await fetch(smolcorpSign.signer(key)('POST', '/pair', { p: part }), { method: 'POST' });
+      if (res.ok) return openDeck(smolcorpSign.phoneKey(key, part));
+      const body = await res.json();
+      // This phone's clock is off: once more, on the computer's.
+      if (body.why === 'clock' && !again) {
+        smolcorpSign.setNow(body.now);
+        return claim(key, true);
+      }
+      throw new Error(body.error);
+    } catch (err) {
+      error.textContent = err.message || 'Could not reach your computer. Are you on the same Wi-Fi?';
+      code.focus();
+    }
+  }
+
+  const scanned = new URLSearchParams(location.hash.slice(1)).get('pair');
+  const saved = new URLSearchParams(location.search).has('t');
+  if (scanned || saved) history.replaceState(null, '', location.pathname);
   if (scanned) {
-    history.replaceState(null, '', '/');
-    code.value = scanned.replace(/\D/g, '').slice(0, 6);
-    pair();
+    claim(scanned);
   } else {
+    // A page saved before signing holds its key in its address, which the Wi-Fi could read: no longer taken there.
+    if (saved) error.textContent = 'This saved page sends its key unencrypted, so it no longer works over the Wi-Fi (or this phone was unpaired). Pair again with the QR code, then add the new page to your Home Screen.';
     code.focus();
   }
 </script>

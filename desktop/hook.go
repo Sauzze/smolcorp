@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +22,8 @@ import (
 // on as it is, with headers for the agent, the time the event was raised,
 // the session's tab (see Tab), and the folder the agent was started in, where
 // the agent says: the event's cwd follows the agent into subfolders. The key
-// is read from its file, so it never appears on a command line.
+// is a desk's own, from its start (hookkeys.go), or else the owner's sessions',
+// read from its file: never on a command line.
 //
 // A headless claude run, one with no terminal at all, reports in only when
 // whoever started it sets SMOLCORP_HEADLESS=1: its tab is then
@@ -44,6 +47,31 @@ const (
 	longestText = 4096
 )
 
+// testSupportVariable is a test copy's support folder, which a test copy's
+// hire's start script exports (hirestart.go), as the guard and `smolcorp gm`
+// read it.
+const testSupportVariable = "SMOLCORP_TEST_SUPPORT_DIR"
+
+// hookKeyFileFor is the hook key a hook sends: a test copy's own, in its
+// folder, when testSupport names one (a full path), so a test copy's hire never
+// reads the real app's key, nor reports with it; else the app's.
+func hookKeyFileFor(testSupport string) string {
+	if testSupport != "" && filepath.IsAbs(testSupport) {
+		return filepath.Join(filepath.Clean(testSupport), "hook-key")
+	}
+	return hookKeyFile
+}
+
+// hookKeyFor is the key a hook sends: its desk's own when its start gave one, and then never the file's, which stays
+// the owner's own sessions'; else the file's (hookKeyFileFor).
+func hookKeyFor(getenv func(string) string, read func(string) ([]byte, error)) (string, error) {
+	if key := strings.TrimSpace(getenv(hookKeyEnvironment)); key != "" {
+		return key, nil
+	}
+	key, err := read(hookKeyFileFor(getenv(testSupportVariable)))
+	return strings.TrimSpace(string(key)), err
+}
+
 // RunHook always returns 0: a hook that fails would hold up the agent.
 func RunHook(args []string) int {
 	agent := string(Claude)
@@ -64,19 +92,31 @@ func RunHook(args []string) int {
 		return 0
 	}
 	event = trimmedEvent(event)
-	key, err := os.ReadFile(hookKeyFile)
-	if err != nil {
-		return 0
+	// A sandboxed plain hire's hook has no key: its launcher's relay sends the event on (hookrelay.go).
+	client, address := &http.Client{Timeout: hookTimeout}, fmt.Sprintf("http://127.0.0.1:%d/hook", port)
+	key := ""
+	if relay := hookRelayFor(os.Getenv); relay != "" {
+		client, address = hookRelayClient(relay), "http://relay"+hookRelayPath
+	} else {
+		var err error
+		if key, err = hookKeyFor(os.Getenv, os.ReadFile); err != nil {
+			return 0
+		}
 	}
-	request, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/hook", port), bytes.NewReader(event))
+	request, err := http.NewRequest(http.MethodPost, address, bytes.NewReader(event))
 	if err != nil {
 		return 0
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set(hookKeyHeader, strings.TrimSpace(string(key)))
+	if key != "" {
+		request.Header.Set(hookKeyHeader, key)
+	}
 	request.Header.Set("X-AgentDeck-Agent", agent)
 	request.Header.Set("X-AgentDeck-At", strconv.FormatInt(time.Now().UnixMilli(), 10))
-	tab := tabFromEnvironment(Agent(agent), event)
+	tab, tty, send := hookTab(Agent(agent), event)
+	if !send {
+		return 0
+	}
 	if strings.HasPrefix(tab, "headless:") {
 		request.Header.Set("X-AgentDeck-PID", strconv.Itoa(headlessAgentPID()))
 		if parent := os.Getenv("SMOLCORP_PARENT_FOLDER"); parent != "" && strings.IndexFunc(parent, unicode.IsControl) < 0 {
@@ -89,8 +129,13 @@ func RunHook(args []string) int {
 		return 0
 	}
 	request.Header.Set("X-AgentDeck-Tab", tab)
+	if tty != "" {
+		request.Header.Set("X-AgentDeck-TTY", tty)
+	}
 	request.Header.Set("X-AgentDeck-Project", startFolderFromEnvironment())
-	client := http.Client{Timeout: hookTimeout}
+	if billing := hookBilling(os.Getenv); billing != "" {
+		request.Header.Set("X-AgentDeck-Billing", billing)
+	}
 	if response, err := client.Do(request); err == nil {
 		response.Body.Close()
 	}
@@ -104,6 +149,16 @@ func startFolderFromEnvironment() string {
 		return folder
 	}
 	return os.Getenv("GEMINI_PROJECT_DIR")
+}
+
+// hookTab is the session's tab, and whether to send the event at all: on a Mac
+// by the Mac app's rules (macHookTab), with the tty they find, sent as
+// report.sh sends it; elsewhere from the environment alone.
+func hookTab(agent Agent, event []byte) (tab, tty string, send bool) {
+	if runtime.GOOS == "darwin" {
+		return macHookTab(agent, event, os.Getenv, psProcess, os.Getppid())
+	}
+	return tabFromEnvironment(agent, event), "", true
 }
 
 // tabFromEnvironment names the session's tab from the variables the launcher
@@ -144,6 +199,9 @@ func sessionIDOf(event []byte) string {
 // nearest node, running it, as a node further up may be whatever started the
 // run, and outlive it; else the process that ran the hook.
 func headlessAgentPID() int {
+	if runtime.GOOS == "darwin" {
+		return nearestAgent(os.Getppid(), macParent(psProcess))
+	}
 	return nearestAgent(os.Getppid(), processParent)
 }
 
@@ -239,4 +297,16 @@ func shortened(value any) any {
 		}
 	}
 	return value
+}
+
+// hookBilling is how the agent pays, from its environment, for ⓘ Info's card, as report.sh says it: "cloud" with
+// Bedrock, Vertex or Foundry, "api-key" with a key or token, else "". Only whether one is set, never what it is.
+func hookBilling(getenv func(string) string) string {
+	switch {
+	case getenv("CLAUDE_CODE_USE_BEDROCK")+getenv("CLAUDE_CODE_USE_VERTEX")+getenv("CLAUDE_CODE_USE_FOUNDRY") != "":
+		return billingCloud
+	case getenv("ANTHROPIC_API_KEY")+getenv("ANTHROPIC_AUTH_TOKEN") != "":
+		return billingAPIKey
+	}
+	return ""
 }

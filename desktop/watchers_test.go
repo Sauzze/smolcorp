@@ -44,10 +44,10 @@ func watchDeck(t *testing.T) *watchBench {
 	}
 	other, _ := filepath.EvalSymlinks(t.TempDir())
 	file := registryFile{hires: []Hire{
-		{ID: "a1b2c3", Name: "Reviewer", Nickname: "Rev", Role: "reviewer", Folder: root, State: "working"},
-		{ID: "d4e5f6", Name: "Janitor", Role: "janitor", Folder: other, State: "idle"},
-		{ID: "9z9z9z", Name: "Zed", Role: "builder", Folder: filepath.Join(root, "zed"), State: "working"},
-		{ID: "0a0b0c", Name: "Builder", Nickname: "Bob", Role: "builder", Folder: filepath.Join(root, "old"), State: "fired"},
+		{ID: "a1b2c3", Name: "Reviewer", Nickname: "Rev", Role: "reviewer", Folder: keptPath(root), State: "working"},
+		{ID: "d4e5f6", Name: "Janitor", Role: "janitor", Folder: keptPath(other), State: "idle"},
+		{ID: "9z9z9z", Name: "Zed", Role: "builder", Folder: keptPath(filepath.Join(root, "zed")), State: "working"},
+		{ID: "0a0b0c", Name: "Builder", Nickname: "Bob", Role: "builder", Folder: keptPath(filepath.Join(root, "old")), State: "fired"},
 	}}
 	if err := file.save(registryPath()); err != nil {
 		t.Fatal(err)
@@ -387,7 +387,7 @@ func TestAFileWatchLooksOnlyInsideAHiresFolderOrTheHiresFolderAndNeverAtSecrets(
 	for path, want := range map[string]int{
 		filepath.Join(b.root, "STATUS.md"):               200, // not there yet is fine
 		filepath.Join(b.root, "sub", "deep", "S.md"):     200,
-		filepath.Join(hiresDir, "rev", "STATUS.md"):      200,
+		filepath.Join(hiresDir, "rev", "STATUS.md"):      403, // the support folder isn't the GM's (FXSWEEP3P3 F-2): the owner's, below
 		filepath.Join(b.root, ".env"):                    403,
 		filepath.Join(b.root, ".env.local"):              403,
 		filepath.Join(b.root, ".git", "config"):          403,
@@ -402,6 +402,10 @@ func TestAFileWatchLooksOnlyInsideAHiresFolderOrTheHiresFolderAndNeverAtSecrets(
 		if got := trial(path, ""); got != want {
 			t.Errorf("%s: %d, want %d", path, got, want)
 		}
+	}
+	// The owner's own watch keeps the hires folder (FXSWEEP3P3 F-2).
+	if body, _ := json.Marshal(map[string]any{"kind": "file", "target": filepath.Join(hiresDir, "rev", "STATUS.md"), "pattern": "x"}); b.call("POST", "/setup/gm/watch", string(body), false).Code != 200 {
+		t.Error("the owner's watch in the hires folder was refused")
 	}
 	// A short path is inside the hire's folder; a folder that is the home folder, or above it, opens nothing.
 	if got := trial("STATUS.md", "Rev"); got != 200 {

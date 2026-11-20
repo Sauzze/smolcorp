@@ -1,7 +1,19 @@
 #!/bin/bash
 # Builds a test copy of Smolcorp and opens it beside the one in use:
 #
-#   scripts/test-copy.sh [port]     7790 if not given
+#   scripts/test-copy.sh [--show] [port]     7790 if not given
+#
+# It opens hidden, in the background (open -g -j): it never comes in front of
+# what you're doing or takes the keyboard, and puts up no window or alert by
+# itself (see TestCopy.mayComeForward); everything goes through its HTTP
+# routes. --show opens it as an app normally opens, for trying it by hand. It
+# says its pid as it starts; quit it with kill <pid>.
+#
+# It listens on this Mac only (127.0.0.1 and ::1), so nothing on the network
+# reaches it and the Mac's firewall never asks about it, on either engine. For
+# the phone matrix only, SMOLCORP_TEST_LISTEN=lan lets it onto the local network:
+#
+#   SMOLCORP_TEST_LISTEN=lan scripts/test-copy.sh 7791
 #
 # The copy is "Smolcorp Test" (io.github.sauzze.agentdeck.test), so macOS
 # keeps its permissions apart from the real app's. It listens on its own
@@ -24,6 +36,7 @@
 #                   account reads that file too.
 #   test-viewer-key-id, -key, -write-secret
 #                   the portable office's id, key and write secret
+#   test-peer-keys  the Macs this copy joined for floors, keys and all
 #   (the push key is never read in a test copy: it has none)
 #
 # For ✨ Summary without a key or a bill, point it at a stand-in for
@@ -31,16 +44,34 @@
 #
 #   SMOLCORP_TEST_ANTHROPIC_URL=http://127.0.0.1:7781/v1/messages scripts/test-copy.sh
 #
-# Sessions report to it only when started with its own hook, as:
+# To run it while Terminal.app is open without asking Terminal anything (no
+# Automation prompt, no wait on one), for desks in tmux only:
 #
-#   claude --settings build/test-support/claude-settings.json
+#   SMOLCORP_TEST_NO_TERMINAL_APP=1 scripts/test-copy.sh
 #
-# Quit it from its menu bar icon. Running this again replaces the copy on
-# the same port, and only that one.
+# Sessions report to it only when started with its own hook, and without your
+# own settings, whose hooks report to the Smolcorp you use:
+#
+#   claude --setting-sources project,local --settings build/test-support/claude-settings.json
+#
+# Quit it by its pid, or from its menu bar icon. Running this again replaces
+# the copy on the same port, and only that one.
+#
+# It has the hardened runtime, as every build does, and is never signed with
+# your own identity: ad hoc, or with the team's test identity named in
+# SMOLCORP_TEST_SIGN_IDENTITY ("Smolcorp Test", docs/RELEASING.md). So it can't
+# read the Keychain items of the Smolcorp you use, and building one never
+# unlocks your signing keychain.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# Hidden and in the background unless --show asks for it as an app opens.
+HIDDEN=(-g -j)
+if [[ "${1:-}" == "--show" ]]; then
+  HIDDEN=()
+  shift
+fi
 PORT="${1:-7790}"
 # A number only, read as decimal: 07710 or +7710 would otherwise slip past the check below.
 [[ "$PORT" =~ ^[0-9]+$ ]] || { echo "The port must be a number."; exit 1; }
@@ -54,12 +85,14 @@ esac
 APP="build/Smolcorp Test.app"
 SUPPORT="$PWD/build/test-support"
 
-scripts/build-app.sh
+TEST_IDENTITY="${SMOLCORP_TEST_SIGN_IDENTITY:--}"
+SMOLCORP_SIGN_IDENTITY="$TEST_IDENTITY" scripts/build-app.sh
 rm -rf "$APP"
 cp -R build/Smolcorp.app "$APP"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier io.github.sauzze.agentdeck.test" \
   -c "Set :CFBundleName Smolcorp Test" "$APP/Contents/Info.plist"
-codesign --force --sign - "$APP"
+codesign --force --options runtime --sign "$TEST_IDENTITY" --entitlements packaging/macos/Smolcorp.entitlements "$APP"
+scripts/check-runtime.sh "$APP"
 
 # Its hook: the real one, sending to this copy's port.
 mkdir -p "$SUPPORT"
@@ -78,13 +111,50 @@ json.dump(settings, open(f"{support}/claude-settings.json", "w"), indent=2)
 PY
 
 # Only the test copy on this port: another session's copy, on its own port,
-# is left alone.
+# is left alone. A copy on the Go engine ("engine": "go") listens through its
+# core, bin/smolcorp core; the copy is the core's parent, and its core ends
+# with it.
 for pid in $(lsof -t -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null); do
   case "$(ps -o command= -p "$pid")" in
     *"Smolcorp Test.app/Contents/MacOS/"*) kill "$pid" ;;
+    *"Smolcorp Test.app/Contents/Resources/bin/smolcorp core "*)
+      parent="$(ps -o ppid= -p "$pid" | tr -d ' ')"
+      case "$(ps -o command= -p "$parent")" in
+        *"Smolcorp Test.app/Contents/MacOS/"*) kill "$parent" ;;
+      esac ;;
   esac
 done
-open -n --env "SMOLCORP_TEST_PORT=$PORT" --env "SMOLCORP_TEST_SUPPORT_DIR=$SUPPORT" \
-  ${SMOLCORP_TEST_ANTHROPIC_URL:+--env "SMOLCORP_TEST_ANTHROPIC_URL=$SMOLCORP_TEST_ANTHROPIC_URL"} "$APP"
-echo "Smolcorp Test is opening on port $PORT, with its settings in $SUPPORT."
-echo "A Claude session that reports to it: claude --settings $SUPPORT/claude-settings.json"
+# The port free before the new copy takes it: a core takes a moment to end.
+for _ in $(seq 50); do
+  lsof -t -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 || break
+  sleep 0.1
+done
+open -n ${HIDDEN[@]+"${HIDDEN[@]}"} --env "SMOLCORP_TEST_PORT=$PORT" --env "SMOLCORP_TEST_SUPPORT_DIR=$SUPPORT" \
+  ${SMOLCORP_TEST_ANTHROPIC_URL:+--env "SMOLCORP_TEST_ANTHROPIC_URL=$SMOLCORP_TEST_ANTHROPIC_URL"} \
+  ${SMOLCORP_TEST_NO_TERMINAL_APP:+--env "SMOLCORP_TEST_NO_TERMINAL_APP=$SMOLCORP_TEST_NO_TERMINAL_APP"} \
+  ${SMOLCORP_TEST_LISTEN:+--env "SMOLCORP_TEST_LISTEN=$SMOLCORP_TEST_LISTEN"} "$APP"
+
+# Its pid, once it listens: the app's own, or on the Go engine its core's parent, the app.
+COPY=""
+for _ in $(seq 200); do
+  for pid in $(lsof -t -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null); do
+    case "$(ps -o command= -p "$pid")" in
+      *"Smolcorp Test.app/Contents/MacOS/"*) COPY="$pid" ;;
+      *"Smolcorp Test.app/Contents/Resources/bin/smolcorp core "*) COPY="$(ps -o ppid= -p "$pid" | tr -d ' ')" ;;
+    esac
+  done
+  [[ -n "$COPY" ]] && break
+  sleep 0.1
+done
+WHERE="this Mac only"
+# Read as both engines read it (TestCopy.wantsLAN): spaces and line breaks around it, and the letter case, don't
+# matter; one inside it does.
+[[ "$(printf %s "${SMOLCORP_TEST_LISTEN:-}" | tr "[:upper:]" "[:lower:]" | tr '[:space:]' ' ' | sed -e 's/^ *//' -e 's/ *$//')" == "lan" ]] && WHERE="the local network too"
+if [[ -n "$COPY" ]]; then
+  echo "Smolcorp Test is running on port $PORT ($WHERE), pid $COPY, with its settings in $SUPPORT."
+  echo "Quit it with: kill $COPY"
+else
+  echo "Smolcorp Test is opening on port $PORT, with its settings in $SUPPORT, but isn't listening yet."
+  echo "Its pid, once it is: lsof -t -nP -iTCP:$PORT -sTCP:LISTEN"
+fi
+echo "A Claude session that reports to it: claude --setting-sources project,local --settings $SUPPORT/claude-settings.json"

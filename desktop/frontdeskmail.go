@@ -82,9 +82,11 @@ func (f registryFile) mayWrite(from, to string) bool {
 }
 
 // findHire is the hire a name means: its id, else its nickname or name (open
-// hires first, so a fired hire's name can be used again). Says why not when
-// there is none or two (FrontDesk.find).
-func findHire(name string, all []Hire) (Hire, *refusal) {
+// hires first, so a fired hire's name can be used again), else, for a hire
+// with no nickname of its own, the name `gm team` shows for it (shown, from
+// Deck.shownNames; nil for none). Says why not when there is none or two
+// (FrontDesk.find).
+func findHire(name string, all []Hire, shown map[string]string) (Hire, *refusal) {
 	asked := strings.ToLower(strings.TrimFunc(name, func(r rune) bool { return r == '\t' || unicode.Is(unicode.Zs, r) }))
 	var found []Hire
 	for _, h := range all {
@@ -108,6 +110,9 @@ func findHire(name string, all []Hire) (Hire, *refusal) {
 		}
 	}
 	if len(found) == 0 {
+		found = shownMatch(asked, all, shown, nil)
+	}
+	if len(found) == 0 {
 		return Hire{}, &refusal{http.StatusNotFound, "There's no hire called that. Look at the team for ids and names."}
 	}
 	if len(found) > 1 {
@@ -116,13 +121,16 @@ func findHire(name string, all []Hire) (Hire, *refusal) {
 	return found[0], nil
 }
 
+// contactsShape is setContacts' answer to a request that isn't {from, to, …} with two names as text (a 400).
+const contactsShape = "Send {from, to, oneWay?, remove?}: two hires, by id or name."
+
 // setContacts is POST /setup/gm/contacts, with {from, to, oneWay?, remove?}:
 // from and to are hires' ids, nicknames or names. By default two hires may
 // write to each other; with oneWay, only from to to. remove takes the pair
 // away (with oneWay, only that direction). Answers the pairs as they are now
 // (FrontDesk.setContacts).
-func setContacts(path string, body []byte) ([]Contact, *refusal) {
-	badShape := &refusal{http.StatusBadRequest, "Send {from, to, oneWay?, remove?}: two hires, by id or name."}
+func setContacts(path string, body []byte, shown map[string]string) ([]Contact, *refusal) {
+	badShape := &refusal{http.StatusBadRequest, contactsShape}
 	var given map[string]json.RawMessage
 	if json.Unmarshal(body, &given) != nil {
 		return nil, badShape
@@ -138,14 +146,19 @@ func setContacts(path string, body []byte) ([]Contact, *refusal) {
 		}
 	}
 	oneWay, removing := flags[0], flags[1]
+	// A pair taken away while the records' key can't be read would come back at the restart: the core holds no
+	// contact from the file then, so the file's stays (records.go's refusedWhileHeld, RT126SK1R4 follow-up 2).
+	if removing && recordsHeldOnly() {
+		return nil, &refusal{http.StatusConflict, recordsHeldAnswer}
+	}
 	frontDeskMu.Lock()
 	defer frontDeskMu.Unlock()
 	file := readRegistry(path, true)
-	first, refused := findHire(from, file.hires)
+	first, refused := findHire(from, file.hires, shown)
 	if refused != nil {
 		return nil, refused
 	}
-	second, refused := findHire(to, file.hires)
+	second, refused := findHire(to, file.hires, shown)
 	if refused != nil {
 		return nil, refused
 	}
@@ -181,15 +194,25 @@ func setContacts(path string, body []byte) ([]Contact, *refusal) {
 	return file.contactsJSON(), nil
 }
 
-// The GM's token is kept in memory only, on the Deck: no file, no secret store.
+// The GM's token is kept in memory, on the Deck, and between runs in the Mac's
+// Keychain or this computer's secret store (gmtokenstore.go); under the Mac app
+// also in a file while a GM started by hand is allowed (gmbyhand.go).
 // The hire engine makes one when it hires or replaces the GM (newGMToken), and
-// takes it away when the GM goes (clearGMToken). Until then nobody is the GM.
+// takes it away when the GM goes (clearGMToken). Until then nobody is the GM,
+// but for one started by hand with the setting on, which always has a token.
 
-// newGMToken makes a fresh token and makes it the only valid one.
+// newGMToken makes a fresh token and makes it the only valid one. It is kept for the next run before it is given,
+// as rotate does: written to the store at once, without d.mu, and "" if that fails, so the hire is refused and a
+// GM hired after one that was fired can't leave the fired GM's token as the one kept (RTOK2 B1). Never call it
+// with d.mu held.
 func (d *Deck) newGMToken() string {
 	token := randomKey()
+	if d.gmKept.writeNow(gmVerifierForm(hashKey(token))) != nil {
+		return ""
+	}
 	d.mu.Lock()
 	d.gmToken = token
+	d.gmTokenChanged()
 	d.mu.Unlock()
 	return token
 }
@@ -198,6 +221,7 @@ func (d *Deck) newGMToken() string {
 func (d *Deck) clearGMToken() {
 	d.mu.Lock()
 	d.gmToken = ""
+	d.gmTokenChanged()
 	d.mu.Unlock()
 }
 
@@ -205,16 +229,27 @@ func (d *Deck) clearGMToken() {
 // failed or was fired takes its own token away, never a newer GM's.
 func (d *Deck) clearGMTokenIf(token string) {
 	d.mu.Lock()
-	if token != "" && constantTimeEqual(d.gmToken, token) {
+	if check := d.gmCheck(); token != "" && check != "" && constantTimeEqual(hashKey(token), check) {
 		d.gmToken = ""
+		d.gmTokenChanged()
 	}
 	d.mu.Unlock()
 }
 
-// isGMToken says whether a header's value is the GM's token. It never makes
-// one: with no token yet, nobody is the GM. The caller holds d.mu.
+// isGMToken says whether a header's value is the GM's token, by its verifier (gmCheck): the core keeps no GM token
+// between runs, only its hash. It never makes one: with no token yet, nobody is the GM. The caller holds d.mu.
 func (d *Deck) isGMToken(candidate string) bool {
-	return candidate != "" && d.gmToken != "" && constantTimeEqual(candidate, d.gmToken)
+	check := d.gmCheck()
+	return candidate != "" && check != "" && constantTimeEqual(hashKey(candidate), check)
+}
+
+// gmCheck is what the GM's token is checked against: the hash of the token made in this run, else the verifier
+// kept from the last, else "" (no GM). The caller holds d.mu.
+func (d *Deck) gmCheck() string {
+	if d.gmToken != "" {
+		return hashKey(d.gmToken)
+	}
+	return d.gmVerifier
 }
 
 // The two texts the GM's token gets when it asks to hire the General Manager

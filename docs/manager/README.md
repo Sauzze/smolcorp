@@ -16,18 +16,20 @@ On the setup page, under **Start here**, press **Hire your General Manager**. Sm
 
 Tell it the goal. It answers with a plan and waits for your OK. After that it chooses who to hire, which role and in what order, and asks you only about what is yours. See the [hiring guide](HIRING-GUIDE.md) for how a hire works.
 
+On a Mac with the sandbox on, the GM keeps its plans in a folder of its own inside your projects folder, `.smolcorp/plans/<its id>`. It can't make a git folder there, but it can move in a folder that holds one, and Smolcorp doesn't check that folder at the GM's next start the way it checks a hire's. So don't run git inside it: read or copy the plans instead.
+
 ## What the GM can do
 
 - See the team: who is working, where, and what each one last reported.
 - Hire an employee (its own worktree and branch), send it a brief, fire it.
 - Send a message to a hire, and read the replies in its inbox.
 - Ask Smolcorp to watch a file, a time, or a hire going idle, and be told when it happens.
-- Tile the team's windows on a screen.
+- Tile the team's windows on a screen (on the Mac).
 - Keep notes on each employee.
 
 ## What the GM can't do
 
-The GM can't push, publish, deploy or use cloud tools: the same guard as hires (with its own `smolcorp gm` actions allowed). It never answers a permission prompt (no route does).
+The GM can't push, publish, deploy, use cloud tools, merge onto a base branch or spend money: the same guard as hires (with its own `smolcorp gm` actions allowed). It never answers a permission prompt (no route does).
 
 **Never, by the app:**
 - **Answer a permission prompt.** No tool, command or route does this, for the GM or for anyone it hires. Only you, in the window that asks. If a hire is stuck on a prompt, the GM tells you.

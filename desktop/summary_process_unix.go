@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 )
@@ -23,6 +24,9 @@ func useCommandLine(*exec.Cmd, string) {}
 type processGroup struct{ id int }
 
 func joinGroup(cmd *exec.Cmd) processGroup { return processGroup{cmd.Process.Pid} }
+
+// groupOf is the group of a process started as its group's first, as a pseudo-terminal's (signinrun.go).
+func groupOf(process *os.Process) processGroup { return processGroup{process.Pid} }
 
 func (g processGroup) kill() error {
 	if g.id <= 0 {

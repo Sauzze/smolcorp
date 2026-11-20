@@ -51,3 +51,6 @@ var errInstallByScript = errors.New("Run ./install.sh from the folder you downlo
 
 // installNow: install.sh installs here.
 func installNow() error { return errInstallByScript }
+
+// removeOldPrograms: install.sh leaves nothing aside here.
+func removeOldPrograms() {}

@@ -214,13 +214,24 @@ func TestThePumpEndsATryThatPanics(t *testing.T) {
 
 func TestTheDeckPumpStopsAndMayBeStoppedTwice(t *testing.T) {
 	d := newTestDeck(t)
-	stop := d.startMailPump()
+	stop, ended := d.startMailPump()
+	select {
+	case <-ended:
+		t.Fatal("the pump says it has ended before its stop")
+	default:
+	}
 	done := make(chan struct{})
 	go func() { stop(); stop(); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the pump did not stop")
+	}
+	// Its stop has waited for it: it says it has ended.
+	select {
+	case <-ended:
+	default:
+		t.Error("the pump's stop came back, and it doesn't say it has ended")
 	}
 }
 
@@ -229,7 +240,7 @@ func TestTheDeckKnowsWhenAHiresSessionIsAsking(t *testing.T) {
 	d := newTestDeck(t)
 	folder := t.TempDir()
 	other := t.TempDir()
-	h := Hire{ID: "abcdef123456", Name: "Rev", Folder: folder}
+	h := Hire{ID: "abcdef123456", Name: "Rev", Folder: keptPath(folder)}
 	d.mu.Lock()
 	d.sessions.byID["s1"] = &Session{ID: "s1", Folder: other, State: Asking}
 	d.sessions.byID["s2"] = &Session{ID: "s2", Folder: folder, State: Thinking}
