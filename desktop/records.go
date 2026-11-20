@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Sauzze/smolcorp/internal/guard"
 )
 
 // Sealed records (SANDBOX-PLAN §3.2, SK1). Every file that says who is let in, or what they may do, is a sealed
@@ -213,6 +215,14 @@ func keyFromBridge(item bridgeRecordKey) []byte {
 // item of the key in the Keychain, which no other program can bring about (it can't delete the app's item: K9).
 // Sealed files deleted later only start the records over: a guard or a setting another program wrote then is
 // never sealed as found.
+//
+// An update whose start stopped before its records were sealed (a Keychain prompt left open, the app quit) is
+// finished at the next start, as the update itself (FXUPGRADESTART126R1): the app says the one item there was made
+// for it and is still marked so (record-key-look's update), this update's marker was there before this start, and
+// whatever carries a seal was sealed under that key: by the update's own start. Only the app writes or deletes the
+// mark, in the Keychain, and it fits the key alone; this start's own end has it deleted (settleRecords), and so
+// does a start that finds it with anything else (then nothing counts as found, as before). So deleting files never
+// brings it about, and the files count as found only while the update's first start could still have found them.
 func startRecords(h hostBridge) {
 	records.mu.Lock()
 	defer records.mu.Unlock()
@@ -224,8 +234,24 @@ func startRecords(h hostBridge) {
 	if h == nil {
 		return
 	}
+	look, err := hostRecordKey(h, "record-key-look", "")
+	if err == nil && look.Update {
+		if key := keyOfOne(look); key != nil && !records.rotated && sealedUnder(key) {
+			records.key, records.id, records.state = key, look.RecordKeys[0].ID, recordsOK
+			records.first, records.rotated = true, true
+			// The update's note, as its first start wrote it: what falls back now is added to it (settleUpdateNote).
+			updating.Lock()
+			updating.note = readUpdateNote()
+			updating.Unlock()
+			return
+		}
+		// Marked, but not as the update's start leaves things: the update is over, and nothing counts as found. The
+		// mark is named by its key's id: the app deletes that one alone (RT126UPGRADESTART N1).
+		if len(look.RecordKeys) == 1 {
+			_, _ = hostRecordKey(h, "record-key-settled", look.RecordKeys[0].ID)
+		}
+	}
 	if !sealedOnDisk() {
-		look, err := hostRecordKey(h, "record-key-look", "")
 		update := err == nil && look.Records == "none"
 		item := ""
 		if update {
@@ -239,7 +265,7 @@ func startRecords(h hostBridge) {
 		records.key, records.id, records.state, records.first = keyFromBridge(answer.RecordKeys[0]), answer.RecordKeys[0].ID, recordsOK, update
 		return
 	}
-	answer, err := hostRecordKey(h, "record-key-look", "")
+	answer := look
 	switch {
 	case err != nil:
 		records.state = recordsUnreadable
@@ -278,6 +304,34 @@ func interruptedRotation(items []bridgeRecordKey) bool {
 		}
 	}
 	return false
+}
+
+// keyOfOne is the key of the one item record-key-look found, or nil.
+func keyOfOne(look bridgeAnswer) []byte {
+	if look.Records != "one" || len(look.RecordKeys) != 1 {
+		return nil
+	}
+	return keyFromBridge(look.RecordKeys[0])
+}
+
+// sealedUnder is whether every record in the support folder that carries a seal, the guard's seal among them, was
+// sealed under key: all an update's start that stopped before its end can have left (startRecords).
+func sealedUnder(key []byte) bool {
+	for _, name := range sealedRecordNames() {
+		if data, err := os.ReadFile(filepath.Join(supportDir, name)); err == nil {
+			if seal, ok := sealOfFile(name, data); ok && !seal.fits(key) {
+				return false
+			}
+		}
+	}
+	path := filepath.Join(supportDir, hireGuardFile)
+	if seal, err := os.ReadFile(guardSealPath(path)); err == nil {
+		data, err := guard.ReadFile(path)
+		if err != nil || !hmac.Equal(bytes.TrimSpace(seal), []byte(guardSeal(key, data))) {
+			return false
+		}
+	}
+	return true
 }
 
 // sealedRecordNames are the files that carry a seal of their own, in the support folder: the GM's memory's manifest
@@ -808,8 +862,16 @@ func (d *Deck) settleRecords() {
 		d.macPeers.save()
 	}
 	records.mu.Lock()
+	first, h, id := records.first, records.host, records.id
 	records.first, records.writers = false, nil
 	records.mu.Unlock()
+	// The update's start is over once its records are sealed: the app deletes the mark that would have the next start
+	// finish it (startRecords). Asked at every first start, the update's or one finishing it; a reset made none.
+	if first && h != nil {
+		if _, err := hostRecordKey(h, "record-key-settled", id); err != nil {
+			sayRecordOnce("The update to 1.26 couldn't be marked as done in the Keychain: " + err.Error())
+		}
+	}
 	// Every record the core holds, written again under each new key even if this run never changes it.
 	if _, err := os.Lstat(phonesFile); err == nil {
 		keepWriter("phones.json", d.access.Phones.writer())

@@ -236,6 +236,90 @@ final class EngineTests: XCTestCase {
         XCTAssertThrowsError(try missing.start()) { XCTAssertEqual($0.localizedDescription, GoCore.Failure.noProgram.localizedDescription) }
     }
 
+    /// FXUPGRADESTART126: the update to 1.26's first start asks the Keychain through the bridge before the core says
+    /// it's ready (record-key-new, the items sealed as found), and a prompt holds that request until it's answered.
+    /// A core slower than its wait while its bridge answers a Keychain request still starts; without one, it doesn't.
+    func testACoreSlowerThanItsWaitWhileTheKeychainIsAskedStillStarts() throws {
+        XCTAssertEqual(GoCore.keychainWaitMost, 600, "past the core's own 5 minutes for a Keychain request (bridgeKeychainWait)")
+        let slow = "read token\nsleep 2\necho '{\"ready\":true}'\nwhile read line; do :; done"
+        let unasked = try core(slow)
+        XCTAssertThrowsError(try unasked.start(waitingUpTo: 1)) { error in
+            XCTAssertEqual(error.localizedDescription, "The Go engine didn't get ready: no answer in 1 s")
+        }
+
+        let core = try core(slow)
+        // The core's record-key-new at the update, held 2.5 s as a prompt would hold it, answered as the bridge answers
+        // the core's own request (`HostBridge.serve`), on its clock.
+        var held = HostBridge.Actions.mac
+        held.records = HeldRecordKeys(wait: 2.5)
+        let request = try JSONSerialization.data(withJSONObject: ["token": core.bridge.token, "action": "record-key-new", "item": "update"])
+        let answered = expectation(description: "the Keychain's answer")
+        DispatchQueue.global().async {
+            let answer = HostBridge.answer(request, token: core.bridge.token, actions: held, keychain: core.bridge.keychain)
+            XCTAssertEqual(answer["ok"] as? Bool, true)
+            answered.fulfill()
+        }
+        while core.bridge.keychain.seconds == 0 { Thread.sleep(forTimeInterval: 0.01) }
+        let started = Date()
+        try core.start(waitingUpTo: 1)
+        XCTAssertGreaterThan(Date().timeIntervalSince(started), 1.5, "it was ready past its wait")
+        XCTAssertNotNil(core.pid)
+        wait(for: [answered], timeout: 5)
+        XCTAssertTrue(core.stop(grace: 1))
+    }
+
+    /// FXUPGRADESTART126: a core that didn't get ready is started once more before the menu says so, as quitting and
+    /// opening Smolcorp again did by hand; a dead one is tried twice, then said. A build without the engine, once.
+    func testACoreThatDidntGetReadyIsStartedOnceMore() throws {
+        XCTAssertEqual(GoShellDelegate.startTries, 2)
+        let tries = folder.appendingPathComponent("tries"), marker = folder.appendingPathComponent("tried")
+        func count() -> Int { ((try? String(contentsOf: tries)) ?? "").split(separator: "\n").count }
+        var said: [String] = []
+
+        let once = try core("""
+            echo try >> '\(tries.path)'
+            if [ ! -e '\(marker.path)' ]; then touch '\(marker.path)'; exit 3; fi
+            \(answering)
+            """)
+        XCTAssertNil(GoShellDelegate.start(once, waitingUpTo: 5, waiting: { said.append($0) }), "the second start serves")
+        XCTAssertEqual(count(), 2)
+        XCTAssertEqual(once.setupSession()?.session, "fake-session", "it answers")
+        XCTAssertTrue(once.stop(grace: 2))
+
+        try? FileManager.default.removeItem(at: tries)
+        let dead = try core("echo try >> '\(tries.path)'\nexit 3")
+        XCTAssertEqual(GoShellDelegate.start(dead, waitingUpTo: 5, waiting: { said.append($0) }),
+                       "The Go engine didn't get ready: it ended (3)")
+        XCTAssertEqual(count(), 2, "tried once more, then said")
+
+        try? FileManager.default.removeItem(at: tries)
+        let silent = try core("echo try >> '\(tries.path)'\nsleep 30")
+        XCTAssertEqual(GoShellDelegate.start(silent, waitingUpTo: 0.5, waiting: { said.append($0) }),
+                       "The Go engine didn't get ready: no answer in 0 s")
+        XCTAssertEqual(count(), 2)
+        XCTAssertTrue(silent.pid.map(GoCore.isGone) ?? true, "and stopped")
+
+        let missing = GoCore(program: folder.appendingPathComponent("none"), port: 7779, support: folder,
+                             bridge: HostBridge(socket: folder.appendingPathComponent("bridge.sock")))
+        XCTAssertEqual(GoShellDelegate.start(missing, waiting: { said.append($0) }), GoCore.Failure.noProgram.localizedDescription)
+        XCTAssertEqual(said, [], "none of these is a taken port")
+
+        // A taken port is said and waited out as before, and isn't one of the tries.
+        try? FileManager.default.removeItem(at: tries)
+        try? FileManager.default.removeItem(at: marker)
+        let second = folder.appendingPathComponent("tried-twice")
+        let taken = try core("""
+            echo try >> '\(tries.path)'
+            if [ ! -e '\(marker.path)' ]; then touch '\(marker.path)'; exit \(GoCore.portInUseStatus); fi
+            if [ ! -e '\(second.path)' ]; then touch '\(second.path)'; exit \(GoCore.portInUseStatus); fi
+            \(answering)
+            """, port: 7710)
+        XCTAssertNil(GoShellDelegate.start(taken, waitingUpTo: 5, waiting: { said.append($0) }, retryDelay: 0))
+        XCTAssertEqual(said, Array(repeating: GoShellDelegate.portInUseLine(port: 7710), count: 2))
+        XCTAssertEqual(count(), 3)
+        XCTAssertTrue(taken.stop(grace: 2))
+    }
+
     /// A core whose port is taken ends with EADDRINUSE's status: the shell says so and tries again (M7WORDS).
     func testACoreWhosePortIsTakenIsSaidSo() throws {
         XCTAssertEqual(GoCore.portInUseStatus, EADDRINUSE, "as the core ends (desktop/core_darwin.go)")

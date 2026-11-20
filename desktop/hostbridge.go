@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 )
@@ -267,9 +268,11 @@ type bridgeAnswer struct {
 	// time-format: how this Mac writes a short time (macclock.go).
 	TimeFormat *macTimeFormat `json:"timeFormat,omitempty"`
 	// record-key-*: the record key's items (records.go), and what record-key-look found: "one", "none", "many",
-	// "moved" (an item overwritten) or "unreadable" (not without a prompt).
+	// "moved" (an item overwritten) or "unreadable" (not without a prompt). Update: the one item was made for the
+	// update to 1.26, whose start hasn't sealed the records yet (record-key-settled, RecordKey.swift's RecordKeyUpdate).
 	RecordKeys []bridgeRecordKey `json:"recordKeys,omitempty"`
 	Records    string            `json:"records,omitempty"`
+	Update     bool              `json:"update,omitempty"`
 	// keystroke-apps: the list, with the app on it or off it; glossary: the names, checked.
 	Apps  []string `json:"apps,omitempty"`
 	Names []string `json:"names,omitempty"`
@@ -414,6 +417,23 @@ const (
 // only this way, never a file or the Keychain itself). In a test copy the app
 // keeps them in files of its own.
 var bridgeSecrets = []string{"summary-key", "gm-token", "viewer-id", "viewer-key", "viewer-write-secret", peerKeysItem, pushKeyItem}
+
+// bridgeKeychainActions are the requests the Mac app answers from its Keychain (HostBridge.keychainActions, the same
+// list): a Keychain prompt holds one until you answer it, and the update to 1.26 does seconds of Keychain work in
+// record-key-new. Each is waited for up to bridgeKeychainWait, past the transport's own wait, so the core's start
+// doesn't go on without its record key while you answer; the app doesn't count that time against the start either
+// (GoCore.start, FXUPGRADESTART126).
+var bridgeKeychainActions = []string{"secret-read", "secret-write", "secret-delete", "record-key-look", "record-key-new",
+	"record-key-add", "record-key-retire", "record-key-settled", "api-key-offer", "api-key-read"}
+
+// bridgeKeychainWait is how long a Keychain request may take: under the app's GoCore.keychainWaitMost, so the core
+// gives up on one first. Only the core's start's requests (the record key, the secrets it reads) get it: once the core
+// is serving (coreStarted), a Keychain request gets the transport's own wait again, so a stalled one never holds a
+// rotation, a fire or a setting's save for minutes (RT126UPGRADESTART N3).
+var bridgeKeychainWait = 5 * time.Minute
+
+// coreStarted: the core's start is over (RunCore, once it serves): its Keychain requests are waited for as any other.
+var coreStarted atomic.Bool
 
 // ask sends request and turns a refusal into an error.
 func ask(h hostBridge, request bridgeRequest) (bridgeAnswer, error) {

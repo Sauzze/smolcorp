@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Security
 
@@ -46,11 +47,39 @@ protocol RecordKeyStore {
     func add() -> RecordKeyItem?
     /// The item `id` deleted: a rotation's last step.
     func retire(_ id: String) -> Bool
+    /// The update to 1.26 marked under way for `key`, the item just made for it (`RecordKeyUpdate`).
+    func markUpdate(for key: RecordKeyItem)
+    /// Whether the update's mark for `key` is there, as `markUpdate` left it.
+    func updateUnderWay(for key: RecordKeyItem) -> Bool
+    /// The update's mark for the key `id` deleted, by its account alone: the core's start sealed the records. Whether
+    /// no item under that account is left. Another item under the mark's name (K11), one the app can't delete among
+    /// them, neither stops it nor is touched (RT126UPGRADESTART N1).
+    func settleUpdate(for id: String) -> Bool
 }
 
 extension RecordKeyStore {
     /// A store whose items aren't the Keychain's (a test copy's file) has no items' key.
     func renewItems(update: Bool) {}
+    /// A store with no update to mark (the shared fixture's stand-ins).
+    func markUpdate(for key: RecordKeyItem) {}
+    func updateUnderWay(for key: RecordKeyItem) -> Bool { false }
+    func settleUpdate(for id: String) -> Bool { true }
+}
+
+/// The update to 1.26 under way (FXUPGRADESTART126R1): the record key made for it, and the core's start not over yet.
+/// A start stopped between the two (a Keychain prompt left open, the app quit) leaves records the core hadn't sealed
+/// yet, and the next start finishes the update rather than drop them (desktop/records.go's startRecords).
+///
+/// The mark is an item of its own, beside the record key's: its account is the key's, its value an HMAC of the key's
+/// id under the key. A program running as you can add an item under that name (K11), but can't read the key, so it
+/// can't make one that fits; it can't delete the app's (K9), nor change its value unseen (K7, K10). The core has it
+/// deleted, by the key's account, once its start has sealed the records (`record-key-settled`). A new key (a reset, a
+/// rotation) leaves an old mark fitting nothing, and any other item under the name makes the mark count for nothing.
+enum RecordKeyUpdate {
+    static func mark(for key: RecordKeyItem) -> RecordKeyItem {
+        let message = Data("smolcorp-records-update-v1\u{0}\(key.id)".utf8)
+        return RecordKeyItem(id: key.id, value: Data(HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: key.value))))
+    }
 }
 
 /// 32 random bytes, and a fresh account for them.
@@ -67,6 +96,7 @@ struct RecordKeychain: RecordKeyStore {
     var service = RecordKeychain.service
     var keychain: SecKeychain? = nil
     var open: Bool? = nil
+    var label = "Smolcorp records key"
 
     private var match: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
@@ -103,18 +133,25 @@ struct RecordKeychain: RecordKeyStore {
     }
 
     func makeNew() -> RecordKeyItem? {
+        guard clear() else { return nil }
+        return add()
+    }
+
+    /// Every item under the name deleted, a planted one with them, or only the one under `account`: whether none is left.
+    func clear(account: String? = nil) -> Bool {
+        var items = match
+        if let account { items[kSecAttrAccount as String] = account }
         // A keychain file deletes every match at once; a few more tries for anything left.
         var tries = 0
-        while tries < 8, Keychain.delete(match, in: keychain, open: open) == errSecSuccess { tries += 1 }
+        while tries < 8, Keychain.delete(items, in: keychain, open: open) == errSecSuccess { tries += 1 }
         var none: CFTypeRef?
-        guard Keychain.copyMatching(match, &none, in: keychain, open: open) == errSecItemNotFound else { return nil }
-        return add()
+        return Keychain.copyMatching(items, &none, in: keychain, open: open) == errSecItemNotFound
     }
 
     private func entry(_ item: RecordKeyItem) -> [String: Any] {
         var entry = match
         entry[kSecAttrAccount as String] = item.id
-        entry[kSecAttrLabel as String] = "Smolcorp records key"
+        entry[kSecAttrLabel as String] = label
         entry[kSecValueData as String] = item.value
         return entry
     }
@@ -130,6 +167,20 @@ struct RecordKeychain: RecordKeyStore {
     }
 
     func renewItems(update: Bool) { ItemSeal.renew(update: update, in: keychain, open: open) }
+
+    /// The update's mark (`RecordKeyUpdate`), kept as the key is: one item, added once and read back, never changed.
+    private var updates: RecordKeychain {
+        RecordKeychain(service: service + "-update", keychain: keychain, open: open, label: "Smolcorp records update")
+    }
+
+    func markUpdate(for key: RecordKeyItem) {
+        let mark = RecordKeyUpdate.mark(for: key)
+        _ = Keychain.add(updates.entry(mark), in: keychain, open: open, root: true)
+    }
+
+    func updateUnderWay(for key: RecordKeyItem) -> Bool { updates.look() == .one(RecordKeyUpdate.mark(for: key)) }
+
+    func settleUpdate(for id: String) -> Bool { !id.isEmpty && updates.clear(account: id) }
 
     func retire(_ id: String) -> Bool {
         var entry = match
@@ -181,6 +232,15 @@ struct RecordKeyFile: RecordKeyStore {
     }
 
     func retire(_ id: String) -> Bool { keep(items().filter { $0.id != id }) }
+
+    /// The update's mark, in a file beside the key's.
+    private var updates: RecordKeyFile { RecordKeyFile(file: URL(fileURLWithPath: file.path + "-update")) }
+
+    func markUpdate(for key: RecordKeyItem) { _ = updates.keep([RecordKeyUpdate.mark(for: key)]) }
+
+    func updateUnderWay(for key: RecordKeyItem) -> Bool { updates.look() == .one(RecordKeyUpdate.mark(for: key)) }
+
+    func settleUpdate(for id: String) -> Bool { !id.isEmpty && updates.keep(updates.items().filter { $0.id != id }) }
 }
 
 enum RecordKeys {

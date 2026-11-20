@@ -66,18 +66,12 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 DispatchQueue.main.async { self.problem = error.localizedDescription }
                 return
             }
-            while true {
-                do {
-                    try core.start()
-                    break
-                } catch GoCore.Failure.portInUse(let port) {
-                    // Said in the menu, and tried again until the port is free, as the Swift engine's server did.
-                    DispatchQueue.main.async { self.showWaiting(GoShellDelegate.portInUseLine(port: port)) }
-                    Thread.sleep(forTimeInterval: GoShellDelegate.retryDelay)
-                } catch {
-                    DispatchQueue.main.async { self.problem = error.localizedDescription }
-                    return
-                }
+            let failed = GoShellDelegate.start(core) { line in
+                DispatchQueue.main.async { self.showWaiting(line) }
+            }
+            if let failed {
+                DispatchQueue.main.async { self.problem = failed }
+                return
             }
             let address = core.officeAddress()
             // Only a test copy leaves a setup link: the real app mints no link nobody asked for.
@@ -88,6 +82,32 @@ final class GoShellDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// How long the port is left before it's tried again.
     static let retryDelay: TimeInterval = 2
+
+    /// How many times a core that didn't get ready, or ended before it did, is started before the menu says so:
+    /// a first start can be slow once (an update's, FXUPGRADESTART126), and the next one isn't.
+    static let startTries = 2
+
+    /// Starts `core`: nil once it's ready, or what the menu says. While the port is taken it says so (`waiting`)
+    /// and tries again until it's free, as the Swift engine's server did; any other failure is tried `startTries`
+    /// times in all, but for a build without the engine.
+    static func start(_ core: GoCore, waitingUpTo wait: TimeInterval = 20, waiting: (String) -> Void,
+                      retryDelay: TimeInterval = GoShellDelegate.retryDelay) -> String? {
+        var tries = 0
+        while true {
+            do {
+                try core.start(waitingUpTo: wait)
+                return nil
+            } catch GoCore.Failure.portInUse(let port) {
+                waiting(portInUseLine(port: port))
+                Thread.sleep(forTimeInterval: retryDelay)
+            } catch {
+                tries += 1
+                if case GoCore.Failure.noProgram = error { return error.localizedDescription }
+                guard tries < startTries else { return error.localizedDescription }
+                FileHandle.standardError.write(Data("Smolcorp: \(error.localizedDescription) Starting it once more.\n".utf8))
+            }
+        }
+    }
 
     /// The menu's line while the port is taken: another Smolcorp, or another app.
     static func portInUseLine(port: UInt16) -> String {

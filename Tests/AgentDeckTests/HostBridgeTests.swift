@@ -833,6 +833,73 @@ final class HostBridgeTests: XCTestCase {
         XCTAssertNil(read()["failed"])
     }
 
+    /// FXUPGRADESTART126: the Keychain's requests are timed while they're answered, for the core's start
+    /// (`GoCore.start`), two at once counted once; nothing else is timed, and the answer is the store's as before.
+    func testTheKeychainsRequestsAreTimedForTheCoresStart() throws {
+        XCTAssertEqual(HostBridge.keychainActions, ["secret-read", "secret-write", "secret-delete", "record-key-look", "record-key-new",
+                                                    "record-key-add", "record-key-retire", "record-key-settled", "api-key-offer", "api-key-read"],
+                       "the core's bridgeKeychainActions, the same list (a Go row checks it)")
+        let clock = KeychainClock()
+        var held = actions
+        held.records = HeldRecordKeys(wait: 0.4)
+        func line(_ action: String) -> Data {
+            try! JSONSerialization.data(withJSONObject: ["token": token, "action": action, "item": "update"])
+        }
+        XCTAssertTrue(isOK(HostBridge.answer(line("hello"), token: token, actions: held, keychain: clock)))
+        XCTAssertFalse(isOK(HostBridge.answer(line("no-such-action"), token: token, actions: held, keychain: clock)))
+        XCTAssertEqual(clock.seconds, 0, "nothing but the Keychain's requests is timed")
+        XCTAssertFalse(isOK(HostBridge.answer(line("record-key-look"), token: "another-token-another-token-0000", actions: held, keychain: clock)))
+        XCTAssertEqual(clock.seconds, 0, "nor a request without the token")
+        var answers: [[String: Any]] = Array(repeating: [:], count: 2)
+        let lock = NSLock()
+        DispatchQueue.concurrentPerform(iterations: 2) { i in
+            let answer = HostBridge.answer(line(i == 0 ? "record-key-look" : "record-key-new"), token: token, actions: held, keychain: clock)
+            lock.lock(); answers[i] = answer; lock.unlock()
+        }
+        XCTAssertGreaterThanOrEqual(clock.seconds, 0.4, "the time they were open")
+        XCTAssertLessThan(clock.seconds, 0.75, "counted once for both")
+        XCTAssertEqual(answers[0]["records"] as? String, "one")
+        XCTAssertEqual((answers[1]["recordKeys"] as? [[String: Any]])?.first?["id"] as? String, FixtureRecordKeys.first.id)
+        let after = clock.seconds
+        Thread.sleep(forTimeInterval: 0.1)
+        XCTAssertEqual(clock.seconds, after, "and no more once they're answered")
+    }
+
+    /// FXUPGRADESTART126R1: the update's new record key is marked under way, `look` says so while it is, and the core's
+    /// `record-key-settled` ends it, named by the key's id (RT126UPGRADESTART N1); a reset's new key leaves it fitting
+    /// nothing. On a test copy's file store; the Keychain's is KeychainRecordKeyTests'.
+    func testTheUpdateIsMarkedUnderWayUntilTheCoreSaysItsSettled() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("update-mark-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var mac = actions
+        mac.records = RecordKeyFile(file: folder.appendingPathComponent(RecordKeys.fileName))
+        func ask(_ action: String, _ item: String = "") -> [String: Any] {
+            let line = try! JSONSerialization.data(withJSONObject: ["token": token, "action": action, "item": item])
+            return HostBridge.answer(line, token: token, actions: mac, keychain: KeychainClock())
+        }
+        XCTAssertNil(ask("record-key-look")["update"], "no key yet")
+        XCTAssertTrue(isOK(ask("record-key-new", "update")))
+        XCTAssertEqual(ask("record-key-look")["update"] as? Bool, true, "the update's key, its start not over")
+        let key = try XCTUnwrap((ask("record-key-look")["recordKeys"] as? [[String: Any]])?.first?["id"] as? String)
+        XCTAssertFalse(isOK(ask("record-key-settled")), "no key named")
+        XCTAssertTrue(isOK(ask("record-key-settled", "key-0a1b2c3d4e5f6071")))
+        XCTAssertEqual(ask("record-key-look")["update"] as? Bool, true, "another key's mark settled, not this one")
+        XCTAssertTrue(isOK(ask("record-key-settled", key)))
+        XCTAssertNil(ask("record-key-look")["update"], "the update's start over")
+        XCTAssertEqual(ask("record-key-look")["records"] as? String, "one", "the key itself stays")
+        XCTAssertTrue(isOK(ask("record-key-new", "update")))
+        XCTAssertTrue(isOK(ask("record-key-new")))
+        XCTAssertNil(ask("record-key-look")["update"], "a reset ends the mark")
+        // A rotation's new key: the mark from before fits nothing.
+        XCTAssertTrue(isOK(ask("record-key-new", "update")))
+        let old = try XCTUnwrap((ask("record-key-look")["recordKeys"] as? [[String: Any]])?.first?["id"] as? String)
+        XCTAssertTrue(isOK(ask("record-key-add")))
+        XCTAssertTrue(isOK(ask("record-key-retire", old)))
+        XCTAssertEqual(ask("record-key-look")["records"] as? String, "one")
+        XCTAssertNil(ask("record-key-look")["update"], "a mark for another key")
+    }
+
     func testTheLoginItem() {
         XCTAssertEqual(ask(["action": "login-item"])["on"] as? Bool, false)
         XCTAssertEqual(ask(["action": "login-item", "on": true])["on"] as? Bool, true)
@@ -2013,4 +2080,14 @@ struct FixtureRecordKeys: RecordKeyStore {
     func makeNew() -> RecordKeyItem? { Self.first }
     func add() -> RecordKeyItem? { Self.second }
     func retire(_ id: String) -> Bool { id == Self.first.id }
+}
+
+/// A record key store held as a Keychain prompt holds a request until it's answered: `wait`, then the fixture's
+/// answer. Stand-in keys only; nothing asks the Keychain.
+struct HeldRecordKeys: RecordKeyStore {
+    var wait: TimeInterval
+    func look() -> RecordKeyLook { Thread.sleep(forTimeInterval: wait); return FixtureRecordKeys().look() }
+    func makeNew() -> RecordKeyItem? { Thread.sleep(forTimeInterval: wait); return FixtureRecordKeys().makeNew() }
+    func add() -> RecordKeyItem? { FixtureRecordKeys().add() }
+    func retire(_ id: String) -> Bool { FixtureRecordKeys().retire(id) }
 }

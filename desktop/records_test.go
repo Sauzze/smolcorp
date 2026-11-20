@@ -741,3 +741,152 @@ func TestOnAMacDeletingTheSealedRecordsSealsNothingAsFound(t *testing.T) {
 		t.Error("a file written after the sealed records were deleted was sealed as found")
 	}
 }
+
+// halfwayUpdate is an office from 1.24 under a stand-in Mac app, whose first start of 1.26 stopped after the app
+// made the record key (with sealedSome, after the guard and the settings were sealed too) and before its records
+// were settled (FXUPGRADESTART126R1): a Keychain prompt left open, the app quit. The stand-in, as the next start
+// finds it.
+func halfwayUpdate(t *testing.T, sealedSome bool) *macStandIn {
+	t.Helper()
+	isolate(t)
+	write := func(name, text string) {
+		if err := os.WriteFile(filepath.Join(supportDir, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("phones.json", `[{"id":"A1","name":"iPhone","keyHash":"`+hashKey("fake-124-phone")+`","signs":true}]`)
+	write("token", "fake-1.0-token\n")
+	write(registryName, `{"version":1,"hires":[{"id":"gm0001","name":"GM","role":"`+gmRole+`","folder":"`+homeDir+`","state":"working","scope":"`+homeDir+`"},`+
+		`{"id":"h1","name":"Ada","folder":"`+homeDir+`","state":"working"},{"id":"h2","name":"Bo","folder":"`+homeDir+`","state":"working"}],`+
+		`"contacts":[{"from":"h1","to":"h2"}]}`)
+	write("config.json", `{"keystrokesAllowed":true,"managerEnabled":true,"hiringEnabled":true}`)
+	write(hireGuardFile, `{"version":1}`)
+	mac := withMac(t)
+	changeKeysOnce()
+	startRecords(host)
+	if recordsState() != recordsOK || !recordsFirst() || readUpdateNote() == nil {
+		t.Fatalf("the update's start: state %q, first %v", recordsState(), recordsFirst())
+	}
+	if sealedSome {
+		sealGuardAsFound()
+		config := loadConfig()
+		config.save()
+	}
+	// The stop: nothing the core held is left.
+	updating.Lock()
+	updating.note = nil
+	updating.Unlock()
+	return mac
+}
+
+// marked is the item the stand-in app holds marked as made for the update to 1.26, or "".
+func (m *macStandIn) marked() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.recordUpdate
+}
+
+// FXUPGRADESTART126R1: an update to 1.26 whose first start stopped after the app made the record key, before the
+// records were settled, is finished at the next start, as the update itself: the settings, the team with its GM held
+// to a project, who may write to whom and the guard all count as found; the phone from before is let go as the
+// update lets it go; Start here says the update once. That start has the app's mark deleted, so a later start,
+// with the sealed records deleted, counts nothing as found.
+func TestOnAMacAnUpdateStoppedHalfwayIsFinishedAtTheNextStart(t *testing.T) {
+	for _, sealedSome := range []bool{false, true} {
+		t.Run(map[bool]string{false: "after the record key", true: "after the guard and the settings"}[sealedSome], func(t *testing.T) {
+			mac := halfwayUpdate(t, sealedSome)
+			if mac.marked() == "" {
+				t.Fatal("the update's key isn't marked")
+			}
+			said := recordWords(t)
+			d := restart(t)
+			if recordsState() != recordsOK {
+				t.Fatalf("state %q", recordsState())
+			}
+			file := readRegistry(registryPath(), false)
+			gm := slices.IndexFunc(file.hires, func(h Hire) bool { return h.ID == "gm0001" })
+			if !d.config.KeystrokesAllowed || !d.config.ManagerEnabled || !d.config.HiringEnabled || gm < 0 || file.hires[gm].State != "working" ||
+				!file.mayWrite("h1", "h2") || heldGuard(filepath.Join(supportDir, hireGuardFile)).data == nil {
+				t.Errorf("what the update found was dropped: config %+v, registry %+v", d.config, file.hires)
+			}
+			words := strings.Join(*said, " ")
+			if d.access.Phones.WithKey("fake-124-phone") != nil || !strings.Contains(words, "Pair each phone again") || strings.Contains(words, "another program") {
+				t.Errorf("the phone from before, or what was said: %q", words)
+			}
+			note := readUpdateNote()
+			updates := 0
+			for _, c := range d.updateChecks(time.Now()) {
+				if c.ID == "update" {
+					updates++
+				}
+			}
+			if note == nil || note.Phones != 1 || len(note.Reset) != 0 || updates != 1 {
+				t.Errorf("the update's note %+v, said %d times", note, updates)
+			}
+			for _, name := range []string{"phones.json", registryName, "config.json"} {
+				data, _ := os.ReadFile(filepath.Join(supportDir, name))
+				if seal, ok := sealOfFile(name, data); !ok || !seal.fits(recordKey()) {
+					t.Errorf("%s isn't sealed after the start that finished the update", name)
+				}
+			}
+			if mac.marked() != "" {
+				t.Error("the update's mark is still there once its records are sealed")
+			}
+
+			// The next start: as after any update, nothing changes.
+			again := restart(t)
+			if !again.config.KeystrokesAllowed || !readRegistry(registryPath(), false).mayWrite("h1", "h2") || recordsRotated() || recordsFirst() {
+				t.Error("the start after the update lost what it sealed, or changed the keys again")
+			}
+			// The sealed records deleted, and a setting written: only a start over, as before.
+			for _, name := range []string{"phones.json", registryName, hireGuardSealFile} {
+				_ = os.Remove(filepath.Join(supportDir, name))
+			}
+			if err := os.WriteFile(configFile, []byte(`{"keystrokesAllowed":true,"managerEnabled":true}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if after := restart(t); recordsFirst() || after.config.KeystrokesAllowed || after.config.ManagerEnabled {
+				t.Error("files written after the update finished were counted as found")
+			}
+		})
+	}
+}
+
+// FXUPGRADESTART126R1's controls: a start stopped halfway is finished only with the app's mark for the one key there,
+// this update's marker, and nothing sealed under another key. Anything else counts nothing as found, as before:
+// the settings to their safe defaults, the GM let go. The mark is ended either way.
+func TestOnAMacAHalfwayUpdateIsFinishedOnlyAsItsStartLeftIt(t *testing.T) {
+	for _, c := range []struct {
+		name       string
+		sealedSome bool
+		change     func(t *testing.T, mac *macStandIn)
+	}{
+		{"the app's mark gone", false, func(t *testing.T, mac *macStandIn) { mac.recordUpdate = "" }},
+		{"a mark for another key", false, func(t *testing.T, mac *macStandIn) { mac.recordUpdate = "key-another" }},
+		{"the update's marker deleted", false, func(t *testing.T, mac *macStandIn) {
+			if err := os.Remove(filepath.Join(supportDir, recordsRotatedFile)); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a sealed record that doesn't fit", true, func(t *testing.T, mac *macStandIn) {
+			rewrite(t, "config.json", func(file map[string]any) { file["listen"] = "all" })
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			mac := halfwayUpdate(t, c.sealedSome)
+			mac.mu.Lock()
+			c.change(t, mac)
+			mac.mu.Unlock()
+			d := restart(t)
+			file := readRegistry(registryPath(), false)
+			gm := slices.IndexFunc(file.hires, func(h Hire) bool { return h.ID == "gm0001" })
+			if recordsState() != recordsOK || d.config.KeystrokesAllowed || d.config.ManagerEnabled || d.config.Listen == "all" || gm < 0 ||
+				file.hires[gm].State != "failed" || file.mayWrite("h1", "h2") {
+				t.Errorf("counted as found: state %q, config %+v, registry %+v", recordsState(), d.config, file.hires)
+			}
+			if mac.marked() != "" {
+				t.Error("the mark is still there")
+			}
+		})
+	}
+}

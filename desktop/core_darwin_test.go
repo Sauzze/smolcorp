@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -280,6 +281,66 @@ func TestTheFolderPanelIsWaitedForPastTheUsualWait(t *testing.T) {
 	folderPanelWait = time.Second
 	if picked, err := hostChooseFolder(bridge, "", folderForHires); err != nil || picked != "/Users/me/project" {
 		t.Errorf("the panel's answer: %q %v", picked, err)
+	}
+}
+
+// FXUPGRADESTART126: a request the Mac app answers from its Keychain waits on any prompt the Keychain shows, and the
+// update's record-key-new does seconds of Keychain work: each is waited for past the transport's wait, so the core's
+// start never goes on without its record key while you answer. Only those, and the list is the app's own
+// (HostBridge.keychainActions).
+func TestAKeychainRequestIsWaitedForPastTheUsualWait(t *testing.T) {
+	folder := shortFolder(t)
+	path := fakeApp(t, folder, func(bridgeRequest) string {
+		time.Sleep(300 * time.Millisecond)
+		return `{"ok":true,"found":false}`
+	})
+	bridge := &socketBridge{path: path, token: fakeBridgeToken, parent: os.Getpid, wait: 100 * time.Millisecond}
+	saved := bridgeKeychainWait
+	t.Cleanup(func() { bridgeKeychainWait = saved })
+	bridgeKeychainWait = time.Second
+	for _, action := range []string{"hello", "terminals", "presence"} {
+		if _, err := ask(bridge, bridgeRequest{Action: action}); err == nil {
+			t.Errorf("%s is waited for past the transport's wait", action)
+		}
+	}
+	for _, action := range bridgeKeychainActions {
+		if _, err := ask(bridge, bridgeRequest{Action: action, Item: gmTokenItem}); err != nil {
+			t.Errorf("%s: %v", action, err)
+		}
+	}
+	if _, _, err := hostReadSecret(bridge, gmTokenItem); err != nil {
+		t.Errorf("the GM's token, as the core's start reads it: %v", err)
+	}
+	if _, err := hostRecordKey(bridge, "record-key-new", "update"); err != nil {
+		t.Errorf("the update's record key: %v", err)
+	}
+	// Once the core serves, its start is over: a Keychain request (a rotation's add, a fire's save) waits as long as
+	// any other, never the start's minutes (RT126UPGRADESTART N3).
+	coreStarted.Store(true)
+	t.Cleanup(func() { coreStarted.Store(false) })
+	for _, action := range bridgeKeychainActions {
+		if _, err := ask(bridge, bridgeRequest{Action: action, Item: gmTokenItem}); err == nil {
+			t.Errorf("%s is waited for past the transport's wait after the core's start", action)
+		}
+	}
+
+	data, err := os.ReadFile(filepath.Join("..", "Sources", "AgentDeck", "HostBridge.swift"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	swift := string(data)
+	at := strings.Index(swift, "static let keychainActions: Set<String> = [")
+	if at < 0 {
+		t.Fatal("HostBridge.keychainActions is gone from HostBridge.swift: update this test")
+	}
+	list := swift[at:]
+	list = list[:strings.Index(list, "]")+1]
+	var app []string
+	for _, m := range regexp.MustCompile(`"([^"]*)"`).FindAllStringSubmatch(list, -1) {
+		app = append(app, m[1])
+	}
+	if want := slices.Sorted(slices.Values(bridgeKeychainActions)); !slices.Equal(slices.Sorted(slices.Values(app)), want) {
+		t.Errorf("the app times %q as Keychain requests, the core waits longer for %q", app, want)
 	}
 }
 

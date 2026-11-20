@@ -364,6 +364,11 @@
       "answer": {"ok": true}
     },
     {
+      "name": "the update's start over: its mark deleted",
+      "request": {"action": "record-key-settled", "item": "key-0a1b2c3d4e5f6071"},
+      "answer": {"ok": true}
+    },
+    {
       "name": "a desk's tmux pane brought forward, with its server and folder from the core",
       "request": {"action": "focus", "tab": "tmux:%3@/private/tmp/smolcorp-501/ab12/s",
                   "desk": {"id": "ab12", "server": "5151", "pane": 4242, "paneStarted": 1794000000000000, "folder": "/Users/example/repo-hires/ab12"}},

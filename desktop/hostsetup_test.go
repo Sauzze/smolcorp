@@ -56,6 +56,9 @@ type macStandIn struct {
 	// test plants a state ("moved", "unreadable"); "" for what the items themselves say.
 	recordItems []bridgeRecordKey
 	recordLook  string
+	// recordUpdate: the item the app marked as made for the update to 1.26, until the core's start says it's settled
+	// (RecordKey.swift's RecordKeyUpdate); "" for none.
+	recordUpdate string
 	// addOverwritten: another program overwrites the next item added in the very second of the add (RT126SK1 B1).
 	// The app reads it back and refuses it (KeychainGate.swift): the item stays, with a witness beside it.
 	addOverwritten bool
@@ -118,7 +121,7 @@ func (m *macStandIn) call(request bridgeRequest) (bridgeAnswer, error) {
 		return bridgeAnswer{OK: true, On: m.login}, nil
 	case "choose-folder":
 		return bridgeAnswer{OK: true, Folder: m.picked}, nil
-	case "record-key-look", "record-key-new", "record-key-add", "record-key-retire":
+	case "record-key-look", "record-key-new", "record-key-add", "record-key-retire", "record-key-settled":
 		return m.recordKey(request), nil
 	case "secret-read", "secret-write", "secret-delete":
 		if request.Action == "secret-read" && m.lookFailed[request.Item] {
@@ -417,6 +420,10 @@ func TestTheBridgeFixtureIsWhatTheCoreAsksAndReads(t *testing.T) {
 		},
 		"the old record key deleted": func(h hostBridge) (any, error) {
 			_, err := hostRecordKey(h, "record-key-retire", "key-0a1b2c3d4e5f6071")
+			return nil, err
+		},
+		"the update's start over: its mark deleted": func(h hostBridge) (any, error) {
+			_, err := hostRecordKey(h, "record-key-settled", "key-0a1b2c3d4e5f6071")
 			return nil, err
 		},
 		"the desks' terminals, from the drivers' tables": func(h hostBridge) (any, error) {
@@ -1013,7 +1020,7 @@ func (m *macStandIn) recordKey(request bridgeRequest) bridgeAnswer {
 	if m.addOverwritten && (request.Action == "record-key-new" || request.Action == "record-key-add") {
 		m.addOverwritten = false
 		if request.Action == "record-key-new" {
-			m.recordItems = nil
+			m.recordItems, m.recordUpdate = nil, ""
 		}
 		planted := newRecordItem("key-overwritten")
 		planted.Value = strings.Repeat("41", 32)
@@ -1022,8 +1029,20 @@ func (m *macStandIn) recordKey(request bridgeRequest) bridgeAnswer {
 	}
 	switch request.Action {
 	case "record-key-new":
-		m.recordItems, m.recordLook = []bridgeRecordKey{fresh()}, ""
+		m.recordItems, m.recordLook, m.recordUpdate = []bridgeRecordKey{fresh()}, "", ""
+		if request.Item == "update" {
+			m.recordUpdate = m.recordItems[0].ID
+		}
 		return bridgeAnswer{OK: true, RecordKeys: slices.Clone(m.recordItems)}
+	case "record-key-settled":
+		// As the app: the mark under the key named, and no other (RecordKeychain.settleUpdate).
+		if request.Item == "" {
+			return bridgeAnswer{Error: "The update's mark wasn't deleted."}
+		}
+		if request.Item == m.recordUpdate {
+			m.recordUpdate = ""
+		}
+		return bridgeAnswer{OK: true}
 	case "record-key-add":
 		item := fresh()
 		m.recordItems = append(m.recordItems, item)
@@ -1046,5 +1065,6 @@ func (m *macStandIn) recordKey(request bridgeRequest) bridgeAnswer {
 	if look == "one" || look == "many" {
 		answer.RecordKeys = slices.Clone(m.recordItems)
 	}
+	answer.Update = look == "one" && m.recordUpdate != "" && m.recordUpdate == m.recordItems[0].ID
 	return answer
 }

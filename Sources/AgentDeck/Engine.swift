@@ -183,7 +183,14 @@ final class GoCore {
     /// The core's `claudeSessionVariable` (desktop/claudesession.go).
     static let claudeNamesVariable = "SMOLCORP_CLAUDE_NAMES"
 
-    /// Starts the core and waits until it serves, or fails. Off the main queue.
+    /// The longest Keychain time `start` doesn't count: a prompt nobody answers, or a Keychain that never does,
+    /// still ends in the menu's line.
+    static let keychainWaitMost: TimeInterval = 600
+
+    /// Starts the core and waits until it serves, or fails. Off the main queue. The wait doesn't run while the
+    /// bridge answers one of the core's Keychain requests (`HostBridge.keychain`), up to `keychainWaitMost`: the
+    /// core waits for that answer before it says it's ready, a prompt waits for you, and the update to 1.26 does
+    /// seconds of Keychain work in one (FXUPGRADESTART126).
     func start(waitingUpTo wait: TimeInterval = 20) throws {
         guard FileManager.default.isExecutableFile(atPath: program.path) else { throw Failure.noProgram }
         // Started again after a port that was taken: nothing of the last try is kept.
@@ -200,6 +207,9 @@ final class GoCore {
         process.arguments = arguments
         process.environment = environment()
         process.currentDirectoryURL = support
+        // A Keychain request of a core started before this one may still be open: its time from now is counted too.
+        let keychainBefore = bridge.keychain.seconds
+        let launched = Date()
         let toCore = Pipe(), fromCore = Pipe()
         process.standardInput = toCore
         process.standardOutput = fromCore
@@ -242,8 +252,12 @@ final class GoCore {
         // The token first, before anything else is said on that pipe: the core reads it before its `hello`.
         // Not written only when the core has already ended, which the wait below says.
         try? toCore.fileHandleForWriting.write(contentsOf: Data((bridge.token + "\n").utf8))
-        guard let ready = nextLine(until: Date().addingTimeInterval(wait)), ready["ready"] as? Bool == true else {
-            let why = process.isRunning ? "no answer in \(Int(wait)) s" : "it ended (\(process.terminationStatus))"
+        let deadline = { [bridge] in
+            launched.addingTimeInterval(wait + min(GoCore.keychainWaitMost, bridge.keychain.seconds - keychainBefore))
+        }
+        guard let ready = nextLine(until: deadline), ready["ready"] as? Bool == true else {
+            // The Keychain's time included, as it was waited for.
+            let why = process.isRunning ? "no answer in \(Int(deadline().timeIntervalSince(launched))) s" : "it ended (\(process.terminationStatus))"
             let ended = process.isRunning ? nil : process.terminationStatus
             _ = stop()
             if ended == GoCore.portInUseStatus { throw Failure.portInUse(port) }
@@ -279,7 +293,7 @@ final class GoCore {
         }
         let deadline = Date().addingTimeInterval(wait)
         // An answer to an earlier request that came too late is passed over.
-        while let answer = nextLine(until: deadline) {
+        while let answer = nextLine(until: { deadline }) {
             if answer["id"] as? Int == id { return answer["error"] == nil ? answer : nil }
         }
         return nil
@@ -391,7 +405,8 @@ final class GoCore {
         if let menu { DispatchQueue.main.async { self.onMenu(menu) } }
     }
 
-    private func nextLine(until deadline: Date) -> [String: Any]? {
+    /// The next line, or nil once the core has ended or `deadline` (asked again as it waits) has passed.
+    private func nextLine(until deadline: () -> Date) -> [String: Any]? {
         while true {
             lock.lock()
             if !lines.isEmpty {
@@ -401,8 +416,9 @@ final class GoCore {
             }
             let running = process?.isRunning ?? false
             lock.unlock()
-            guard running, Date() < deadline else { return nil }
-            _ = arrived.wait(timeout: .now() + min(0.2, max(0, deadline.timeIntervalSinceNow)))
+            let until = deadline()
+            guard running, Date() < until else { return nil }
+            _ = arrived.wait(timeout: .now() + min(0.2, max(0, until.timeIntervalSinceNow)))
         }
     }
 }

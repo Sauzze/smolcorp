@@ -93,6 +93,8 @@ func RunCore(args []string, in io.Reader, out, errs io.Writer) int {
 		fmt.Fprintf(errs, "smolcorp core: can't serve on port %d: %v\n", Port, err)
 		return coreFailedStatus(err)
 	}
+	// The start is over: a Keychain request from now on waits as long as any other (bridgeKeychainWait).
+	coreStarted.Store(true)
 	// Stopped by the app (SIGTERM) or smolcorp quit: the portable office stops, as on quit.
 	stopPortableOnSignal(deck)
 	lines := make(chan []byte)

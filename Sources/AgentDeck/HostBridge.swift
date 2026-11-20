@@ -40,6 +40,8 @@ final class HostBridge {
     let socket: URL
     let token: String
     let actions: Actions
+    /// How long a Keychain request of the core's has been open here, for the core's start (`GoCore.start`).
+    let keychain = KeychainClock()
     private var listener: Int32 = -1
     private let queue = DispatchQueue(label: "io.github.sauzze.agentdeck.bridge", attributes: .concurrent)
     /// Connections being served, never more than `connectionsMost`. Guarded by `counting`.
@@ -243,7 +245,8 @@ final class HostBridge {
         let line = request.prefix(upTo: request.firstIndex(of: 0x0A)!)
         // Anything sent after the request came before any question: it answers none (see CoreQuestion).
         let question = CoreQuestion(connection, sentEarly: request.count > line.count + 1, until: taken + HostBridge.actionWait)
-        let answer = HostBridge.answer(line, token: token, actions: actions, until: taken + HostBridge.actionWait, deskState: question.ask)
+        let answer = HostBridge.answer(line, token: token, actions: actions, until: taken + HostBridge.actionWait, deskState: question.ask,
+                                       keychain: keychain)
         question.close()
         var data = (try? JSONSerialization.data(withJSONObject: answer)) ?? Data()
         data.append(0x0A)
@@ -380,14 +383,18 @@ final class HostBridge {
 
     /// The answer to one request: refused without the token, then the action's.
     /// A tab action or a window not started by `deadline` isn't run. `deskState` asks the core the desk's state,
-    /// for the phone's text (`CoreQuestion`): with none to ask, it's asking, and nothing goes.
+    /// for the phone's text (`CoreQuestion`): with none to ask, it's asking, and nothing goes. A Keychain request
+    /// (`keychainActions`) is timed on `keychain` while it's answered.
     static func answer(_ line: Data, token: String, actions: Actions, until deadline: DispatchTime = .distantFuture,
-                       deskState: @escaping () -> SessionState? = { .asking }) -> [String: Any] {
+                       deskState: @escaping () -> SessionState? = { .asking }, keychain: KeychainClock = KeychainClock()) -> [String: Any] {
         guard let request = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
               let given = request["token"] as? String, sameToken(given, token) else {
             return ["ok": false, "error": "Not this app's engine."]
         }
         guard let action = request["action"] as? String else { return refused("No action.") }
+        if keychainActions.contains(action) {
+            return keychain.timing { keychainAnswer(action, request, actions) }
+        }
         switch action {
         case "hello":
             return ["ok": true]
@@ -411,12 +418,6 @@ final class HostBridge {
             // the owner's terminal app about one of its windows (RMSY4 nit 5).
             if let why = TestCopy.refusal(for: .terminal, testCopy: actions.testCopy) { return refused(why) }
             return window(action, request, actions, until: deadline)
-        case "secret-read", "secret-write", "secret-delete":
-            return secret(action, request, actions)
-        case "record-key-look", "record-key-new", "record-key-add", "record-key-retire":
-            return recordKey(action, request, actions.records)
-        case "api-key-offer", "api-key-read":
-            return hireKey(action, actions.hireKey)
         case "login-item":
             guard let item = actions.loginItem else { return refused("This app has no login item.") }
             if let on = request["on"] as? Bool {
@@ -1313,6 +1314,23 @@ final class HostBridge {
         return String(cString: resolved)
     }
 
+    /// The requests answered from the Keychain, where a prompt can hold one until you answer it: the core waits
+    /// longer for them (desktop/hostbridge.go's bridgeKeychainActions, the same list), and its start's clock stops
+    /// while one is open here (`keychain`, `GoCore.start`).
+    static let keychainActions: Set<String> = ["secret-read", "secret-write", "secret-delete", "record-key-look", "record-key-new",
+                                               "record-key-add", "record-key-retire", "record-key-settled", "api-key-offer", "api-key-read"]
+
+    private static func keychainAnswer(_ action: String, _ request: [String: Any], _ actions: Actions) -> [String: Any] {
+        switch action {
+        case "secret-read", "secret-write", "secret-delete":
+            return secret(action, request, actions)
+        case "record-key-look", "record-key-new", "record-key-add", "record-key-retire", "record-key-settled":
+            return recordKey(action, request, actions.records)
+        default:
+            return hireKey(action, actions.hireKey)
+        }
+    }
+
     private static func secret(_ action: String, _ request: [String: Any], _ actions: Actions) -> [String: Any] {
         guard let item = request["item"] as? String, let store = actions.secrets[item] else { return refused("Not an item of Smolcorp's.") }
         switch action {
@@ -1346,20 +1364,34 @@ final class HostBridge {
     /// The record key (RecordKey.swift), for the core it started alone: what the item is now (`look`, with its value
     /// only when there is exactly one untouched item, or two for the core to tell an interrupted update from a planted
     /// item), a new one in place of every item (`new`, "update" at the update to 1.26), one beside it (`add`, read
-    /// back before it's handed on) and the old one deleted (`retire`).
+    /// back before it's handed on) and the old one deleted (`retire`). The update is marked under way from its new
+    /// key until the core's start has sealed the records (`settled`, with the key's id): `look` says so while it is
+    /// (RecordKeyUpdate).
     private static func recordKey(_ action: String, _ request: [String: Any], _ store: RecordKeyStore) -> [String: Any] {
         switch action {
         case "record-key-new", "record-key-add":
             guard let item = action == "record-key-new" ? store.makeNew() : store.add() else { return refused("The Keychain made no key.") }
-            // A new record key at the update to 1.26 or a reset: the items' key too, where it must be (ItemSeal).
-            if action == "record-key-new" { store.renewItems(update: request["item"] as? String == "update") }
+            // A new record key at the update to 1.26 or a reset: the items' key too, where it must be (ItemSeal). At
+            // the update, once that's done, the update is marked under way, only if nothing was left under the new
+            // key's account (RT126UPGRADESTART N1); an old mark fits the new key in no case.
+            if action == "record-key-new" {
+                let update = request["item"] as? String == "update"
+                store.renewItems(update: update)
+                if store.settleUpdate(for: item.id), update { store.markUpdate(for: item) }
+            }
             return ["ok": true, "recordKeys": [item.json]]
+        case "record-key-settled":
+            guard let id = request["item"] as? String, store.settleUpdate(for: id) else { return refused("The update's mark wasn't deleted.") }
+            return ["ok": true]
         case "record-key-retire":
             guard let id = request["item"] as? String, !id.isEmpty, store.retire(id) else { return refused("That key wasn't deleted.") }
             return ["ok": true]
         default:
             switch store.look() {
-            case .one(let item): return ["ok": true, "records": "one", "recordKeys": [item.json]]
+            case .one(let item):
+                var answer: [String: Any] = ["ok": true, "records": "one", "recordKeys": [item.json]]
+                if store.updateUnderWay(for: item) { answer["update"] = true }
+                return answer
             case .many(let items): return ["ok": true, "records": "many", "recordKeys": items.map(\.json)]
             case .none: return ["ok": true, "records": "none"]
             case .moved: return ["ok": true, "records": "moved"]
@@ -1624,5 +1656,39 @@ final class HostBridge {
                 setVolume: { Music.setVolume($0) },
                 presence: { MacPresence.shared.now() })
         }
+    }
+}
+
+/// How long the bridge has had a Keychain request of the core's open (`HostBridge.keychainActions`): at least one
+/// being answered, its time counted once however many are. A Keychain prompt holds such a request until you answer
+/// it, and the update to 1.26 does seconds of Keychain work in one (`ItemSeal.renew`): `GoCore.start` doesn't count
+/// that time against the core's start. Counted on the system's uptime, which a clock change doesn't move.
+final class KeychainClock {
+    private let lock = NSLock()
+    private var open = 0
+    private var since: UInt64 = 0
+    private var counted: UInt64 = 0
+
+    /// Seconds with a Keychain request open, from this app's start until now.
+    var seconds: TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        let now = DispatchTime.now().uptimeNanoseconds
+        return TimeInterval(counted + (open > 0 ? now - since : 0)) / 1_000_000_000
+    }
+
+    /// `body`'s answer, its time counted.
+    func timing<T>(_ body: () -> T) -> T {
+        lock.lock()
+        if open == 0 { since = DispatchTime.now().uptimeNanoseconds }
+        open += 1
+        lock.unlock()
+        defer {
+            lock.lock()
+            open -= 1
+            if open == 0 { counted += DispatchTime.now().uptimeNanoseconds - since }
+            lock.unlock()
+        }
+        return body()
     }
 }

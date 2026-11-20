@@ -287,6 +287,43 @@ final class KeychainRecordKeyTests: XCTestCase {
         XCTAssertEqual(RecordKeychain(service: "smolcorp-records-test", open: true).look(), .unreadable)
     }
 
+    /// FXUPGRADESTART126R1: the update's mark fits its key alone. Another program can add an item under the mark's name
+    /// (K11) but can't make one that fits, a second one beside the app's makes it count for nothing, and a new key
+    /// leaves the mark from before fitting nothing. Settling deletes the item under the key's account and nothing else
+    /// (RT126UPGRADESTART N1): another program's item beside it, which the app may not be able to delete, doesn't stop
+    /// the app's own mark from going. (An item whose ACL shuts the app out can't be made here without a dialog: the
+    /// row pins that the delete is by account, so it never depends on deleting the other one.)
+    func testTheUpdatesMarkFitsItsKeyAlone() throws {
+        let keychain = try throwaway("update-mark")
+        let records = store(keychain)
+        let marks = RecordKeychain(service: "smolcorp-records-test-update", keychain: keychain, open: true)
+        let key = try XCTUnwrap(records.makeNew())
+        XCTAssertFalse(records.updateUnderWay(for: key), "no mark yet")
+        func plantMark(_ id: String) -> OSStatus {
+            SecItemAdd([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "smolcorp-records-test-update",
+                        kSecAttrAccount as String: id, kSecValueData as String: Data(repeating: 0x41, count: 32),
+                        kSecUseKeychain as String: keychain] as CFDictionary, nil)
+        }
+        XCTAssertEqual(plantMark(key.id), errSecSuccess)
+        XCTAssertFalse(records.updateUnderWay(for: key), "another program's mark under the key's name")
+        XCTAssertFalse(records.settleUpdate(for: ""), "no key named")
+        XCTAssertTrue(records.settleUpdate(for: key.id))
+        XCTAssertEqual(marks.look(), .none)
+        // Another program's item under the mark's name, planted before the update: the app's mark is still made,
+        // and settling deletes it by its account, the other left as it is.
+        XCTAssertEqual(plantMark("key-planted"), errSecSuccess)
+        records.markUpdate(for: key)
+        XCTAssertFalse(records.updateUnderWay(for: key), "a second mark beside the app's")
+        XCTAssertTrue(records.settleUpdate(for: key.id), "the app's mark deleted, the other item beside it")
+        guard case .one(let left) = marks.look() else { return XCTFail("the other program's item, alone: \(marks.look())") }
+        XCTAssertEqual(left.id, "key-planted", "settling touched only the key's account")
+        XCTAssertFalse(records.updateUnderWay(for: key))
+        XCTAssertTrue(marks.clear())
+        records.markUpdate(for: key)
+        let next = try XCTUnwrap(records.makeNew())
+        XCTAssertFalse(records.updateUnderWay(for: next), "the mark from before fits a new key")
+    }
+
     /// A test copy and the test suite keep the record key in a file of their own; the Keychain is never asked.
     func testATestCopyKeepsItsRecordKeyInAFile() throws {
         let support = folder.appendingPathComponent("copy", isDirectory: true)
