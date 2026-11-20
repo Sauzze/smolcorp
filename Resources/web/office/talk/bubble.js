@@ -362,9 +362,12 @@ const TALK_BUBBLE = {
       const next = order[(order.indexOf(open && open.id) + 1) % order.length];
       if (next && !(open && open.id === next)) api.open(next);
     });
-    // Esc closes the open bubble wherever the focus is, but where the bubble said it already.
+    // Esc closes the open bubble wherever the focus is, but where the bubble said it already; handled, so the Mac's
+    // WebKit doesn't take it as unheard and beep.
     const escaped = (e) => {
-      if (open && e.key === 'Escape' && !e.defaultPrevented && !e.isComposing) api.close(true);
+      if (!open || e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
+      api.close(true);
+      e.preventDefault();
     };
     doc.addEventListener('keydown', escaped);
     const rect = () => room.canvas.getBoundingClientRect();
@@ -881,6 +884,10 @@ const TALK_BUBBLE = {
         smalls.clear();
         for (const el of [tag, smallBox, needs, desks, live]) el.remove();
         doc.removeEventListener('keydown', escaped);
+      },
+      /** Whether a bubble or the Pixel Terminal is open, for Esc to close: the Mac's office window leaves Esc to the page. */
+      shown() {
+        return !!open || terminal.shown();
       },
     };
     return api;

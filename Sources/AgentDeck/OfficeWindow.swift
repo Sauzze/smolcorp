@@ -5,10 +5,11 @@ import WebKit
 /// The office in a window of its own on this Mac: no title bar and no frame,
 /// only the room, rounded, with the window's shadow under it. The menu bar's
 /// Show Office, or ⌥⌘O from anywhere, shows and hides it, and Esc hides it
-/// once you've clicked it. It's moved by the bar along the middle of its top
-/// edge, which shows while the pointer is over the office, or held with ⌘ and
-/// dragged anywhere, onto any screen; and resized from its edges and corners,
-/// as any window is, keeping the office's shape: drawn taller than wide, it
+/// once you've clicked it, unless the page has something open for Esc to
+/// close first (see `pageTakesEscape`). It's moved by the bar along the middle
+/// of its top edge, which shows while the pointer is over the office, or held
+/// with ⌘ and dragged anywhere, onto any screen; and resized from its edges and
+/// corners, as any window is, keeping the office's shape: drawn taller than wide, it
 /// turns upright, and wider than tall, sideways. Each screen remembers where
 /// it was.
 ///
@@ -39,6 +40,36 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     }
 
     var isShown: Bool { panel?.isVisible == true }
+
+    // MARK: Esc
+
+    /// The page's message saying whether Esc is its own (office.js's `tellEscape`).
+    static let escapeMessage = "officeEscape"
+
+    /// Whether the page, as it last said, has something open for Esc to close: a talk bubble, the Pixel Terminal,
+    /// the floor list, any of its own overlays, or a field with the focus. Esc is the page's meanwhile. Off until the
+    /// page says otherwise, and again with each new page: a page that never says (an older one, one that failed to
+    /// load) leaves Esc hiding the window, as it always did.
+    private(set) var pageTakesEscape = false
+
+    /// Whether Esc on the window hides it, rather than going to the page.
+    var escapeHides: Bool { !pageTakesEscape }
+
+    /// The page's word on Esc, taken only as a boolean, and only from the window's own page in its main frame
+    /// (never a desk's page in the TV's frame): anything else is ignored.
+    func hear(_ body: Any, mainFrame: Bool, from origin: URL?) {
+        guard let takes = OfficeWindow.escapeWord(body, mainFrame: mainFrame, from: origin, of: address) else { return }
+        pageTakesEscape = takes
+    }
+
+    static func escapeWord(_ body: Any, mainFrame: Bool, from origin: URL?, of address: URL) -> Bool? {
+        guard mainFrame, isOwnPage(origin, of: address), let number = body as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+        return number.boolValue
+    }
+
+    /// A new page, or none (its process gone): it hasn't said anything yet.
+    func pageStarted() { pageTakesEscape = false }
 
     // MARK: Options, kept between launches
 
@@ -172,6 +203,7 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         // Behind other windows, minimised or on another Space, the page is hidden, and WebKit would slow or stop its
         // timers: the office's sound plays on there (see soundWhen in office.js), and the page draws nothing meanwhile.
         if #available(macOS 14.0, *) { configuration.preferences.inactiveSchedulingPolicy = .none }
+        configuration.userContentController.add(EscapeWord(office: self), name: OfficeWindow.escapeMessage)
         let web = OfficeWebView(frame: content.bounds, configuration: configuration)
         web.setValue(false, forKey: "drawsBackground")
         web.autoresizingMask = [.width, .height]
@@ -185,7 +217,8 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
         web.load(URLRequest(url: address))
 
         // A click brings it forward, as only the window clicked takes it (⌘
-        // held, it's a move: see OfficePanel); Esc hides it once it has the keyboard.
+        // held, it's a move: see OfficePanel); Esc hides it once it has the keyboard,
+        // unless the page has something open for it to close (see `pageTakesEscape`).
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak panel] event in
             guard let panel, event.window === panel, !event.modifierFlags.contains(.command) else { return event }
             panel.firstClickOnlyRaises = !panel.isKeyWindow && panel.isPartlyCovered
@@ -193,8 +226,9 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
             return event
         } as Any)
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak panel] event in
-            guard let panel, panel.isKeyWindow, event.window === panel, event.keyCode == UInt16(kVK_Escape) else { return event }
-            self?.hide()
+            guard let panel, panel.isKeyWindow, event.window === panel, event.keyCode == UInt16(kVK_Escape),
+                  let self, self.escapeHides else { return event }
+            self.hide()
             return nil
         } as Any)
         self.panel = panel
@@ -290,6 +324,10 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { refreshShadow() }
 
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) { pageStarted() }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { pageStarted() }
+
     /// Only the office's own pages, from this Mac's Smolcorp: the window's
     /// address carries its key. A frame inside the page may also show a
     /// desk's own dev server, for the TV's big preview (see `decide`).
@@ -362,6 +400,20 @@ final class OfficeWindow: NSObject, NSWindowDelegate, WKNavigationDelegate {
     private func saveFrame() {
         guard let panel, panel.isVisible, let id = OfficeWindow.id(of: panel.screen) else { return }
         savedFrames[id] = NSStringFromRect(panel.frame)
+    }
+}
+
+/// The page's word on Esc, to the office's window: held weakly, as the page's
+/// configuration keeps its handlers for as long as it lives.
+private final class EscapeWord: NSObject, WKScriptMessageHandler {
+    private weak var office: OfficeWindow?
+
+    init(office: OfficeWindow) { self.office = office }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        let origin = message.frameInfo.securityOrigin
+        office?.hear(message.body, mainFrame: message.frameInfo.isMainFrame,
+                     from: URL(string: "\(origin.protocol)://\(origin.host):\(origin.port)"))
     }
 }
 

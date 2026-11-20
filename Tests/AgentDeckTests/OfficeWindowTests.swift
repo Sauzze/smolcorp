@@ -71,6 +71,65 @@ final class OfficeWindowTests: XCTestCase {
         // A corner: the one changed the more
         XCTAssertEqual(OfficeWindow.drive(from: start, to: NSSize(width: 700, height: 600), width: true, height: true), .height)
     }
+
+    // MARK: Esc, the window's or the page's
+
+    private let own = URL(string: "http://127.0.0.1:7710/office?window&t=key")!
+    private var origin: URL { URL(string: "http://127.0.0.1:7710")! }
+    private func makeOffice() -> OfficeWindow { OfficeWindow(address: own, defaults: .standard, config: Config()) }
+
+    /// A talk bubble, the Pixel Terminal, the floor list or a field open on the page: Esc goes to the page, which
+    /// closes it; once the page says nothing's open, Esc hides the window again.
+    func testWithSomethingOpenOnThePageEscGoesToThePage() {
+        let office = makeOffice()
+        office.hear(true, mainFrame: true, from: origin)
+        XCTAssertFalse(office.escapeHides, "a bubble open: Esc is the page's")
+        office.hear(false, mainFrame: true, from: origin)
+        XCTAssertTrue(office.escapeHides, "nothing open: Esc hides the window")
+    }
+
+    /// A page that never says (an older one, one that didn't load) leaves Esc hiding the window, and a new page
+    /// (or the page's process gone) starts over from there.
+    func testAPageThatNeverSaysLeavesEscHidingTheWindow() {
+        let office = makeOffice()
+        XCTAssertTrue(office.escapeHides)
+        office.hear(true, mainFrame: true, from: origin)
+        office.pageStarted()
+        XCTAssertTrue(office.escapeHides, "a new page hasn't said anything yet")
+    }
+
+    /// Only a boolean, only from the window's own page in its main frame: a desk's page in the TV's frame, another
+    /// port, or anything but true and false is ignored.
+    func testOnlyTheOfficesOwnPageSaysAndOnlyABoolean() {
+        let office = makeOffice()
+        office.hear(true, mainFrame: false, from: origin)
+        office.hear(true, mainFrame: false, from: URL(string: "http://localhost:3000"))
+        office.hear(true, mainFrame: true, from: URL(string: "http://localhost:7710"))
+        office.hear(true, mainFrame: true, from: URL(string: "http://127.0.0.1:7711"))
+        office.hear(true, mainFrame: true, from: nil)
+        for body: Any in [NSNumber(value: 1), 1, "true", ["open": true], NSNull()] {
+            office.hear(body, mainFrame: true, from: origin)
+        }
+        XCTAssertTrue(office.escapeHides, "something other than the office's own word was taken")
+        XCTAssertEqual(OfficeWindow.escapeWord(true, mainFrame: true, from: origin, of: own), true)
+        XCTAssertEqual(OfficeWindow.escapeWord(NSNumber(value: false), mainFrame: true, from: origin, of: own), false)
+        XCTAssertNil(OfficeWindow.escapeWord(NSNumber(value: 0), mainFrame: true, from: origin, of: own))
+    }
+
+    /// The window's Esc asks before it hides, a new page starts over, and the page sends the word the window hears.
+    func testTheWindowsEscAsksThePageFirst() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let window = try String(contentsOf: root.appendingPathComponent("Sources/AgentDeck/OfficeWindow.swift"), encoding: .utf8)
+        let monitor = try XCTUnwrap(window.range(of: "event.keyCode == UInt16(kVK_Escape),"))
+        let body = String(window[monitor.lowerBound...].prefix(200))
+        let asks = try XCTUnwrap(body.range(of: "self.escapeHides else { return event }"))
+        XCTAssertLessThan(asks.lowerBound, try XCTUnwrap(body.range(of: "self.hide()")).lowerBound)
+        XCTAssertTrue(window.contains("didCommit navigation: WKNavigation!) { pageStarted() }"))
+        XCTAssertTrue(window.contains("func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { pageStarted() }"))
+        XCTAssertTrue(window.contains("userContentController.add(EscapeWord(office: self), name: OfficeWindow.escapeMessage)"))
+        let page = try String(contentsOf: root.appendingPathComponent("Resources/web/office.js"), encoding: .utf8)
+        XCTAssertTrue(page.contains("window.webkit.messageHandlers.\(OfficeWindow.escapeMessage)"), "office.js no longer tells the window")
+    }
 }
 
 /// The app opened again, or its Dock icon clicked: the one office, in front.

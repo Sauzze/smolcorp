@@ -635,9 +635,12 @@
         const next = order[(order.indexOf(open && open.id) + 1) % order.length];
         if (next && !(open && open.id === next)) api.open(next);
       });
-      // Esc closes the open bubble wherever the focus is, but where the bubble said it already.
+      // Esc closes the open bubble wherever the focus is, but where the bubble said it already; handled, so the Mac's
+      // WebKit doesn't take it as unheard and beep.
       const escaped = (e) => {
-        if (open && e.key === 'Escape' && !e.defaultPrevented && !e.isComposing) api.close(true);
+        if (!open || e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
+        api.close(true);
+        e.preventDefault();
       };
       doc.addEventListener('keydown', escaped);
       const rect = () => room.canvas.getBoundingClientRect();
@@ -1154,6 +1157,10 @@
           smalls.clear();
           for (const el of [tag, smallBox, needs, desks, live]) el.remove();
           doc.removeEventListener('keydown', escaped);
+        },
+        /** Whether a bubble or the Pixel Terminal is open, for Esc to close: the Mac's office window leaves Esc to the page. */
+        shown() {
+          return !!open || terminal.shown();
         },
       };
       return api;
@@ -11039,6 +11046,14 @@
    * in seconds, so one swipe turns one page.
    */
   const STYLE_SWIPE = { finger: 30, wheel: 40, ends: 0.25 };
+  /**
+   * A trackpad's or a wheel's scroll up or down over the room rides one floor, one a swipe, as the styles turn: how far
+   * it goes, in CSS pixels, and how long it stops for to end, in seconds. The building scrolls as a page does, with no
+   * setting of its own: `down` 1, what would scroll a page down (deltaY over 0) goes to the floor below, and the other
+   * way the floor above. Each computer's own scroll direction (the Mac's natural scrolling on or off, a mouse's wheel)
+   * already comes in deltaY, so it rides the way that computer scrolls everything else; -1 would turn it round.
+   */
+  const FLOOR_SWIPE = { wheel: 40, ends: 0.25, down: 1 };
   /** What on the styles' panel is pressed only once the finger, or the mouse, lifts where it landed: else it swiped. */
   const STYLE_SWIPES = ['style', 'styleGroup', 'stylePanel'];
 
@@ -69896,6 +69911,7 @@
     if (!STYLE_TABS_SHOWN.some(({ id }) => id === styleGroup)) styleGroup = 'all';
     let stylePage = 0;
     let styleWheel = null;   // a scroll over the styles, as a trackpad's: { carry, at, turned }
+    let floorWheel = null;   // a scroll over the room, to ride a floor: { carry, at, turned }
     let music = null;        // what the computer says of its music, with the jukebox on: { playing: true | false | null }
     let musicTap = null;     // a music piece just tapped: { part, at, was }, for a moment's ▶ or ❚❚ over it
     let dictation = null;    // the Mac's dictation, from the snapshot: { on, language, cleanup }
@@ -70270,14 +70286,41 @@
           e.preventDefault();
           return;
         }
-        if (e.key === 'Escape' && maxing) maxing = null;
-        else if (e.key === 'Escape' && (keysFor || held)) { keysFor = null; held = null; } // as a tap elsewhere puts away the keys and chips
+        // Esc that closes something is handled (preventDefault), so the Mac's WebKit doesn't take it as unheard and beep
+        if (e.key === 'Escape' && maxing) {
+          maxing = null;
+          e.preventDefault();
+        } else if (e.key === 'Escape' && (keysFor || held)) { // as a tap elsewhere puts away the keys and chips
+          keysFor = null;
+          held = null;
+          e.preventDefault();
+        }
       };
       win.document.addEventListener('visibilitychange', seen);
       win.document.addEventListener('pointerdown', tapped, { capture: true });
       win.document.addEventListener('keydown', typed);
       host = { window: win, resizing, seen, tapped, typed };
       if (on.talk && on.talk.get) talkPanels = TALK_BUBBLE.create(win, on.talk, talkRoom());
+    }
+
+    /**
+     * The Mac's office window takes Esc to hide itself (OfficeWindow.swift), but leaves it to the page while there's
+     * something on it for Esc to close: a talk bubble, the Pixel Terminal, the TV's big preview, the floor list, the
+     * question about max effort, a held desk's keys, or a field with the focus. It's told each time that changes, with
+     * a frame; nowhere else is there anyone to tell.
+     */
+    let escapeTold = false;
+    function tellEscape(open) {
+      const word = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.officeEscape;
+      if (!word || !host) return;
+      if (open === undefined) {
+        const el = host.window.document.activeElement;
+        const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName || '') || el.isContentEditable === true);
+        open = !!(picker || maxing || keysFor || held || typing || (talkPanels && talkPanels.shown()) || (tvBig && tvBig.shown()));
+      }
+      if (open === escapeTold) return;
+      escapeTold = open;
+      try { word.postMessage(open); } catch {}
     }
 
     /** What the talk bubbles are told of the room: where each bubble is, and who sits there. */
@@ -70621,6 +70664,7 @@
           applyUpstairs(latest, time / 1000);
         }
       }
+      if (!behind) tellEscape();
     }
 
     /**
@@ -71915,13 +71959,37 @@
     }, { passive: false });
 
     // A mouse wheel (or shift-wheel, or a trackpad's sideways scroll) over the roles strip slides them along, as a finger does
+    // Over the strip it's theirs even when they all fit and there's nothing to slide: never a floor's ride, which would
+    // put the held desk down.
     canvas.addEventListener('wheel', (e) => {
-      if (!rolesAt || !rolesAt.most || !roleRow()) return;
+      if (!rolesAt || !roleRow()) return;
       const { x, y, scale, ratio } = roomAt(e.clientX, e.clientY), { box } = rolesAt;
       if (x < box.left || x > box.right || y < box.top || y > box.bottom) return;
       e.preventDefault();
+      if (!rolesAt.most) return;
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1; // lines and pages, as pixels
       roleOffset = Math.max(0, Math.min(rolesAt.most, roleOffset + (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * unit * ratio / scale));
+    }, { passive: false });
+
+    // Anywhere else on the room, a scroll up or down rides one floor, one a swipe (FLOOR_SWIPE): not where the styles or
+    // the roles strip took it (just above), arranging, nor while the elevator rides or its list is open, which spends the
+    // swipe. Sideways does nothing. The talk bubble, the Pixel Terminal and the desk list are over the room, not on it:
+    // a scroll there is theirs. A pinch, or Ctrl and the wheel, comes as a wheel with ctrlKey: the browser's zoom, left to it.
+    canvas.addEventListener('wheel', (e) => {
+      if (e.ctrlKey) return;
+      if (e.defaultPrevented || styling || arranging) return;
+      const now = clock();
+      if (!floorWheel || now - floorWheel.at > FLOOR_SWIPE.ends) floorWheel = { carry: 0, turned: false };
+      floorWheel.at = now;
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      if (ride || picker) floorWheel.turned = true;
+      if (floorWheel.turned) return;
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1; // lines and pages, as pixels
+      floorWheel.carry += e.deltaY * unit;
+      if (Math.abs(floorWheel.carry) < FLOOR_SWIPE.wheel) return;
+      floorWheel.turned = true;
+      rideTo(floorShown - (floorWheel.carry > 0 ? 1 : -1) * FLOOR_SWIPE.down);
     }, { passive: false });
 
     /** A finger on the roles, moved along them further than a tap would, slides them with it. */
@@ -72024,6 +72092,7 @@
         } else {
           if (finger) lift();
           ambience.sleep();
+          tellEscape(false); // no frames to say so meanwhile: Esc hides the window again
         }
       },
       setFramed(shown) { framed = shown; },
